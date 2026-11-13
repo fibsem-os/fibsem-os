@@ -60,6 +60,8 @@ from fibsem.server.pairing import AGENT, OPERATOR, PairedComputer, Pairing
 if TYPE_CHECKING:
     from fibsem.server.connections import Connections
 
+logger = logging.getLogger(__name__)
+
 # What each level reaches, in order: a route needing a level is open at it and
 # every level above.
 _LEVEL_RANK = {
@@ -185,7 +187,7 @@ class AuthConfig:
             try:
                 callback(level, stopped)
             except Exception:  # noqa: BLE001 - a listener never blocks the level
-                logging.exception("Agent level listener failed")
+                logger.exception("Agent level listener failed")
         self._listeners[:] = live
 
     def is_operator(self, token: Optional[str]) -> bool:

@@ -15,6 +15,8 @@ from fibsem.workflows.events import to_plain
 from fibsem.workflows.experiment import find_item
 from fibsem.workflows.task_config import WORKFLOW_FIELDS
 
+logger = logging.getLogger(__name__)
+
 __all__ = [
     "WORKFLOW_FIELD_VERBS",
     "agent_patch_task_config",
@@ -96,7 +98,7 @@ def save_experiment(experiment, what: str, save_protocol: bool = False) -> bool:
         experiment.save(save_protocol=save_protocol)
         return True
     except Exception:
-        logging.exception(
+        logger.exception(
             f"save after {what} failed; the change is applied in memory but "
             "not yet on disk"
         )
@@ -156,7 +158,7 @@ def patch_task_config(
     if not patched["applied"]:
         return patched
     where = f"{item_name} / {task_name}" if level == "item" else task_name
-    logging.info(
+    logger.info(
         f"agent config patch applied ({level}): {where}: "
         + ", ".join(
             f"{c['path']}: {c['old']!r} -> {c['new']!r}" for c in patched["changes"]
@@ -205,7 +207,7 @@ def agent_patch_task_config(
             elif refusal is None:
                 edits.touch_task_configs([lamella], [task_name])
         except Exception:  # noqa: BLE001 - recording must not matter
-            logging.debug("could not note what an agent patch changes", exc_info=True)
+            logger.debug("could not note what an agent patch changes", exc_info=True)
         try:
             return patch_task_config(
                 experiment, level, item_name, task_name, patch, version
@@ -264,7 +266,7 @@ def set_task_config_values(
         changes.append((path, old, value))
     if changes:
         where = f"{item_name} / {task_name}" if level == "item" else task_name
-        logging.info(
+        logger.info(
             f"config edit ({level}): {where}: " + ", ".join(p for p, _o, _n in changes)
         )
     return {"applied": True, "task_name": task_name, "changes": plain_changes(changes)}

@@ -54,6 +54,8 @@ from fibsem.workflows.session import (
     devices_configuration,
 )
 
+logger = logging.getLogger(__name__)
+
 DIALOG_WIDTH = 400
 
 
@@ -403,7 +405,7 @@ class ConnectionDialog(QDialog):
                 return "Devices only", ", ".join(names) or "no devices"
             settings = utils.load_microscope_configuration(path)
         except Exception as e:  # unreadable or malformed: say so rather than raise
-            logging.warning(f"Could not read configuration at {path}: {e}")
+            logger.warning(f"Could not read configuration at {path}: {e}")
             return "unreadable", "unreadable"
         return settings.system.info.manufacturer, settings.system.info.ip_address
 
@@ -520,7 +522,7 @@ class ConnectionDialog(QDialog):
             self._show_message(str(refused), is_error=True)
             return False
         if error is not None:  # a failed teardown still ends the session here
-            logging.warning(f"Error while disconnecting: {error}")
+            logger.warning(f"Error while disconnecting: {error}")
         return True
 
     def _confirm_losing_the_session(self, verb: str) -> bool:
@@ -619,7 +621,7 @@ class ConnectionDialog(QDialog):
         if self._cancel.is_set():  # finished after its last check: let it go
             self.session.disconnect()
             return
-        logging.info(f"Connected to microscope at {self._connect_address}")
+        logger.info(f"Connected to microscope at {self._connect_address}")
         self.changed = True
         self.accept()
 
@@ -629,7 +631,7 @@ class ConnectionDialog(QDialog):
             self._show_message("Connecting was cancelled.", is_error=False)
             return
         address = self._connect_address
-        logging.warning(f"Could not connect to microscope at {address}: {error}")
+        logger.warning(f"Could not connect to microscope at {address}: {error}")
         self._show_message(f"Could not reach {address}.\n{error}", is_error=True)
         self.connect_button.setText("Retry")
 

@@ -57,6 +57,8 @@ from fibsem.correlation.structures import (
 )
 from fibsem.structures.settings import Point
 
+logger = logging.getLogger(__name__)
+
 __all__ = [
     "MAX_PRIOR_ANGLE_DEG",
     "Seed",
@@ -125,10 +127,10 @@ def geometry_transform(
     try:
         return nominal_transform(fib_image, fm_image, fm_geometry=fm_geometry), ""
     except NominalTransformError as exc:
-        logging.info(f"Correlation fit not seeded from geometry: {exc}")
+        logger.info(f"Correlation fit not seeded from geometry: {exc}")
         return None, str(exc)
     except Exception as exc:  # a seed is an aid; never block the run on it
-        logging.warning(f"Could not build the nominal correlation transform: {exc}")
+        logger.warning(f"Could not build the nominal correlation transform: {exc}")
         return None, "the nominal transform could not be built"
 
 
@@ -170,7 +172,7 @@ def prior_transform(
     if geometry is not None:
         angle = geometry.angle_to(prior.transform.rotation)
         if angle > MAX_PRIOR_ANGLE_DEG:
-            logging.info(
+            logger.info(
                 f"prior from {prior.source} is {angle:.0f} deg from the geometry; "
                 "using the geometry"
             )
@@ -270,7 +272,7 @@ def diagnostics_for(
             indices=rows,
         ).to_dict()
     except Exception as exc:
-        logging.warning(f"Fit diagnostics not computed: {exc}")
+        logger.warning(f"Fit diagnostics not computed: {exc}")
         return None
 
 
@@ -299,7 +301,7 @@ def measure_placement_offset(
         offset_um = (t_pairs - metadata_translation) * fib_px * 1e6
         return [float(offset_um[0]), float(offset_um[1])]
     except Exception as exc:  # a record for the next lamella; never block
-        logging.debug(f"placement offset not measured: {exc}")
+        logger.debug(f"placement offset not measured: {exc}")
         return None
 
 
@@ -643,7 +645,7 @@ def run_correlation_from_data(
         fm_coords[:, 2] *= fm_z_scale
         poi_coords = poi_coords.copy()
         poi_coords[:, 2] *= fm_z_scale
-        logging.info(
+        logger.info(
             f"FM z scaled by {fm_z_scale:.3f} (slice thickness in xy pixels) for the fit"
         )
 
@@ -661,7 +663,7 @@ def run_correlation_from_data(
         factor = data.ri_pre_correction_factor
         poi_coords = apply_z_surface_correction(poi_coords, surface_z, factor)
         pre_correction_applied = True
-        logging.info(
+        logger.info(
             f"Pre-correlation RI correction: factor={factor:.4f}, "
             f"surface_z={surface_z:.2f}, "
             f"poi_z {poi_coords_original[:, 2].tolist()} -> {poi_coords[:, 2].tolist()}"
@@ -806,7 +808,7 @@ def run_correlation_from_data(
                 "warning": _unseeded_mirror_warning(rms_here, rms_other),
             }
         except Exception as exc:  # the check is advisory; never fail a run over it
-            logging.debug(f"Mirror-branch check skipped: {exc}")
+            logger.debug(f"Mirror-branch check skipped: {exc}")
     if branch_check is not None:
         z = fm_coords[:, 2] / fm_z_scale
         branch_check["fiducial_z_span_slices"] = float(np.ptp(z)) if len(z) else 0.0

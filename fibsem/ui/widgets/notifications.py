@@ -5,6 +5,8 @@ import sys
 import weakref
 from typing import Callable, Optional, Tuple
 
+logger = logging.getLogger(__name__)
+
 try:
     sys.modules.pop("PySide6.QtCore")
 except Exception:
@@ -68,7 +70,7 @@ def _run_action(callback: Callable[[], None]) -> None:
     try:
         callback()
     except Exception:
-        logging.exception("toast action failed")
+        logger.exception("toast action failed")
 
 
 class ToastNotification(QWidget):

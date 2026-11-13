@@ -21,6 +21,8 @@ from fibsem.workflows.status import TaskStatus, update_status_ui
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment, Lamella
 
+logger = logging.getLogger(__name__)
+
 
 def run_task(
     microscope: FibsemMicroscope,
@@ -111,7 +113,7 @@ class TaskManager(BaseTaskManager):
     def _record_for(self, item: WorkItem) -> Optional["Lamella"]:
         lamella = self.experiment.get_lamella_by_name(item.item_name)
         if lamella is None:
-            logging.warning(
+            logger.warning(
                 f"Skipping {item.task_name}: no lamella named {item.item_name} in the experiment."
             )
             self.queue.mark_done(item, TaskStatus.Skipped)
@@ -279,7 +281,7 @@ class TaskManager(BaseTaskManager):
         if self._experiment_was_complete or not self._all_lamella_complete():
             return
         self._experiment_was_complete = True
-        logging.info(f"Experiment {self.experiment.name} is complete.")
+        logger.info(f"Experiment {self.experiment.name} is complete.")
         fire_event(
             self.hook_manager,
             HookEvent.EXPERIMENT_COMPLETED,
@@ -301,7 +303,7 @@ class TaskManager(BaseTaskManager):
             return "No tasks to run."
         skipped = self._task_counts()["skipped"]
         if skipped == len(items):
-            logging.warning(f"No tasks ran: all {skipped} were skipped.")
+            logger.warning(f"No tasks ran: all {skipped} were skipped.")
             return f"No tasks ran: all {skipped} skipped."
         if skipped:
             return f"All tasks completed ({skipped} skipped)."
@@ -385,14 +387,14 @@ class TaskManager(BaseTaskManager):
         original selection.
         """
         if lamella.is_failure:
-            logging.info(
+            logger.info(
                 f"Skipping lamella {lamella.name} for task {task_name}. Marked as failure or has defect."
             )
             return "failure"
 
         missing = self._missing_prereqs(lamella, task_name)
         if missing:
-            logging.info(
+            logger.info(
                 f"Skipping lamella {lamella.name} for task {task_name}. Required tasks {missing} not completed."
             )
             return "missing_prereqs"

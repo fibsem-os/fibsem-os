@@ -69,6 +69,8 @@ from fibsem.workflows.grid.screening import (
     screen_names,
 )
 
+logger = logging.getLogger(__name__)
+
 # The stages the dialog moves through. Reading is the instant read on opening.
 READING = "reading"
 NOT_SCANNED = "not_scanned"
@@ -291,7 +293,7 @@ class ScreenGridsDialog(QDialog):
     def _on_read_failed(self, error: Exception) -> None:
         if self._closed:
             return
-        logging.warning(f"Could not read the magazine: {error}")
+        logger.warning(f"Could not read the magazine: {error}")
         self._inventory = self.stage.grid_inventory()
         self._stage_name = NOT_SCANNED if self.has_loader else REVIEW
         self._build_rows()
@@ -327,7 +329,7 @@ class ScreenGridsDialog(QDialog):
         self._timer.stop()
         if self._closed:
             return
-        logging.warning(f"Magazine scan failed: {error}")
+        logger.warning(f"Magazine scan failed: {error}")
         self._inventory = self.stage.grid_inventory()
         unknown = any(e.state is GridSlotState.UNKNOWN for e in self._inventory)
         self._stage_name = NOT_SCANNED if unknown else REVIEW

@@ -30,6 +30,8 @@ from fibsem import config as fibsem_cfg
 from fibsem.config import ExperimentSummary, load_user_preferences, peek_experiment
 from fibsem.util.timestamps import from_posix, to_datetime
 
+logger = logging.getLogger(__name__)
+
 __all__ = [
     "default_experiment_directory",
     "discover_experiments",
@@ -53,7 +55,7 @@ def default_experiment_directory(quiet: bool = False) -> str:
     if preferred and os.path.isdir(preferred):
         return str(preferred)
     if preferred and not quiet:
-        logging.warning(
+        logger.warning(
             f"Preference default_experiment_directory '{preferred}' does not exist; using default."
         )
     return str(fibsem_cfg.EXPERIMENTS_PATH)
@@ -73,7 +75,7 @@ def discover_experiments(
     with a warning is more useful than a traceback.
     """
     if not os.path.isdir(root):
-        logging.warning("Not a directory, so nothing to enumerate: %s", root)
+        logger.warning("Not a directory, so nothing to enumerate: %s", root)
         return []
 
     found: List[ExperimentSummary] = []

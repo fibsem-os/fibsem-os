@@ -57,6 +57,8 @@ if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
     from fibsem.structures.system import DeviceEntry, SystemSettings
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass(frozen=True)
 class DriverEntry:
@@ -354,7 +356,7 @@ def milling_settings_classes() -> Dict[str, type]:
             try:
                 found[name] = _import(entry.milling_settings)
             except Exception as e:
-                logging.warning(f"Driver {name}'s milling settings: {e}")
+                logger.warning(f"Driver {name}'s milling settings: {e}")
     return found
 
 
@@ -424,7 +426,7 @@ def device_setups() -> List[Tuple[str, "SetupDevice"]]:
         try:
             found += [(name, device) for device in _setup_devices(entry)]
         except Exception as e:
-            logging.warning(f"Driver {name}'s setup could not be loaded: {e}")
+            logger.warning(f"Driver {name}'s setup could not be loaded: {e}")
     return found
 
 

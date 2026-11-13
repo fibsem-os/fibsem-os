@@ -17,6 +17,8 @@ from fibsem.milling.patterning.base import BasePattern
 from fibsem.ui.widgets.custom_widgets import FormGrid, ValueComboBox, align_form
 from fibsem.ui.widgets.form_builder import AdvancedRows, Row, build_control
 
+logger = logging.getLogger(__name__)
+
 
 class FibsemPatternSettingsWidget(AdvancedRows, QWidget):
     """Metadata-driven form widget for any BasePattern subclass.
@@ -91,7 +93,7 @@ class FibsemPatternSettingsWidget(AdvancedRows, QWidget):
                 read_only_fallback=False,
             )
             if control is None:
-                logging.warning("Control for '%s' is unsupported", field_name)
+                logger.warning("Control for '%s' is unsupported", field_name)
                 continue
 
             label = QLabel(spec.label or field_name.replace("_", " ").title())

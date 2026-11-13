@@ -38,6 +38,8 @@ from fibsem.workflows.interaction import (
 if TYPE_CHECKING:
     from fibsem.workflows.queue import WorkItem
 
+logger = logging.getLogger(__name__)
+
 
 # The status message of a task found InProgress when its experiment is read.
 INTERRUPTED = "The app closed while this task was running."
@@ -298,7 +300,7 @@ def post_status(
     is no run."""
     status = getattr(run, "status", None)
     if status is None:
-        logging.info(msg or status_bar or "")
+        logger.info(msg or status_bar or "")
         return
     status.emit(
         WorkflowStatusEvent(

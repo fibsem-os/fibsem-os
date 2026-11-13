@@ -47,6 +47,8 @@ from fibsem.fm.progress import (
 from fibsem.fm.structures import AutoFocusSettings, ZParameters
 from fibsem.structures.settings import FibsemRectangle
 
+logger = logging.getLogger(__name__)
+
 __all__ = [
     "get_focus_measure_function",
     "laplacian_focus_measure",
@@ -158,7 +160,7 @@ def run_autofocus(
         if channel_settings is not None:
             microscope.set_channel(channel_settings=channel_settings)
 
-        logging.info(
+        logger.info(
             f"Starting autofocus: {len(z_positions)} positions, method='{method}'"
         )
 
@@ -167,7 +169,7 @@ def run_autofocus(
 
         for i, z_pos in enumerate(z_positions):
             if stop_event and stop_event.is_set():
-                logging.info("Autofocus cancelled")
+                logger.info("Autofocus cancelled")
                 microscope.objective.move_absolute(initial_z)
                 return None
 
@@ -205,7 +207,7 @@ def run_autofocus(
                     image=image_data,
                 )
             )
-            logging.debug(
+            logger.debug(
                 f"Z[{i + 1}/{len(z_positions)}]: {z_pos * 1e6:.1f} μm, Score: {focus_score:.4f}"
             )
 
@@ -217,11 +219,11 @@ def run_autofocus(
 
         microscope.objective.move_absolute(position)
         if found:
-            logging.info(
+            logger.info(
                 f"Autofocus complete: Best position {best.working_distance * 1e6:.1f} μm (score: {best.focus_score:.4f})"
             )
         else:
-            logging.warning(
+            logger.warning(
                 f"Autofocus found no focus: the scores were flat ({min(scores):.4g} "
                 f"to {max(scores):.4g}); the objective is back at {initial_z * 1e6:.1f} μm"
             )
@@ -292,7 +294,7 @@ def run_coarse_fine_autofocus(
     }
 
     if not active_passes:
-        logging.warning("No enabled autofocus passes — skipping")
+        logger.warning("No enabled autofocus passes — skipping")
         _record_fm_autofocus(
             microscope,
             {**record, "status": SKIPPED, "reason": "no autofocus pass is enabled"},
@@ -317,7 +319,7 @@ def run_coarse_fine_autofocus(
         )
         return None
 
-    logging.info(
+    logger.info(
         "Coarse/fine autofocus complete: WD=%.3f mm (adjustment %.1f µm from initial)",
         last_result.working_distance * 1e3,
         (last_result.working_distance - initial_position) * 1e6,
@@ -337,7 +339,7 @@ def run_coarse_fine_autofocus(
         try:
             saved = str(result.save(path=path, name=name))
         except Exception as e:  # noqa: BLE001 - the focus is set either way
-            logging.warning(f"Failed to save autofocus result: {e}")
+            logger.warning(f"Failed to save autofocus result: {e}")
     completed = len({it.pass_index for it in all_iterations})
     if not result.found:
         ended = {"status": FAILED, "error": NO_FOCUS}
@@ -387,9 +389,9 @@ def _run_passes(
         )
         if result is None:
             if last_result is None:
-                logging.warning("Autofocus cancelled during first pass")
+                logger.warning("Autofocus cancelled during first pass")
                 return None, []
-            logging.warning(
+            logger.warning(
                 "Autofocus cancelled at pass %d — keeping previous result", pass_index
             )
             break

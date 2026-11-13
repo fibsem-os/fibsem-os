@@ -123,6 +123,8 @@ from fibsem.structures.settings import (
 from fibsem.util import wording
 from fibsem.util.timestamps import now_iso
 
+logger = logging.getLogger(__name__)
+
 # The beam conditions milling changes and `restore` puts back, in the order they are
 # written back: a preset first, since it sets the others on a column that has one,
 # then the voltage before the current, as the instruments want.
@@ -494,7 +496,7 @@ class Milling(Service):
         try:
             self.patterns_changed.emit(list(self._drawn))
         except Exception:  # noqa: BLE001 - showing them must not cost the mill
-            logging.debug("could not announce the drawn patterns", exc_info=True)
+            logger.debug("could not announce the drawn patterns", exc_info=True)
 
     @property
     def has_rtm(self) -> bool:
@@ -559,7 +561,7 @@ class Milling(Service):
             if entry["notable"]:
                 self.notable_reading.emit(entry)
         except Exception:  # noqa: BLE001 - announcing must not cost the mill
-            logging.debug("could not announce a milling reading", exc_info=True)
+            logger.debug("could not announce a milling reading", exc_info=True)
 
     def _report(self, progress: MillingProgress) -> None:
         progress = self._in_run_context(progress)
@@ -763,7 +765,7 @@ class Milling(Service):
         self._set_up = settings
         ignored = self.ignored_settings(settings)
         if ignored is not None:
-            logging.warning(ignored)
+            logger.warning(ignored)
         self._setup(settings, name)
         if self._drawn:
             self._set_drawn([])
@@ -857,7 +859,7 @@ class Milling(Service):
             try:
                 used = parameter.get_value()
             except Exception as error:  # the answer says what it can
-                logging.debug(f"milling current: could not read it: {error!r}")
+                logger.debug(f"milling current: could not read it: {error!r}")
         asked = (
             settings.milling_current
             if settings is not None and "milling_current" in self.setting_names
@@ -1329,7 +1331,7 @@ class Milling(Service):
         try:
             self._stop()
         except Exception as e:
-            logging.warning(f"Error stopping milling after a failure: {e}")
+            logger.warning(f"Error stopping milling after a failure: {e}")
 
     @query
     def estimate_time(
@@ -1525,7 +1527,7 @@ class BeamMilling(Milling):
         # voltage before current: the available ion currents are calibrated per voltage
         beam.voltage.write_through(settings.milling_voltage)
         beam.current.write_through(settings.milling_current)
-        logging.debug({"msg": "setup_milling", "mill_settings": settings.to_dict()})
+        logger.debug({"msg": "setup_milling", "mill_settings": settings.to_dict()})
 
     def _select(self, settings: FibsemMillingSettings) -> None:
         """Select the milling view on ``settings.milling_channel``, and set the
@@ -1536,28 +1538,28 @@ class BeamMilling(Milling):
         with self._locked():
             if self.read_state() is MillingState.IDLE:
                 self._start_patterning()
-                logging.info("Starting milling...")
+                logger.info("Starting milling...")
 
     def _stop(self) -> None:
         with self._locked():
             if self.read_state() in ACTIVE_MILLING_STATES:
-                logging.info("Stopping milling...")
+                logger.info("Stopping milling...")
                 self._stop_patterning()
-                logging.info("Milling stopped.")
+                logger.info("Milling stopped.")
 
     def _pause(self) -> None:
         with self._locked():
             if self.read_state() is MillingState.RUNNING:
-                logging.info("Pausing milling...")
+                logger.info("Pausing milling...")
                 self._pause_patterning()
-                logging.info("Milling paused.")
+                logger.info("Milling paused.")
 
     def _resume(self) -> None:
         with self._locked():
             if self.read_state() is MillingState.PAUSED:
-                logging.info("Resuming milling...")
+                logger.info("Resuming milling...")
                 self._resume_patterning()
-                logging.info("Milling resumed.")
+                logger.info("Milling resumed.")
 
     def _restore(self) -> None:
         # The patterning mode persists on the instrument (xT), so a stage left in
@@ -1645,10 +1647,10 @@ class MillingStateMonitor:
             if step.ending.is_set():
                 if stop_deadline is None:
                     if step.stop_beam(milling._stop):
-                        logging.info("Milling stop requested; stopping the beam.")
+                        logger.info("Milling stop requested; stopping the beam.")
                     stop_deadline = now + milling.stop_timeout
                 elif now >= stop_deadline:
-                    logging.warning(
+                    logger.warning(
                         f"Milling did not stop within {milling.stop_timeout} s."
                     )
                     break

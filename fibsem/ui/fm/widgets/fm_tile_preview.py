@@ -42,6 +42,8 @@ from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (
 from fibsem.ui.widgets.canvas.overlays.tile_grid_overlay import TileGridOverlay
 from fibsem.ui.widgets.canvas.stage_frame import StageFrame
 
+logger = logging.getLogger(__name__)
+
 # `ENABLED_ALPHA` is 0 on the canvas: enabled tiles are outlines, which reads over an
 # image and does not read over nothing. This pane is nothing but the grid.
 _SELECTED_FILL_ALPHA = 0.30
@@ -176,7 +178,7 @@ class FMTilePreviewWidget(QWidget):
         try:
             return self.microscope._device_translation(BEAMS_STAGE_DEVICE, "FM")
         except Exception as e:  # a microscope with no FM device declared
-            logging.debug(f"No FM origin to plan against; taking none: {e}")
+            logger.debug(f"No FM origin to plan against; taking none: {e}")
             return FibsemStagePosition()
 
     def _stage_origin_offset(self) -> Tuple[float, float]:
@@ -185,7 +187,7 @@ class FMTilePreviewWidget(QWidget):
         try:
             return self._frame().offset(self._grid_centre)
         except Exception as e:  # pragma: no cover - geometry the projection rejects
-            logging.debug(f"Cannot place the stage origin; framing on the pose: {e}")
+            logger.debug(f"Cannot place the stage origin; framing on the pose: {e}")
             return (0.0, 0.0)
 
     # ── the selection ────────────────────────────────────────────────────
@@ -231,7 +233,7 @@ class FMTilePreviewWidget(QWidget):
         except ValueError as e:
             # Selecting nothing is a state, not a failure -- a region dragged to zero
             # area, or none drawn yet.
-            logging.debug(f"No grid to plan from this selection: {e}")
+            logger.debug(f"No grid to plan from this selection: {e}")
             self.clear()
             return None
 
@@ -351,7 +353,7 @@ class FMTilePreviewWidget(QWidget):
         try:
             centre = frame.to_canvas(self._grid_centre)
         except Exception as e:
-            logging.debug(f"Cannot place the grid centre: {e}")
+            logger.debug(f"Cannot place the grid centre: {e}")
             return
 
         # The travel box on every stage: where it is far outside the grid it is simply

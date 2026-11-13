@@ -36,6 +36,8 @@ from fibsem.fm.acquisition import acquire_z_stack
 from fibsem.fm.structures import ZParameters
 from fibsem.structures.settings import FibsemStagePosition
 
+logger = logging.getLogger(__name__)
+
 PLAYBOOK = "autolamella-correlative"
 CHANNELS = [c for c in _ALL_CHANNELS if c.name != "reflection"]
 CLEAR = 8e-6  # m: no other target this close to the target
@@ -158,7 +160,7 @@ def write_case(
         kind = target_kind(seed)
         site = _pick_site(rng, scene, kind)
         if site is None:
-            logging.warning("seed %s: no clear site, no case", seed)
+            logger.warning("seed %s: no clear site, no case", seed)
             return None
         sx, sy, target = site
         # a saved site is near its target, not on it
@@ -277,5 +279,5 @@ def write_case(
                 sort_keys=False,
             )
         )
-    logging.info("fm target case for seed %s: %s", seed, key["usable"])
+    logger.info("fm target case for seed %s: %s", seed, key["usable"])
     return folder

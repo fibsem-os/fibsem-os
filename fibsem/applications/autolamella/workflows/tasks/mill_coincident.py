@@ -47,6 +47,8 @@ from fibsem.structures.system import InsertableDeviceState
 from fibsem.workflows.proposals import MILLING
 from fibsem.workflows.task import ALIGNMENT_REFERENCE_IMAGE_FILENAME
 
+logger = logging.getLogger(__name__)
+
 MILL_COINCIDENT_KEY = "mill_coincident"
 DEFAULT_SETUP_TASK_NAME = "Setup Coincidence Milling"
 
@@ -219,7 +221,7 @@ class MillCoincidentTask(AutoLamellaTask):
         ):
             self._align_reference_image(COINCIDENCE_SETUP_REFERENCE_FILENAME)
             return
-        logging.warning(
+        logger.warning(
             f"{self.task_name}: {self.lamella.name} has no coincidence setup reference "
             f"({COINCIDENCE_SETUP_REFERENCE_FILENAME}); aligning to the generic "
             f"reference {ALIGNMENT_REFERENCE_IMAGE_FILENAME} instead."
@@ -281,7 +283,7 @@ class MillCoincidentTask(AutoLamellaTask):
     def _acquire_final_fluorescence_image(self) -> None:
         fm_config = self._fluorescence_config()
         if fm_config is None:
-            logging.warning(
+            logger.warning(
                 f"{self.task_name}: no fluorescence task for {self.lamella.name}; "
                 "skipping the final fluorescence image."
             )

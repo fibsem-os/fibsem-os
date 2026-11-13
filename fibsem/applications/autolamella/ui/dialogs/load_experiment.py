@@ -36,6 +36,8 @@ from fibsem.util.timestamps import format_time
 from fibsem.utils import format_bytes
 from fibsem.workflows.protocol_files import record_recent
 
+logger = logging.getLogger(__name__)
+
 # Error message constants
 ERROR_PROTOCOL_NOT_FOUND_TITLE = "Protocol Not Found"
 ERROR_PROTOCOL_NOT_FOUND_MSG = (
@@ -386,8 +388,8 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
                 # Enable OK button
                 self.btn_ok.setEnabled(True)
 
-                logging.info(f"Experiment loaded successfully from {experiment_path}")
-                logging.info(f"Protocol loaded successfully from {protocol_path}")
+                logger.info(f"Experiment loaded successfully from {experiment_path}")
+                logger.info(f"Protocol loaded successfully from {protocol_path}")
             else:
                 # Protocol missing; keep experiment loaded so user can reattach one
                 if warn_on_missing_protocol:
@@ -403,7 +405,7 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
                 self.protocol_path = None
                 self.btn_ok.setEnabled(False)
                 self._set_protocol_buttons_visible(True)
-                logging.warning(
+                logger.warning(
                     f"Experiment loaded from {experiment_path} but no protocol.yaml was found."
                 )
 
@@ -416,7 +418,7 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
             return True
 
         except Exception as e:
-            logging.error(f"Failed to load experiment: {e}")
+            logger.error(f"Failed to load experiment: {e}")
             QtWidgets.QMessageBox.critical(
                 self,
                 ERROR_INVALID_EXPERIMENT_TITLE,
@@ -552,7 +554,7 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
             )
             return
 
-        logging.info(f"Experiment '{self.experiment.name}' loaded successfully")
+        logger.info(f"Experiment '{self.experiment.name}' loaded successfully")
 
         # The last used experiment, at the top of the recents
         record_recent(self.experiment)
@@ -745,13 +747,11 @@ def load_experiment_dialog(
     if result == QtWidgets.QDialog.DialogCode.Accepted:
         experiment = dialog.get_experiment()
         if experiment:
-            logging.info(f"Experiment loaded: {experiment.name}")
-            logging.info(f"Path: {experiment.path}")
-            logging.info(f"Protocol: {experiment.task_protocol.name}")
-            logging.info(
-                f"Number of tasks: {len(experiment.task_protocol.task_config)}"
-            )
+            logger.info(f"Experiment loaded: {experiment.name}")
+            logger.info(f"Path: {experiment.path}")
+            logger.info(f"Protocol: {experiment.task_protocol.name}")
+            logger.info(f"Number of tasks: {len(experiment.task_protocol.task_config)}")
         return experiment
     else:
-        logging.info("Experiment loading cancelled")
+        logger.info("Experiment loading cancelled")
         return None

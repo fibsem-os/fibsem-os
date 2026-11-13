@@ -15,10 +15,12 @@ from fibsem.workflows.status import set_images_ui, update_status_ui
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Lamella
 
+logger = logging.getLogger(__name__)
+
 
 # CORE WORKFLOW STEPS
 def log_status_message(lamella: "Lamella", step: str):
-    logging.debug(
+    logger.debug(
         {
             "msg": "status",
             "petname": lamella.name,

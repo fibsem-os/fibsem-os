@@ -57,6 +57,8 @@ from fibsem.utils import (
     format_voltage,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class SelectedLamellaWidget(QWidget):
     """Presentational panel for the currently selected lamella.
@@ -351,7 +353,7 @@ class SelectedLamellaController(QObject):
         said = f"{position * METRE_TO_MICRON:.1f} µm for {lamella.name}"
         if not self._ask("Move Objective", f"Move objective to {said}?"):
             return
-        logging.info(f"Moving objective to {said}.")
+        logger.info(f"Moving objective to {said}.")
         self._worker = FunctionWorker(objective.move_absolute, position)
         self._worker.returned.connect(
             lambda _: notification_service.show_toast(
@@ -416,7 +418,7 @@ class SelectedLamellaController(QObject):
             f"{pose.stage_position.pretty}",
         ):
             return
-        logging.info(f"Moving to pose '{pose_name}' for {lamella.name}.")
+        logger.info(f"Moving to pose '{pose_name}' for {lamella.name}.")
         self._move_stage(pose.stage_position)
 
 

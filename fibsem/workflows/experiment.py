@@ -44,6 +44,8 @@ from fibsem.workflows.status import INTERRUPTED, TaskStatus, take_back_finish
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
 
+logger = logging.getLogger(__name__)
+
 EXPERIMENT_FILENAME = "experiment.yaml"
 
 
@@ -75,9 +77,9 @@ def _keep_the_file_as_it_was(path: Union[str, Path]) -> None:
     try:
         shutil.copy2(path, backup)
     except OSError as e:
-        logging.warning(f"Could not keep a copy of {path} before saving it: {e}")
+        logger.warning(f"Could not keep a copy of {path} before saving it: {e}")
         return
-    logging.info(
+    logger.info(
         f"Kept a copy of {path} as {backup} before saving it in experiment "
         f"format {FORMAT_VERSION}."
     )
@@ -195,7 +197,7 @@ class BaseExperiment:
         version = ddict.get("format_version") or 0
         self.read_format = version
         if version > FORMAT_VERSION:
-            logging.warning(
+            logger.warning(
                 f"{self.name} was written in experiment format {version}, newer "
                 f"than this version reads ({FORMAT_VERSION}). It is open to look "
                 "at and will not be saved: what this version does not know "
@@ -434,7 +436,7 @@ class BaseExperiment:
                     pass  # unreadable: overwrite it
             _write_configuration_file(path, snapshot)
         except Exception as e:
-            logging.warning(
+            logger.warning(
                 f"Could not copy the microscope configuration into {path}: {e}"
             )
 

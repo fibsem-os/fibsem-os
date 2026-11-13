@@ -48,6 +48,8 @@ from fibsem.applications.autolamella.task_outputs import latest_final_reference_
 from fibsem.conversions import microscope_image_to_image_coordinates
 from fibsem.structures.image import FibsemImage
 
+logger = logging.getLogger(__name__)
+
 # Tasks whose final FIB reference image can serve as the training input, in order of
 # preference. All of them image at the milling position, so the POI is valid in any of
 # them; they are ordered earliest-first in the workflow, because each later task has
@@ -240,7 +242,7 @@ def rasterise_point(
     label = np.zeros(shape, dtype=LABEL_DTYPE)
     radius_px = radius_m / pixelsize
     if radius_px < 0.5:
-        logging.warning(
+        logger.warning(
             f"disc radius {radius_m:.2e} m is under half a pixel at {pixelsize:.2e} "
             f"m/px; the label will be empty or single-pixel"
         )
@@ -317,7 +319,7 @@ def export_experiment(
             sample = collect_sample(lamella, stem)
         except Exception as e:
             reason = f"{lamella.name}: failed to build sample ({e}), skipped"
-            logging.warning(reason)
+            logger.warning(reason)
             summary.skipped.append(reason)
             continue
 
@@ -326,7 +328,7 @@ def export_experiment(
                 f"{lamella.name}: no final FIB reference image from any of "
                 f"{', '.join(SOURCE_TASK_TYPES)}, skipped"
             )
-            logging.warning(reason)
+            logger.warning(reason)
             summary.skipped.append(reason)
             continue
 
@@ -342,7 +344,7 @@ def export_experiment(
         )
 
         summary.samples.append(sample)
-        logging.info(
+        logger.info(
             f"exported {stem}: {lamella.name} from "
             f"{os.path.basename(sample.source_image)}"
         )
@@ -419,7 +421,7 @@ def export_experiments(
             )
         except Exception as e:
             reason = f"{experiment_path}: failed to load experiment ({e}), skipped"
-            logging.warning(reason)
+            logger.warning(reason)
             combined.skipped.append(reason)
             continue
 

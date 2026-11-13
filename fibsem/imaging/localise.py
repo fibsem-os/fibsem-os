@@ -19,6 +19,8 @@ import numpy as np
 from scipy import ndimage
 from scipy.optimize import curve_fit
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class PointFitDiagnostic:
@@ -214,7 +216,7 @@ def hole_fitting_FIB(
         try:
             popt, _ = fit_gauss_2d_mod(roi, show=False, center=center)
         except Exception as e:  # maxfev, an empty or flat window
-            logging.debug(f"FIB hole fit from {center}: {e}")
+            logger.debug(f"FIB hole fit from {center}: {e}")
             return None
         return popt if _burn_shaped(popt, roi.shape) else None
 
@@ -290,12 +292,12 @@ def target_fitting_fluorescence(
             popt_xy, _ = fit_gauss_2d_mod(slc_init, show=False)
             xopt, yopt = popt_xy[1], popt_xy[2]
         except Exception as e:
-            logging.warning(f"Error in initial XY fit: {e}")
+            logger.warning(f"Error in initial XY fit: {e}")
             xopt, yopt = xc - x0, yc - y0  # fallback to the click if fit fails
             err = e
 
         if not (0 <= xopt < x1 - x0 and 0 <= yopt < y1 - y0):
-            logging.warning(
+            logger.warning(
                 f"XY fit out of bounds, returning original x, y. xopt: {xopt}, yopt: {yopt}, cutout: {cutout}"
             )
             xopt, yopt = xc - x0, yc - y0

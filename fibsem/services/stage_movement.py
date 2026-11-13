@@ -67,6 +67,8 @@ from fibsem.structures.system import (
 )
 from fibsem.transformations import get_stage_tilt_from_milling_angle
 
+logger = logging.getLogger(__name__)
+
 _S = TypeVar("_S", bound="StageMovement")
 
 # A vertical move whose stage-z travel is larger than this resets the ion working
@@ -882,7 +884,7 @@ class StageMovement(Service):
         """
 
         currrent_orientation = self.stage_orientation(stage_position)
-        logging.debug(
+        logger.debug(
             f"Getting target position for {target_orientation} from {currrent_orientation}"
         )
 
@@ -1044,7 +1046,7 @@ class StageMovement(Service):
         beam = self._beam(beam_type)
         param = None if beam is None else beam.parameters.get("working_distance")
         if param is None:
-            logging.debug(f"No {beam_type.name} working distance to set.")
+            logger.debug(f"No {beam_type.name} working distance to set.")
             return
         param.write_through(wd)
 
@@ -1206,7 +1208,7 @@ class StageMovement(Service):
             if self._linked():
                 self._set_working_distance(BeamType.ELECTRON, wd)
 
-            logging.debug(
+            logger.debug(
                 {
                     "msg": "stable_move",
                     "dx": dx,
@@ -1295,7 +1297,7 @@ class StageMovement(Service):
             turned_over=self.stage.turned_over(stage_tilt),
             relaxation=relaxation,
         )
-        logging.info(f"Vertical movement: {stage_position}")
+        logger.info(f"Vertical movement: {stage_position}")
         self._move_stage(stage_position, relative=True)
 
         # Always restore the pre-move SEM working distance so fine corrections keep
@@ -1307,7 +1309,7 @@ class StageMovement(Service):
                 BeamType.ION, self.parent.system.ion.eucentric_height
             )
 
-        logging.debug(
+        logger.debug(
             {
                 "msg": "vertical_move",
                 "dy": stage_position.y,
@@ -1422,7 +1424,7 @@ class StageMovement(Service):
         state = self._objective_state(fm)
         if state is not None:
             if state is not InsertableDeviceState.INSERTED:
-                logging.warning(
+                logger.warning(
                     "Moving via the fluorescence image while the objective is not "
                     f"inserted (state: {state.value}); the view may not match the sample."
                 )
@@ -1433,7 +1435,7 @@ class StageMovement(Service):
         # focus because the move stays in the sample plane.
         self._move_stage(stage_position, relative=True)
 
-        logging.debug(
+        logger.debug(
             {
                 "msg": "fm_stable_move",
                 "dx": dx,
@@ -1711,9 +1713,9 @@ class StageMovement(Service):
             self._refuse_rotation_at_the_fm(stage_position)
             self._safe_rotation(stage_position)
 
-            logging.debug(f"safe moving to {stage_position}")
+            logger.debug(f"safe moving to {stage_position}")
             self._move_stage(stage_position)
-            logging.debug("safe movement complete.")
+            logger.debug("safe movement complete.")
             return self._position()
 
     def _device_crossing(
@@ -1740,7 +1742,7 @@ class StageMovement(Service):
         and re-pose at the far end. Instead every re-pose happens at the beams and the
         legs between devices are `move_to_device`'s pure traverses.
         """
-        logging.info(f"{stage_position} is at {target}; moving there from {source}.")
+        logger.info(f"{stage_position} is at {target}; moving there from {source}.")
         if source != ROTATION_FRAME_DEVICE:
             self.move_to_device(ROTATION_FRAME_DEVICE)
         if target == ROTATION_FRAME_DEVICE:
@@ -1767,7 +1769,7 @@ class StageMovement(Service):
         current_position = self._position()
         if rotation_angle_is_larger(stage_position.r, current_position.r):
             self._move_stage(FibsemStagePosition(t=0))
-            logging.info("tilting to flat for large rotation.")
+            logger.info("tilting to flat for large rotation.")
 
         self._move_stage(FibsemStagePosition(r=stage_position.r))
 
@@ -1796,7 +1798,7 @@ class StageMovement(Service):
         try:
             target = microscope.get_target_position(deepcopy(current), orientation)
         except ValueError as e:
-            logging.warning(
+            logger.warning(
                 f"Moving to {orientation} by its pose alone, so the rotation centre "
                 f"correction is not applied: {e}"
             )
@@ -1999,7 +2001,7 @@ class StageMovement(Service):
         # then its first declared acquisition orientation stands in.
         desired = self._arrival_orientation(device, stage_position, orientation)
         if desired is not None and orientation is None:
-            logging.info(
+            logger.info(
                 f"The {device} device images from "
                 f"{target_device.available_orientations}; re-posing to {desired} "
                 f"at the beams before travelling."
@@ -2010,7 +2012,7 @@ class StageMovement(Service):
 
         steps: List[RouteStep] = []
         if desired is None and source == device:
-            logging.info(f"Already at {device} position, no need to move.")
+            logger.info(f"Already at {device} position, no need to move.")
         else:
             # Both ends checked before anything moves: the source by finding it, the
             # target by converting to where the stage will arrive.
@@ -2037,7 +2039,7 @@ class StageMovement(Service):
                         stage_position, desired, target_device=ROTATION_FRAME_DEVICE
                     )
                 except ValueError as e:
-                    logging.warning(
+                    logger.warning(
                         f"Re-posing to {desired} without keeping the sample point: {e}"
                     )
                     at_the_beams = None
@@ -2142,7 +2144,7 @@ class StageMovement(Service):
         it has nowhere to go, leaves the objective exactly as it found it rather than
         pulling it out of the sample for nothing.
         """
-        logging.info(f"Moving to {device} position...")
+        logger.info(f"Moving to {device} position...")
         if self._fm_device() is not None:
             self._objective().retract()
 
@@ -2162,7 +2164,7 @@ class StageMovement(Service):
             )
         except ValueError as e:
             if desired is not None:
-                logging.warning(f"Not checking where {device} will be reached: {e}")
+                logger.warning(f"Not checking where {device} will be reached: {e}")
                 return None
             source = self.current_device(stage_position)
             return stage_position + self._device_translation(source, device)

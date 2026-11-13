@@ -38,6 +38,8 @@ from fibsem.ui.control import control_of, operator_acts
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.widgets.form_builder import Control, build_control, parameter_spec
 
+logger = logging.getLogger(__name__)
+
 
 class _Bridge(QObject):
     """Moves a device's ``changed``, which arrives on any thread, onto the GUI
@@ -195,7 +197,7 @@ class DevicePanel(QWidget):
         try:
             self.status.setText(f"{name}: {text}")
         except RuntimeError:  # the panel closed while it ran
-            logging.info(f"{self.device.name}.{name}: {text}")
+            logger.info(f"{self.device.name}.{name}: {text}")
 
 
 class DevicesPanel(QWidget):

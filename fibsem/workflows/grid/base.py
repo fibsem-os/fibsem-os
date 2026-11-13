@@ -31,6 +31,8 @@ if TYPE_CHECKING:
     from fibsem.structures.settings import GridSlot
     from fibsem.workflows.grid.protocol import GridExperiment
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class GridTaskConfig(TaskConfig, ABC):
@@ -116,7 +118,7 @@ class GridTask(BaseTask):
             f"Finished; {len(skipped)} of {enabled} tiles were past the stage's reach "
             f"and skipped: {tiles}"
         )
-        logging.warning(
+        logger.warning(
             f"{self.task_name} on {self.grid.name}: {len(skipped)} of {enabled} tiles "
             f"are past the stage's reach and are skipped: {tiles}"
         )

@@ -62,6 +62,8 @@ from fibsem.util import wording
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
 
+logger = logging.getLogger(__name__)
+
 
 class GridMagazine:
     """The grids in a loader's magazine, and the exchanges between it and the holder.
@@ -207,7 +209,7 @@ class GridMagazine:
         ):
             self._do_load(slot)
         working.loaded_grid = grid
-        logging.info(f"Loaded grid '{grid.name}' from {slot_name} into {working.name}.")
+        logger.info(f"Loaded grid '{grid.name}' from {slot_name} into {working.name}.")
         return grid
 
     def unload_grid(self) -> None:
@@ -225,7 +227,7 @@ class GridMagazine:
         ):
             self._do_unload(working)
         working.loaded_grid = None
-        logging.info(f"Unloaded grid '{name}' from {working.name}.")
+        logger.info(f"Unloaded grid '{name}' from {working.name}.")
 
     # -- hardware hooks ----------------------------------------------------
 
@@ -341,9 +343,7 @@ class DeviceGridMagazine(GridMagazine):
                     previous.loaded_grid
                 )  # <= 4.13: its home reads Empty while loaded
             elif row.state is MagazineSlotState.UNKNOWN:
-                logging.warning(
-                    f"Sample loader slot {row.number} has not been scanned."
-                )
+                logger.warning(f"Sample loader slot {row.number} has not been scanned.")
                 unknown.add(name)
             slots[name] = GridSlot(name=name, index=row.number - 1, loaded_grid=grid)
         self.slots = slots
@@ -562,7 +562,7 @@ class SampleHandling(Service):
                 float(stage_settings.shuttle_pre_tilt),
                 float(stage_settings.rotation_reference),
             ):
-                logging.warning(f"Sample holder: {note}. Recalibrate it.")
+                logger.warning(f"Sample holder: {note}. Recalibrate it.")
             magazine = None
 
         holder._parent = microscope
@@ -736,7 +736,7 @@ class SampleHandling(Service):
     def unload(self) -> None:
         """Retract the working slot. Nothing to do on a fixed holder."""
         if self.magazine is None:
-            logging.debug("No loader: nothing to unload from a fixed holder.")
+            logger.debug("No loader: nothing to unload from a fixed holder.")
             return
         self.magazine.unload_grid()
 
@@ -877,7 +877,7 @@ def load_holder_occupancy(holder: SampleHolder, state: SessionState) -> bool:
     try:
         holder.apply_occupancy(data)
     except Exception as e:
-        logging.warning(f"Could not restore the sample holder occupancy: {e}")
+        logger.warning(f"Could not restore the sample holder occupancy: {e}")
         return False
     return True
 
@@ -930,7 +930,7 @@ def _resolve_configured_holder(stage_settings) -> SampleHolder:
 
     if path.exists():
         holder = SampleHolder.load(path)
-        logging.info(
+        logger.info(
             f"Imported sample holder '{holder.name}' from {path} for this session. "
             "The file is not written back; it is imported again at every connect."
         )
@@ -943,7 +943,7 @@ def _resolve_configured_holder(stage_settings) -> SampleHolder:
         # saved, which is the point at which someone has seen it.
         holder.pre_tilt = configured_pre_tilt
     else:
-        logging.info("No sample holder configuration found, using the default.")
+        logger.info("No sample holder configuration found, using the default.")
         holder = default_sample_holder(pre_tilt=configured_pre_tilt)
 
     # Selected either way, so a session that saves its configuration records which
@@ -987,7 +987,7 @@ def _builtin_working_slot(stage_settings) -> GridSlot:
     saved = stage_settings.holders.get(BUILTIN_HOLDER_NAME)
     if saved is not None:
         for note in saved.discard_untrusted_positions(pre_tilt, rotation_reference):
-            logging.warning(
+            logger.warning(
                 f"Built-in shuttle working slot: {note}. Using the stage origin; "
                 "recalibrate it from the Sample view."
             )

@@ -16,6 +16,8 @@ from fibsem.workflows.event_recording import EVENTS_FILENAME, read_events, recor
 from fibsem.workflows.session import EXPERIMENT, MICROSCOPE, AppSession
 from tests.protocols import add_planned, planned
 
+logger = logging.getLogger(__name__)
+
 
 @pytest.fixture
 def experiment(tmp_path):
@@ -70,7 +72,7 @@ def test_the_session_says_an_experiment_was_opened_once_it_is_set_up(
 def test_adopting_an_experiment_logs_to_its_logfile(session, experiment):
     session.adopt(experiment)
 
-    logging.info("after adoption")
+    logger.info("after adoption")
     for handler in logging.getLogger().handlers:
         handler.flush()
     logfile = Path(experiment.path) / "logfile.log"

@@ -54,6 +54,8 @@ if TYPE_CHECKING:
     # annotations below need no runtime object.
     from fibsem.microscope import FibsemMicroscope
 
+logger = logging.getLogger(__name__)
+
 TMillingStrategyConfig = TypeVar(
     "TMillingStrategyConfig", bound="MillingStrategyConfig"
 )
@@ -231,7 +233,7 @@ def _strategy_named(name: str) -> Type[MillingStrategy[Any]]:
 
     strategy = get_strategies().get(name)
     if strategy is None:
-        logging.warning(
+        logger.warning(
             f"No milling strategy is called {name!r} (a plugin not installed here?); "
             f"the stage uses {DEFAULT_STRATEGY.name}, and its {name} settings are "
             "not kept."

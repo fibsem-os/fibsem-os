@@ -41,6 +41,8 @@ from fibsem.devices.core import Device, DeviceParameter, command
 from fibsem.devices.stage import STAGE_RESOURCE
 from fibsem.structures.system import InsertableDeviceState
 
+logger = logging.getLogger(__name__)
+
 SAMPLE_LOADER_RESOURCE = "sample_loader"
 
 
@@ -223,7 +225,7 @@ class SampleLoader(Device):
         objective = None if fm is None else fm.objective
         if objective is None or objective.state is InsertableDeviceState.RETRACTED:
             return
-        logging.info("Retracting the FM objective for the grid exchange.")
+        logger.info("Retracting the FM objective for the grid exchange.")
         objective.retract()
 
     def _read_back(self) -> Magazine:

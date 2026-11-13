@@ -58,6 +58,8 @@ from fibsem.workflows.grids import GridRecord
 if TYPE_CHECKING:
     from fibsem.workflows.session import AppSession
 
+logger = logging.getLogger(__name__)
+
 _STRIP_WIDTH = 340
 VIEW_RESULTS = "Results"
 VIEW_POSITIONS = "Positions"
@@ -326,7 +328,7 @@ class GridsTabWidget(QWidget):
             try:
                 self._inventory = {e.name: e for e in stage.grid_inventory() if e.name}
             except Exception as e:  # noqa: BLE001 - drawn as "not present", said once
-                logging.warning(f"Could not read the grid inventory: {e}")
+                logger.warning(f"Could not read the grid inventory: {e}")
             has_loader = stage.magazine is not None
 
         # A record added since the last rebuild (an inventory just created it)
@@ -390,7 +392,7 @@ class GridsTabWidget(QWidget):
         try:
             rename_and_save_grid(experiment, self.stage, old, name, self._record)
         except Exception as e:  # noqa: BLE001 - not renamed; say why
-            logging.warning(f"Could not rename {old}: {e}")
+            logger.warning(f"Could not rename {old}: {e}")
             self._say(f"Could not rename {old}: {e}", error=True)
             self.refresh()
             return
@@ -442,7 +444,7 @@ class GridsTabWidget(QWidget):
         try:
             return edit()
         except Exception as e:  # noqa: BLE001 - a failed save is worth a line
-            logging.warning(f"Could not save the experiment: {e}")
+            logger.warning(f"Could not save the experiment: {e}")
             return None
 
     def _record(self, kind: str, payload: dict) -> None:
@@ -588,7 +590,7 @@ class GridsTabWidget(QWidget):
             after()
 
     def _on_errored(self, error: Exception) -> None:
-        logging.warning(f"Grid operation failed: {error}")
+        logger.warning(f"Grid operation failed: {error}")
         self._say(str(error), error=True)
 
     def _on_finished(self) -> None:

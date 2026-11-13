@@ -50,6 +50,8 @@ from fibsem.geometry.projection import (
 )
 from fibsem.structures.settings import BeamType, FibsemStagePosition
 
+logger = logging.getLogger(__name__)
+
 # Keep the render well-defined at any pose: below this foreshortening the
 # view is a degenerate grazing projection (features smear to infinity).
 MIN_FORESHORTENING = 0.035  # ~ sin(2 deg)
@@ -874,14 +876,14 @@ class SampleScene:
     def deposit(self, seconds: float) -> None:
         """A GIS deposition with the valve open *seconds*: a thicker coat."""
         self.gis_thickness += GIS_RATE * max(float(seconds), 0.0)
-        logging.debug(
+        logger.debug(
             {"msg": "sample_scene_deposited", "gis_thickness": self.gis_thickness}
         )
 
     def sputter(self, seconds: float) -> None:
         """A sputter coat of *seconds*: a thin metal layer."""
         self.sputter_thickness += SPUTTER_RATE * max(float(seconds), 0.0)
-        logging.debug(
+        logger.debug(
             {
                 "msg": "sample_scene_sputtered",
                 "sputter_thickness": self.sputter_thickness,
@@ -977,7 +979,7 @@ class SampleScene:
         self.milled = []
         self.mill_passes, self._cuts, self.damage_started = [], [], None
         self.exposures = {}
-        logging.debug(
+        logger.debug(
             {
                 "msg": "sample_scene_grids_placed",
                 "grids": [
@@ -1196,7 +1198,7 @@ class SampleScene:
             points = np.array([world(x, y) for x, y in corners])
             regions.append(MilledRegion(points=points, beam_cut=cut(corners)))
         self.milled.extend(regions)
-        logging.debug(
+        logger.debug(
             {
                 "msg": "sample_scene_milled",
                 "regions": len(regions),
@@ -1453,7 +1455,7 @@ class SampleScene:
                 pts = pts + (0.0, self._along_beam_to_surface(pts.mean(axis=0), frame))
             regions.append(MilledRegion(points=pts, depth=diameter, halo=halo))
         self.milled.extend(regions)
-        logging.debug(
+        logger.debug(
             {
                 "msg": "sample_scene_burned",
                 "points": len(regions),
@@ -2230,7 +2232,7 @@ class SampleScene:
         reference = deepcopy(stage_position)
         reference.z = (reference.z or 0.0) - self.coincidence_offset
         self.reference_position = reference
-        logging.debug(
+        logger.debug(
             {
                 "msg": "coincidence_scene_anchored",
                 "reference_position": reference.to_dict(),

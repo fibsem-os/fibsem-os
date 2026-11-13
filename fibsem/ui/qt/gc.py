@@ -33,6 +33,8 @@ from typing import Optional
 
 from qtpy.QtCore import QCoreApplication, QObject, QThread, QTimer
 
+logger = logging.getLogger(__name__)
+
 __all__ = ["MainThreadGarbageCollector", "install_main_thread_gc"]
 
 
@@ -99,7 +101,7 @@ def install_main_thread_gc(
         )
     collector = MainThreadGarbageCollector(parent=parent, interval_ms=interval_ms)
     collector.start()
-    logging.debug(
+    logger.debug(
         "Main-thread GC installed (interval=%d ms); automatic GC disabled",
         interval_ms,
     )

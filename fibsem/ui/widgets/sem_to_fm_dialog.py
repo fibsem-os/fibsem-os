@@ -41,6 +41,8 @@ from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 from fibsem.ui.widgets.canvas.overlays.point_overlay import PointOverlay
 from fibsem.ui.widgets.holder_calibration_dialog import _label, _RailRow
 
+logger = logging.getLogger(__name__)
+
 STEP_TITLES = [
     "Rotation centre",
     "Slot 1 at the beams",
@@ -449,7 +451,7 @@ class SemToFmDialog(QtWidgets.QDialog):
         try:
             canvas.set_array(image.data, pixel_size=self._pixel_size(image))
         except Exception as e:  # noqa: BLE001 - an image that won't draw
-            logging.warning(f"Could not show the {name} image: {e}")
+            logger.warning(f"Could not show the {name} image: {e}")
             return
         (self.current_label if current else self.reference_label).setText(name)
 

@@ -31,6 +31,8 @@ from fibsem.ui.widgets.microscope_configuration_window import (
 )
 from fibsem.workflows.session import CONNECTED_STEP, MICROSCOPE, AppSession
 
+logger = logging.getLogger(__name__)
+
 # What connecting did beyond connecting (`utils.setup_session`'s `connect_actions`),
 # said in the connect message.
 DID = {"beams_on": "turned the beams on", "defaults": "applied its defaults"}
@@ -403,7 +405,7 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         try:
             info = (utils.load_yaml(path) or {}).get("info") or {}
         except Exception as e:  # a slot: nothing may reach Qt
-            logging.debug(f"Could not read configuration {path}: {e}")
+            logger.debug(f"Could not read configuration {path}: {e}")
             self.label_configuration_info.setText("This file could not be read.")
             return
         parts = [
@@ -434,7 +436,7 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         try:
             self.settings = utils.load_microscope_configuration(configuration_path)
         except Exception as e:
-            logging.warning(
+            logger.warning(
                 f"Unable to load configuration {configuration_name} from {configuration_path}: {e}"
             )
             notification_service.show_toast(
@@ -587,7 +589,7 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
             notification_service.show_toast("Connecting was cancelled.", "info")
             return
         msg = f"Connected to microscope at {self.microscope.system.info.ip_address}"
-        logging.info(msg)
+        logger.info(msg)
         actions = getattr(self.microscope, "connect_actions", None) or {}
         done = [DID[k] for k, ok in actions.items() if ok and k in DID]
         failed = [FAILED[k] for k, ok in actions.items() if not ok and k in FAILED]
@@ -609,7 +611,7 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
             notification_service.show_toast("Connecting was cancelled.", "info")
             return
         self._last_connection_error = str(error)
-        logging.error(f"Could not connect to the microscope: {error}")
+        logger.error(f"Could not connect to the microscope: {error}")
         notification_service.show_toast(f"Could not connect: {error}", "error")
 
     def _on_connect_finished(self) -> None:

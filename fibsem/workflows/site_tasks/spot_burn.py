@@ -27,6 +27,8 @@ from fibsem.workflows.proposals import (
 from fibsem.workflows.site_task import SiteTask, SiteTaskConfig
 from fibsem.workflows.task import ALIGNMENT_REFERENCE_IMAGE_FILENAME
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class SpotBurnFiducialTaskConfig(SiteTaskConfig):
@@ -163,7 +165,7 @@ class SpotBurnFiducialTask(SiteTask):
         msg = f"Place points for the spot burn of {self.item.name}."
         burned, passes, error, refused, watched = settings, 0, None, None, False
         if not settings.coordinates and self.unasked_reason(SPOT_BURN):
-            logging.warning(
+            logger.warning(
                 f"No spot burn coordinates set for {self.item.name}; "
                 "skipping spot burn."
             )
@@ -238,7 +240,7 @@ class SpotBurnFiducialTask(SiteTask):
                 path=None if self.output_dir is None else str(self.output_dir),
             )
         except Exception as exc:  # noqa: BLE001 - asked again, or raised, by the loop
-            logging.error(f"Spot burn failed: {exc}", exc_info=True)
+            logger.error(f"Spot burn failed: {exc}", exc_info=True)
             error = exc
         self._check_for_abort()
         if error is None and show:

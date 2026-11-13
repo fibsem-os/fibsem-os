@@ -33,6 +33,8 @@ from fibsem.correlation.structures import (
 )
 from fibsem.structures.settings import Point
 
+logger = logging.getLogger(__name__)
+
 CORRELATION_DIRNAME = "Correlation"
 CORRELATION_FILENAME = "correlation.json"
 EXPERIMENT_FILENAME = "experiment.yaml"
@@ -125,7 +127,7 @@ class LamellaCorrelation:
             try:
                 state = load_correlation_file(path)
             except Exception:
-                logging.warning("Skipping unreadable correlation run: %s", path)
+                logger.warning("Skipping unreadable correlation run: %s", path)
                 continue
             runs.append(
                 CorrelationRun(path=folder, name=os.path.basename(folder), state=state)
@@ -289,7 +291,7 @@ def experiment_correlation_config(project_dir: str) -> CorrelationConfig:
     except FileNotFoundError:
         return CorrelationConfig()
     except Exception:
-        logging.warning(
+        logger.warning(
             "Could not read %s; using the default correlation settings", path
         )
         return CorrelationConfig()
@@ -482,7 +484,7 @@ def discover_project(directory: str) -> Dict[str, Optional[str]]:
     to guessing.
     """
     found = _discover_correlation_files(directory)
-    logging.info("Quickstart loading correlation project: %s", directory)
+    logger.info("Quickstart loading correlation project: %s", directory)
 
     _, lamella_dir = experiment_and_lamella_dirs(directory)
     above_run = (
@@ -497,13 +499,13 @@ def discover_project(directory: str) -> Dict[str, Optional[str]]:
         folders = [directory] + ([above_run] if above_run else [])
         found[key] = _find_recorded_image(recorded[key], key, folders)
         if found[key]:
-            logging.info(
+            logger.info(
                 "  %s image as recorded by the run: %s",
                 key.upper(),
                 os.path.basename(found[key]),
             )
         else:
-            logging.warning(
+            logger.warning(
                 "  the run records %s image %s, which is not in %s; not loading "
                 "another in its place",
                 key.upper(),
@@ -521,7 +523,7 @@ def discover_project(directory: str) -> Dict[str, Optional[str]]:
         for key in unrecorded:
             if above[key]:
                 found[key] = above[key]
-                logging.info(
+                logger.info(
                     "  %s image guessed from the lamella folder: %s",
                     key.upper(),
                     os.path.basename(above[key]),

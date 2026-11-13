@@ -13,6 +13,8 @@ from typing import Any, Callable, List
 
 from qtpy.QtCore import QObject, QTimer
 
+logger = logging.getLogger(__name__)
+
 # How often live views redraw: 10 a second. The camera rarely gives more new frames.
 LIVE_DRAW_INTERVAL_MS = 100
 
@@ -69,7 +71,7 @@ class Coalescer(QObject):
         try:
             self._deliver(value)
         except Exception:  # noqa: BLE001 - PyQt aborts the process on a slot's raise
-            logging.exception("Could not show a live update")
+            logger.exception("Could not show a live update")
         took_ms = int((time.monotonic() - started) * 1000)
         interval = max(self._interval_ms, took_ms)
         if self._timer.isActive() and self._timer.interval() != interval:

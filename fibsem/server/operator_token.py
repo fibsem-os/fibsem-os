@@ -17,6 +17,8 @@ from typing import Optional
 
 from fibsem.server.discovery import DISCOVERY_DIR
 
+logger = logging.getLogger(__name__)
+
 OPERATOR_TOKEN_FILE = DISCOVERY_DIR / "operator-token.json"
 # A Device Server's token (`fibsem.server.device_auth`), here so a client on
 # this computer reads it without the [server] extra.
@@ -33,7 +35,7 @@ def read_operator_token(path: Optional[Path] = None) -> Optional[str]:
     except FileNotFoundError:
         return None
     except (OSError, ValueError, AttributeError):
-        logging.warning("Operator token file %s unreadable", path)
+        logger.warning("Operator token file %s unreadable", path)
         return None
     return token if isinstance(token, str) and token else None
 

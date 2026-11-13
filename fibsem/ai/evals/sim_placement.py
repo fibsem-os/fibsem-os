@@ -27,6 +27,8 @@ from fibsem.drivers.demo import sim_solid
 from fibsem.drivers.demo.sim_scene import SampleScene
 from fibsem.structures.settings import BeamType, FibsemStagePosition, ImageSettings
 
+logger = logging.getLogger(__name__)
+
 PLAYBOOK = "autolamella"
 MILLING_ANGLE = 15.0  # degrees
 RESOLUTION = (1536, 1024)
@@ -212,7 +214,7 @@ def write_case(
         microscope._connection.sample_scene = scene
         target = _pick_cell(rng, scene)
         if target is None:
-            logging.warning("seed %s: no cell in the scene, no case", seed)
+            logger.warning("seed %s: no cell in the scene, no case", seed)
             return None
         # bring the cell near the beam's centre, a little off so it isn't given
         jitter = rng.uniform(-8e-6, 8e-6, 2)
@@ -222,7 +224,7 @@ def write_case(
         cell, bars = _maps(scene, fib)
         ok, bad = _masks(cell, bars, fib.pixel)
         if not ok.any():
-            logging.warning("seed %s: no safe placement, no case", seed)
+            logger.warning("seed %s: no safe placement, no case", seed)
             return None
         image = microscope.acquire_image(
             image_settings=ImageSettings(
@@ -289,5 +291,5 @@ def write_case(
     }
     with open(folder / "case.yaml", "w") as f:
         yaml.safe_dump(case, f, sort_keys=False, width=100)
-    logging.info("setup placement case for seed %s: %.1f %% ok", seed, 100 * ok.mean())
+    logger.info("setup placement case for seed %s: %.1f %% ok", seed, 100 * ok.mean())
     return folder

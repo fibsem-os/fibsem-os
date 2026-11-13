@@ -60,6 +60,8 @@ from fibsem.ui.widgets.image_export_dialog import (
     _tab,
 )
 
+logger = logging.getLogger(__name__)
+
 _BEAMS = (("SEM", "SEM"), ("FIB", "FIB"), ("FM", "FM"), ("Both", "both"))
 _MAGNIFICATIONS = (("High mag", "high"), ("Low mag", "low"))
 _FRAME_TIMES = (("0.6 s", 600), ("1.2 s", 1200), ("2 s", 2000))
@@ -554,7 +556,7 @@ class AnimationExportDialog(QDialog):
         try:
             written = self.save(path)
         except (OSError, ValueError) as e:
-            logging.exception("Failed to save animation to %s", path)
+            logger.exception("Failed to save animation to %s", path)
             notification_service.show_toast(
                 f"Couldn't save the {self._format[0]}: {e}", "error"
             )

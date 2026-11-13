@@ -31,6 +31,8 @@ from fibsem.tools.apps import App, apps
 from fibsem.update_check import Newer, check_newer
 from fibsem.util.process import kill_pid, pid_alive
 
+logger = logging.getLogger(__name__)
+
 __all__ = [
     "GATEWAY_FILE",
     "GATEWAY_PORT",
@@ -401,7 +403,7 @@ class Gateway:
                 try:
                     facts[name] = read()
                 except Exception:  # noqa: BLE001 - the page shows the last read
-                    logging.debug(f"Reading the gateway's {name} failed", exc_info=True)
+                    logger.debug(f"Reading the gateway's {name} failed", exc_info=True)
                     facts.setdefault(name, empty)
             self._facts = facts
             return facts
@@ -411,7 +413,7 @@ class Gateway:
         try:
             self._newer = self._check_newer()
         except Exception:  # noqa: BLE001 - offline is normal; never fail
-            logging.debug("Update check failed", exc_info=True)
+            logger.debug("Update check failed", exc_info=True)
 
     def history(self, limit: int = HISTORY_SHOWN) -> History:
         try:
@@ -545,7 +547,7 @@ class Gateway:
             self.run_file.parent.mkdir(parents=True, exist_ok=True)
             self.run_file.write_text(json.dumps(run))
         except OSError:
-            logging.exception("Gateway: the running app not kept")
+            logger.exception("Gateway: the running app not kept")
 
     def adopt(self) -> GatewayState:
         """Take back the app an earlier gateway here started or claimed, if its
@@ -581,7 +583,7 @@ class Gateway:
                 who=run.get("who"),
                 via=run.get("via"),
             )
-        logging.info("Gateway took back %s (pid %d)", run.get("app"), pid)
+        logger.info("Gateway took back %s (pid %d)", run.get("app"), pid)
         self._record(
             OFF,
             RUNNING,
@@ -709,7 +711,7 @@ class Gateway:
                 env=env,
                 creationflags=flags,
             )
-        logging.info("Gateway started %s (window: %s, pid %d)", key, window, proc.pid)
+        logger.info("Gateway started %s (window: %s, pid %d)", key, window, proc.pid)
         with self._lock:
             self._proc, self._stop_file, self._log = proc, stop_file, log
             self._claimed = None
@@ -754,7 +756,7 @@ class Gateway:
         try:
             proc.wait(self._stop_wait_s)
         except subprocess.TimeoutExpired:
-            logging.warning("Gateway: pid %d didn't stop; killing it", proc.pid)
+            logger.warning("Gateway: pid %d didn't stop; killing it", proc.pid)
             proc.kill()
             proc.wait()
             killed = True
@@ -772,7 +774,7 @@ class Gateway:
             time.sleep(0.2)
         if not pid_alive(pid):
             return False
-        logging.warning("Gateway: pid %d didn't stop; killing it", pid)
+        logger.warning("Gateway: pid %d didn't stop; killing it", pid)
         kill_pid(pid)
         return True
 
@@ -842,7 +844,7 @@ class Gateway:
             with open(self.history_file, "a") as f:
                 f.write(json.dumps(asdict(line)) + "\n")
         except OSError:
-            logging.exception("Gateway history not written")
+            logger.exception("Gateway history not written")
         # the last experiment and the recent ones may have changed
         self._facts_due.set()
 
@@ -883,7 +885,7 @@ class Gateway:
                     try:
                         watch()
                     except Exception:  # noqa: BLE001 - the watcher never dies
-                        logging.exception("Gateway watcher failed")
+                        logger.exception("Gateway watcher failed")
 
         def newer():
             while True:

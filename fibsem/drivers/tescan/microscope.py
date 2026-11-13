@@ -39,6 +39,8 @@ from fibsem.structures.system import (  # noqa
     SystemSettings,
 )
 
+logger = logging.getLogger(__name__)
+
 FibsemStagePosition.from_tescan_stage_position = sdk.from_tescan_stage_position
 
 # The device types each connect step builds (``FibsemMicroscope._build_devices``).
@@ -82,7 +84,7 @@ class TescanMicroscope(FibsemMicroscope):
         self.experiment = FibsemExperimentRef()
 
         # logging
-        logging.debug(
+        logger.debug(
             {
                 "msg": "create_microscope_client",
                 "system_settings": system_settings.to_dict(),
@@ -107,11 +109,11 @@ class TescanMicroscope(FibsemMicroscope):
             port: port of the microscope server (default 8300).
             reset_beam_shift: Whether to reset beam shifts on connect (default: True).
         """
-        logging.info(f"Microscope client connecting to [{ip_address}:{port}]")
+        logger.info(f"Microscope client connecting to [{ip_address}:{port}]")
         self._connection = TescanConnection(
             sdk.Automation(ip_address, port), ip_address, port
         )
-        logging.info(f"Microscope client connected to [{ip_address}:{port}]")
+        logger.info(f"Microscope client connected to [{ip_address}:{port}]")
 
         # the beams and stage as devices, before anything below goes through them
         self._build_beams()
@@ -139,7 +141,7 @@ class TescanMicroscope(FibsemMicroscope):
         # canonical spelling so downstream comparisons never meet the raw form
         self.system.info.manufacturer = self.driver_name
         info = self.system.info
-        logging.info(
+        logger.info(
             f"Microscope client connected to model {info.model} with serial number {info.serial_number} and software version {info.software_version}."
         )
 
@@ -151,9 +153,9 @@ class TescanMicroscope(FibsemMicroscope):
         try:
             self._build_sample_handling()
         except Exception as e:
-            logging.warning(f"Could not build the sample handling: {e}")
+            logger.warning(f"Could not build the sample handling: {e}")
 
-        logging.debug(
+        logger.debug(
             {
                 "msg": "connect_to_microscope",
                 "ip_address": ip_address,

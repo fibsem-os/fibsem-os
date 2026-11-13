@@ -58,6 +58,8 @@ from fibsem.workflows.item import FLUORESCENCE_POSE
 if TYPE_CHECKING:
     from fibsem.fm.progress import FluorescenceAcquisitionProgress
 
+logger = logging.getLogger(__name__)
+
 
 # Live frames are shown at most this many pixels across: a full camera frame costs
 # hundreds of milliseconds to draw, a quarter of its pixels a quarter of that.
@@ -494,7 +496,7 @@ class FMControlWidget(QWidget):
             image_shape=image_shape,
             pixelsize=pixelsize,
         )
-        logging.info(f"FM relative move: {point_clicked}")
+        logger.info(f"FM relative move: {point_clicked}")
         operator_acts(
             control_of(self.microscope),
             "move stage",
@@ -509,7 +511,7 @@ class FMControlWidget(QWidget):
         starts a thread; the move itself runs off-thread. Modifiers are ignored.
         """
         if self.is_acquisition_active:
-            logging.info("Stage movement disabled during acquisition")
+            logger.info("Stage movement disabled during acquisition")
             return
         # READY strictly: a click is a stage move computed through a frame built from
         # the current pose, so from one the objective cannot image from, nothing has
@@ -518,20 +520,20 @@ class FMControlWidget(QWidget):
             self.microscope.get_device_imaging_state("FM")
             is not DeviceImagingState.READY
         ):
-            logging.info(
+            logger.info(
                 "Stage must be at the fluorescence microscope to move via FM "
                 f"(current: {self.microscope.get_stage_orientation()})"
             )
             return
         shape, pixelsize = self._fm_image_shape, self._fm_pixelsize
         if shape is None or pixelsize is None:
-            logging.info("No FM image available to move from")
+            logger.info("No FM image available to move from")
             return
         if not (0 <= x < shape[1] and 0 <= y < shape[0]):
             return  # click landed outside the image area
         # serialize: drop the click if a stage move is already running
         if not self._fm_move_lock.acquire(blocking=False):
-            logging.info("FM stage move already in progress; ignoring click")
+            logger.info("FM stage move already in progress; ignoring click")
             return
         worker = FunctionWorker(self._canvas_fm_move_worker, x, y, shape, pixelsize)
         if not worker.start(control=control_of(self.microscope), action="move stage"):
@@ -541,7 +543,7 @@ class FMControlWidget(QWidget):
         try:
             self._fm_relative_move_from_pixel(x, y, shape, pixelsize)
         except Exception as exc:
-            logging.exception("FM stage move failed")
+            logger.exception("FM stage move failed")
             notification_service.show_toast(
                 f"FM stage move failed: {exc}", notification_type="error"
             )
@@ -554,7 +556,7 @@ class FMControlWidget(QWidget):
             return
         if channel is not self.acquisitionSettingsWidget.selected_channel:
             return
-        logging.info(f"Channel field changed: {field} -> {value}")
+        logger.info(f"Channel field changed: {field} -> {value}")
         if field == "excitation_wavelength":
             self.fm.filter_set.excitation_wavelength = value
         elif field == "emission_filter":
@@ -699,7 +701,7 @@ class FMControlWidget(QWidget):
         """
         refusal = self.fm.refusal_to_start(what)
         if refusal is not None:
-            logging.warning(refusal)
+            logger.warning(refusal)
             return True
         return False
 
@@ -735,10 +737,10 @@ class FMControlWidget(QWidget):
         selected_channel_settings = settings["selected_channel_settings"]
 
         if selected_channel_settings is None:
-            logging.warning("No channel selected for live acquisition")
+            logger.warning("No channel selected for live acquisition")
             return
 
-        logging.info(
+        logger.info(
             f"Starting acquisition with channel settings: {selected_channel_settings}"
         )
         record_recent_channels(
@@ -752,7 +754,7 @@ class FMControlWidget(QWidget):
 
         if self._live_stopping:
             return
-        logging.info("Acquisition stopped")
+        logger.info("Acquisition stopped")
         # Off the GUI thread: stopping waits for the frame in flight.
         self._live_stop_worker = FunctionWorker(self.fm.stop_acquisition)
         self._live_stop_worker.finished.connect(self._on_live_stop_done)
@@ -773,19 +775,19 @@ class FMControlWidget(QWidget):
 
         # Cancel consolidated acquisition (single image or future consolidated types)
         if self._has_worker:
-            logging.info(f"Cancelling {self._current_acquisition_type} acquisition")
+            logger.info(f"Cancelling {self._current_acquisition_type} acquisition")
             # The worker's own finish resets the controls; waiting here froze the window.
             self.microscope.imaging.stop()
 
-        logging.info("All acquisitions cancelled")
+        logger.info("All acquisitions cancelled")
 
     def toggle_acquisition(self):
         """Toggle acquisition start/stop with F6 key."""
         if self.fm.is_streaming:
-            logging.info("F6 pressed: Stopping acquisition")
+            logger.info("F6 pressed: Stopping acquisition")
             self.stop_acquisition()
         else:
-            logging.info("F6 pressed: Starting acquisition")
+            logger.info("F6 pressed: Starting acquisition")
             self.start_acquisition()
 
     def _update_checkbox_text(self, _=None):
@@ -902,7 +904,7 @@ class FMControlWidget(QWidget):
 
             # Check which button was clicked
             if msg_box.clickedButton() == cancel_button:
-                logging.info("Acquisition cancelled by user due to position mismatch")
+                logger.info("Acquisition cancelled by user due to position mismatch")
                 raise RuntimeError(
                     "Acquisition cancelled by user due to position mismatch"
                 )
@@ -913,7 +915,7 @@ class FMControlWidget(QWidget):
         if self._refuse_to_start("image acquisition"):
             return
 
-        logging.info("Starting image acquisition")
+        logger.info("Starting image acquisition")
         self._current_acquisition_type = "image"
         self._update_acquisition_button_states()
 
@@ -932,7 +934,7 @@ class FMControlWidget(QWidget):
             path, name = self._acquisition_destination(name)
         except RuntimeError as e:
             # User cancelled acquisition due to position mismatch
-            logging.info(f"Acquisition cancelled: {e}")
+            logger.info(f"Acquisition cancelled: {e}")
             self._current_acquisition_type = None
             self._update_acquisition_button_states()
             return
@@ -971,15 +973,15 @@ class FMControlWidget(QWidget):
                 channel_settings, path=path, name=name, zparams=z_parameters
             )
             if result["status"] == "cancelled":
-                logging.info("image acquisition was cancelled")
+                logger.info("image acquisition was cancelled")
                 return
             saved = result["image"]["path"]
             if not os.path.exists(saved):
                 raise RuntimeError(f"the image was not written to {saved}")
-            logging.info(f"Image saved to {saved}")
+            logger.info(f"Image saved to {saved}")
 
         except Exception as e:
-            logging.error(f"Error during image acquisition: {e}")
+            logger.error(f"Error during image acquisition: {e}")
             notification_service.show_toast(
                 f"Image not acquired: {e}", notification_type="error"
             )
@@ -1069,7 +1071,7 @@ class FMControlWidget(QWidget):
         if self._refuse_to_start("auto-focus"):
             return
 
-        logging.info("Starting auto-focus")
+        logger.info("Starting auto-focus")
         self._current_acquisition_type = "autofocus"
         self._update_acquisition_button_states()
 
@@ -1097,7 +1099,7 @@ class FMControlWidget(QWidget):
                 for p in autofocus_settings.passes
                 if p.enabled
             )
-            logging.info(
+            logger.info(
                 f"Running auto-focus: {len(autofocus_settings.passes)} pass(es) [{ranges}], "
                 f"method={autofocus_settings.method.value}"
             )
@@ -1106,18 +1108,18 @@ class FMControlWidget(QWidget):
                 autofocus_settings, channel=channel_settings
             )
             if result["status"] == "cancelled":
-                logging.info("Auto-focus was cancelled")
+                logger.info("Auto-focus was cancelled")
                 return
             if result["status"] == "no_focus":
-                logging.warning(f"Auto-focus: {result['message']}")
+                logger.warning(f"Auto-focus: {result['message']}")
                 return
 
-            logging.info(
+            logger.info(
                 f"Auto-focus completed successfully. Best focus: {result['working_distance'] * 1e6:.1f} μm"
             )
 
         except Exception as e:
-            logging.error(f"Auto-focus failed: {e}")
+            logger.error(f"Auto-focus failed: {e}")
             notification_service.show_toast(
                 f"Auto-focus failed: {e}", notification_type="error"
             )
@@ -1126,7 +1128,7 @@ class FMControlWidget(QWidget):
 
     def closeEvent(self, event: QEvent):
         """Handle the close event to stop acquisition."""
-        logging.info(
+        logger.info(
             "Closing FluorescenceControlWidget, stopping acquisition if running."
         )
 
@@ -1140,9 +1142,9 @@ class FMControlWidget(QWidget):
             try:
                 self.microscope.fm.stop_acquisition()
             except Exception as e:
-                logging.error(f"Error stopping acquisition: {e}")
+                logger.error(f"Error stopping acquisition: {e}")
             finally:
-                logging.warning("Acquisition stopped due to widget close.")
+                logger.warning("Acquisition stopped due to widget close.")
 
         if self._set_host_enabled is not None:
             self._set_host_enabled(True)
@@ -1191,7 +1193,7 @@ class FMControlWidget(QWidget):
                 session_state_for(self.microscope, writable=True),
             )
         except Exception as e:
-            logging.warning(f"Could not save FM working state: {e}")
+            logger.warning(f"Could not save FM working state: {e}")
 
     def _on_fm_settings_changed(self, *args) -> None:
         """Trigger a debounced working-state save when an FM setting changes."""

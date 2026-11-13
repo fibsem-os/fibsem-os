@@ -127,6 +127,8 @@ from fibsem.workflows.status import TaskStatus
 from fibsem.workflows.task_configs import agent_patch_task_config, config_version
 from fibsem.workflows.workflow_edits import set_supervision
 
+logger = logging.getLogger(__name__)
+
 __all__ = [
     "AppContext",
 ]
@@ -230,7 +232,7 @@ class AppContext:
         try:
             experiment.save()
         except Exception:
-            logging.exception("could not save the experiment's sample")
+            logger.exception("could not save the experiment's sample")
             return False
         return True
 
@@ -1284,7 +1286,7 @@ class AppContext:
             if refusal:
                 return refusal
             item_id = item.id
-        logging.info(
+        logger.info(
             "agent %s%s: %s",
             "message" if fields.get("to") else "note",
             f" [{item_name}]" if item_name else "",
@@ -1311,7 +1313,7 @@ class AppContext:
                 return refusal
             item_id = item.id
         record = save()
-        logging.info(
+        logger.info(
             "agent evidence %s%s: %s",
             record["evidence_id"],
             f" [{item_name}]" if item_name else "",
@@ -1843,7 +1845,7 @@ class AppContext:
         try:
             experiment.save(save_protocol=True)
         except Exception:
-            logging.exception("save after a protocol change failed; applied in memory")
+            logger.exception("save after a protocol change failed; applied in memory")
             return False
         return True
 

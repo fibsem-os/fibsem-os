@@ -59,6 +59,8 @@ from fibsem.structures.system import (
     STAGE_FRAME_FIBSEM,
 )
 
+logger = logging.getLogger(__name__)
+
 STAGE_RESOURCE = "stage"
 
 
@@ -331,7 +333,7 @@ def recording_move(
             entry["request"] = {name: plain(value) for name, value in request.items()}
             entry["start"] = plain(_last_position(stage))
         except Exception:  # noqa: BLE001 - recording must not matter
-            logging.debug(f"could not describe a {move} stage move", exc_info=True)
+            logger.debug(f"could not describe a {move} stage move", exc_info=True)
         try:
             yield
         finally:

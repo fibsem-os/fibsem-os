@@ -189,6 +189,8 @@ if TYPE_CHECKING:
         CorrelationSetupSection,
     )
 
+logger = logging.getLogger(__name__)
+
 _DELETE_FIDUCIAL_LABELS = {
     DELETE_FIDUCIAL_ASK: "Ask",
     DELETE_FIDUCIAL_PAIR: "With its pair",
@@ -1417,7 +1419,7 @@ class _ResultsTab(QWidget):
                 f"translation (px): {', '.join(f'{v:.3f}' for v in t.tolist())}"
             )
         except Exception:  # a readout must never take the tab down
-            logging.debug("transform readout unavailable", exc_info=True)
+            logger.debug("transform readout unavailable", exc_info=True)
 
     def _set_header_tooltips(self, *tips: str) -> None:
         for col, tip in enumerate(tips):
@@ -1785,7 +1787,7 @@ class _RITab(QWidget):
         self._fm_pixel_size_z = fm_pixel_size_z
 
         mode = self.mode
-        logging.debug(
+        logger.debug(
             f"[RITab.set_result] result={result is not None}, mode={mode}, "
             f"surface_y={self._surface_y}, "
             f"fm_surface={self._fm_surface_coordinate}, "
@@ -2003,7 +2005,7 @@ class _RITab(QWidget):
         self._set_warning("")
         factor = self._ri_widget.get_factor()
         rerun = self._chk_rerun.isChecked()
-        logging.info(
+        logger.info(
             f"[RITab._apply_pre] factor={factor:.4f}, "
             f"surface_z={self._fm_surface_coordinate.point.z:.2f}, "
             f"n_poi={len(self._input_poi)}, rerun={rerun}"
@@ -2038,7 +2040,7 @@ class _RITab(QWidget):
         factor = self._ri_widget.get_factor()
         surface_y = self._surface_y
 
-        logging.info(
+        logger.info(
             f"[RITab._apply_post] factor={factor:.4f}, surface_y={surface_y:.2f}, n_poi={len(self._poi)}"
         )
 
@@ -2047,7 +2049,7 @@ class _RITab(QWidget):
         for i, poi in enumerate(self._poi):
             depth = poi.image_px.y - surface_y
             corrected_y = scale_about_surface(poi.image_px.y, surface_y, factor)
-            logging.info(
+            logger.info(
                 f"[RITab._apply_post] POI {i + 1}: original_y={poi.image_px.y:.2f}, "
                 f"depth={depth:.2f}, corrected_y={corrected_y:.2f}"
             )
@@ -2057,7 +2059,7 @@ class _RITab(QWidget):
             self._table.setItem(i, 3, _ro_item(f"{corrected_y:.2f}"))
 
         if self._result is None:
-            logging.warning("[RITab._apply_post] No result to update with correction.")
+            logger.warning("[RITab._apply_post] No result to update with correction.")
             return
 
         # The parent has the session record the surface and correct the result.
@@ -2739,7 +2741,7 @@ class CorrelationTabWidget(QWidget):
             # Say so rather than silently not doing it: the preference is on,
             # and a stack that reads as "not interpolated" needs a reason.
             gb = _volume_bytes(image, new_nz) / 1e9
-            logging.info(
+            logger.info(
                 "Auto-interpolation skipped: %d slices would be %.1f GB", new_nz, gb
             )
             notification_service.show(
@@ -2770,7 +2772,7 @@ class CorrelationTabWidget(QWidget):
         acq_w = res[0] if res else None
         if acq_w and data_w and acq_w != data_w:
             corrected = px * acq_w / data_w
-            logging.warning(
+            logger.warning(
                 "FM scalebar: data width %d ≠ metadata resolution %d — pixel "
                 "size corrected %.1f→%.1f nm/px for the display resize.",
                 data_w,
@@ -2797,7 +2799,7 @@ class CorrelationTabWidget(QWidget):
     def load_correlation(self, path: str) -> None:
         """Load any correlation JSON — consolidated file or either legacy file
         (:meth:`CorrelationSession.load`)."""
-        logging.info("Loading correlation from %s", path)
+        logger.info("Loading correlation from %s", path)
         shown = self._session.result is not None
         # The session reads the file before anything changes, so a file that
         # cannot be read leaves the points and the armed save as they were.
@@ -3220,7 +3222,7 @@ class CorrelationTabWidget(QWidget):
         Retained for the quickstart fallback and as the type-specific loader; new
         code and the File menu use :meth:`load_correlation`.
         """
-        logging.info("Loading correlation coordinates from %s", path)
+        logger.info("Loading correlation coordinates from %s", path)
         shown = self._session.result is not None
         state = self._session.load_data(path)
         with self._session.reading():
@@ -3837,7 +3839,7 @@ class CorrelationTabWidget(QWidget):
         try:
             live = self._session.apply_post_correction(factor)
         except ValueError as exc:
-            logging.exception("RI post-correction refused")
+            logger.exception("RI post-correction refused")
             self._ri_tab.report_refused_correction(exc)
             return
         result = self._session.result
@@ -4126,7 +4128,7 @@ class CorrelationTabWidget(QWidget):
                 try:
                     self.save_plot()
                 except Exception:
-                    logging.exception("Auto-save of correlation plot failed")
+                    logger.exception("Auto-save of correlation plot failed")
             self.continue_pressed_signal.emit(self._session.result)
             self.window().close()
 
@@ -4173,7 +4175,7 @@ class CorrelationTabWidget(QWidget):
         try:
             self.save_plot(path)
         except Exception as exc:
-            logging.exception("Failed to save correlation plot to %s", path)
+            logger.exception("Failed to save correlation plot to %s", path)
             QMessageBox.warning(self, "Save Error", f"Could not save plot:\n{exc}")
 
     def save_plot(self, path: Optional[str] = None) -> None:
@@ -4196,7 +4198,7 @@ class CorrelationTabWidget(QWidget):
 
     def load_result(self, path: str, *, adopt_inputs: bool = True) -> None:
         """Load a correlation result from JSON and adopt it (mirrors load_data)."""
-        logging.info("Loading correlation result from %s", path)
+        logger.info("Loading correlation result from %s", path)
         result, live = self._session.load_result(path, adopt_inputs=adopt_inputs)
         with self._session.reading():  # showing it writes nothing either
             self._on_result_ready(result, live=live)
@@ -4214,7 +4216,7 @@ class CorrelationTabWidget(QWidget):
         try:
             self.load_correlation(path)
         except Exception as exc:
-            logging.exception("Failed to load correlation from %s", path)
+            logger.exception("Failed to load correlation from %s", path)
             QMessageBox.warning(
                 self, "Load Error", f"Could not load correlation:\n{exc}"
             )
@@ -4232,7 +4234,7 @@ class CorrelationTabWidget(QWidget):
         try:
             self.save_correlation(path)
         except Exception as exc:
-            logging.exception("Failed to save correlation to %s", path)
+            logger.exception("Failed to save correlation to %s", path)
             QMessageBox.warning(
                 self, "Save Error", f"Could not save correlation:\n{exc}"
             )
@@ -4288,13 +4290,13 @@ class CorrelationTabWidget(QWidget):
             if self._session.fm_image is not src:
                 # Another stack was loaded while this one was resampled; its
                 # planes are not this view's.
-                logging.info("Interpolated view discarded: the FM stack changed")
+                logger.info("Interpolated view discarded: the FM stack changed")
                 return
             self._adopt_interpolated_volume(new_image, old_nz)
 
         def _fail(exc) -> None:
             _finish()
-            logging.exception("FM z-interpolation failed")
+            logger.error("FM z-interpolation failed", exc_info=exc)
             notification_service.show("Z-interpolation failed.", "error")
             QMessageBox.warning(
                 self, "Interpolation failed", f"Could not interpolate:\n{exc}"
@@ -4552,30 +4554,30 @@ def load_project(widget: "CorrelationTabWidget", directory: str) -> None:
     if found["fib"]:
         try:
             widget.set_fib_image(FibsemImage.load(found["fib"]))
-            logging.info("  FIB image: %s", os.path.basename(found["fib"]))
+            logger.info("  FIB image: %s", os.path.basename(found["fib"]))
         except Exception:
-            logging.exception("  failed to load FIB image %s", found["fib"])
+            logger.exception("  failed to load FIB image %s", found["fib"])
     else:
-        logging.warning("  no FIB image (*_ib.tif) found in %s", directory)
+        logger.warning("  no FIB image (*_ib.tif) found in %s", directory)
 
     if found["fm"]:
         try:
             widget.set_fm_image(FluorescenceImage.load(found["fm"]))
-            logging.info("  FM image: %s", os.path.basename(found["fm"]))
+            logger.info("  FM image: %s", os.path.basename(found["fm"]))
         except Exception:
-            logging.exception("  failed to load FM image %s", found["fm"])
+            logger.exception("  failed to load FM image %s", found["fm"])
     else:
-        logging.warning("  no FM image (*.ome.tiff) found in %s", directory)
+        logger.warning("  no FM image (*.ome.tiff) found in %s", directory)
 
     # The consolidated file is authoritative when present — it carries both the
     # points and the result, staleness self-described.
     if found["correlation"]:
         try:
             widget.load_correlation(found["correlation"])
-            logging.info("  correlation: %s", os.path.basename(found["correlation"]))
+            logger.info("  correlation: %s", os.path.basename(found["correlation"]))
             return
         except Exception:
-            logging.exception(
+            logger.exception(
                 "  failed to load %s; falling back to legacy files",
                 found["correlation"],
             )
@@ -4589,18 +4591,18 @@ def load_project(widget: "CorrelationTabWidget", directory: str) -> None:
         try:
             widget.load_data(found["data"])
             loaded_data = True
-            logging.info("  data: %s", os.path.basename(found["data"]))
+            logger.info("  data: %s", os.path.basename(found["data"]))
         except Exception:
-            logging.exception("  failed to load data %s", found["data"])
+            logger.exception("  failed to load data %s", found["data"])
 
     if found["result"]:
         try:
             # With no data file the result's snapshot is the only record of the
             # points, so adopt it; otherwise keep the coordinates just loaded.
             widget.load_result(found["result"], adopt_inputs=not loaded_data)
-            logging.info("  result: %s", os.path.basename(found["result"]))
+            logger.info("  result: %s", os.path.basename(found["result"]))
         except Exception:
-            logging.exception("  failed to load result %s", found["result"])
+            logger.exception("  failed to load result %s", found["result"])
 
 
 def main() -> None:
@@ -4644,7 +4646,7 @@ def main() -> None:
         if burns:
             widget.add_lamella_setup(spot_burns=burns)
         else:
-            logging.info(f"No spot-burn pattern: {reason}")
+            logger.info(f"No spot-burn pattern: {reason}")
         experiment_dir, lamella_dir = experiment_and_lamella_dirs(args.project)
         if experiment_dir:
             from fibsem.correlation.prior import experiment_runs

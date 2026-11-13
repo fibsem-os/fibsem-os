@@ -23,6 +23,8 @@ from typing import Any, Optional
 
 from fibsem.structures.settings import BeamType
 
+logger = logging.getLogger(__name__)
+
 TESCAN_BEAM_READY_TIMEOUT = 60  # Max time in seconds to wait for the beam to become ready (busy-wait when using Tescanautomation API)
 # Seconds to wait before an ion image that directly follows an electron image. The
 # reference pair has always paused here (3 s, then 1 s since #341); why was never
@@ -71,7 +73,7 @@ class TescanConnection:
                 busy = beam.IsBusy()
             if not busy:
                 break
-            logging.debug(
+            logger.debug(
                 f"Waiting for the {beam_type.name} beam to become ready after {operation}."
             )
             if time.monotonic() - start_time > TESCAN_BEAM_READY_TIMEOUT:

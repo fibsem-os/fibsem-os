@@ -14,6 +14,8 @@ from typing import Any, Callable, Optional
 from fibsem.server.agent.setup import setup_text
 from fibsem.workflows.session import AppSession
 
+logger = logging.getLogger(__name__)
+
 __all__ = [
     "announce_host",
     "connect",
@@ -150,7 +152,7 @@ def serve_until_stopped(
             pass
     except KeyboardInterrupt:
         pass
-    logging.info(f"{prog}: stopping")
+    logger.info(f"{prog}: stopping")
     session.runner.stop()
     session.runner.join(30)
     session.stop_app_server()

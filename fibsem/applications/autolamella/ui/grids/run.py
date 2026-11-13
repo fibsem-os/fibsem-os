@@ -88,6 +88,8 @@ from fibsem.workflows.grid import (
 from fibsem.workflows.grid.protocol import GridTaskProtocol
 from fibsem.workflows.grids import GridRecord
 
+logger = logging.getLogger(__name__)
+
 # The lamella list's metrics, so the two run views read alike.
 _ROW_HEIGHT = ROW_HEIGHT
 _NAME_MIN_WIDTH = 160
@@ -386,7 +388,7 @@ class _TaskRow(QWidget):
             Attention.automated if self.supervised else Attention.supervised,
         )
         if why:
-            logging.warning(why)
+            logger.warning(why)
             return
         self.refresh()
         self.attention_changed.emit(self.task_name)
@@ -737,7 +739,7 @@ class GridWorkflowWidget(QWidget):
             try:
                 inventory = {e.name: e for e in stage.grid_inventory() if e.name}
             except Exception as e:  # noqa: BLE001 - drawn as "not present"
-                logging.warning(f"Could not read the grid inventory: {e}")
+                logger.warning(f"Could not read the grid inventory: {e}")
         # Records added since the last rebuild (an inventory just made them) or
         # tasks added on the Protocol view need rows.
         if self._experiment is not None:
@@ -866,7 +868,7 @@ class GridWorkflowWidget(QWidget):
             return
         why = protocol.set_requires(task_name, [n for n in names if n != task_name])
         if why:
-            logging.warning(why)
+            logger.warning(why)
             return
         self._save_protocol()
         for row in self._task_rows.values():
@@ -879,7 +881,7 @@ class GridWorkflowWidget(QWidget):
         try:
             self._experiment.save(save_protocol=True)
         except Exception as e:  # noqa: BLE001 - the change is made; say so
-            logging.warning(f"Could not save the grid protocol: {e}")
+            logger.warning(f"Could not save the grid protocol: {e}")
 
     def _on_reordered(self, names: List[str]) -> None:
         """A drag put the tasks in a new order: into the protocol, and saved."""
@@ -889,7 +891,7 @@ class GridWorkflowWidget(QWidget):
             return
         why = protocol.reorder(list(names))
         if why:
-            logging.warning(why)
+            logger.warning(why)
             self._rebuild()
             return
         self._save_protocol()

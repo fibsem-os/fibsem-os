@@ -41,6 +41,8 @@ from fibsem.acting import AGENT
 from fibsem.cancellation import NothingToStop
 from fibsem.workflows.events import EventBuffer
 
+logger = logging.getLogger(__name__)
+
 __all__ = ["AppServerHost", "chat_url", "event_log_url"]
 
 
@@ -62,7 +64,7 @@ def _stop_the_microscope(microscope) -> None:
         except NothingToStop:
             pass
         except Exception:
-            logging.exception("Stop agent: %s failed", getattr(stop, "__name__", stop))
+            logger.exception("Stop agent: %s failed", getattr(stop, "__name__", stop))
 
 
 _START_TIMEOUT_S = 10.0
@@ -178,7 +180,7 @@ class AppServerHost:
         if self.auth is None:
             return None
         self.auth.operator_token = new_operator_token(self._operator_token_path)
-        logging.info("New operator token made; the old one no longer works")
+        logger.info("New operator token made; the old one no longer works")
         return self.auth.operator_token
 
     def agent_session(self) -> Optional[dict]:
@@ -237,7 +239,7 @@ class AppServerHost:
         )
 
         def record(computer, replaced) -> None:
-            logging.info("Allowed %s to connect (always allowed)", computer.name)
+            logger.info("Allowed %s to connect (always allowed)", computer.name)
             if self.event_buffer is None:
                 return
             self.event_buffer.append(
@@ -259,7 +261,7 @@ class AppServerHost:
         try:
             return self._start()
         except Exception:
-            logging.exception("App Server failed to start; continuing without it")
+            logger.exception("App Server failed to start; continuing without it")
             self.stop()
             return False
 
@@ -281,7 +283,7 @@ class AppServerHost:
         # One server per microscope/machine; a live one wins.
         existing = read_discovery_file(self._discovery_path)
         if existing is not None:
-            logging.error(
+            logger.error(
                 "App Server not started: another fibsem server is running "
                 f"(pid {existing.get('pid')}, {existing.get('url')})"
             )
@@ -293,7 +295,7 @@ class AppServerHost:
         # logged.
         arm_control = os.environ.get("FIBSEM_AGENT_ARM_CONTROL") == "1"
         if arm_control:
-            logging.warning(
+            logger.warning(
                 "App Server: agent level DRIVE via FIBSEM_AGENT_ARM_CONTROL "
                 "(developer override)"
             )
@@ -352,9 +354,9 @@ class AppServerHost:
             try:
                 server.run()
             except SystemExit:
-                logging.error("App Server exited at startup (port in use?)")
+                logger.error("App Server exited at startup (port in use?)")
             except Exception:
-                logging.exception("App Server crashed")
+                logger.exception("App Server crashed")
 
         self._thread = threading.Thread(
             target=run_server, name="fibsem-app-server", daemon=True
@@ -364,7 +366,7 @@ class AppServerHost:
         deadline = time.monotonic() + _START_TIMEOUT_S
         while not self._server.started:
             if not self._thread.is_alive() or time.monotonic() > deadline:
-                logging.error("App Server did not start (port in use?)")
+                logger.error("App Server did not start (port in use?)")
                 self.stop()
                 return False
             time.sleep(0.05)
@@ -376,7 +378,7 @@ class AppServerHost:
         atexit.register(self._remove_discovery)
         # Never a token: a log is read by more people than the discovery
         # file (0600).
-        logging.info(
+        logger.info(
             "App Server on %s — agent level: %s", self.url, self.auth.level.value
         )
         return True

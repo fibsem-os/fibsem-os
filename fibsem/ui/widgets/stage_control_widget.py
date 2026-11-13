@@ -65,6 +65,8 @@ from fibsem.ui.utils import install_wheel_blocker
 from fibsem.ui.widgets.form_builder import configure_spinbox
 from fibsem.ui.widgets.stage_position_widget import StagePositionWidget
 
+logger = logging.getLogger(__name__)
+
 INSTRUCTIONS_TEXT = (
     """Instructions: Double Click to Move. Alt + Double Click to Move Vertically"""
 )
@@ -346,7 +348,7 @@ class StageControlWidget(QWidget):
         the image the user is watching. The views say what the move did to them
         with their chips; the words are the host's (`activity_changed`).
         """
-        logging.debug(msg)
+        logger.debug(msg)
         self._set_move_status(msg)
         # The chips on the views: every message here but the acquisition
         # one opens a move.
@@ -535,7 +537,7 @@ class StageControlWidget(QWidget):
         """
         movement_mode = "Vertical" if vertical_move else "Stable"
 
-        logging.debug(
+        logger.debug(
             {
                 "msg": "stage_movement",  # message type
                 "movement_mode": movement_mode,  # movement mode
@@ -550,7 +552,7 @@ class StageControlWidget(QWidget):
         # restore coincidence and get a sample-plane move instead
         if vertical_move and not self.microscope.supports_vertical_move(beam_type):
             view = "SEM" if beam_type is BeamType.ELECTRON else "FIB"
-            logging.warning(
+            logger.warning(
                 f"Vertical move from the {view} view is not supported on this system."
             )
             notification_service.show_toast(

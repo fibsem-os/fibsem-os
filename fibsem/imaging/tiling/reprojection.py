@@ -20,6 +20,8 @@ from fibsem.structures.image import FibsemImage
 from fibsem.structures.settings import BeamType, FibsemStagePosition, Point
 from fibsem.structures.system import LEGACY_ROTATION_CENTRE
 
+logger = logging.getLogger(__name__)
+
 
 def calculate_reprojected_stage_position(
     image: FibsemImage, pos: FibsemStagePosition
@@ -257,7 +259,7 @@ def _centre_or_origin(
         return rotation_centre
     if not _warned_no_rotation_centre:
         _warned_no_rotation_centre = True
-        logging.warning(
+        logger.warning(
             "No stage rotation centre was recorded for this image; positions from "
             "the other side of the stage are drawn turned about the stage origin."
         )
@@ -289,7 +291,7 @@ def _transform_position(
     # Debug, not info: this runs for every position drawn from the other side of the
     # stage -- three times per aligned image per redraw -- and at info it buried the
     # rest of the log (366 lines in five minutes of aligning an image).
-    logging.debug(f"Initial position {pos} was transformed to {transformed_position}")
+    logger.debug(f"Initial position {pos} was transformed to {transformed_position}")
 
     return transformed_position
 

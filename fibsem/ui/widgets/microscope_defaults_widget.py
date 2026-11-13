@@ -47,6 +47,8 @@ from fibsem.ui.widgets.custom_widgets import (
 )
 from fibsem.ui.widgets.form_builder import configure_spinbox, parameter_spec
 
+logger = logging.getLogger(__name__)
+
 # How the field of view and dwell time are shown: as the Image tab shows them, from
 # ImageSettings' field metadata, which takes the beam's display hint and limits.
 _IMAGE = ImageSettings.params
@@ -493,7 +495,7 @@ class MicroscopeDefaultsWidget(QWidget):
         try:
             current = self._current_imaging()
         except Exception as e:  # noqa: BLE001 - the tab may be mid-teardown
-            logging.warning(f"Could not read the acquire tab's settings: {e}")
+            logger.warning(f"Could not read the acquire tab's settings: {e}")
             return
         self.imaging.show_settings(current)
         notification_service.show_toast(
@@ -535,12 +537,12 @@ class MicroscopeDefaultsWidget(QWidget):
         try:
             utils.write_configuration(path, updates)
         except Exception as e:
-            logging.error(f"Could not save the defaults: {e}")
+            logger.error(f"Could not save the defaults: {e}")
             notification_service.show_toast(
                 f"Could not save the defaults: {e}", "error"
             )
             return False
-        logging.info(f"Beam defaults saved to {path}")
+        logger.info(f"Beam defaults saved to {path}")
         notification_service.show_toast("Defaults saved to the configuration.", "info")
         self._saved = self._values()
         self.changed.emit()

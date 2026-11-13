@@ -40,6 +40,8 @@ from fibsem.ui.widgets.custom_widgets import (
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
 
+logger = logging.getLogger(__name__)
+
 SEVERITY_OPTIONS = ["Low", "Normal", "High", "Crash"]
 
 
@@ -292,7 +294,7 @@ class BugReportDialog(QDialog):
             prefs.qt.contact_email = content.contact_email
             fibsem_cfg.save_user_preferences(prefs)
         except Exception as e:
-            logging.debug("Could not persist contact email: %s", e)
+            logger.debug("Could not persist contact email: %s", e)
 
     def _validate(self, content: BugReportContent) -> bool:
         if not content.title and not content.description:

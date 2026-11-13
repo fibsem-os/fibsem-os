@@ -45,6 +45,8 @@ from fibsem.ui.qt.sip import receivers
 if TYPE_CHECKING:
     from fibsem.control import Control
 
+logger = logging.getLogger(__name__)
+
 __all__ = ["FunctionWorker", "thread_worker"]
 
 # Call sites keep only a local ``worker = self.x_worker(...)`` reference, which would be
@@ -142,7 +144,7 @@ class FunctionWorker(QObject):
             if isinstance(error, MicroscopeBusy) and not receivers(self, self.errored):
                 refused(error)
             elif not isinstance(error, MicroscopeBusy):
-                logging.warning("could not take control for %s: %s", action, error)
+                logger.warning("could not take control for %s: %s", action, error)
             self.errored.emit(error)
             self.finished.emit()
             return False
@@ -160,7 +162,7 @@ class FunctionWorker(QObject):
                 if self._release is not None:
                     self._release()
         except Exception as exc:  # noqa: BLE001 - report every failure, never swallow it
-            logging.exception(
+            logger.exception(
                 "worker %r failed", getattr(self._func, "__name__", self._func)
             )
             self.errored.emit(exc)

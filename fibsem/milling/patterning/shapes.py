@@ -33,6 +33,8 @@ from fibsem.structures.settings import (
     Point,
 )
 
+logger = logging.getLogger(__name__)
+
 # colour wheel
 # Used by the bitmap converter below.
 SHAPES_LAYER_PROPERTIES = {
@@ -322,7 +324,7 @@ def is_pattern_placement_valid(pattern: BasePattern, image: FibsemImage) -> bool
             type(pattern_settings), (None, None)
         )
         if draw_func is None:
-            logging.warning(f"Pattern type {type(pattern_settings)} not supported")
+            logger.warning(f"Pattern type {type(pattern_settings)} not supported")
             return False
 
         napari_shape, kwargs = draw_func(

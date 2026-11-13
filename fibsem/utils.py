@@ -31,6 +31,8 @@ from fibsem.util import app_log
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
 
+logger = logging.getLogger(__name__)
+
 
 def current_timestamp(fmt: str = DATETIME_LOG) -> str:
     """Now on the local clock in *fmt* (one of the ``fibsem.constants`` formats),
@@ -459,7 +461,7 @@ def setup_session(
         )
     stop_if_cancelled(cancel, microscope)
 
-    logging.info(f"Finished setup for session: {session}")
+    logger.info(f"Finished setup for session: {session}")
 
     return microscope, settings
 
@@ -477,7 +479,7 @@ def stop_if_cancelled(cancel: Optional[threading.Event], instrument=None) -> Non
         if instrument is not None:
             instrument.disconnect()
     except Exception as e:  # noqa: BLE001 - cancelled either way
-        logging.warning(f"Could not cleanly disconnect after a cancelled connect: {e}")
+        logger.warning(f"Could not cleanly disconnect after a cancelled connect: {e}")
     raise ConnectCancelled("Connecting was cancelled.")
 
 
@@ -488,7 +490,7 @@ def _report(progress: Optional[Callable[[str], None]], step: str) -> None:
     try:
         progress(step)
     except Exception as e:
-        logging.debug(f"Progress callback failed on {step!r}: {e}")
+        logger.debug(f"Progress callback failed on {step!r}: {e}")
 
 
 def _at_connect(what: str, action) -> bool:
@@ -497,7 +499,7 @@ def _at_connect(what: str, action) -> bool:
         action()
         return True
     except Exception as e:
-        logging.error(f"Could not {what} at connect: {e}")
+        logger.error(f"Could not {what} at connect: {e}")
         return False
 
 
@@ -691,7 +693,7 @@ def report_unrecognised_configuration_keys(config: dict, source: str = "") -> Li
     unknown = unrecognised_configuration_keys(config)
     if unknown:
         where = f" in {source}" if source else ""
-        logging.info(
+        logger.info(
             f"Configuration{where} contains {len(unknown)} key(s) this version does "
             f"not read and will not save back: {', '.join(unknown)}"
         )
@@ -757,11 +759,11 @@ def _load_configuration_file(path: Union[str, Path]) -> dict:
     try:
         if _keep_an_older_version(path, config):
             _write_configuration_file(path, upgraded)
-            logging.info(
+            logger.info(
                 f"Saved {path} in configuration version {CONFIGURATION_VERSION}."
             )
     except OSError as e:
-        logging.warning(
+        logger.warning(
             f"Could not save {path} in configuration version {CONFIGURATION_VERSION} "
             f"({e}); it is upgraded each time it loads."
         )
@@ -821,7 +823,7 @@ def _keep_the_file_as_it_was(path: Union[str, Path], before: int = 1) -> None:
     import shutil
 
     shutil.copy2(path, backup)
-    logging.info(
+    logger.info(
         f"Kept a copy of {path} as {backup} before changing it; a version of "
         f"fibsem-os from before configuration v{before} can read the copy."
     )

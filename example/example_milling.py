@@ -11,6 +11,8 @@ from fibsem.structures.settings import (
     Point,
 )
 
+logger = logging.getLogger(__name__)
+
 """
 This script demonstrates how to use the milling module to mill a rectangle and two lines.
 
@@ -71,12 +73,12 @@ def main():
         depth=1.0e-6,
     )
 
-    logging.info("""\nMilling Pattern Example: """)
-    logging.info(f"The current milling settings are: \n{stage.milling}")
-    logging.info(f"The current rectangle pattern is \n{rectangle_shape}")
-    logging.info(f"The current circle pattern ins is \n{circle_shape}")
-    logging.info(f"The current line pattern is \n{line_shape}")
-    logging.info(
+    logger.info("""\nMilling Pattern Example: """)
+    logger.info(f"The current milling settings are: \n{stage.milling}")
+    logger.info(f"The current rectangle pattern is \n{rectangle_shape}")
+    logger.info(f"The current circle pattern ins is \n{circle_shape}")
+    logger.info(f"The current line pattern is \n{line_shape}")
+    logger.info(
         "---------------------------------- Milling ----------------------------------\n"
     )
     # setup patterns in a list

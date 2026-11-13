@@ -49,6 +49,8 @@ from fibsem.structures.settings import BeamType
 from fibsem.structures.system import InsertableDeviceState
 from fibsem.util.timestamps import iso_from_posix
 
+logger = logging.getLogger(__name__)
+
 __all__ = [
     "EventBuffer",
     "event_id",
@@ -143,7 +145,7 @@ class EventBuffer:
             try:
                 extra = self._stamp(kind, payload, actor) or {}
             except Exception:  # noqa: BLE001 - a stamp must never cost the event
-                logging.debug("event stamp failed", exc_info=True)
+                logger.debug("event stamp failed", exc_info=True)
         if actor is not None:
             # Unstamped, or a stamp that failed: the writer's word still stands.
             extra.setdefault("actor", str(actor))
@@ -165,7 +167,7 @@ class EventBuffer:
                 try:
                     subscriber(record)
                 except Exception:  # noqa: BLE001 - subscribers are not allowed to matter
-                    logging.debug("event subscriber failed", exc_info=True)
+                    logger.debug("event subscriber failed", exc_info=True)
             self._cond.notify_all()
             return self._seq
 
@@ -271,7 +273,7 @@ def attach_microscope_taps(buffer: EventBuffer, microscope) -> List[Callable[[],
         try:
             buffer.append(kind, serialize(value))
         except Exception:  # noqa: BLE001
-            logging.debug(f"could not record a {kind} event", exc_info=True)
+            logger.debug(f"could not record a {kind} event", exc_info=True)
 
     def tap(
         signal,

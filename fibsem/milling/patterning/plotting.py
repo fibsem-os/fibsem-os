@@ -31,6 +31,8 @@ from fibsem.utils import format_value
 
 from .utils import create_pattern_mask
 
+logger = logging.getLogger(__name__)
+
 COLOURS = [
     "yellow",
     "cyan",
@@ -536,7 +538,7 @@ def add_shape_mpl(
             return draw(
                 shape, image, colour, ax=ax, label=label, zorder=zorder, style=style
             )
-    logging.info("Unsupported shape type %s, skipping", str(type(shape)))
+    logger.info("Unsupported shape type %s, skipping", str(type(shape)))
     return None
 
 
@@ -728,7 +730,7 @@ def draw_milling_patterns(
         try:
             shapes = stage.define_patterns()
         except Exception:
-            logging.error("Failed to define pattern %s", pattern.name, exc_info=True)
+            logger.error("Failed to define pattern %s", pattern.name, exc_info=True)
             continue
 
         label = f"{stage.name}"
@@ -751,7 +753,7 @@ def draw_milling_patterns(
                 if handle is not None:
                     handles.append(handle)
             except Exception:
-                logging.warning(
+                logger.warning(
                     "Failed to create patch for shape %s",
                     str(type(shape)),
                     exc_info=True,
@@ -798,7 +800,7 @@ def draw_milling_patterns(
                 )
             )
         except ImportError:
-            logging.debug("Scalebar not available, skipping")
+            logger.debug("Scalebar not available, skipping")
 
     # set title
     ax.set_title(title)

@@ -38,8 +38,7 @@ from fibsem.ui.utils import (
 )
 from fibsem.versioning import get_version_string
 
-# setup a basic logger
-logging.basicConfig(stream=sys.stdout, level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 _DEBUG = False
 
@@ -495,7 +494,7 @@ class FibsemLabellingUI(QtWidgets.QDialog):
         im = Image.fromarray(label)  # TODO: replace with tifffile?
         im.save(os.path.join(self.labels_path, f"{bname}{file_ext}"))
 
-        logging.info(f"Saving mask to {os.path.basename(fname)}")
+        logger.info(f"Saving mask to {os.path.basename(fname)}")
 
         # optionally save an rgb mask (for easy visualisation)
         if CONFIGURATION["SAVE"]["SAVE_RGB"] and self.checkBox_save_rgb.isChecked():
@@ -509,7 +508,7 @@ class FibsemLabellingUI(QtWidgets.QDialog):
             os.makedirs(RGB_PATH, exist_ok=True)
             rgb.save(os.path.join(RGB_PATH, f"{bname}.png"))
 
-            logging.info(f"Saving RGB mask to {os.path.join(RGB_PATH, f'{bname}.png')}")
+            logger.info(f"Saving RGB mask to {os.path.join(RGB_PATH, f'{bname}.png')}")
 
     def update_viewer_to_image(self, idx: int):
         self.viewer.dims.set_point(0, idx)
@@ -519,7 +518,7 @@ class FibsemLabellingUI(QtWidgets.QDialog):
         Attempt to autosave the previous image"""
 
         idx = int(self.viewer.dims.point[0])
-        logging.info(f"UPDATING IMAGE: LAST IDX: {self.last_idx}, CURRENT IDX {idx}")
+        logger.info(f"UPDATING IMAGE: LAST IDX: {self.last_idx}, CURRENT IDX {idx}")
 
         # save previous image
         if self.last_idx != idx:
@@ -587,7 +586,7 @@ class FibsemLabellingUI(QtWidgets.QDialog):
         fname = self.filenames[idx]
         image = np.asarray(self.img_layer.data[idx])  # req for lazy load
 
-        logging.info(f"IDX: {idx}, Loading image from {os.path.basename(fname)}")
+        logger.info(f"IDX: {idx}, Loading image from {os.path.basename(fname)}")
 
         if os.path.basename(fname) in os.listdir(os.path.join(self.labels_path)):
             label_fname = os.path.join(self.labels_path, os.path.basename(fname))
@@ -722,7 +721,7 @@ class FibsemLabellingUI(QtWidgets.QDialog):
             self.viewer.layers.selection.active = self.sam_pts_layer
             self.sam_pts_layer.mode = "add"
         except Exception as e:
-            logging.warning(f"Unable to set SAM points layer active: {e}")
+            logger.warning(f"Unable to set SAM points layer active: {e}")
 
     def accept_sam_mask(self, event: Optional[Event] = None) -> None:
         """Accept the current SAM mask, and add it to the mask layer"""
@@ -795,6 +794,7 @@ class FibsemLabellingUI(QtWidgets.QDialog):
 
 
 def main():
+    logging.basicConfig(stream=sys.stdout, level=logging.INFO)
     viewer = napari.Viewer(ndisplay=2)
     fibsem_labelling_ui = FibsemLabellingUI(viewer=viewer)
     viewer.window.add_dock_widget(

@@ -99,6 +99,8 @@ if TYPE_CHECKING:
     from fibsem.imaging.spot import SpotBurnSettings
     from fibsem.workflows.session import AppSession
 
+logger = logging.getLogger(__name__)
+
 # Reducer overlay ids on the FIB (ION) canvas
 POI_OVERLAY_ID = "poi"
 ALIGNMENT_OVERLAY_ID = "alignment_area"
@@ -1000,7 +1002,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
                     self.label_warning.setVisible(True)
                     return
             except Exception as e:
-                logging.warning(f"Could not compare milling FoV and image FoV: {e}")
+                logger.warning(f"Could not compare milling FoV and image FoV: {e}")
 
         self.label_warning.setVisible(False)
 
@@ -1021,7 +1023,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         if selected_lamella is None:
             return {"applied": False}
 
-        logging.info(f"Updated {selected_lamella.name}, Point of Interest: {point}")
+        logger.info(f"Updated {selected_lamella.name}, Point of Interest: {point}")
         self._edits.touch(
             selected_lamella, None, "poi", lambda: selected_lamella.poi, via
         )
@@ -1038,7 +1040,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         refresh the patterns that moved with them and save."""
         result = edit_item_fields(lamella, patch, item_fields_version(lamella))
         if not result["applied"]:
-            logging.warning(f"{lamella.name}: edit refused: {result}")
+            logger.warning(f"{lamella.name}: edit refused: {result}")
             return result
         if result["synced_tasks"]:
             self._on_selected_task_changed()  # show the patterns where they now are
@@ -1161,7 +1163,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         """Open CorrelationTabWidget in a modal dialog."""
         selected_lamella = self._selected_lamella
         if selected_lamella is None:
-            logging.error("No lamella selected, cannot open correlation dialog.")
+            logger.error("No lamella selected, cannot open correlation dialog.")
             return
 
         from fibsem.correlation.history import (
@@ -1316,9 +1318,9 @@ class AutoLamellaProtocolEditorWidget(QWidget):
     ) -> None:
         """Handle the CorrelationResult returned from CorrelationTabDialog."""
         if result is None or not result.poi:
-            logging.warning("Correlation dialog closed with no POI result.")
+            logger.warning("Correlation dialog closed with no POI result.")
             return
-        logging.info(
+        logger.info(
             f"correlation-result: rms={result.rms_error:.3f}, poi={result.poi[0].px_m}"
         )
         lamella = self._selected_lamella
@@ -1408,7 +1410,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
         if update_base_protocol:
             msg += "\nBase protocol was also updated."
         QMessageBox.information(self, "Apply Complete", msg)
-        logging.info(msg)
+        logger.info(msg)
 
     def _on_description_edited(self):
         """Persist the free-text description for the selected lamella."""

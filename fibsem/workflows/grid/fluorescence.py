@@ -31,6 +31,8 @@ from fibsem.workflows.grid.base import (
     GridTaskConfig,
 )
 
+logger = logging.getLogger(__name__)
+
 if TYPE_CHECKING:
     pass
 
@@ -175,7 +177,7 @@ class FluorescenceOverviewGridTask(GridTask):
                 )
                 self.record_output(f"{self.config.role}_thumbnail", thumbnail)
             except Exception as e:  # noqa: BLE001 - the overview is already recorded
-                logging.warning(f"Could not write the fluorescence thumbnail: {e}")
+                logger.warning(f"Could not write the fluorescence thumbnail: {e}")
         finally:
             if not was_inserted:
                 self.log_status_message("RETRACT_OBJECTIVE", "Retracting the objective")

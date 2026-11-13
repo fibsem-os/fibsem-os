@@ -28,6 +28,8 @@ from fibsem.workflows.actions import record_operator_action
 if TYPE_CHECKING:
     from fibsem.ui.widgets.milling_task_config_widget import MillingTaskConfigWidget
 
+logger = logging.getLogger(__name__)
+
 
 class FibsemMillingWidget(QWidget):
     """Widget for running a milling task with FibsemMicroscope.
@@ -129,7 +131,7 @@ class FibsemMillingWidget(QWidget):
         # plugin-loaded strategy is a producer too, and psygnal hands whatever it
         # emits to this slot unchanged.
         report = MillingProgress.from_payload(payload)
-        logging.debug("Milling progress: %s", report)
+        logger.debug("Milling progress: %s", report)
 
         if report.milling_state is not None:
             self._milling_state = report.milling_state
@@ -205,7 +207,7 @@ class FibsemMillingWidget(QWidget):
         """
         # If a milling task is already running, do nothing
         if self.is_milling:
-            logging.warning("Milling task is already running.")
+            logger.warning("Milling task is already running.")
             return
 
         # disable gui elements
@@ -260,7 +262,7 @@ class FibsemMillingWidget(QWidget):
             microscope.milling.run_task(milling_task_config, path=output_dir)
 
         except Exception as e:
-            logging.error(
+            logger.error(
                 f"Error occurred while running milling task: {e}", exc_info=True
             )
 
@@ -277,7 +279,7 @@ class FibsemMillingWidget(QWidget):
             try:
                 self.microscope.milling.stop()
             except Exception as e:  # noqa: BLE001 - already ended
-                logging.info(f"Nothing to stop: {e}")
+                logger.info(f"Nothing to stop: {e}")
 
     def pause_resume_milling(self):
         # The last state a progress report carried, not a fresh `get_milling_state()`.

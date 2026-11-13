@@ -55,6 +55,8 @@ from fibsem.structures.image import FibsemImage
 from fibsem.structures.settings import BeamType
 from fibsem.util import timestamps
 
+logger = logging.getLogger(__name__)
+
 STOP_POLL_S = 0.1  # how often a long command's stop event is looked at
 STOP_RETRY_S = 0.5  # how long after a refused stop it is asked again
 
@@ -104,7 +106,7 @@ class RemoteService(RemoteParts, Service):
                         return
                     except Exception as error:  # noqa: BLE001
                         # Refused before it mills (nothing to stop yet): again.
-                        logging.debug(f"{self.name}.stop: {error}")
+                        logger.debug(f"{self.name}.stop: {error}")
                         ended.wait(STOP_RETRY_S)
 
         threading.Thread(target=watch, name=f"{self.name}-stop", daemon=True).start()
@@ -305,7 +307,7 @@ def _run_task_on_server(
             _unpack(self._folder_of(task.task_id), task.output_dir)
             task.images = _saved_images(task.output_dir)
         except Exception as error:  # noqa: BLE001 - the mill itself is done
-            logging.warning(f"{task.name}: its folder did not come back: {error}")
+            logger.warning(f"{task.name}: its folder did not come back: {error}")
     if raise_on_failure and task.error is not None:
         raise task.error
     return task

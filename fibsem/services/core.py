@@ -18,6 +18,8 @@ from typing import Any, Callable, Dict, Optional, Sequence
 
 from fibsem.devices.core import _Controllable
 
+logger = logging.getLogger(__name__)
+
 
 class Service(_Controllable):
     """A capability of the instrument that uses devices: named, with parameters,
@@ -37,7 +39,7 @@ def save_beam_conditions(beam: Any, names: Sequence[str]) -> Dict[str, Any]:
             value = getattr(beam, name).get_value()
             if value is not None:
                 saved[name] = value
-    logging.debug({"msg": "saved the beam", "beam": beam.name, "saved": saved})
+    logger.debug({"msg": "saved the beam", "beam": beam.name, "saved": saved})
     return saved
 
 

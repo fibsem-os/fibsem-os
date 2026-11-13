@@ -27,6 +27,8 @@ import cv2
 import numpy as np
 from scipy.signal import fftconvolve
 
+logger = logging.getLogger(__name__)
+
 TileKey = Tuple[int, int]  # (row, col)
 PixelPosition = Tuple[float, float]  # (y, x)
 
@@ -144,7 +146,7 @@ def measure_pair_offset(
         0 <= y < valid.shape[0] and 0 <= x < valid.shape[1] and valid[y, x]
         for y, x in ((ky - 1, kx), (ky + 1, kx), (ky, kx - 1), (ky, kx + 1))
     ):
-        logging.debug(f"Best offset for planned {planned} is on the edge of the search")
+        logger.debug(f"Best offset for planned {planned} is on the edge of the search")
         return None
     dy, dx = float(oy[ky]), float(ox[kx])
     # Sub-pixel: a parabola through the peak and its neighbours, along each axis.
@@ -347,7 +349,7 @@ class TileLayoutCheck:
             if result is not None:
                 pair.measured, pair.score = result
             self.pairs.append(pair)
-            logging.debug(f"Tile pair {a}-{b}: {pair}")
+            logger.debug(f"Tile pair {a}-{b}: {pair}")
         self._held[key] = image
         for k in [key, *self._neighbours(key)]:
             if k in self._held and all(n in self._arrived for n in self._neighbours(k)):

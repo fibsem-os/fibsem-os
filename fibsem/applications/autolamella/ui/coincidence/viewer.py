@@ -136,6 +136,8 @@ if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
     from fibsem.milling.tasks import FibsemMillingTaskConfig
 
+logger = logging.getLogger(__name__)
+
 # Short local names for the shared palette. These appear inside dozens of
 # f-strings below, where the full names would wrap every one of them.
 _BG = SURFACE_COLOR
@@ -333,7 +335,7 @@ class _FmImageCanvas(QWidget):
             self.canvas.set_title(f"FM  z={z}/{nz - 1}")
             self.canvas.draw_idle()
         except Exception:
-            logging.exception("Error plotting FM z-slice")
+            logger.exception("Error plotting FM z-slice")
 
     def clear(self):
         self._image = None
@@ -934,7 +936,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             try:
                 self._apply_fm_configuration(config)
             except Exception as e:
-                logging.warning(f"Could not apply saved FM configuration: {e}")
+                logger.warning(f"Could not apply saved FM configuration: {e}")
 
     def _save_fm_configuration(self) -> None:
         """Persist the current FM configuration as the working state."""
@@ -944,7 +946,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
                 session_state_for(self.microscope, writable=True),
             )
         except Exception as e:
-            logging.warning(f"Could not save FM working state: {e}")
+            logger.warning(f"Could not save FM working state: {e}")
 
     def closeEvent(self, event):  # noqa: N802 (Qt override)
         """Persist the FM working state when the window closes."""
@@ -1227,7 +1229,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             try:
                 self.microscope.safe_absolute_stage_movement(lamella.stage_position)
             except Exception:
-                logging.exception("Error moving to lamella position")
+                logger.exception("Error moving to lamella position")
 
         worker = FunctionWorker(_move)
         worker.start(control=control_of(self.microscope), action="move stage")
@@ -1242,7 +1244,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
                 image = self.microscope.acquire_image(beam_type=BeamType.ION)
                 self._fib_image_ready.emit(image)
             except Exception:
-                logging.exception("Error acquiring FIB image")
+                logger.exception("Error acquiring FIB image")
             finally:
                 self._fib_acquire_done.emit()
 
@@ -1272,7 +1274,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
                 if image is not None:
                     self._fm_image_ready.emit(image)
             except Exception:
-                logging.exception("Error acquiring FM image")
+                logger.exception("Error acquiring FM image")
             finally:
                 self._fm_acquire_done.emit()
 
@@ -1305,7 +1307,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
                 image = self.microscope.acquire_image(beam_type=BeamType.ION)
                 self._fib_image_ready.emit(image)
             except Exception:
-                logging.exception("Error running FIB autocontrast")
+                logger.exception("Error running FIB autocontrast")
             finally:
                 self._fib_acquire_done.emit()
 
@@ -1334,7 +1336,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
                 image = self.microscope.acquire_image(beam_type=BeamType.ION)
                 self._fib_image_ready.emit(image)
             except Exception:
-                logging.exception("Error running FIB autofocus")
+                logger.exception("Error running FIB autofocus")
             finally:
                 self._fib_acquire_done.emit()
 
@@ -1388,7 +1390,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             if not np.isnan(mean_val):
                 self._intensity_ready.emit(mean_val)
         except Exception:
-            logging.exception("Error computing FM intensity")
+            logger.exception("Error computing FM intensity")
 
     # ------------------------------------------------------------------
     # Timelapse accumulation
@@ -1441,7 +1443,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
                 f"{_fmt_timestamp(now)} ({n - 1}/{n - 1})"
             )
         except Exception:
-            logging.exception("Error accumulating timelapse frame")
+            logger.exception("Error accumulating timelapse frame")
 
     def _on_fm_scrub(self, idx: int) -> None:
         """Display the timelapse frame at *idx* and toggle scrubbing mode."""
@@ -1549,7 +1551,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             try:
                 strategy._on_bbox_update(rect)
             except Exception:
-                logging.exception("Error updating strategy bbox")
+                logger.exception("Error updating strategy bbox")
 
     def _connect_coincidence_strategies(
         self, milling_task_config: "FibsemMillingTaskConfig"
@@ -1751,7 +1753,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             return
         if channel is not self.fm_channel_widget.selected_channel:
             return
-        logging.info(f"Channel field changed: {field} -> {value}")
+        logger.info(f"Channel field changed: {field} -> {value}")
         if field == "excitation_wavelength":
             fm.filter_set.excitation_wavelength = value
         elif field == "emission_filter":
@@ -2017,7 +2019,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
                 f"Recorded coincidence result for {lamella.name}.", "info"
             )
         except Exception as e:
-            logging.error(f"Failed to record coincidence result: {e}", exc_info=e)
+            logger.error(f"Failed to record coincidence result: {e}", exc_info=e)
 
     # ------------------------------------------------------------------
     # ------------------------------------------------------------------
@@ -2153,7 +2155,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         # built from the current pose.
         state = self.microscope.get_device_imaging_state("FM")
         if state is not DeviceImagingState.READY:
-            logging.info(
+            logger.info(
                 "Cannot move the stage via the FM image. "
                 + self.microscope.explain_imaging_state("FM", state)
             )

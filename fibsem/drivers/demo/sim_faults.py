@@ -41,6 +41,8 @@ from typing import Dict, List, Optional
 
 import numpy as np
 
+logger = logging.getLogger(__name__)
+
 # kind: (the event it goes with by default, the others it may, its amount)
 KINDS = {
     "beam_off": ("image", ("mill",), 0.0),
@@ -118,6 +120,6 @@ class Faults:
                 "time": time.time(),
             }
             self.log.append(entry)
-            logging.info({"msg": "sim_fault", **entry})
+            logger.info({"msg": "sim_fault", **entry})
             out.append(fault)
         return out

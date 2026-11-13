@@ -29,6 +29,8 @@ from fibsem.structures.system import (
     SystemSettings,
 )
 
+logger = logging.getLogger(__name__)
+
 add_odemis_path()
 
 # Guarded like the other drivers' SDKs, so the registry can read DRIVER below on a
@@ -40,7 +42,7 @@ try:
     ODEMIS_API_AVAILABLE = True
 except ImportError as e:
     ODEMIS_API_AVAILABLE = False
-    logging.debug(f"Odemis not installed. {e}")
+    logger.debug(f"Odemis not installed. {e}")
 
 if TYPE_CHECKING:
     from odemis.driver.autoscript_client import SEM as OdemisAutoscriptClient
@@ -295,7 +297,7 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         vendor_stage: model.Actuator = model.getComponent(role="stage-bare")
         self._connection = OdemisConnection(client, vendor_stage, self._threading_lock)
 
-        logging.info("OdemisThermoMicroscope initialized")
+        logger.info("OdemisThermoMicroscope initialized")
 
         software_version = client.get_software_version()
         hardware_version = client.get_hardware_version()
@@ -304,7 +306,7 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         self.system.info.hardware_version = software_version
         self.system.info.software_version = software_version
         info = self.system.info
-        logging.info(
+        logger.info(
             f"Microscope client connected to model {info.model} with serial number {info.serial_number} and software version {info.software_version}."
         )
 
@@ -326,7 +328,7 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         try:
             self._build_sample_handling()
         except Exception as e:
-            logging.warning(f"Could not build the sample handling: {e}")
+            logger.warning(f"Could not build the sample handling: {e}")
 
     def _build_odemis_devices(self) -> None:
         """Build the beam, stage and chamber devices from the configuration's
@@ -381,4 +383,4 @@ class OdemisTescanMicroscope(TescanMicroscope):
 
     def __init__(self, system_settings: SystemSettings):
         super().__init__(system_settings=system_settings)
-        logging.info("OdemisTescanMicroscope initialized")
+        logger.info("OdemisTescanMicroscope initialized")
