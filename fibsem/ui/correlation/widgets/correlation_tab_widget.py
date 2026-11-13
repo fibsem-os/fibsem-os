@@ -171,6 +171,7 @@ from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
 )
 from fibsem.ui.correlation.widgets.refractive_index_widget import RefractiveIndexWidget
 from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.qt.style import set_app_style
 from fibsem.ui.stylesheets import IMAGE_HEADER_STYLE
 from fibsem.ui.utils import install_wheel_blocker
 from fibsem.ui.widgets.canvas.overlays.coordinate_overlay import POINT_COLORS
@@ -4629,7 +4630,7 @@ def main() -> None:
     args = parser.parse_args()
 
     app = QApplication(sys.argv[:1])
-    app.setStyle("Fusion")
+    set_app_style(app)
     app.setStyleSheet(stylesheets.NAPARI_STYLE)
 
     widget = CorrelationTabWidget()

@@ -10,6 +10,7 @@ from qtpy.QtWidgets import QApplication
 
 from fibsem.tools.app_identity import set_app_identity
 from fibsem.ui.qt.gc import install_main_thread_gc
+from fibsem.ui.qt.style import set_app_style
 
 __all__ = ["start_qt_app"]
 
@@ -20,7 +21,7 @@ def start_qt_app(app: Any, icon: QIcon) -> QApplication:
     set_app_identity(app.name, windows_app_id=app.app_id)
     qapp = QApplication.instance() or QApplication(sys.argv)
     qapp.setApplicationName(app.name)
-    qapp.setStyle("Fusion")
+    set_app_style(qapp)
     qapp.setWindowIcon(icon)
     # Worker-thread GC finalizes Qt/vispy objects off the GUI thread and
     # hard-crashes Windows GL drivers (access violation in glDrawArrays). Held on

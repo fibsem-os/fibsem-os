@@ -45,6 +45,7 @@ from qtpy.QtWidgets import QApplication, QWidget
 import fibsem.config as cfg
 from fibsem import guided_setup
 from fibsem.guided_setup import LOCATION_MICROSCOPE, LOCATION_SUPPORT
+from fibsem.ui.qt.style import set_app_style
 
 
 def _find_site() -> Path:
@@ -135,7 +136,7 @@ class Harness:
         os.chdir(self._tmp.name)
 
         self.app = QApplication.instance() or QApplication(sys.argv)
-        self.app.setStyle("Fusion")
+        set_app_style(self.app)
         from fibsem.ui.qt.gc import install_main_thread_gc
 
         self._gc = install_main_thread_gc(parent=self.app)
