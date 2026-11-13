@@ -39,6 +39,10 @@ if TYPE_CHECKING:
     from fibsem.workflows.queue import WorkItem
 
 
+# The status message of a task found InProgress when its experiment is read.
+INTERRUPTED = "The app closed while this task was running."
+
+
 class TaskStatus(NamedEnum, Enum):
     NotStarted = auto()
     InProgress = auto()

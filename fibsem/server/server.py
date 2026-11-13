@@ -59,6 +59,7 @@ from fibsem.server.auth import (
     require_token,
     take_control,
 )
+from fibsem.server.bodies import refuse_invalid_requests
 from fibsem.server.connection import ServedInstrument, build_connection_router
 from fibsem.server.devices import (
     ERROR_STATUS,
@@ -70,6 +71,7 @@ from fibsem.server.devices import (
     stream_live,
 )
 from fibsem.server.discovery import fibsem_folder
+from fibsem.server.kept_reads import KeptReads, read_wait, with_age
 from fibsem.server.knowledge_routes import build_knowledge_router
 from fibsem.server.leases import LEASE_HEADER
 from fibsem.server.models import ControlRequest, MicroscopeStateRequest
@@ -574,6 +576,9 @@ def build_server(
     app.state.auth = auth
     served = ServedInstrument(microscope, session, instruments)
     app.state.served = served
+    # The last value of each instrument read, for a caller that won't wait
+    # while the instrument is busy.
+    kept = KeptReads()
     app.state.session = session
     # The app the operator works in, as the agent's refusals name it.
     app.state.app_name = app_context.app_name if app_context else "fibsemOS"
@@ -590,6 +595,8 @@ def build_server(
     async def _refused(request: Request, exc: StarletteHTTPException) -> Response:
         _record_refusal(request, exc)
         return await http_exception_handler(request, exc)
+
+    refuse_invalid_requests(app)
 
     @app.exception_handler(Exception)
     def _unhandled(request: Request, exc: Exception) -> JSONResponse:
@@ -693,8 +700,15 @@ def build_server(
         dependencies=[Depends(require_monitoring())],
         response_model=StateAnswer,
     )
-    def get_microscope_state():
-        return answer(StateAnswer(served.require().get_state()))
+    def get_microscope_state(request: Request):
+        microscope = served.require()
+        state, age = kept.read(
+            microscope,
+            "state",
+            lambda: StateAnswer(microscope.get_state()),
+            read_wait(request),
+        )
+        return with_age(answer(state), age)
 
     def _still_allowed(websocket: WebSocket) -> Callable[[], bool]:
         """Whether a stream's caller may still read it: the operator (a paired
@@ -839,6 +853,7 @@ def build_server(
                 refuse=refuse,
                 paths=paths,
                 on_image=lambda image: _show_in_app(served.current, image),
+                kept=kept,
             )
         )
         # The microscope's services (milling, stage movement, ...) have the
@@ -861,6 +876,7 @@ def build_server(
                 on_image=lambda image: _show_in_app(served.current, image),
                 long_commands=True,
                 adopt_control=adopt_control,
+                kept=kept,
             )
         )
     else:

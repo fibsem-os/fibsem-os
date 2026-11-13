@@ -44,6 +44,7 @@ from fibsem.workflows.event_recording import (
     milling_run_of,
     read_events,
 )
+from fibsem.workflows.events import kinds as event_kinds
 from fibsem.workflows.proposals import kind_label
 
 logger = logging.getLogger(__name__)
@@ -1530,29 +1531,33 @@ def _load_from_events(root: Path) -> ExperimentReplay:
         task, task_id = task_ref.get("name"), task_ref.get("id")
         event: Optional[ReplayEvent] = None
 
-        if kind == "task_started" or kind in _TASK_END_STEPS or kind == "task_step":
-            if kind == "task_step":
+        if (
+            kind == event_kinds.TASK_STARTED
+            or kind in _TASK_END_STEPS
+            or kind == event_kinds.TASK_STEP
+        ):
+            if kind == event_kinds.TASK_STEP:
                 step = payload.get("step")
                 if item and payload.get("item_type"):
                     item_types.setdefault(item, payload["item_type"])
             else:
                 step = _TASK_END_STEPS.get(kind, "STARTED")
             summary = _task_summary(task, step)
-            if kind == "task_failed" and payload.get("error"):
+            if kind == event_kinds.TASK_FAILED and payload.get("error"):
                 summary += f": {payload['error']}"
             event = ReplayEvent(time, EventKind.TASK, summary, data=payload)
             steps[task_id] = step
-        elif kind == "image_acquired":
+        elif kind == event_kinds.IMAGE_ACQUIRED:
             event = _recorded_image(time, payload)
             if isinstance(event.position, dict):
                 track.append((time, event.position))
-        elif kind == "stage_position_changed":
+        elif kind == event_kinds.STAGE_POSITION_CHANGED:
             # A read, not a move: the track the scene's stage position comes
             # from, as the log's reader treats its read-backs.
             position = payload.get("position")
             if isinstance(position, dict):
                 track.append((time, position))
-        elif kind == "stage_moved":
+        elif kind == event_kinds.STAGE_MOVED:
             end = payload.get("end") if isinstance(payload.get("end"), dict) else None
             if end is not None:
                 track.append((time, end))
@@ -1563,26 +1568,26 @@ def _load_from_events(root: Path) -> ExperimentReplay:
                 data=payload,
                 position=end,
             )
-        elif kind in ("grid_loaded", "grid_unloaded"):
+        elif kind in (event_kinds.GRID_LOADED, event_kinds.GRID_UNLOADED):
             grid, slot = payload.get("grid") or "a grid", payload.get("slot")
             summary = (
                 f"Loaded {grid}" + (f" from {slot}" if slot else "")
-                if kind == "grid_loaded"
+                if kind == event_kinds.GRID_LOADED
                 else f"Unloaded {grid}" + (f" to {slot}" if slot else "")
             ) + _failed(payload)
             event = ReplayEvent(
                 time, EventKind.STAGE, summary, data={**payload, "msg": kind}
             )
-        elif kind == "beam_shifted":
+        elif kind == event_kinds.BEAM_SHIFTED:
             summary = _beam_shift_summary(payload) + _failed(payload)
             event = ReplayEvent(time, EventKind.ALIGNMENT, summary, data=payload)
-        elif kind == "coincidence_measured":
+        elif kind == event_kinds.COINCIDENCE_MEASURED:
             summary = _coincidence_summary(payload)
             event = ReplayEvent(time, EventKind.ALIGNMENT, summary, data=payload)
-        elif kind == "alignment":
+        elif kind == event_kinds.ALIGNMENT:
             summary = _alignment_summary(payload)
             event = ReplayEvent(time, EventKind.ALIGNMENT, summary, data=payload)
-        elif kind == "autofocus":
+        elif kind == event_kinds.AUTOFOCUS:
             summary = _not_run(
                 payload, f"{_beam(payload.get('beam_type'))} autofocus"
             ) or (
@@ -1591,24 +1596,24 @@ def _load_from_events(root: Path) -> ExperimentReplay:
                 f"{_mm(payload.get('working_distance'))} mm"
             )
             event = ReplayEvent(time, EventKind.ALIGNMENT, summary, data=payload)
-        elif kind == "fm_image_acquired":
+        elif kind == event_kinds.FM_IMAGE_ACQUIRED:
             fm = _recorded_fluorescence(time, payload, resolver)
             fm.item, fm.task = item, task
             fm.actor = record.get("actor")
             fm.step = steps.get(task_id) if task_id is not None else None
             recorded_fm.append(fm)
-        elif kind == "fm_autofocus":
+        elif kind == event_kinds.FM_AUTOFOCUS:
             summary = (
                 f"FM autofocus: objective {_um(payload.get('initial_position'))} → "
                 f"{_um(payload.get('position'))} µm"
             )
             event = ReplayEvent(time, EventKind.FLUORESCENCE, summary, data=payload)
-        elif kind == "objective_state_changed":
+        elif kind == event_kinds.OBJECTIVE_STATE_CHANGED:
             state = str(payload.get("state") or "?").lower()
             event = ReplayEvent(
                 time, EventKind.FLUORESCENCE, f"FM objective {state}", data=payload
             )
-        elif kind == "milling_stage_started":
+        elif kind == event_kinds.MILLING_STAGE_STARTED:
             stage = payload.get("stage") or {}
             run_id, task_name = milling_run_of(payload)
             event = ReplayEvent(
@@ -1622,7 +1627,10 @@ def _load_from_events(root: Path) -> ExperimentReplay:
                 },
             )
             mills[(run_id, stage.get("name"))] = event
-        elif kind == "milling_progress" and payload.get("status") == "stage-finished":
+        elif (
+            kind == event_kinds.MILLING_PROGRESS
+            and payload.get("status") == "stage-finished"
+        ):
             started = mills.pop(
                 (milling_run_of(payload)[0], payload.get("stage_name")), None
             )
@@ -1633,7 +1641,7 @@ def _load_from_events(root: Path) -> ExperimentReplay:
                     started.data["stage"],
                     started.duration,
                 )
-        elif kind == "spot_burn_started":
+        elif kind == event_kinds.SPOT_BURN_STARTED:
             if burn is not None:  # a burn that never reported its end
                 events.extend(_spot_events(burn, burned))
             burn = {
@@ -1648,7 +1656,7 @@ def _load_from_events(root: Path) -> ExperimentReplay:
                 "actor": record.get("actor"),
             }
             burned = 0
-        elif kind == "spot_burn_progress" and burn is not None:
+        elif kind == event_kinds.SPOT_BURN_PROGRESS and burn is not None:
             status = payload.get("status")
             if status == "burning":
                 burned = max(burned, payload.get("current_point") or 0)
@@ -1657,22 +1665,22 @@ def _load_from_events(root: Path) -> ExperimentReplay:
                     burned = len(burn["coordinates"])
                 events.extend(_spot_events(burn, burned))
                 burn = None
-        elif kind in ("edit", "correlation"):
+        elif kind in (event_kinds.EDIT, event_kinds.CORRELATION):
             # On the lamella (and task) it was about, which need not be the
             # ones a workflow was running when it was made.
             item = (payload.get("item") or {}).get("name")
             task, task_id = payload.get("task"), None
-            if kind == "edit":
+            if kind == event_kinds.EDIT:
                 summary = _edit_summary(payload)
                 event = ReplayEvent(time, EventKind.EDIT, summary, data=payload)
             else:
                 summary = _correlation_summary(payload)
                 event = ReplayEvent(time, EventKind.CORRELATION, summary, data=payload)
-        elif kind in ("proposal_asked", "proposal_decided"):
+        elif kind in (event_kinds.PROPOSAL_ASKED, event_kinds.PROPOSAL_DECIDED):
             # On the item and task it was about, as an edit is.
             item = (payload.get("item") or {}).get("name")
             task, task_id = payload.get("task"), None
-            if kind == "proposal_asked":
+            if kind == event_kinds.PROPOSAL_ASKED:
                 summary = _asked_summary(payload)
                 event = ReplayEvent(time, EventKind.PROMPT, summary, data=payload)
             else:
@@ -1686,13 +1694,17 @@ def _load_from_events(root: Path) -> ExperimentReplay:
                 else:
                     event = ReplayEvent(time, EventKind.DECISION, summary, data=payload)
                     decisions[key] = event
-        elif kind in ("prompt_raised", "prompt_answered", "prompt_cancelled"):
+        elif kind in (
+            event_kinds.PROMPT_RAISED,
+            event_kinds.PROMPT_ANSWERED,
+            event_kinds.PROMPT_CANCELLED,
+        ):
             prompt = payload.get("type", "Prompt")
-            if kind == "prompt_answered":
+            if kind == event_kinds.PROMPT_ANSWERED:
                 summary = _answer_summary(
                     prompt, payload.get("response"), bool(payload.get("adjusted"))
                 )
-            elif kind == "prompt_raised":
+            elif kind == event_kinds.PROMPT_RAISED:
                 message = payload.get("message")
                 summary = f"{prompt} asked: {message}" if message else f"{prompt} asked"
             else:
@@ -1704,7 +1716,9 @@ def _load_from_events(root: Path) -> ExperimentReplay:
             event.step = steps.get(task_id) if task_id is not None else None
             # A file from before actors were recorded still says who answered.
             event.actor = record.get("actor") or (
-                payload.get("answered_by") if kind == "prompt_answered" else None
+                payload.get("answered_by")
+                if kind == event_kinds.PROMPT_ANSWERED
+                else None
             )
             events.append(event)
         if kind in _TASK_END_STEPS:

@@ -23,6 +23,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from fibsem.ai.agent.drawing import evidence_png
 from fibsem.ai.agent.recent import ACTION, MESSAGE, RecentActions
 from fibsem.workflows import evidence
+from fibsem.workflows.events import kinds as event_kinds
 
 # What an alert is about, and the setting that turns it on.
 ANSWER, AGENT_MESSAGE, FAILED, FINISHED = "answer", "message", "failed", "finished"
@@ -89,16 +90,19 @@ class AlertRules:
                     self._ready.append(alert)
         kind = record.get("kind")
         p = record.get("payload") if isinstance(record.get("payload"), dict) else {}
-        if kind == "proposal_held":
+        if kind == event_kinds.PROPOSAL_HELD:
             names = (str(p.get("item_name") or ""), str(p.get("task_name") or ""))
             self._held[names] = self._held_alert(*names)
-        elif kind == "proposal_released":
+        elif kind == event_kinds.PROPOSAL_RELEASED:
             self._held.pop(
                 (str(p.get("item_name") or ""), str(p.get("task_name") or "")), None
             )
-        elif news and kind in ("workflow_failed", "workflow_stalled"):
+        elif news and kind in (
+            event_kinds.WORKFLOW_FAILED,
+            event_kinds.WORKFLOW_STALLED,
+        ):
             self._ready.append(self._run_alert(kind, p, record))
-        elif news and kind == "workflow_completed":
+        elif news and kind == event_kinds.WORKFLOW_COMPLETED:
             self._ready.append(self._run_alert(kind, p, record))
 
     def _row_alert(self, row: Any, key: str) -> Optional[Alert]:
@@ -128,7 +132,7 @@ class AlertRules:
         key = f"{kind}|{record.get('seq')}|{record.get('t')}"
         counts = p.get("task_counts") or {}
         done = ", ".join(f"{n} {_words(s)}" for s, n in counts.items() if n)
-        if kind == "workflow_failed":
+        if kind == event_kinds.WORKFLOW_FAILED:
             lines = [str(p.get("error") or "")]
             remaining = p.get("tasks_remaining")
             if remaining:
@@ -143,7 +147,7 @@ class AlertRules:
                 name,
                 EXPERIMENT_PAGE,
             )
-        if kind == "workflow_stalled":
+        if kind == event_kinds.WORKFLOW_STALLED:
             return Alert(
                 key,
                 FAILED,

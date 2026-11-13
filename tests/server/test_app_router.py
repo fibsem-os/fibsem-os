@@ -453,6 +453,17 @@ def test_events_long_poll_over_http(client, event_buffer):
     assert caught_up["events"] == []
 
 
+def test_events_say_what_they_are_when_asked(client, event_buffer):
+    event_buffer.append("task_failed", {"task_name": "Polishing", "error": "boom"})
+    plain = client.get("/app/events?since=0", headers=AUTH).json()["events"][-1]
+    assert "text" not in plain
+    said = client.get("/app/events?since=0&text=true", headers=AUTH).json()
+    record = said["events"][-1]
+    assert record["group"] == "workflow"
+    assert record["text"]["label"] == "failed"
+    assert record["text"]["error"] == "boom"
+
+
 def test_events_unavailable_without_a_buffer(microscope, host):
     host._idle_buffer = None  # a session with no stream at all
     app = build_server(

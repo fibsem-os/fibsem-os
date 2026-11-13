@@ -11,6 +11,7 @@ approve its own request or raise its own level.
 
 import base64
 import os
+from dataclasses import asdict
 from typing import Any, Dict, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -33,7 +34,8 @@ from fibsem.server.agent.customisation import customisation
 from fibsem.server.agent.requests import RequestRefused
 from fibsem.server.agent.setup import setup_text
 from fibsem.server.auth import refusal_error, require_operator
-from fibsem.server.knowledge_routes import _instrument, _source
+from fibsem.server.bodies import LevelBody, MessageBody, ReasonBody
+from fibsem.server.knowledge_routes import entry_source, request_instrument
 from fibsem.server.parts import served_parts
 from fibsem.server.responses import (
     AgentCustomisation,
@@ -58,9 +60,8 @@ from fibsem.server.responses import (
 from fibsem.workflows import evidence, examples
 
 
-def _text(body: Dict[str, Any], key: str, required: bool = True) -> str:
-    value = body.get(key, "")
-    if not isinstance(value, str) or (required and not value.strip()):
+def _text(value: str, key: str, required: bool = True) -> str:
+    if required and not value.strip():
         raise refusal_error(422, "missing_field", f"Pass {key!r} as text.")
     return value.strip()
 
@@ -203,27 +204,20 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
         )
 
     @router.post("/messages", status_code=201, response_model=MessageSent)
-    def send_message(request: Request, body: Dict[str, Any]):
+    def send_message(request: Request, body: MessageBody):
         # A message with marks may say nothing more.
-        text = _text(body, "text", required=body.get("evidence") is None)
+        text = _text(body.text, "text", required=body.evidence is None)
         if len(text) > MESSAGE_LIMIT:
             raise refusal_error(
                 422,
                 "too_long",
                 f"A message is at most {MESSAGE_LIMIT} characters.",
             )
-        marked = body.get("evidence")
+        marked = asdict(body.evidence) if body.evidence is not None else None
         record = None
         if marked is not None:
             # The image the operator marked for the agent, kept in the
             # experiment as the agent's own evidence is.
-            if not isinstance(marked, dict):
-                raise refusal_error(
-                    422,
-                    "invalid",
-                    "evidence is {image, marks, channels?, answers?, verdict?, "
-                    "judged?, keep?, sample?}.",
-                )
             # Kept as an example in the knowledge base: of the session's
             # sample, its playbook or this microscope.
             if marked.get("keep") and not examples.said(marked):
@@ -266,9 +260,9 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
         return answer(MessageSent(message_id, evidence_id), status_code=201)
 
     @router.put("/level", response_model=LevelSet)
-    def set_level(body: Dict[str, Any]):
+    def set_level(body: LevelBody):
         try:
-            level = AgentLevel(_text(body, "level").lower())
+            level = AgentLevel(_text(body.level, "level").lower())
         except ValueError:
             names = ", ".join(level.value for level in AgentLevel)
             raise refusal_error(422, "bad_level", f"The level is one of {names}.")
@@ -295,9 +289,9 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
         return answer(ConnectionDecided(ask_id, True, name))
 
     @router.post("/connections/{ask_id}/deny", response_model=ConnectionDecided)
-    def deny_connection(ask_id: str, body: Optional[Dict[str, Any]] = None):
+    def deny_connection(ask_id: str, body: Optional[ReasonBody] = None):
         """Refuse the agent asking to connect, with the operator's reason."""
-        reason = _text(body or {}, "reason", required=False)
+        reason = _text(body.reason if body else "", "reason", required=False)
         try:
             agent.deny_connection(ask_id, reason)
         except LookupError as exc:
@@ -322,8 +316,8 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
                 message=text,
                 task=agent.citing(record["answers"]) if answered else None,
                 root=root,
-                instrument=_instrument(request),
-                source=_source(request, root, None),
+                instrument=request_instrument(request),
+                source=entry_source(request, root, None),
             )
         except (knowledge.KnowledgeError, ValueError) as error:
             raise refusal_error(
@@ -346,9 +340,9 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
         return answer(RequestDecided(request_id, True))
 
     @router.post("/requests/{request_id}/reject", response_model=RequestDecided)
-    def reject_request(request_id: str, body: Optional[Dict[str, Any]] = None):
+    def reject_request(request_id: str, body: Optional[ReasonBody] = None):
         _store()
-        reason = _text(body or {}, "reason", required=False)
+        reason = _text(body.reason if body else "", "reason", required=False)
         try:
             agent.reject(request_id, reason)
         except RequestRefused as refusal:
@@ -361,10 +355,10 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
         return _decided(agent.approve_suggestion(proposal_id), proposal_id)
 
     @router.post("/suggestions/{proposal_id}/decline", response_model=SuggestionDecided)
-    def decline_suggestion(proposal_id: str, body: Optional[Dict[str, Any]] = None):
+    def decline_suggestion(proposal_id: str, body: Optional[ReasonBody] = None):
         """Drop the suggestion with the operator's reason, as the card's
         Decline; the proposal stays pending."""
-        reason = _text(body or {}, "reason", required=False)
+        reason = _text(body.reason if body else "", "reason", required=False)
         return _decided(agent.decline_suggestion(proposal_id, reason), proposal_id)
 
     return router

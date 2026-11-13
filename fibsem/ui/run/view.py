@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Callable, List, Optional, Tuple
 
-from qtpy.QtCore import QObject, Qt
+from qtpy.QtCore import QEventLoop, QObject, Qt, QTimer
 from qtpy.QtWidgets import QMessageBox, QWidget
 
 from fibsem.acting import AGENT, OPERATOR
@@ -38,6 +38,10 @@ if TYPE_CHECKING:
     from fibsem.workflows.status import WorkflowStatusEvent, WorkflowStatusUpdate
 
 __all__ = ["RunView"]
+
+# How long a close waits for the run it stopped to end, and how often it looks.
+CLOSE_WAIT_S = 15.0
+CLOSE_POLL_MS = 100
 
 
 class RunView(QObject):
@@ -112,9 +116,7 @@ class RunView(QObject):
 
         Only asked while one is running: any other close loses nothing, since
         pending edits are flushed on the way out. Confirming stops the run, the
-        same as Stop Workflow, without waiting for it to wind down -- the worker
-        may be waiting on this thread, and it is a daemon thread, so it cannot
-        hold the process open.
+        same as Stop Workflow, and waits a short while for it to wind down.
         """
         if not self._session.runner.is_running:
             return True
@@ -132,7 +134,46 @@ class RunView(QObject):
         if box.exec() != QMessageBox.StandardButton.Yes:
             return False
         self._session.runner.stop(actor=OPERATOR, via="closing the window")
+        self._wait_for_the_run_to_end()
         return True
+
+    def _wait_for_the_run_to_end(self) -> None:
+        """Give the stopped run up to ``CLOSE_WAIT_S`` to wind down before the
+        window goes, saying so meanwhile.
+
+        Its thread is a daemon thread, so a process that exits first ends it at
+        whatever line it is on: before it has turned the beams off, or recorded
+        the task as cancelled. Waited for in an event loop, not a join: the
+        worker may be waiting on this thread. A run that does not end in time
+        is left, as before, and the close goes ahead.
+        """
+        runner = self._session.runner
+        if not runner.is_running:
+            return
+        box = QMessageBox(self._host)
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setWindowTitle("Stopping the workflow")
+        box.setText("Waiting for the workflow to stop…")
+        box.setStandardButtons(QMessageBox.StandardButton.NoButton)
+        box.setWindowModality(Qt.WindowModality.ApplicationModal)
+        box.show()
+        loop = QEventLoop()
+        poll = QTimer()
+        poll.setInterval(CLOSE_POLL_MS)
+        poll.timeout.connect(lambda: runner.is_running or loop.quit())
+        poll.start()
+        QTimer.singleShot(int(CLOSE_WAIT_S * 1000), loop.quit)
+        try:
+            loop.exec()
+        finally:
+            poll.stop()
+            box.close()
+            box.deleteLater()
+        if runner.is_running:
+            logging.warning(
+                f"The workflow did not stop within {CLOSE_WAIT_S:g} s of the "
+                "window closing; closing anyway."
+            )
 
     def _on_stopping(self) -> None:
         """A stop was asked of the run, from any source. A bound method rather

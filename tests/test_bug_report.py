@@ -1,6 +1,7 @@
 """Tests for the bug report bundle builder and its helpers."""
 
 import getpass
+import json
 import os
 import zipfile
 
@@ -38,7 +39,7 @@ def test_bundle_filename_and_base_contents(tmp_path):
     )
 
     fname = os.path.basename(zip_path)
-    assert fname.startswith("bug-report-autolamella-")
+    assert fname.startswith("bug-report-fibsem-")
     assert fname.endswith(".zip")
     assert "AutoLamella-test" not in fname  # experiment name is not in filename
 
@@ -68,7 +69,7 @@ def test_bundle_includes_selected_text_files_scrubbed(tmp_path):
     assert not any(n.endswith(".tiff") for n in names)
     # home directory scrubbed out of text artifacts
     assert os.path.expanduser("~") not in log_text
-    assert "<redacted>" in log_text
+    assert "<home>" in log_text
 
 
 def test_bundle_excludes_text_files_when_unselected(tmp_path):
@@ -77,6 +78,8 @@ def test_bundle_excludes_text_files_when_unselected(tmp_path):
         include_logfile=False,
         include_experiment_yaml=False,
         include_protocol=False,
+        include_crash_records=False,
+        include_settings=False,
     )
     zip_path = bug_report.build_bug_report_bundle(
         content, experiment_path=experiment_path, output_dir=str(tmp_path)
@@ -112,9 +115,11 @@ def test_estimate_bundle_size(tmp_path):
         include_logfile=False,
         include_experiment_yaml=False,
         include_protocol=False,
+        include_crash_records=False,
+        include_settings=False,
     )
     assert bug_report.estimate_bundle_size(experiment_path, empty) == 0
-    assert bug_report.estimate_bundle_size(None, BugReportContent()) == 0
+    assert bug_report.estimate_bundle_size(None, empty) == 0
 
     full = BugReportContent(include_screenshots=True, include_images=True)
     assert bug_report.estimate_bundle_size(experiment_path, full) > 0
@@ -267,3 +272,248 @@ def test_a_runaway_title_still_leaves_room_for_the_body(monkeypatch):
 
     assert len(seen["url"]) <= bug_report.GITHUB_MAX_URL_LENGTH
     assert "the trench collapsed" in _body_of(seen["url"])
+
+
+# --- scrubbing: what names the person, the site or the machine ----------
+
+
+def test_a_login_that_is_an_ordinary_word_is_not_blanked_everywhere(monkeypatch):
+    monkeypatch.setattr(bug_report.getpass, "getuser", lambda: "user")
+
+    scrubbed = bug_report.scrub_text("The user moved the stage. user_preferences ok")
+
+    assert scrubbed == "The user moved the stage. user_preferences ok"
+
+
+def test_the_data_folder_goes_and_the_experiment_folder_stays():
+    text = r"saved D:\Data\some-lab\yeast-01\01-lam\ref.tif"
+
+    scrubbed = bug_report.scrub_text(text, r"D:\Data\some-lab\yeast-01")
+
+    assert "some-lab" not in scrubbed
+    assert r"<data>\yeast-01\01-lam\ref.tif" in scrubbed
+
+
+def test_a_path_written_with_doubled_separators_is_scrubbed_too():
+    text = r'"path": "D:\\Data\\some-lab\\yeast-01\\ref.tif"'
+
+    scrubbed = bug_report.scrub_text(text, r"D:\Data\some-lab\yeast-01")
+
+    assert "some-lab" not in scrubbed
+    assert "ref.tif" in scrubbed
+
+
+def test_any_other_absolute_path_keeps_only_its_last_two_parts():
+    scrubbed = bug_report.scrub_text(r"read E:\facility\some-lab\grids\map.tif")
+
+    assert "some-lab" not in scrubbed and "facility" not in scrubbed
+    assert r"<path>\grids\map.tif" in scrubbed
+
+
+def test_a_traceback_keeps_its_path_inside_the_package():
+    scrubbed = bug_report.scrub_text(f'File "{bug_report.__file__}", line 1')
+
+    assert os.path.join("<install>", "fibsem", "tools", "bug_report.py") in scrubbed
+
+
+def test_a_traceback_keeps_its_path_inside_another_package():
+    text = 'File "/opt/env/lib/python3.11/site-packages/numpy/core/numeric.py"'
+
+    scrubbed = bug_report.scrub_text(text)
+
+    assert scrubbed == 'File "<packages>/numpy/core/numeric.py"'
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "see https://github.com/fibsem-os/fibsem-os/issues/new",
+        "in fibsem/ui/widgets/thing.py",
+        "ratio 3/4/5 on 2026/11/13",
+    ],
+)
+def test_what_is_not_an_absolute_path_is_left_alone(text):
+    """A link, a path inside the repository, a fraction and a date."""
+    assert bug_report.scrub_text(text) == text
+
+
+def test_the_computer_name_is_removed(monkeypatch):
+    monkeypatch.setenv("COMPUTERNAME", "FIB-PC-07")
+
+    scrubbed = bug_report.scrub_text("connected from fib-pc-07 to FIB-PC-07:8000")
+
+    assert "pc-07" not in scrubbed.lower()
+    assert scrubbed.count("<host>") == 2
+
+
+def test_a_file_from_the_experiment_loses_who_and_where():
+    text = (
+        "metadata:\n  user: A Person\n  organisation: Some Lab\n  sample: yeast\n"
+        "  project: null\ncontact: a.person@example.org\n"
+    )
+
+    scrubbed = bug_report.scrub_file_text(text)
+
+    assert "A Person" not in scrubbed and "Some Lab" not in scrubbed
+    assert "example.org" not in scrubbed
+    assert "sample: yeast" in scrubbed
+    assert "project: null" in scrubbed
+
+
+def test_a_redacted_json_value_is_still_json():
+    scrubbed = bug_report.scrub_file_text('{\n  "user": "A Person",\n  "n": 1\n}')
+
+    assert json.loads(scrubbed) == {"user": "<redacted>", "n": 1}
+
+
+def test_the_bundle_scrubs_the_experiment_file(tmp_path):
+    experiment_path = _make_experiment_dir(tmp_path)
+    with open(os.path.join(experiment_path, "experiment.yaml"), "w") as f:
+        f.write(f"path: {experiment_path}\nmetadata:\n  user: A Person\n")
+
+    zip_path = bug_report.build_bug_report_bundle(
+        BugReportContent(title="t"), experiment_path, output_dir=str(tmp_path)
+    )
+
+    with zipfile.ZipFile(zip_path) as zf:
+        saved = zf.read("AutoLamella-test/experiment.yaml").decode()
+    assert "A Person" not in saved
+    assert str(tmp_path) not in saved
+    assert "AutoLamella-test" in saved
+
+
+def test_the_public_issue_is_scrubbed(monkeypatch):
+    seen = _capture_url(monkeypatch)
+    home = os.path.expanduser("~")
+    content = BugReportContent(
+        title=f"crash in {home}/data", description=f"open {home}/data/a/b.yaml"
+    )
+
+    result = bug_report.open_github_issue(content)
+
+    assert home not in seen["url"] and home not in _body_of(seen["url"])
+    assert home not in result.full_text
+
+
+# --- what the bundle holds beyond the experiment's own files ------------
+
+
+@pytest.fixture
+def this_pc(tmp_path, monkeypatch):
+    """A PC with an error record, settings and an agent session, under tmp_path."""
+    from fibsem import diagnostics
+    from fibsem.ai.agent import manager
+
+    log = tmp_path / "state" / "log"
+    (log / "crashes").mkdir(parents=True)
+    (log / "crashes" / "2026-01-01-00-00-00-1-01.json").write_text('{"error": "x"}')
+    preferences = tmp_path / "state" / "user-preferences.yaml"
+    preferences.write_text("contact_email: me@example.org\n")
+    configuration = tmp_path / "state" / "microscope-configuration.yaml"
+    configuration.write_text("ip_address: 192.168.0.12\nlocal: 127.0.0.1\n")
+    session = tmp_path / "sessions" / "2026-01-01-000000-abc"
+    session.mkdir(parents=True)
+    (session / manager.RECORD).write_text("{}")
+    (session / manager.LOG).write_text("the agent said hello")
+    monkeypatch.setattr(diagnostics.cfg, "LOG_PATH", str(log))
+    monkeypatch.setattr(
+        bug_report.fibsem_cfg, "USER_PREFERENCES_PATH", str(preferences)
+    )
+    monkeypatch.setattr(
+        bug_report.fibsem_cfg, "DEFAULT_CONFIGURATION_PATH", str(configuration)
+    )
+    monkeypatch.setattr(manager, "sessions_dir", lambda: tmp_path / "sessions")
+    return tmp_path
+
+
+def _read(zip_path, name):
+    with zipfile.ZipFile(zip_path) as zf:
+        return zf.read(name).decode()
+
+
+def test_a_bundle_without_an_experiment_still_holds_this_pcs_records(this_pc):
+    zip_path = bug_report.build_bug_report_bundle(
+        BugReportContent(title="t"), None, output_dir=str(this_pc)
+    )
+
+    names = _names(zip_path)
+    assert "crashes/2026-01-01-00-00-00-1-01.json" in names
+    assert "settings/user-preferences.yaml" in names
+    assert "settings/microscope-configuration.yaml" in names
+    assert not any(name.startswith("agent/") for name in names)
+    assert "example.org" not in _read(zip_path, "settings/user-preferences.yaml")
+    configuration = _read(zip_path, "settings/microscope-configuration.yaml")
+    assert "192.168.0.12" not in configuration
+    assert "127.0.0.1" in configuration
+
+
+def test_the_agent_log_goes_in_only_when_asked(this_pc):
+    zip_path = bug_report.build_bug_report_bundle(
+        BugReportContent(title="t", include_agent_log=True),
+        None,
+        output_dir=str(this_pc),
+    )
+
+    assert _read(zip_path, "agent/fibsem-agent.log") == "the agent said hello"
+
+
+def test_this_pcs_records_can_be_left_out(this_pc):
+    content = BugReportContent(
+        title="t", include_crash_records=False, include_settings=False
+    )
+
+    zip_path = bug_report.build_bug_report_bundle(content, None, str(this_pc))
+
+    assert sorted(_names(zip_path)) == ["report.md", "system_info.json"]
+    assert bug_report.estimate_bundle_size(None, content) == 0
+
+
+def test_the_operator_named_on_the_experiment_is_removed_from_its_events(this_pc):
+    experiment_path = _make_experiment_dir(this_pc)
+    with open(os.path.join(experiment_path, "experiment.yaml"), "w") as f:
+        f.write("metadata:\n  user: A Person\n  organisation: Some Lab\n")
+    with open(os.path.join(experiment_path, "events.jsonl"), "w") as f:
+        f.write('{"actor": "operator:A Person", "kind": "stop"}\n')
+
+    zip_path = bug_report.build_bug_report_bundle(
+        BugReportContent(title="t"), experiment_path, output_dir=str(this_pc)
+    )
+
+    events = _read(zip_path, "AutoLamella-test/events.jsonl")
+    assert "A Person" not in events
+    assert json.loads(events) == {"actor": "operator:<redacted>", "kind": "stop"}
+
+
+def test_a_short_name_is_not_removed_everywhere(tmp_path):
+    experiment_path = _make_experiment_dir(tmp_path)
+    with open(os.path.join(experiment_path, "experiment.yaml"), "w") as f:
+        f.write("metadata:\n  user: Al\n  project: null\n")
+
+    assert bug_report.names_in(experiment_path) == []
+
+
+def test_the_command_line_makes_a_bundle(this_pc, capsys):
+    from fibsem import cli
+
+    experiment_path = _make_experiment_dir(this_pc)
+    out = this_pc / "out"
+
+    with pytest.raises(SystemExit) as stopped:
+        cli.main(["report", experiment_path, "--title", "it stopped", "-o", str(out)])
+
+    assert stopped.value.code == 0
+
+    (bundle,) = out.glob("bug-report-fibsem-*.zip")
+    assert "AutoLamella-test/logfile.log" in _names(bundle)
+    assert "it stopped" in _read(bundle, "report.md")
+    assert str(bundle) in capsys.readouterr().out
+
+
+def test_the_command_line_refuses_a_folder_that_is_not_an_experiment(tmp_path, capsys):
+    from fibsem import cli
+
+    with pytest.raises(SystemExit) as stopped:
+        cli.main(["report", str(tmp_path)])
+
+    assert stopped.value.code == 1
+    assert "no experiment" in capsys.readouterr().out
