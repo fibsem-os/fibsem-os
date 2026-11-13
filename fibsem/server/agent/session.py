@@ -28,6 +28,7 @@ from fibsem.ai.agent.levels import AgentLevel
 from fibsem.ai.agent.report import SessionReport, plain
 from fibsem.ai.agent.session import budget_low
 from fibsem.codec import decode
+from fibsem.instrument_id import instrument_id
 from fibsem.server.auth import AuthConfig, refusal_error, require_level
 from fibsem.server.bodies import MessagesReadBody
 from fibsem.server.responses import AgentSession
@@ -95,8 +96,8 @@ def report(auth: AuthConfig, body: Dict[str, Any]) -> tuple:
 
 
 def where(request: Request) -> Dict[str, Optional[str]]:
-    """The served instrument's serial number and the open experiment's id;
-    None for each the server can't name."""
+    """This instrument's id, the serial number its microscope reports, and
+    the open experiment's id; None for each the server can't name."""
     microscope = getattr(getattr(request.app.state, "served", None), "current", None)
     serial = getattr(
         getattr(getattr(microscope, "system", None), "info", None),
@@ -105,6 +106,7 @@ def where(request: Request) -> Dict[str, Optional[str]]:
     )
     experiment = getattr(getattr(microscope, "experiment", None), "id", None)
     return {
+        "instrument_id": instrument_id(),
         "instrument_serial": serial if serial not in ("", "Unknown") else None,
         "experiment_id": str(experiment) if experiment else None,
     }

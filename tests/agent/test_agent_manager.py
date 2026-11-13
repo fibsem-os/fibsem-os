@@ -288,10 +288,13 @@ def test_a_session_folder_records_each_run_and_how_it_ended(tmp_path):
 
 def test_a_session_folder_keeps_the_instrument_and_experiment_it_works_on(tmp_path):
     session = SessionFolder.open("abc", {}, root=tmp_path)
-    session.keep_where({"instrument_serial": "SN-1", "experiment_id": "exp-1"})
+    session.keep_where(
+        {"instrument_id": "i-1", "instrument_serial": "SN-1", "experiment_id": "exp-1"}
+    )
     # A report the server names no experiment in does not forget the last one.
     session.keep_where({"instrument_serial": "SN-1"})
     record = session.record()
+    assert record["instrument_id"] == "i-1"
     assert record["instrument_serial"] == "SN-1"
     assert record["experiment_id"] == "exp-1"
     session.keep_where({"experiment_id": "exp-2"})

@@ -1884,6 +1884,7 @@ export interface components {
             goal: string | null;
             harness: string | null;
             hooks: components["schemas"]["Hook"][] | null;
+            instrument_id: string | null;
             instrument_serial: string | null;
             model: string | null;
             playbook: components["schemas"]["PlaybookState"] | null;

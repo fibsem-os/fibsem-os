@@ -139,7 +139,9 @@ class ReportedSession(SessionReport):
     # Read from its plan, when it keeps one.
     deadlines: Optional[List[Deadline]] = None
     # The instrument it is connected to and the experiment open there, as the
-    # server knows them: ids, which a rename does not change.
+    # server knows them: ids, which a rename does not change. The serial
+    # number is what the microscope reports, when it reports one.
+    instrument_id: Optional[str] = None
     instrument_serial: Optional[str] = None
     experiment_id: Optional[str] = None
 

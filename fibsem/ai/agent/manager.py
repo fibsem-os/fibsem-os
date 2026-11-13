@@ -196,7 +196,7 @@ class SessionFolder:
         record = self.record()
         found = {
             key: reported[key]
-            for key in ("instrument_serial", "experiment_id")
+            for key in ("instrument_id", "instrument_serial", "experiment_id")
             if reported.get(key) and reported[key] != record.get(key)
         }
         if found:
