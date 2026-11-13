@@ -79,10 +79,16 @@ def test_mark_milled_in_sem_orientation_is_centred_in_the_fm(microscope, scene):
         )
     )
 
-    # where the FM render puts the trench, from the mask it draws
+    # where the FM render puts the mark: where its line of sight meets the cut
     masks = []
-    milled_mask = scene.milled_mask
-    scene.milled_mask = lambda xs, ys: masks.append(milled_mask(xs, ys)) or masks[-1]
+    fraction = scene.milled_fraction
+
+    def seen(xs, ys):
+        gone = fraction(xs, ys)
+        masks.append(gone > 0.02)
+        return gone
+
+    scene.milled_fraction = seen
     projection = FMStageProjection.from_microscope(microscope)
     height, width = projection.shape
     scene.render_fm(

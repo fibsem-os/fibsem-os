@@ -1,0 +1,466 @@
+_id: 8259df1e-fd68-48b6-822d-4e89ce3c7e64
+name: AutoLamella Protocol
+description: On Grid Lamella Preparation Protocol
+version: '1.0'
+tasks:
+    Setup Lamella Position:
+        task_type: SELECT_MILLING_POSITION
+        parameters:
+            milling_angle: 15
+            auto_milling_alignment: false
+            use_autofocus: true
+            select_poi: true
+        milling: {}
+        reference_imaging:
+            imaging:
+                beam_type: ELECTRON
+                resolution:
+                - 1536
+                - 1024
+                dwell_time: 1.0e-06
+                hfw: 0.00015
+                autocontrast: false
+                autogamma: false
+                save: false
+                path: null
+                filename: default_image
+                reduced_area: null
+                line_integration: null
+                scan_interlacing: null
+                frame_integration: null
+                drift_correction: false
+            field_of_view1: 0.0001
+            field_of_view2: 0.00015
+            acquire_sem: true
+            acquire_fib: true
+            acquire_image1: true
+            acquire_image2: true
+    Mill Fiducial:
+        task_type: MILL_FIDUCIAL
+        parameters:
+            alignment_expansion: 150
+            align_to_reference: true
+        milling:
+            fiducial:
+                name: Fiducial
+                field_of_view: 0.0001
+                channel: ION
+                alignment:
+                    enabled: false
+                    interval_enabled: false
+                    interval: 30
+                    rect:
+                        left: 0.7
+                        top: 0.3
+                        width: 0.25
+                        height: 0.4
+                    use_autocontrast: true
+                    use_autofocus: false
+                    steps: 3
+                    imaging:
+                        beam_type: ELECTRON
+                        resolution:
+                        - 1536
+                        - 1024
+                        dwell_time: 1.0e-06
+                        hfw: 0.00015
+                        autocontrast: false
+                        autogamma: false
+                        save: false
+                        path: /data/work
+                        filename: default_image
+                        reduced_area: null
+                        line_integration: null
+                        scan_interlacing: null
+                        frame_integration: null
+                        drift_correction: false
+                acquisition:
+                    acquire_sem: false
+                    acquire_fib: false
+                    imaging:
+                        beam_type: ELECTRON
+                        resolution:
+                        - 1536
+                        - 1024
+                        dwell_time: 1.0e-06
+                        hfw: 0.00015
+                        autocontrast: false
+                        autogamma: false
+                        save: false
+                        path: null
+                        filename: default_image
+                        reduced_area: null
+                        line_integration: null
+                        scan_interlacing: null
+                        frame_integration: null
+                        drift_correction: false
+                stages:
+                -   name: Fiducial 01
+                    enabled: true
+                    milling:
+                        milling_current: 1.0e-09
+                        spot_size: 5.0e-08
+                        rate: 3.0e-11
+                        dwell_time: 1.0e-06
+                        hfw: 0.00015
+                        patterning_mode: Serial
+                        application_file: Si
+                        preset: 30 keV; 1nA
+                        spacing: 1.0
+                        milling_voltage: 30000.0
+                        milling_channel: ION
+                    pattern:
+                        point:
+                            x: 2.5e-05
+                            y: 0.0
+                            name: null
+                        width: 1.0e-06
+                        height: 1.0e-05
+                        depth: 1.0e-06
+                        rotation: 45
+                        cross_section: Rectangle
+                        asymmetric: false
+                        name: Fiducial
+                    strategy:
+                        name: Standard
+                        config: {}
+        reference_imaging:
+            imaging:
+                beam_type: ELECTRON
+                resolution:
+                - 1536
+                - 1024
+                dwell_time: 1.0e-06
+                hfw: 0.00015
+                autocontrast: false
+                autogamma: false
+                save: false
+                path: null
+                filename: default_image
+                reduced_area: null
+                line_integration: null
+                scan_interlacing: null
+                frame_integration: null
+                drift_correction: false
+            field_of_view1: 0.0001
+            field_of_view2: 0.00015
+            acquire_sem: true
+            acquire_fib: true
+            acquire_image1: true
+            acquire_image2: true
+    Rough Milling:
+        task_type: MILL_ROUGH
+        parameters:
+            sync_polishing_position: true
+            sync_to_poi: true
+            reacquire_alignment_reference: false
+        milling:
+            mill_rough:
+                name: Rough Milling
+                field_of_view: 0.0001
+                channel: ION
+                alignment:
+                    enabled: true
+                    interval_enabled: false
+                    interval: 30
+                    rect:
+                        left: 0.7
+                        top: 0.3
+                        width: 0.25
+                        height: 0.4
+                    use_autocontrast: true
+                    use_autofocus: false
+                    steps: 3
+                    imaging:
+                        beam_type: ELECTRON
+                        resolution:
+                        - 1536
+                        - 1024
+                        dwell_time: 1.0e-06
+                        hfw: 0.00015
+                        autocontrast: false
+                        autogamma: false
+                        save: false
+                        path: /data/work
+                        filename: default_image
+                        reduced_area: null
+                        line_integration: null
+                        scan_interlacing: null
+                        frame_integration: null
+                        drift_correction: false
+                acquisition:
+                    acquire_sem: false
+                    acquire_fib: false
+                    imaging:
+                        beam_type: ELECTRON
+                        resolution:
+                        - 1536
+                        - 1024
+                        dwell_time: 1.0e-06
+                        hfw: 0.00015
+                        autocontrast: false
+                        autogamma: false
+                        save: false
+                        path: null
+                        filename: default_image
+                        reduced_area: null
+                        line_integration: null
+                        scan_interlacing: null
+                        frame_integration: null
+                        drift_correction: false
+                stages:
+                -   name: Rough Mill 01
+                    enabled: true
+                    milling:
+                        milling_current: 7.4e-10
+                        spot_size: 5.0e-08
+                        rate: 3.0e-11
+                        dwell_time: 1.0e-06
+                        hfw: 0.00015
+                        patterning_mode: Serial
+                        application_file: Si-ccs
+                        preset: 30 keV; 1nA
+                        spacing: 1.0
+                        milling_voltage: 30000.0
+                        milling_channel: ION
+                    pattern:
+                        point:
+                            x: 0.0
+                            y: 0.0
+                            name: null
+                        width: 1.0e-05
+                        depth: 2.0e-06
+                        spacing: 4.6e-06
+                        upper_trench_height: 3.5e-06
+                        lower_trench_height: 3.5e-06
+                        cross_section: CleaningCrossSection
+                        time: 0.0
+                        fillet: 0.0
+                        name: Trench
+                    strategy:
+                        name: Standard
+                        config: {}
+                -   name: Rough Mill 02
+                    enabled: true
+                    milling:
+                        milling_current: 2.0e-10
+                        spot_size: 5.0e-08
+                        rate: 3.0e-11
+                        dwell_time: 1.0e-06
+                        hfw: 0.00015
+                        patterning_mode: Serial
+                        application_file: Si-ccs
+                        preset: 30 keV; 1nA
+                        spacing: 1.0
+                        milling_voltage: 30000.0
+                        milling_channel: ION
+                    pattern:
+                        point:
+                            x: 0.0
+                            y: 0.0
+                            name: null
+                        width: 9.5e-06
+                        depth: 2.0e-06
+                        spacing: 1.6e-06
+                        upper_trench_height: 2.0e-06
+                        lower_trench_height: 2.0e-06
+                        cross_section: CleaningCrossSection
+                        time: 0.0
+                        fillet: 0.0
+                        name: Trench
+                    strategy:
+                        name: Standard
+                        config: {}
+                -   name: Stress Relief Feature
+                    enabled: true
+                    milling:
+                        milling_current: 1.0e-09
+                        spot_size: 5.0e-08
+                        rate: 3.0e-11
+                        dwell_time: 1.0e-06
+                        hfw: 0.00015
+                        patterning_mode: Serial
+                        application_file: Si
+                        preset: 30 keV; 1nA
+                        spacing: 1.0
+                        milling_voltage: 30000.0
+                        milling_channel: ION
+                    pattern:
+                        point:
+                            x: 0.0
+                            y: 0.0
+                            name: null
+                        width: 5.0e-07
+                        height: 1.8e-05
+                        depth: 1.0e-06
+                        distance: 1.0e-05
+                        name: MicroExpansion
+                    strategy:
+                        name: Standard
+                        config: {}
+        reference_imaging:
+            imaging:
+                beam_type: ELECTRON
+                resolution:
+                - 1536
+                - 1024
+                dwell_time: 1.0e-06
+                hfw: 0.00015
+                autocontrast: false
+                autogamma: false
+                save: false
+                path: null
+                filename: default_image
+                reduced_area: null
+                line_integration: null
+                scan_interlacing: null
+                frame_integration: null
+                drift_correction: false
+            field_of_view1: 0.0001
+            field_of_view2: 0.00015
+            acquire_sem: true
+            acquire_fib: true
+            acquire_image1: true
+            acquire_image2: true
+    Polishing:
+        task_type: MILL_POLISHING
+        parameters:
+            sync_to_poi: true
+        milling:
+            mill_polishing:
+                name: Polishing
+                field_of_view: 0.0001
+                channel: ION
+                alignment:
+                    enabled: true
+                    interval_enabled: false
+                    interval: 30
+                    rect:
+                        left: 0.7
+                        top: 0.3
+                        width: 0.25
+                        height: 0.4
+                    use_autocontrast: true
+                    use_autofocus: false
+                    steps: 3
+                    imaging:
+                        beam_type: ELECTRON
+                        resolution:
+                        - 1536
+                        - 1024
+                        dwell_time: 1.0e-06
+                        hfw: 0.00015
+                        autocontrast: false
+                        autogamma: false
+                        save: false
+                        path: /data/work
+                        filename: default_image
+                        reduced_area: null
+                        line_integration: null
+                        scan_interlacing: null
+                        frame_integration: null
+                        drift_correction: false
+                acquisition:
+                    acquire_sem: false
+                    acquire_fib: false
+                    imaging:
+                        beam_type: ELECTRON
+                        resolution:
+                        - 1536
+                        - 1024
+                        dwell_time: 1.0e-06
+                        hfw: 0.00015
+                        autocontrast: false
+                        autogamma: false
+                        save: false
+                        path: null
+                        filename: default_image
+                        reduced_area: null
+                        line_integration: null
+                        scan_interlacing: null
+                        frame_integration: null
+                        drift_correction: false
+                stages:
+                -   name: Polishing Mill 01
+                    enabled: true
+                    milling:
+                        milling_current: 6.0e-11
+                        spot_size: 5.0e-08
+                        rate: 3.0e-11
+                        dwell_time: 1.0e-06
+                        hfw: 0.00015
+                        patterning_mode: Serial
+                        application_file: Si-ccs
+                        preset: 30 keV; 1nA
+                        spacing: 1.0
+                        milling_voltage: 30000.0
+                        milling_channel: ION
+                    pattern:
+                        point:
+                            x: 0.0
+                            y: 0.0
+                            name: null
+                        width: 9.0e-06
+                        depth: 1.0e-06
+                        spacing: 3.0e-07
+                        upper_trench_height: 7.0e-07
+                        lower_trench_height: 7.0e-07
+                        cross_section: CleaningCrossSection
+                        time: 0.0
+                        fillet: 0.0
+                        name: Trench
+                    strategy:
+                        name: Standard
+                        config: {}
+        reference_imaging:
+            imaging:
+                beam_type: ELECTRON
+                resolution:
+                - 1536
+                - 1024
+                dwell_time: 1.0e-06
+                hfw: 0.00015
+                autocontrast: false
+                autogamma: false
+                save: false
+                path: null
+                filename: default_image
+                reduced_area: null
+                line_integration: null
+                scan_interlacing: null
+                frame_integration: null
+                drift_correction: false
+            field_of_view1: 0.0001
+            field_of_view2: 0.00015
+            acquire_sem: true
+            acquire_fib: true
+            acquire_image1: true
+            acquire_image2: true
+workflow:
+    name: ''
+    description: ''
+    tasks:
+    -   name: Setup Lamella Position
+        supervise: true
+        required: true
+        requires: []
+        scheduled_at: null
+    -   name: Mill Fiducial
+        supervise: true
+        required: true
+        requires: []
+        scheduled_at: null
+    -   name: Rough Milling
+        supervise: true
+        required: true
+        requires:
+        - Mill Fiducial
+        scheduled_at: null
+    -   name: Polishing
+        supervise: true
+        required: true
+        requires:
+        - Rough Milling
+        scheduled_at: null
+options:
+    turn_beams_off: false

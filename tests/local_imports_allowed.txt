@@ -48,7 +48,7 @@ fibsem/autofunctions/autofocus.py 8
 fibsem/autofunctions/brightness_contrast.py 3
 fibsem/autofunctions/charge_neutralisation.py 1
 fibsem/autofunctions/plotting.py 5
-fibsem/cli.py 14
+fibsem/cli.py 15
 fibsem/client/pairing.py 1
 fibsem/client/remote_microscope.py 4
 fibsem/codec/upgrades/fluorescence.py 1
@@ -142,6 +142,7 @@ fibsem/structures/image.py 1
 fibsem/structures/params.py 2
 fibsem/structures/settings.py 7
 fibsem/structures/system.py 5
+fibsem/tools/bug_report.py 1
 fibsem/tools/desktop_launch.py 3
 fibsem/tools/hardware_check/__init__.py 1
 fibsem/ui/FibsemImageSettingsWidget.py 1
@@ -179,7 +180,7 @@ fibsem/versioning.py 1
 fibsem/workflows/config_patch.py 1
 fibsem/workflows/estimate.py 3
 fibsem/workflows/event_recording.py 2
-fibsem/workflows/events.py 2
+fibsem/workflows/events/__init__.py 2
 fibsem/workflows/evidence.py 10
 fibsem/workflows/experiment.py 3
 fibsem/workflows/grid/manager.py 1

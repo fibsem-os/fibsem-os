@@ -24,6 +24,7 @@ import urllib.request
 from pathlib import Path
 from typing import Callable, List, Optional, Sequence
 
+from fibsem import diagnostics
 from fibsem.gateway.agent import GatewayAgent
 from fibsem.gateway.gateway import (
     GATEWAY_FILE,
@@ -378,6 +379,7 @@ def _end(pid: int) -> None:
 
 def main(argv: Optional[List[str]] = None) -> int:
     refuse("fibsem-gateway")
+    diagnostics.install("fibsem-gateway")
     argv = sys.argv[1:] if argv is None else argv
     if not argv or argv[0].startswith("-") and argv[0] not in ("-h", "--help"):
         argv = ["run", *argv]

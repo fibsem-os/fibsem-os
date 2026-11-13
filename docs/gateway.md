@@ -28,7 +28,8 @@ connect as it starts, give connection flags to `install` or `run` (`--manufactur
 `--ip-address`, `--config`): every start then connects with them.
 
 The gateway listens on this PC only (`http://127.0.0.1:8010`). Another computer reaches it
-over an SSH tunnel, as it reaches the App Server.
+over an SSH tunnel, as it reaches the App Server: see
+[Running the agent on another computer](ssh-tunnel.md).
 
 ## The window and the page
 

@@ -12,6 +12,7 @@ import os
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any, Dict, Iterator, Mapping, Optional, Tuple
+from urllib.parse import urlsplit
 
 import httpx
 import numpy as np
@@ -52,6 +53,30 @@ NO_SERVER = (
     "FIBSEM_SERVER_TOKEN, or start the App Server on this machine (it writes "
     "~/.fibsem/app-server.json)."
 )
+
+
+THIS_COMPUTER = ("localhost", "127.0.0.1", "::1")
+
+
+def unreachable_why(url: str) -> str:
+    """What to check when nothing answers at *url*. A localhost address is the
+    app on this computer, or the end of an SSH tunnel to the microscope PC when
+    no app here serves that port."""
+    split = urlsplit(url)
+    if split.hostname not in THIS_COMPUTER:
+        return (
+            f"Nothing answers at {url}: check that {split.hostname} is on and "
+            "its app is serving"
+        )
+    found = read_discovery_file()
+    if found is not None and urlsplit(found["url"]).port == split.port:
+        return f"Nothing answers at {url}: the app on this computer isn't serving"
+    port = split.port or 80
+    return (
+        f"Nothing answers at {url}. The app has stopped, or the SSH tunnel to the "
+        f"microscope PC is down: start it with ssh -N -L {port}:127.0.0.1:{port} "
+        "<account>@<microscope-pc>"
+    )
 
 
 class ServerUnreachable(ConnectionError):
@@ -265,7 +290,8 @@ class Transport:
             ) from None
         except httpx.TransportError as error:
             raise ServerUnreachable(
-                f"{method} {self.url}{path}: {type(error).__name__}"
+                f"{method} {self.url}{path}: {type(error).__name__}. "
+                + unreachable_why(self.url)
             ) from None
 
     def _attempt(
