@@ -1258,7 +1258,7 @@ def test_an_urgent_line_cuts_the_turn_short_and_others_wait(session, caplog):
 
     agent = ScriptedAgent(reply)
     running = _harness(session, agent)
-    assert wait_for(lambda: len(agent.prompts) >= 2), "the turn after the interrupt"
+    _until(lambda: len(agent.prompts) >= 2, what="the turn after the interrupt")
     assert running.stop() == 0
 
     assert agent.interrupts == 1
@@ -1313,11 +1313,11 @@ def test_a_stage_move_cut_short_finishes_once_and_lets_go_of_control(session):
     agent = ScriptedAgent(reply)
     running = _harness(session, agent)
     try:
-        assert wait_for(lambda: len(agent.prompts) >= 2), "the turn after the stop"
+        _until(lambda: len(agent.prompts) >= 2, what="the turn after the stop")
         assert not answers, "the move answered before it was let go"
     finally:
         release.set()
-    assert wait_for(lambda: answers), "the move's answer"
+    _until(lambda: answers, what="the move's answer")
     assert running.stop() == 0
     assert not answers[0].is_error, answers[0]
 
