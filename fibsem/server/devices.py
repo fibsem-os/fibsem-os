@@ -99,6 +99,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
 
 from fibsem import config as fcfg
+from fibsem import diagnostics
 from fibsem.ai.agent.calls import current_call
 from fibsem.cancellation import NothingToStop, OperationCancelledError
 from fibsem.codec import decode, encode
@@ -1181,6 +1182,7 @@ def switch_off_fms(devices: Iterable[Device]) -> None:
 
 
 def main(argv: Optional[List[str]] = None) -> None:
+    diagnostics.install("fibsem-devices")
     parser = argparse.ArgumentParser(description="Serve devices over HTTP.")
     parser.add_argument(
         "--host", default=None, help="default the file's server.host, else 127.0.0.1"
