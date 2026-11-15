@@ -49,6 +49,8 @@ from fibsem.ui.stylesheets import (
 )
 from fibsem.ui.utils import open_path_in_file_explorer
 
+logger = logging.getLogger(__name__)
+
 # (context, reason). A context of None means "cannot run", and reason says why.
 ContextFactory = Callable[[], Tuple[Optional[Any], str]]
 # (message, level) where level is info/success/warning/error
@@ -191,7 +193,7 @@ class ScriptRunner:
         A script that never checks it runs to completion regardless.
         """
         if self.is_running:
-            logging.info("Stop requested for the running script.")
+            logger.info("Stop requested for the running script.")
             self._stop_event.set()
 
     def run(
@@ -216,7 +218,7 @@ class ScriptRunner:
             return None
 
         if script.background and not script.uses_microscope:
-            logging.warning(
+            logger.warning(
                 "Script %s declares background=True; running inline for now.",
                 script.name,
             )
@@ -226,7 +228,7 @@ class ScriptRunner:
         # undo. Read-only scripts, the common case, go straight through.
         consequence = self._consequence(script)
         if consequence and not self.confirm(f"Run '{script.name}'?", consequence):
-            logging.info("Script %s cancelled at the confirmation.", script.name)
+            logger.info("Script %s cancelled at the confirmation.", script.name)
             return None
 
         if script.uses_microscope:

@@ -35,6 +35,8 @@ from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpda
 from fibsem.ui.widgets.spot_burn_coordinates_widget import SpotBurnCoordinatesWidget
 from fibsem.utils import format_value
 
+logger = logging.getLogger(__name__)
+
 HIDE_PROGRESS_DELAY_MS = 2000  # how long the "Done" bar stays up before hiding
 
 
@@ -365,7 +367,7 @@ class FibsemSpotBurnWidget(QWidget):
             )
             return
 
-        logging.info(
+        logger.info(
             f"Running spot burn with {len(settings.coordinates)} points. "
             f"Beam current: {settings.milling_current} A, exposure time: {settings.exposure_time} s"
         )
@@ -388,7 +390,7 @@ class FibsemSpotBurnWidget(QWidget):
 
     def cancel_spot_burn(self) -> None:
         """Cancel the running spot burn."""
-        logging.info("Cancelling spot burn...")
+        logger.info("Cancelling spot burn...")
         self.stop_event.set()
 
     def _run_spot_burn(self, settings: SpotBurnSettings) -> None:
@@ -425,7 +427,7 @@ class FibsemSpotBurnWidget(QWidget):
         The failed bar is deliberately left on screen (no auto-hide) so the failure is
         still visible if the user was not watching when it happened.
         """
-        logging.error(f"Spot burn failed: {error}")
+        logger.error(f"Spot burn failed: {error}")
         self._restore_idle_state()
 
     def _restore_idle_state(self) -> None:

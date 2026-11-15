@@ -32,6 +32,8 @@ if TYPE_CHECKING:
     from fibsem.server.app_context import AppContext
     from fibsem.ui.widgets.microscope_panel import MicroscopePanel
 
+logger = logging.getLogger(__name__)
+
 __all__ = ["AppWindow"]
 
 
@@ -187,7 +189,7 @@ class AppWindow(QMainWindow):
         """Point the image settings at the experiment, and register the
         microscope's metadata with it. The panel follows the experiment itself."""
         if self.experiment is None:
-            logging.warning("Cannot setup experiment connections: experiment is None")
+            logger.warning("Cannot setup experiment connections: experiment is None")
             return
         if self.settings is not None:
             self.settings.image.path = self.experiment.path
@@ -241,7 +243,7 @@ class AppWindow(QMainWindow):
         serve = bool(serve)
         if serve == self.session.serve_microscope:
             return
-        logging.info(
+        logger.info(
             "App Server: the microscope %s by the operator",
             "served" if serve else "no longer served",
         )
@@ -312,13 +314,13 @@ class AppWindow(QMainWindow):
         try:
             self.flush_editors()
         except Exception as e:
-            logging.warning(f"Could not flush a pending experiment save on close: {e}")
+            logger.warning(f"Could not flush a pending experiment save on close: {e}")
         # persist the FM working state (channels / camera transform / objective)
         if self.panel.fm_control_widget is not None:
             try:
                 self.panel.fm_control_widget.save_fm_configuration()
             except Exception as e:
-                logging.warning(f"Could not save FM working state on close: {e}")
+                logger.warning(f"Could not save FM working state on close: {e}")
         self._closing()
         # After the flush, so its edit is recorded: write what is queued to
         # events.jsonl and stop the recorder's writer thread. Nothing else does,
@@ -326,7 +328,7 @@ class AppWindow(QMainWindow):
         try:
             self.session.stop_recording()
         except Exception as e:
-            logging.warning(f"Could not close the event recorder on close: {e}")
+            logger.warning(f"Could not close the event recorder on close: {e}")
         # Last, so everything above has the microscope it needs. Let the
         # instrument go rather than leave the client open until the process ends.
         if self.microscope is not None:

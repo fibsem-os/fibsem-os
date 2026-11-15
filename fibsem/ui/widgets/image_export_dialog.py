@@ -62,6 +62,8 @@ from fibsem.ui.stylesheets import (
 )
 from fibsem.ui.utils import arr_to_qimage
 
+logger = logging.getLogger(__name__)
+
 _FORMATS = (("PNG", ".png"), ("TIFF", ".tif"))
 _SCALES = (("1×", 1), ("2×", 2))
 _LOCATIONS = (("Left", "lower left"), ("Right", "lower right"))
@@ -560,7 +562,7 @@ class ImageExportDialog(QDialog):
         try:
             written = self.save(path)
         except (OSError, ValueError) as e:
-            logging.exception("Failed to export image to %s", path)
+            logger.exception("Failed to export image to %s", path)
             notification_service.show_toast(f"Couldn't save the image: {e}", "error")
             return
         notification_service.show_toast(
@@ -588,7 +590,7 @@ def open_image_export(parent: Optional[QWidget] = None, start_dir: str = "") -> 
     try:
         image = load_export_image(path)
     except Exception as e:
-        logging.exception("Failed to read %s for export", path)
+        logger.exception("Failed to read %s for export", path)
         notification_service.show_toast(
             f"Couldn't read {os.path.basename(path)}: {e}", "error"
         )

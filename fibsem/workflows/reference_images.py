@@ -11,6 +11,8 @@ from fibsem.fm.structures import FluorescenceImage
 from fibsem.structures.image import FibsemImage
 from fibsem.workflows.proposals import Proposal
 
+logger = logging.getLogger(__name__)
+
 __all__ = ["load_reference_image", "preview_of"]
 
 
@@ -26,7 +28,7 @@ def load_reference_image(
         return None
     path = os.path.join(str(experiment.item_path(item)), path)
     if not os.path.exists(path):
-        logging.warning(f"Reference image not found: {path}")
+        logger.warning(f"Reference image not found: {path}")
         return None
     fluorescence = path.lower().endswith((".ome.tif", ".ome.tiff"))
     try:
@@ -34,7 +36,7 @@ def load_reference_image(
             return FluorescenceImage.load(path)
         return FibsemImage.load(path)
     except Exception:
-        logging.exception(f"Could not load the reference image: {path}")
+        logger.exception(f"Could not load the reference image: {path}")
         return None
 
 
@@ -48,6 +50,6 @@ def preview_of(image: Any) -> Optional[Any]:
         try:
             return composite_projection(image)
         except Exception:
-            logging.exception("Could not project the fluorescence image")
+            logger.exception("Could not project the fluorescence image")
             return None
     return image

@@ -171,6 +171,8 @@ from fibsem.structures.image import FibsemImage
 from fibsem.structures.params import Limits
 from fibsem.structures.system import read_device_entries
 
+logger = logging.getLogger(__name__)
+
 # Before uvicorn 0.54 its default websockets implementation imports websockets.legacy,
 # which websockets 14+ deprecates on import; under the test suite's warnings-as-errors
 # that kills the server thread. The sans-I/O one serves /events without it.
@@ -211,7 +213,7 @@ def refusal(error: Exception, what: str) -> HTTPException:
         detail["device"] = device
     if isinstance(error, ResourceBusy):
         detail.update(resource=error.resource, holder=error.holder)
-    logging.info(f"{what}: {status} {detail['error_type']}: {error}")
+    logger.info(f"{what}: {status} {detail['error_type']}: {error}")
     return refusal_error(status, **detail)
 
 
@@ -219,7 +221,7 @@ def unexpected(error: Exception, what: str) -> HTTPException:
     """The answer to any other error: 500, in the same shape as a refusal, so a
     client reads every failure one way. The traceback goes to the server's log,
     not the answer."""
-    logging.error(f"{what}: {type(error).__name__}: {error}", exc_info=error)
+    logger.error(f"{what}: {type(error).__name__}: {error}", exc_info=error)
     return refusal_error(500, type(error).__name__, str(error))
 
 
@@ -246,7 +248,7 @@ def _facts(device: Device) -> Dict[str, Any]:
     try:
         return jsonable_encoder(facts())
     except Exception as error:  # a description without facts beats none at all
-        logging.warning(f"{device.name}: facts: {type(error).__name__}: {error}")
+        logger.warning(f"{device.name}: facts: {type(error).__name__}: {error}")
         return {}
 
 
@@ -330,7 +332,7 @@ def _arguments(device: Device, name: str) -> Dict[str, Any]:
     try:
         return arguments_schema(getattr(type(device), name))
     except Exception as error:  # a schema is a help, never a reason to fail a listing
-        logging.warning(f"{device.name}.{name}: no argument schema: {error!r}")
+        logger.warning(f"{device.name}.{name}: no argument schema: {error!r}")
         return {}
 
 
@@ -340,7 +342,7 @@ def _type_path(device: Device, parameter: str) -> Optional[str]:
     try:
         return type_path(device.declared_parameters()[parameter].type)
     except Exception as error:  # a type is a help, never a reason to fail a listing
-        logging.warning(f"{device.name}.{parameter}: no type path: {error!r}")
+        logger.warning(f"{device.name}.{parameter}: no type path: {error!r}")
         return None
 
 
@@ -351,7 +353,7 @@ def _returns(device: Device, name: str) -> Optional[str]:
     try:
         return None if hint is None else type_path(hint)
     except Exception as error:  # a type is a help, never a reason to fail a listing
-        logging.warning(f"{device.name}.{name}: no return type: {error!r}")
+        logger.warning(f"{device.name}.{name}: no return type: {error!r}")
         return None
 
 
@@ -421,9 +423,7 @@ async def stream_events(
                 }
                 loop.call_soon_threadsafe(offer, event)
             except Exception:  # noqa: BLE001 - the emitter must not pay for it
-                logging.debug(
-                    f"could not send {source.name}.{parameter}", exc_info=True
-                )
+                logger.debug(f"could not send {source.name}.{parameter}", exc_info=True)
 
         # A parameter's signals carry its name; a remote signal is named here.
         callback = publish if name is None else partial(publish, name)
@@ -1178,7 +1178,7 @@ def switch_off_fms(devices: Iterable[Device]) -> None:
             try:
                 device.switch_off()
             except Exception as e:
-                logging.error(f"{device.name}: could not switch the light off: {e}")
+                logger.error(f"{device.name}: could not switch the light off: {e}")
 
 
 def main(argv: Optional[List[str]] = None) -> None:
@@ -1231,7 +1231,7 @@ def main(argv: Optional[List[str]] = None) -> None:
     if args.serve is None:
         args.serve = [] if args.config else ["beams"]
     if args.mount_transform is not None:
-        logging.warning(
+        logger.warning(
             "--mount-transform still works, but belongs in the Device Server's file: "
             f"mount_transform: {args.mount_transform} on its fm entry."
         )
@@ -1244,7 +1244,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         try:
             settings = read_server_settings(args.config)
         except Exception as e:
-            logging.error(f"{args.config}: {e}")
+            logger.error(f"{args.config}: {e}")
             raise SystemExit(1) from e
         sources.append(settings)
     sources += [
@@ -1256,7 +1256,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         try:
             more, closes = configured_devices(source)
         except Exception as e:
-            logging.error(f"{args.config if source is settings else 'FM'}: {e}")
+            logger.error(f"{args.config if source is settings else 'FM'}: {e}")
             disconnect_devices(built, cleanups)
             raise SystemExit(1) from e
         built.update(more)
@@ -1266,7 +1266,7 @@ def main(argv: Optional[List[str]] = None) -> None:
     if demo_parts:
         served += demo_devices(demo_parts)
     if not served:
-        logging.error("Nothing to serve: no device was built.")
+        logger.error("Nothing to serve: no device was built.")
         raise SystemExit(1)
     devices: Mapping[str, Device] = {d.name: d for d in served}
     switch_off_fms(devices.values())
@@ -1287,7 +1287,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             # Now, not when the buffer fills: the output may be a log file.
             flush=True,
         )
-    logging.info(f"serving {sorted(devices)} on http://{host}:{port}")
+    logger.info(f"serving {sorted(devices)} on http://{host}:{port}")
     try:
         uvicorn.run(
             build_device_app(devices.values(), auth),

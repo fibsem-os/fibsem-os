@@ -38,6 +38,8 @@ from fibsem.workflows.attention import Attention
 if TYPE_CHECKING:
     from fibsem.plugins.loader import PluginRegistry
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class TaskConfig(Configurable, ABC):
@@ -82,7 +84,7 @@ class TaskConfig(Configurable, ABC):
             - cls.retired_parameters
         )
         for key in sorted(unknown):
-            logging.warning(f"Unknown field '{key}' in {cls.__name__}; ignored.")
+            logger.warning(f"Unknown field '{key}' in {cls.__name__}; ignored.")
         return decode(cls, upgrade.typed_fields(cls, data))
 
 
@@ -113,7 +115,7 @@ def load_task_configs(
         try:
             config = load_task_config(registry, {**data, "task_name": name}, kind)
         except KeyError as e:
-            logging.warning(f"{kind.capitalize()} '{name}' skipped: {e}")
+            logger.warning(f"{kind.capitalize()} '{name}' skipped: {e}")
             continue
         configs[name] = config
     return configs

@@ -48,6 +48,8 @@ from fibsem.ui.qt.threading import thread_worker
 from fibsem.ui.widgets.custom_widgets import TitledPanel, style_with_tooltip
 from fibsem.ui.widgets.sample_holder_widget import _NAME_FIELD_STYLE
 
+logger = logging.getLogger(__name__)
+
 _ROW_HEIGHT = 34
 _SLOT_LABEL_WIDTH = 28
 _STATE_LABEL_WIDTH = 64
@@ -410,7 +412,7 @@ class SampleLoaderWidget(QWidget):
         try:
             self._microscope.sample_handling.assign_grid(slot.name, grid, persist=True)
         except Exception as e:  # noqa: BLE001 - the hardware kept the old name; say so
-            logging.warning(f"Could not write the name of {slot.name}: {e}")
+            logger.warning(f"Could not write the name of {slot.name}: {e}")
             # The next read would bring the old name back anyway, so keep it now
             # rather than show a name the hardware does not hold.
             slot.loaded_grid = current
@@ -528,7 +530,7 @@ class SampleLoaderWidget(QWidget):
         self._say(self._done_text)
 
     def _on_errored(self, error: Exception) -> None:
-        logging.warning(f"Autoloader operation failed: {error}")
+        logger.warning(f"Autoloader operation failed: {error}")
         self._say(str(error), error=True)
 
     def _on_finished(self) -> None:

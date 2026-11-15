@@ -28,6 +28,8 @@ from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, _Spinn
 from fibsem.ui.widgets.dual_beam_widget import FibsemDualBeamWidget
 from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
 
+logger = logging.getLogger(__name__)
+
 
 class FibsemImageSettingsWidget(QtWidgets.QWidget):
     viewer_update_signal = Signal()  # when the viewer is updated
@@ -412,7 +414,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
             if controller is not None:
                 controller.set_image(image.metadata.beam_type, image)
         except Exception as e:
-            logging.error(f"Error updating image: {e}")
+            logger.error(f"Error updating image: {e}")
 
         self.viewer_update_signal.emit()
 
@@ -438,7 +440,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
 
     def _stop_live(self) -> None:
         """Stop live view off the GUI thread: stopping waits for the frame in flight."""
-        logging.info("Microscope is already acquiring. Stopping acquisition...")
+        logger.info("Microscope is already acquiring. Stopping acquisition...")
         self._stopping_live = True
         self.pushButton_start_acquisition.setEnabled(False)
         self.pushButton_start_acquisition.setText("Stopping…")
@@ -627,7 +629,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
                 item = self._item_selection.selected_item
                 self.image_settings_widget.path_edit.setText(str(item.path))
             except Exception as e:
-                logging.debug(f"Error setting image path from the selected item: {e}")
+                logger.debug(f"Error setting image path from the selected item: {e}")
         else:
             experiment = self._experiment() if self._experiment else None
             if experiment is not None:
@@ -642,7 +644,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
                     f"Save with Selected {self._noun} ({item.name})"
                 )
         except Exception as e:
-            logging.debug(f"Error updating image path from the selected item: {e}")
+            logger.debug(f"Error updating image path from the selected item: {e}")
 
     def _toggle_interactions(
         self, enable: bool, caller: str = None, imaging: bool = False
@@ -680,11 +682,11 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
 
     def handle_acquisition_progress_update(self, ddict: dict):
         """Handle the acquisition progress update"""
-        logging.debug(f"Acquisition Progress Update: {ddict}")
+        logger.debug(f"Acquisition Progress Update: {ddict}")
 
         msg = ddict.get("msg", None)
         if msg is not None:
-            logging.debug(msg)
+            logger.debug(msg)
             notification_service.show_toast(msg)
 
     def acquisition_finished(self, beams=()) -> None:
@@ -729,7 +731,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
             if self.checkBox_save_with_selected_item.isChecked():
                 self.image_settings.filename = f"ref_{filename}"
         except Exception as e:
-            logging.error(f"Error getting the selected item for image saving: {e}")
+            logger.error(f"Error getting the selected item for image saving: {e}")
 
         ts = utils.current_timestamp(TIME_FILE)
         self.image_settings.filename = f"{self.image_settings.filename}-{ts}"
@@ -775,7 +777,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
 
         self.acquisition_progress_signal.emit({"finished": True})
 
-        logging.debug(
+        logger.debug(
             {
                 "msg": "acquisition_worker",
                 "image_settings": self.image_settings.to_dict(),

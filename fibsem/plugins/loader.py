@@ -37,6 +37,8 @@ from typing import (
     TypeVar,
 )
 
+logger = logging.getLogger(__name__)
+
 __all__ = [
     "PluginRecord",
     "PluginRegistry",
@@ -220,7 +222,7 @@ def _load(group: str, kind: str, resolve: Resolver) -> List[PluginRecord]:
         try:
             obj = entry_point.load()
         except Exception as exc:
-            logging.error(
+            logger.error(
                 "Unexpected error raised while attempting to import %s from '%s'",
                 kind,
                 entry_point.value,
@@ -232,13 +234,13 @@ def _load(group: str, kind: str, resolve: Resolver) -> List[PluginRecord]:
         try:
             name, registered = resolve(obj)
         except PluginRejected as exc:
-            logging.warning(
+            logger.warning(
                 "Invalid %s plugin found: '%s': %s", kind, entry_point.value, exc
             )
             records.append(replace(record, error=str(exc)))
             continue
         except Exception as exc:
-            logging.error(
+            logger.error(
                 "Unexpected error raised while loading %s from '%s'",
                 kind,
                 entry_point.value,
@@ -247,7 +249,7 @@ def _load(group: str, kind: str, resolve: Resolver) -> List[PluginRecord]:
             records.append(replace(record, error=f"{type(exc).__name__}: {exc}"))
             continue
 
-        logging.info("Loaded %s plugin '%s'", kind, name)
+        logger.info("Loaded %s plugin '%s'", kind, name)
         records.append(replace(record, obj=registered, name=name))
 
     return records
@@ -311,7 +313,7 @@ class PluginRegistry(Generic[T]):
     def register(self, name: str, obj: T) -> None:
         """Register *obj* under *name* at runtime, replacing an earlier one."""
         self.registered[name] = obj
-        logging.info("Registered %s '%s'", self.kind, name)
+        logger.info("Registered %s '%s'", self.kind, name)
 
     def plugin_records(self) -> Tuple[PluginRecord, ...]:
         """Every entry point in the group and what became of it, read once.

@@ -41,6 +41,8 @@ from fibsem.workflows.events import (
 from fibsem.workflows.events.kinds import LIVE_KINDS  # noqa: F401 - read from here too
 from fibsem.workflows.proposals import _encode_values
 
+logger = logging.getLogger(__name__)
+
 EVENTS_FILENAME = "events.jsonl"
 
 # How many records may wait for the disk before new ones are dropped. A stalled
@@ -85,7 +87,7 @@ def run_recorder(
             microscope, experiment_path=experiment.path, experiment=experiment
         )
     except Exception:  # noqa: BLE001 - recording must not cost the run
-        logging.warning("This run's events are not recorded.", exc_info=True)
+        logger.warning("This run's events are not recorded.", exc_info=True)
         return None, None
     return made, made
 
@@ -137,7 +139,7 @@ class EventFileWriter:
         except queue.Full:
             self.dropped += 1
             if self.dropped == 1:
-                logging.warning(
+                logger.warning(
                     "event recording is behind; dropping events until it catches up"
                 )
 
@@ -168,7 +170,7 @@ class EventFileWriter:
                         handle = _close(handle)
                         if failed != path:
                             failed = path
-                            logging.exception(f"could not record events to {path}")
+                            logger.exception(f"could not record events to {path}")
             if handle is not None:
                 try:
                     handle.flush()
@@ -471,7 +473,7 @@ class EventRecorder:
             try:
                 self._proposals = ProposalTap(self.buffer, experiment)
             except Exception:  # noqa: BLE001 - recording must not cost the experiment
-                logging.warning(
+                logger.warning(
                     "could not watch the experiment's decisions; they are not "
                     "being recorded",
                     exc_info=True,
@@ -644,7 +646,7 @@ class ProposalTap:
                         actor=asker.kind if asker is not None else TASK,
                     )
         except Exception:  # noqa: BLE001 - recording must not matter
-            logging.debug(f"could not record the {task_name} question", exc_info=True)
+            logger.debug(f"could not record the {task_name} question", exc_info=True)
 
     def _on_decided(self, item_id: str, task_name: str) -> None:
         try:
@@ -658,7 +660,7 @@ class ProposalTap:
                         self._decided[(proposal.id, index)] = bool(decision.values)
                         self._record(item, task_name, proposal, index, decision, seen)
         except Exception:  # noqa: BLE001 - recording must not matter
-            logging.debug(f"could not record a {task_name} decision", exc_info=True)
+            logger.debug(f"could not record a {task_name} decision", exc_info=True)
 
     def _on_suggested(self, item_id: str, task_name: str) -> None:
         try:
@@ -684,7 +686,7 @@ class ProposalTap:
                     self._buffer.append("suggestion_declined", payload)
                 self._suggested[suggestion.id] = suggestion.declined
         except Exception:  # noqa: BLE001 - recording must not matter
-            logging.debug(f"could not record a {task_name} suggestion", exc_info=True)
+            logger.debug(f"could not record a {task_name} suggestion", exc_info=True)
 
     def _record(self, item, task_name, proposal, index, decision, seen) -> None:
         record = decision.to_dict()

@@ -1,6 +1,6 @@
 """Headless tests for CorrelationTabWidget FM-surface / RI-correction behaviour.
 
-Uses PyQt5 directly with the offscreen platform (no pytest-qt dependency),
+Uses Qt directly with the offscreen platform (no pytest-qt dependency),
 matching tests/fm/test_autofocus_widget.py.
 """
 

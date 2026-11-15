@@ -30,7 +30,7 @@ class RecordingUI:
     AutoLamellaUI needs a live napari viewer with docked widgets, so it cannot be
     built in a test. Everything else below is the real object. Deliberately not a
     QObject with real pyqtSignals — this module has no Qt dependency, and adding
-    one would take it out of CI, where PyQt5 is not installed.
+    one would take it out of CI, where Qt is not installed.
     """
 
     def __init__(self, manager: TaskManager):

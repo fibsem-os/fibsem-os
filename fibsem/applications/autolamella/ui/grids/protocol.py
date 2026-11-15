@@ -56,6 +56,8 @@ from fibsem.workflows.grid.reach import (
     overview_reach,
 )
 
+logger = logging.getLogger(__name__)
+
 # The name a new task gets, by type, before the person renames it. The role the
 # task records under follows the beam, so the default name says which.
 _DEFAULT_NAMES = {
@@ -386,7 +388,7 @@ class GridProtocolWidget(QWidget):
                 )
                 text = describe_reach(reaches, one_slot)
             except Exception as e:  # noqa: BLE001 - a warning, never a failure
-                logging.debug(f"Could not check the overview against the stage: {e}")
+                logger.debug(f"Could not check the overview against the stage: {e}")
         self.editor_panel.set_reach(text)
 
     @property
@@ -531,5 +533,5 @@ class GridProtocolWidget(QWidget):
         try:
             self._experiment.save(save_protocol=True)
         except Exception as e:  # noqa: BLE001 - a failed save is worth a line
-            logging.warning(f"Could not save the grid protocol: {e}")
+            logger.warning(f"Could not save the grid protocol: {e}")
         self.protocol_changed.emit()

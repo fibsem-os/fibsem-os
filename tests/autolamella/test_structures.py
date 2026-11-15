@@ -1,3 +1,4 @@
+import logging
 import os
 from pathlib import Path
 from typing import List
@@ -27,6 +28,8 @@ from fibsem.workflows.quality import QualityRecord, Verdict
 from fibsem.workflows.site_tasks.mill import (
     MillTaskConfig,
 )
+
+logger = logging.getLogger(__name__)
 
 # ── QualityRecord tests ─────────────────────────────────────────────────────────
 
@@ -613,7 +616,7 @@ def test_configure_logging_sends_output_to_the_experiment_logfile(tmp_path):
     try:
         logfile = exp.configure_logging()
 
-        logging.info("from a standalone script")
+        logger.info("from a standalone script")
         for handler in root.handlers:
             handler.flush()
 

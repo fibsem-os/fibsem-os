@@ -24,6 +24,8 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
+logger = logging.getLogger(__name__)
+
 ENTRY_POINT_GROUP = "fibsem.apps"
 ICONS_DIR = Path(str(importlib.resources.files("fibsem"))) / "ui" / "icons"
 
@@ -143,15 +145,15 @@ def apps() -> Dict[str, App]:
     found = dict(BUILTIN_APPS)
     for entry_point in importlib.metadata.entry_points(group=ENTRY_POINT_GROUP):
         if entry_point.name in found:
-            logging.warning("ignoring app entry point %r: name taken", entry_point.name)
+            logger.warning("ignoring app entry point %r: name taken", entry_point.name)
             continue
         try:
             app = entry_point.load()
         except Exception as e:
-            logging.warning("could not load app %r: %s", entry_point.name, e)
+            logger.warning("could not load app %r: %s", entry_point.name, e)
             continue
         if not isinstance(app, App):
-            logging.warning("app entry point %r is not an App", entry_point.name)
+            logger.warning("app entry point %r is not an App", entry_point.name)
             continue
         found[entry_point.name] = app
     return found

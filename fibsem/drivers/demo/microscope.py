@@ -66,6 +66,8 @@ from fibsem.structures.system import (
     SystemSettings,
 )
 
+logger = logging.getLogger(__name__)
+
 # The devices a Demo microscope has, in the order it builds them. The configuration's
 # `hardware.devices` switches one off, or adds one (``fibsem.devices.entries``).
 DEMO_DEVICES = (
@@ -138,7 +140,7 @@ class DemoMicroscope(FibsemMicroscope):
 
         self.milling_channel: BeamType = BeamType.ION
         self._connection.setup_sample_scene()
-        logging.debug(
+        logger.debug(
             {
                 "msg": "create_microscope_client",
                 "system_settings": self.system.to_dict(),
@@ -202,7 +204,7 @@ class DemoMicroscope(FibsemMicroscope):
         else:
             self.fm = None
         if self.fm is None:
-            logging.info("No fluorescence microscope in this simulated system.")
+            logger.info("No fluorescence microscope in this simulated system.")
 
         self._apply_fluorescence_calibration()
         self._warn_on_fluorescence_geometry()
@@ -232,12 +234,12 @@ class DemoMicroscope(FibsemMicroscope):
 
         # user logging
         info = self.system.info
-        logging.info(
+        logger.info(
             f"Microscope client connected to {info.model} with serial number {info.serial_number} and software version {info.software_version}"
         )
 
         # logging
-        logging.debug(
+        logger.debug(
             {
                 "msg": "connect_to_microscope",
                 "ip_address": ip_address,
@@ -249,14 +251,14 @@ class DemoMicroscope(FibsemMicroscope):
         try:
             self._build_sample_handling()
         except Exception as e:
-            logging.warning(f"Could not build the sample handling: {e}")
+            logger.warning(f"Could not build the sample handling: {e}")
 
         return
 
     def _disconnect(self) -> None:
         """Disconnect from the microscope server."""
         self._connection.disconnect()
-        logging.info("Disconnected from Demo Microscope")
+        logger.info("Disconnected from Demo Microscope")
 
     # The beam methods, on the beam devices.
 

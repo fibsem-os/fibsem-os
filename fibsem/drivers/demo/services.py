@@ -53,6 +53,8 @@ if TYPE_CHECKING:
     from fibsem.drivers.demo.microscope import DemoMicroscope
     from fibsem.drivers.demo.simulator import DemoSimulator
 
+logger = logging.getLogger(__name__)
+
 # simulated seconds each pattern takes
 _PATTERN_TIME = 5
 # set to mill for this fraction of the sputter-rate estimate instead
@@ -98,7 +100,7 @@ class DemoMilling(BeamMilling):
         self.connection.milling_system.patterning_mode = mode
 
     def _add(self, pattern: FibsemPatternSettings) -> None:
-        logging.debug({"msg": "draw_pattern", "pattern_settings": pattern.to_dict()})
+        logger.debug({"msg": "draw_pattern", "pattern_settings": pattern.to_dict()})
         self.connection.milling_system.patterns.append(pattern)
 
     # The Demo draws every pattern type, by adding it to the simulated list.
@@ -119,7 +121,7 @@ class DemoMilling(BeamMilling):
         if self.read_state() is MillingState.IDLE:
             self._set_state(MillingState.RUNNING)
             self._open_ended = True
-            logging.info("Milling started.")
+            logger.info("Milling started.")
 
     def _before_run(self) -> None:
         # Into the simulated sample from the start, so the scene shows the mill

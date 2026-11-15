@@ -1,16 +1,19 @@
 import os
 import sys
+import warnings
 
 
 def _default_qt_binding() -> None:
-    """Pick PySide6 unless QT_API names a binding (FIB-1565). qtpy would otherwise
-    take PyQt5 wherever both are installed. Windows 10 before build 1809 cannot run
-    Qt 6, so PyQt5 there; it needs the [pyqt5] extra. Must run before qtpy is
-    imported, hence here."""
-    if os.environ.get("QT_API"):
-        return
-    old_windows = sys.platform == "win32" and sys.getwindowsversion().build < 17763
-    os.environ["QT_API"] = "pyqt5" if old_windows else "pyside6"
+    """Pick PySide6 unless QT_API names a binding (FIB-1565). An environment upgraded
+    from 0.6 can still hold PyQt5, which qtpy would otherwise take first. Must run
+    before qtpy is imported, hence here."""
+    if sys.platform == "win32" and sys.getwindowsversion().build < 17763:
+        warnings.warn(
+            "The fibsemOS GUI needs Qt 6, which needs Windows 10 build 1809 or later. "
+            "On this PC use fibsemOS 0.6.",
+            stacklevel=2,
+        )
+    os.environ.setdefault("QT_API", "pyside6")
 
 
 _default_qt_binding()

@@ -13,6 +13,8 @@ from typing import Callable, Optional
 import numpy as np
 from scipy import ndimage
 
+logger = logging.getLogger(__name__)
+
 INTERPOLATION_METHODS = ["linear", "cubic"]
 
 
@@ -29,7 +31,7 @@ def interpolate_z_stack(
             )
 
         # remove the channel dimension
-        logging.info(f"Squeezing channel dimension from image of shape {image.shape}")
+        logger.info(f"Squeezing channel dimension from image of shape {image.shape}")
         image = np.squeeze(image, axis=0)
 
     if image.ndim != 3:
@@ -253,7 +255,7 @@ def multi_channel_interpolation(
         return np.empty((0,) + image.shape[1:], dtype=image.dtype)
 
     def one(i: int) -> np.ndarray:
-        logging.info(f"Interpolating channel {i + 1}/{n}")
+        logger.info(f"Interpolating channel {i + 1}/{n}")
         return interpolate_z_stack(
             image=image[i],
             pixelsize_in=pixelsize_in,

@@ -30,8 +30,6 @@ media/*
 .DS_Store
 fibsem/segmentation/models/**/*.pt*
 fibsem/segmentation/models/*
-example/**/*.tif
-example/demo/*
 fibsem/chat/secret.txt
 
 dist/*
@@ -40,7 +38,6 @@ fibsem/log/*
 fibsem/db/fibsem.db
 fibsem/notebook.ipynb
 scratch/health-monitor/*
-example/notebook.ipynb
 fibsem/segmentation/*config*.y*ml
 !fibsem/segmentation/segementation_config.yaml
 

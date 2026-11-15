@@ -84,6 +84,8 @@ from fibsem.structures.settings import (
 )
 from fibsem.util import timestamps
 
+logger = logging.getLogger(__name__)
+
 # Two beam currents closer than this, relatively, are the same current: a
 # brightness and contrast that worked at one is where to start at the other.
 _SAME_CURRENT = 0.05
@@ -453,7 +455,7 @@ class Imaging(Service):
         if beam.commands["auto_focus"].available:
             beam.auto_focus(reduced_area)
             return None
-        logging.debug(
+        logger.debug(
             f"{beam_type.name} has no autofocus of its own; running the focus sweep."
         )
         return self.focus_sweep(
@@ -795,7 +797,7 @@ class Imaging(Service):
                     iterations.append(
                         BrightnessContrastIteration(*controls, stats, image=data)
                     )
-                    logging.debug(
+                    logger.debug(
                         {
                             "msg": "auto_brightness_contrast",
                             "beam_type": beam_type.name,
@@ -821,7 +823,7 @@ class Imaging(Service):
                     try:
                         getattr(beam, param_name).write_through(value)
                     except Exception:
-                        logging.exception(f"Failed to restore the beam {param_name}")
+                        logger.exception(f"Failed to restore the beam {param_name}")
 
         best = iterations[-1]
         if problems(best.stats, settings):
@@ -852,7 +854,7 @@ class Imaging(Service):
             try:
                 result.save(path, name)
             except Exception:
-                logging.exception("Failed to save the brightness and contrast result")
+                logger.exception("Failed to save the brightness and contrast result")
         record = result.to_dict()
         if not result.usable:
             self.parent.record_event(
@@ -869,7 +871,7 @@ class Imaging(Service):
                 key, current, (best.brightness, best.contrast), stepper.response
             )
         else:
-            logging.warning(
+            logger.warning(
                 f"{beam_type.name} brightness and contrast short of the targets after "
                 f"{len(iterations)} images: {'; '.join(problems(best.stats, settings))}"
             )
@@ -1037,7 +1039,7 @@ def acquisition_record(image: FibsemImage, path: Optional[str]) -> Dict[str, Any
             stage_position=image.metadata.microscope_state.stage_position.to_dict(),
         )
     except Exception:  # noqa: BLE001 - an image without full metadata still says where it went
-        logging.debug("recording an acquisition without its metadata", exc_info=True)
+        logger.debug("recording an acquisition without its metadata", exc_info=True)
     return record
 
 

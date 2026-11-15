@@ -27,6 +27,8 @@ from fibsem.theme.tokens import CANVAS_BG, NEUTRAL_200, NEUTRAL_300, SURFACE_COL
 if TYPE_CHECKING:  # pragma: no cover - annotations only
     from fibsem.imaging.localise import PointFitDiagnostic
 
+logger = logging.getLogger(__name__)
+
 __all__ = [
     "FitStatus",
     "PointFitResult",
@@ -209,7 +211,7 @@ def refine_point(
                 )
                 fitted = PointXYZ(float(xr), float(yr), float(zr))
     except Exception as exc:
-        logging.exception("Point fit failed")
+        logger.exception("Point fit failed")
         error_detail = str(exc)  # raw text -> log + tooltip
         error = humanize_fit_error(exc)  # user-facing, actionable
         attempted = True

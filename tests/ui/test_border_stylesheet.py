@@ -3,7 +3,7 @@
 The single-source guard -- that these rules are not hand-written a second time --
 lives in tests/test_border_stylesheet_single_source.py, which imports nothing and so
 still runs on CI. This module needs the real ``fibsem.ui`` package, and importing any
-part of it pulls in Qt through ``fibsem/ui/__init__.py``, so it skips without PyQt5.
+part of it pulls in Qt through ``fibsem/ui/__init__.py``, so it skips without Qt.
 """
 
 import re

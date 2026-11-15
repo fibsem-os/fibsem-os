@@ -19,6 +19,8 @@ if TYPE_CHECKING:
     # in `base.py`. Deferred annotations are already on at the top of this file.
     from fibsem.microscope import FibsemMicroscope
 
+logger = logging.getLogger(__name__)
+
 ########################### SETUP
 
 
@@ -70,13 +72,13 @@ def setup_milling(
                 if reference_image is full_frame_reference
                 else "alignment area"
             )
-            logging.info(
+            logger.info(
                 f"{milling_stage.name}: aligning on the {used} at "
                 f"{current * 1e12:.0f} pA (full frame at or below "
                 f"{alignment_settings.full_frame_below * 1e12:.0f} pA)"
             )
 
-        logging.debug(
+        logger.debug(
             f"FIB Aligning at Milling Current: {milling_stage.milling.milling_current:.2e}"
         )
         # The stage's run folder when the milling task gave it one -- the same

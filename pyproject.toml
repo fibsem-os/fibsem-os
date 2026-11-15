@@ -85,13 +85,6 @@ ui = [
     "superqt>=0.6.0",
     "qtawesome>=1.4.0", # bundled Material Design Icons font (offline icon rendering); >=1.4.0 guards Spin.start/stop before first paint
 ]
-# The old binding, for one release (FIB-1565): `pip install "fibsem[ui,pyqt5]"`, then
-# QT_API=pyqt5. Picked by itself on Windows 10 older than build 1809, where Qt 6
-# does not run. See fibsem/__init__.py.
-pyqt5 = [
-    "pyqt5>=5.15.9",
-    "pyqt5-qt5 == 5.15.2 ; platform_system == 'Windows'",
-]
 odemis = ["pylibtiff", "shapely"]
 
 # Image labelling and model-assisted segmentation (`fibsem_label`,
@@ -100,7 +93,7 @@ odemis = ["pylibtiff", "shapely"]
 # labelling UI imports torch at module level.
 labelling = [
     "fibsem[ui,ml]",
-    "napari>=0.5.1,<0.10", # NumPy 2 well supported from 0.5.1; 0.6+ has Python 3.13 wheels (vispy>=0.15)
+    "napari>=0.5.1", # NumPy 2 well supported from 0.5.1; 0.6+ has Python 3.13 wheels (vispy>=0.15)
 ]
 
 # Empty: the server is in the base install. Kept so `pip install fibsem[server]` works.
@@ -147,7 +140,6 @@ fibsem-mcp = "fibsem.ai.agent.mcp.sidecar:main"
 fibsem-volume = "fibsem.applications.volume.launch:main"
 fibsem-volume-ui = "fibsem.tools.desktop_launch:volume"
 fibsem-autolamella-server = "fibsem.applications.autolamella.launch:main"
-fibsem-microscope-server = "fibsem.server.microscope_server:main"
 fibsem-agent = "fibsem.ai.agent.harness:main"
 fibsem-gateway = "fibsem.gateway.main:main"
 
@@ -159,10 +151,11 @@ fibsem-gateway-open = "fibsem.gateway.launch:open_gateway_page"
 # only the top-level fibsem/*.py and none of fibsem/ui, fibsem/milling, etc.
 [tool.setuptools.packages.find]
 include = ["fibsem*"]
-# Stated explicitly because it is load-bearing: the data-only folders
-# (fibsem/config, the protocol folders, fibsem/server/ui, fibsem/ui/icons, ...)
-# have no __init__.py and ship as namespace packages. Setting this false would
-# drop them from the wheel. Every folder of Python modules has an __init__.py.
+# Stated explicitly because it is load-bearing, not a preference: a dozen
+# directories are PEP 420 namespace packages with no __init__.py, including
+# fibsem/ui/widgets (68 modules).
+# This defaults to true for pyproject config, but setting it false — or reaching
+# for find_packages semantics — would silently drop all of them from the wheel.
 namespaces = true
 
 [tool.setuptools.package-data]
@@ -226,7 +219,10 @@ extend-exclude = [
 exclude = ["**/*.md"]
 
 [tool.ruff.lint]
-select = ["E4", "E7", "E9", "F", "I", "UP", "TID251", "S506"]
+select = ["E4", "E7", "E9", "F", "I", "UP", "TID251", "LOG"]
+# LOG015 (in LOG): log through `logger = logging.getLogger(__name__)`, not `logging.info(...)`,
+# so a log line names its module. scripts/codemods/named_loggers.py converts a file.
+
 # E501 (line-length) is deliberately absent. A formatter is what wraps code, and
 # most hits are long strings and comments nothing can wrap.
 #
