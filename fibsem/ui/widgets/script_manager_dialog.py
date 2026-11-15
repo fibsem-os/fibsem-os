@@ -97,7 +97,7 @@ AUTO_NOT_CONNECTED = "auto: declared, but scripts do not run automatically yet"
 # Shown in the empty state. Three worked examples exist, one per tier, but they live
 # in the repository rather than the wheel -- so someone who pip-installed has no
 # local copy and no way to know they exist.
-EXAMPLES_PATH = "examples/scripts/"
+EXAMPLES_PATH = "examples/app_scripts/"
 EXAMPLES_HINT = (
     f"Three worked examples — read-only, writes, and microscope — are in "
     f"<span style='font-family: Menlo, monospace;'>{EXAMPLES_PATH}</span> "

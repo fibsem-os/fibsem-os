@@ -19,9 +19,7 @@ logger = logging.getLogger(__name__)
 
 def main():
 
-    PROTOCOL_PATH = os.path.join(
-        os.path.dirname(__file__), "protocol_slice_and_view.yaml"
-    )
+    PROTOCOL_PATH = os.path.join(os.path.dirname(__file__), "protocol.yaml")
     microscope, settings = utils.setup_session(protocol_path=PROTOCOL_PATH)
 
     # Milling parameters for this run. These used to come from the configuration's

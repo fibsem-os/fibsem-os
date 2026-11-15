@@ -93,7 +93,7 @@ For a complete walkthrough of the AutoLamella workflow, see the [user guide](htt
 
 ### Getting Started with the API
 
-To get started with the fibsemOS API, see the example/example.py:
+To get started with the fibsemOS API, see the [examples/quickstart.py](examples/quickstart.py):
 
 You can start an offline demo microscope by setting `info.manufacturer: Demo` in the configuration yaml file (fibsem/config/microscope-configuration.yaml), as the shipped file does. The file's `hardware.devices` list says which devices the microscope builds and how; see [Configuring devices](docs/developers/devices.md#configuring-devices). This will start a demo microscope that you can use to test the API without connecting to a real microscope. To connect to a real microscope, set the ip_address and manufacturer of your microscope in the configuration file or alternatively, you can pass these arguments to utils.setup_session() directly. The simulator can also image a synthetic cryo-grid instead of noise; see [docs/simulator.md](docs/simulator.md).
 
@@ -136,7 +136,7 @@ if __name__ == "__main__":
 
 ```
 
-This example is available as a script in example/example.py.
+This example is available as a script in [examples/quickstart.py](examples/quickstart.py).
 For more detailed examples, see the Examples section below.
 
 The microscope's beams, stage and other hardware are also available as devices, whose parameters describe their own units, limits and choices:
@@ -157,12 +157,12 @@ See the [device guide](docs/developers/devices.md). The string-key `microscope.g
 
 For examples of core functionality please see:
 
-- example/example_imaging.py: image acquisition
-- example/example_movement.py: stage movement
-- example/example_milling.py: drawing patterns and beam milling
-- example/autolamella.py: recreation of [AutoLamella V1](https://github.com/DeMarcoLab/autolamella) (automated cryo-lamella preparation) in ~150 lines of code
+- [examples/imaging.py](examples/imaging.py): image acquisition
+- [examples/movement.py](examples/movement.py): stage movement
+- [examples/milling.py](examples/milling.py): drawing patterns and beam milling
+- [examples/autolamella_v1/](examples/autolamella_v1): recreation of [AutoLamella V1](https://github.com/DeMarcoLab/autolamella) (automated cryo-lamella preparation) in ~150 lines of code
 
-Additional example scripts and notebooks are available.
+[examples/README.md](examples/README.md) lists every example, including slice and view, lithography and the Script Manager scripts.
 
 ### Working with experiment data
 
