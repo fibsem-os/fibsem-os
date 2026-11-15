@@ -227,6 +227,19 @@ def _refuse_downloads(monkeypatch):
     monkeypatch.setattr(urllib.request, "urlretrieve", refuse)
 
 
+@pytest.fixture(autouse=True)
+def _no_browser_for_pdfs(monkeypatch):
+    """Print no report to a PDF: ``html_to_pdf`` starts the machine's Edge or Chrome,
+    and on a page a test stubbed out it waits its full minute for a PDF that never
+    comes. Its own tests import it by name and pass a stand-in browser."""
+    from fibsem.applications.autolamella.tools import pdf_export
+
+    def refuse(*args, **kwargs):
+        raise pdf_export.PdfExportError("tests do not start a browser")
+
+    monkeypatch.setattr(pdf_export, "html_to_pdf", refuse)
+
+
 @pytest.fixture(scope="module")
 def qapp():
     """Shared offscreen QApplication for widget tests.
