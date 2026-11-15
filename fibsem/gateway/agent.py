@@ -529,7 +529,7 @@ class GatewayAgent:
             except GatewayRefused:
                 self._unpair(HUB_AGENT_NAME)
                 raise
-            logging.info("Gateway paired the agent of hub %s (%s)", who, level)
+            logger.info("Gateway paired the agent of hub %s (%s)", who, level)
             return {"token": token, "level": level}
 
     def take_back(self, who: str) -> None:
@@ -545,7 +545,7 @@ class GatewayAgent:
                     self._level(url, AgentLevel.WATCH.value)
                 except GatewayRefused:
                     pass
-            logging.info("Gateway unpaired the agent of hub %s", who)
+            logger.info("Gateway unpaired the agent of hub %s", who)
 
     def hub_level(self, level: str, who: str, limited: bool = True) -> Dict[str, str]:
         """Set the level for *who*: a hub within this PC's limit."""
@@ -554,7 +554,7 @@ class GatewayAgent:
         if url is None:
             raise GatewayRefused(409, "no_app", "Run the app first.")
         self._level(url, level)
-        logging.info("%s set the agent's level to %s", who, level)
+        logger.info("%s set the agent's level to %s", who, level)
         return {"level": level}
 
     def end(
