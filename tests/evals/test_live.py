@@ -273,7 +273,12 @@ def test_the_scripted_agent_calls_a_site_good_only_with_a_clear_cell_at_centre()
     assert verdict == "bad" and "no cell" in reason
 
 
+# The whole run takes about 4.5 minutes alone on one core (5 with the textured
+# surface of #2577), so under a loaded `-n auto` run it passes the suite's 300 s
+# per-test timeout. Its own run is capped at 600 s (timeout_s below); this gives
+# pytest room past that, so a hang still fails.
 @pytest.mark.slow
+@pytest.mark.timeout(900)
 def test_a_scripted_run_of_a_live_case_end_to_end(tmp_path, monkeypatch):
     """The case's microscope on a real App Server, the scripted agent at it,
     and the run scored from what it saved."""

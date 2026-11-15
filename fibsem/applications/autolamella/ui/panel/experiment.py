@@ -40,6 +40,8 @@ from fibsem.ui.run.run_refusal import refused_during_run
 if TYPE_CHECKING:
     from fibsem.workflows.session import AppSession
 
+logger = logging.getLogger(__name__)
+
 __all__ = ["ExperimentTab"]
 
 
@@ -174,7 +176,7 @@ class ExperimentTab(QWidget):
             return
 
         lamella: Lamella = self.experiment.positions[idx]
-        logging.debug(f"Updating Lamella UI for {lamella.status_info}")
+        logger.debug(f"Updating Lamella UI for {lamella.status_info}")
 
         # refresh objective position + pose display for the selected lamella
         self.selected_lamella_widget.set_lamella(lamella)
@@ -212,7 +214,7 @@ class ExperimentTab(QWidget):
         if ret != QMessageBox.StandardButton.Yes:
             return
 
-        logging.info(f"Moving to position of {lamella.name}.")
+        logger.info(f"Moving to position of {lamella.name}.")
         self._movement_widget().move_to_position(stage_position)
 
     def add_new_lamella(
@@ -297,7 +299,7 @@ class ExperimentTab(QWidget):
             return
         if not remove_lamella(self.experiment, lamella):
             return
-        logging.debug("Lamella removed from experiment")
+        logger.debug("Lamella removed from experiment")
         self.update_items(latest=True)
         self.refresh()
 
@@ -316,7 +318,7 @@ class ExperimentTab(QWidget):
         # toggle between saving position and marking as ready
         idx = self.lamella_list.selected_index
         if idx == -1:
-            logging.warning("No lamella is selected, cannot save.")
+            logger.warning("No lamella is selected, cannot save.")
             return
 
         lamella: Lamella = self.experiment.positions[idx]

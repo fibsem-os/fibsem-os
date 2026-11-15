@@ -49,6 +49,8 @@ if TYPE_CHECKING:
     from fibsem.drivers.jeol.connection import JeolConnection
     from fibsem.drivers.jeol.microscope import JeolMicroscope
 
+logger = logging.getLogger(__name__)
+
 # JEOL's process status -> fibsem's milling state. An unlisted status is an error.
 PROCESS_STATES: Dict[str, MillingState] = {
     "Exit": MillingState.IDLE,
@@ -95,7 +97,7 @@ def _scan_direction(direction: str) -> str:
     if direction in _FINISH_SIDES:
         return direction
     nearest = _NEAREST_SCAN_DIRECTIONS.get(direction, DEFAULT_SCAN_DIRECTION)
-    logging.warning(f"JEOL can't scan {direction!r}; using {nearest!r}.")
+    logger.warning(f"JEOL can't scan {direction!r}; using {nearest!r}.")
     return nearest
 
 
@@ -168,7 +170,7 @@ class JeolMilling(Milling):
             float(settings.milling_current), BeamType.ION
         )
         self._milling_rate = self.own_settings(settings).milling_rate
-        logging.info(
+        logger.info(
             f"JEOL milling at beam mode {self._beam_mode} ({self._current:.3e} A)"
         )
 
@@ -199,10 +201,10 @@ class JeolMilling(Milling):
             mode = models.EProcessMode.RAPID
         elif pattern.cross_section is CrossSectionPattern.CleaningCrossSection:
             # JEOL has no cleaning cross section: milled as a regular one, as always
-            logging.warning("JEOL has no cleaning cross section; milling it as RAPID.")
+            logger.warning("JEOL has no cleaning cross section; milling it as RAPID.")
             mode = models.EProcessMode.RAPID
         else:
-            logging.warning(
+            logger.warning(
                 f"JEOL has no {pattern.cross_section} cross section; milling it as MILL."
             )
             mode = models.EProcessMode.MILL
@@ -235,7 +237,7 @@ class JeolMilling(Milling):
             line_type = models.EProcessLineType.VERTICAL
         else:
             # as the old driver did: nothing to convert it to, so it is left out
-            logging.warning(
+            logger.warning(
                 "JEOL mills horizontal or vertical lines only; a diagonal line is "
                 "not drawn."
             )
@@ -279,7 +281,7 @@ class JeolMilling(Milling):
         the group cleared, as the old driver did."""
         self._fib("addProcessItem", item)
         if not self._fib("getProcessExecutable"):
-            logging.warning(f"JEOL can't run the process item {item}; cleared.")
+            logger.warning(f"JEOL can't run the process item {item}; cleared.")
             self._clear()
 
     # -- running ---------------------------------------------------------------------
@@ -291,7 +293,7 @@ class JeolMilling(Milling):
     def read_state(self) -> MillingState:
         name = self._status()
         state = PROCESS_STATES.get(name, MillingState.ERROR)
-        logging.debug(f"JEOL process status {name!r} -> {state.name}")
+        logger.debug(f"JEOL process status {name!r} -> {state.name}")
         return state
 
     def _start(self) -> None:
@@ -441,7 +443,7 @@ class JeolSpotBurn(SpotBurn):
                     stop_event=AnyStopEvent(self._stop_requested, *_events(stop_event))
                 )
         except OperationCancelledError:
-            logging.info("Spot burn cancelled.")
+            logger.info("Spot burn cancelled.")
             return SpotBurnStatus.CANCELLED
         finally:
             milling.progress.changed.disconnect(report)
@@ -451,7 +453,7 @@ class JeolSpotBurn(SpotBurn):
         try:
             self.parent.milling.restore()
         except Exception:
-            logging.exception("Failed to restore the ion beam after the spot burn")
+            logger.exception("Failed to restore the ion beam after the spot burn")
 
 
 def _events(stop_event: Any) -> tuple:

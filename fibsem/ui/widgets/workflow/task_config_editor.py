@@ -33,6 +33,8 @@ if TYPE_CHECKING:
     from fibsem.workflows.session import AppSession
     from fibsem.workflows.task_config import TaskConfig
 
+logger = logging.getLogger(__name__)
+
 __all__ = ["TaskConfigEditor", "milling_paths"]
 
 
@@ -187,7 +189,7 @@ class TaskConfigEditor(QWidget):
             self._edits,
         )
         if not result["applied"]:
-            logging.warning(f"task config edit not applied: {result.get('error')}")
+            logger.warning(f"task config edit not applied: {result.get('error')}")
             return
         if result["changes"]:
             self._edits.save_later(experiment, self._level)

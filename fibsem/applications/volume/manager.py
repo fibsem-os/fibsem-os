@@ -16,6 +16,8 @@ from fibsem.workflows.status import TaskStatus
 if TYPE_CHECKING:
     from fibsem.applications.volume.experiment import VolumeExperiment
 
+logger = logging.getLogger(__name__)
+
 SKIP_POSITION_NOT_FOUND = "position_not_found"
 SKIP_TASK_REMOVED = "task_removed"
 SKIP_MISSING_PREREQS = "missing_prereqs"
@@ -149,7 +151,7 @@ class VolumeTaskManager(BaseTaskManager):
     def _skip(
         self, item: WorkItem, name: str, msg: str, reason: str, item_id: str = ""
     ) -> None:
-        logging.warning(msg)
+        logger.warning(msg)
         self.queue.mark_done(item, TaskStatus.Skipped)
         self._emit_report(
             item=item,

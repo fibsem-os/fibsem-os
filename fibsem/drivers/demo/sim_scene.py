@@ -50,6 +50,8 @@ from fibsem.geometry.projection import (
 )
 from fibsem.structures.settings import BeamType, FibsemStagePosition
 
+logger = logging.getLogger(__name__)
+
 # Keep the render well-defined at any pose: below this foreshortening the
 # view is a degenerate grazing projection (features smear to infinity).
 MIN_FORESHORTENING = 0.035  # ~ sin(2 deg)
@@ -460,6 +462,10 @@ class SampleScene:
     # how fast FIB imaging wears the sample away, against ION_YIELD (0 = never):
     # every frame is a shallow mill over its field of view
     imaging_damage: float = 0.0
+    # how strongly a surface's fine texture shows: its roughness and the
+    # specks in it, which a focus score needs where nothing else is in view
+    # (1 = a frosted grid, 0 = smooth). On for a scene from the configuration
+    surface_grain: float = 0.0
     # focus is at the beam's eucentric height, give or take this (m): each
     # beam's own seeded error, which an autofocus takes out
     focus_fuzz: float = 15e-6
@@ -874,14 +880,14 @@ class SampleScene:
     def deposit(self, seconds: float) -> None:
         """A GIS deposition with the valve open *seconds*: a thicker coat."""
         self.gis_thickness += GIS_RATE * max(float(seconds), 0.0)
-        logging.debug(
+        logger.debug(
             {"msg": "sample_scene_deposited", "gis_thickness": self.gis_thickness}
         )
 
     def sputter(self, seconds: float) -> None:
         """A sputter coat of *seconds*: a thin metal layer."""
         self.sputter_thickness += SPUTTER_RATE * max(float(seconds), 0.0)
-        logging.debug(
+        logger.debug(
             {
                 "msg": "sample_scene_sputtered",
                 "sputter_thickness": self.sputter_thickness,
@@ -977,7 +983,7 @@ class SampleScene:
         self.milled = []
         self.mill_passes, self._cuts, self.damage_started = [], [], None
         self.exposures = {}
-        logging.debug(
+        logger.debug(
             {
                 "msg": "sample_scene_grids_placed",
                 "grids": [
@@ -1196,7 +1202,7 @@ class SampleScene:
             points = np.array([world(x, y) for x, y in corners])
             regions.append(MilledRegion(points=points, beam_cut=cut(corners)))
         self.milled.extend(regions)
-        logging.debug(
+        logger.debug(
             {
                 "msg": "sample_scene_milled",
                 "regions": len(regions),
@@ -1453,7 +1459,7 @@ class SampleScene:
                 pts = pts + (0.0, self._along_beam_to_surface(pts.mean(axis=0), frame))
             regions.append(MilledRegion(points=pts, depth=diameter, halo=halo))
         self.milled.extend(regions)
-        logging.debug(
+        logger.debug(
             {
                 "msg": "sample_scene_burned",
                 "points": len(regions),
@@ -2134,6 +2140,7 @@ class SampleScene:
         "current_offset_scale",  # m, sigma of the per-current beam offset
         "beam_optics",  # focus, stigmation and current show in the image
         "imaging_damage",  # how fast FIB imaging wears the sample (1 = ice, 0 = never)
+        "surface_grain",  # how strongly a surface's fine texture shows (0 = smooth)
         "focus_fuzz",  # m, how far focus is from the eucentric height, at most
         "scan_rotation_at_start",  # {electron: deg, ion: deg} the beams boot at
         "fm_camera_mount",  # the mount transform the FM camera really has
@@ -2183,6 +2190,7 @@ class SampleScene:
         kwargs = {k: v for k, v in config.items() if k in cls.CONFIG_KEYS}
         kwargs.setdefault("beam_optics", True)
         kwargs.setdefault("imaging_damage", 1.0)
+        kwargs.setdefault("surface_grain", 1.0)
         kwargs.setdefault("damage_current", DAMAGE_CURRENT)
         if kwargs.get("fm_camera_mount") is not None:
             mount_transform_from_name(kwargs["fm_camera_mount"])  # or it raises
@@ -2230,7 +2238,7 @@ class SampleScene:
         reference = deepcopy(stage_position)
         reference.z = (reference.z or 0.0) - self.coincidence_offset
         self.reference_position = reference
-        logging.debug(
+        logger.debug(
             {
                 "msg": "coincidence_scene_anchored",
                 "reference_position": reference.to_dict(),

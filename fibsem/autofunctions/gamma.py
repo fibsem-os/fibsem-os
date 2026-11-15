@@ -6,6 +6,8 @@ from skimage import exposure
 
 from fibsem.structures.image import FibsemImage
 
+logger = logging.getLogger(__name__)
+
 
 def apply_gamma(data: NDArray, gamma: float) -> NDArray:
     """Apply a specific gamma correction to an image array.
@@ -76,7 +78,7 @@ def auto_gamma(
         if abs(diff) < gamma_threshold:
             gam = 1.0
         if image.metadata is not None:
-            logging.debug(
+            logger.debug(
                 f"AUTO_GAMMA | {image.metadata.image_settings.beam_type} | {diff:.3f} | {gam:.3f}"
             )
         image_data = exposure.adjust_gamma(image.data, gam)

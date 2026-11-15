@@ -57,7 +57,7 @@ from fibsem.ui.widgets.custom_widgets import ElidedLabel
 from fibsem.ui.widgets.image_viewer_dialog import ViewerItem, open_image_viewer
 from fibsem.ui.widgets.task_summary_formatting import STATUS_BADGE_COLORS
 from fibsem.util.timestamps import format_time
-from fibsem.workflows.event_recording import (
+from fibsem.workflows.events.recording import (
     EVENTS_FILENAME,
     read_new_events,
 )
@@ -75,6 +75,8 @@ from fibsem.workflows.history_rows import (
     shown_images,
 )
 from fibsem.workflows.status import TaskStatus
+
+logger = logging.getLogger(__name__)
 
 # The filter's section in the per-account session state (FIB-1256): empty until
 # someone filters, so the tab's default still reaches everyone who never did.
@@ -178,7 +180,7 @@ class _ImageLoaderWorker(QThread):
                     return
                 self.image_loaded.emit(fpath, arr, pixel_size_x, info)
             except Exception as e:
-                logging.warning(f"Failed to load image {fpath}: {e}")
+                logger.warning(f"Failed to load image {fpath}: {e}")
 
 
 _WORKERS: Set[_ImageLoaderWorker] = set()
@@ -623,7 +625,7 @@ class LamellaTaskImageWidget(QWidget):
                 path, self._events_offset, HISTORY_KINDS
             )
         except OSError as e:
-            logging.warning(f"Could not read {path}: {e}")
+            logger.warning(f"Could not read {path}: {e}")
             return self._operation_events
         self._operation_events.extend(new)
         return self._operation_events

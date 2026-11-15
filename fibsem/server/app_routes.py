@@ -138,7 +138,7 @@ from fibsem.server.responses import (
     ReplayTimeline,
     ReplayView,
     Requeued,
-    RunPlan,
+    RunEstimateView,
     RunStarted,
     RunSummary,
     SavedExperiments,
@@ -948,7 +948,7 @@ def build_app_router(context: "AppContext") -> APIRouter:
     def proposals():
         return context.proposals()
 
-    @router.post("/workflow/plan", response_model=RunPlan, tags=[LAMELLAE])
+    @router.post("/workflow/plan", response_model=RunEstimateView, tags=[LAMELLAE])
     def lamella_run_plan(body: RunPlanBody):
         # The Workflow tab's confirmation for a run, or for adding to the
         # running queue (add): computes, never acts.

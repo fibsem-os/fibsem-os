@@ -23,6 +23,8 @@ from fibsem.structures.params import Display, param
 from fibsem.structures.system import InsertableDeviceState
 from fibsem.workflows.proposals import STATE
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class AcquireFluorescenceImageConfig(AutoLamellaTaskConfig):
@@ -175,9 +177,7 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
         try:
             self.lamella.save_thumbnail(image)
         except Exception as e:
-            logging.warning(
-                f"Could not save the thumbnail for {self.lamella.name}: {e}"
-            )
+            logger.warning(f"Could not save the thumbnail for {self.lamella.name}: {e}")
 
     def _run_autofocus(self) -> Optional[AutoFocusResult]:
         """Run autofocus with the specified settings, returning the result."""
@@ -191,13 +191,13 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
 
         # Fall back to first channel if no specific channel found
         if autofocus_channel is None:
-            logging.warning(
+            logger.warning(
                 f"Autofocus channel '{self.config.autofocus_settings.channel_name}' not found, using first channel"
             )
             autofocus_channel = self.config.channel_settings[0]
 
         af_settings = self.config.autofocus_settings
-        logging.info(
+        logger.info(
             f"Running autofocus for {self.lamella.name} using channel '{autofocus_channel.name}' "
             f"with method '{af_settings.method.value}' and {len(af_settings.passes)} pass(es)"
         )
@@ -231,7 +231,7 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
             name=f"{self.task_name}_autofocus_{ts}",
         )
         if result is None:
-            logging.info("Autofocus cancelled")
+            logger.info("Autofocus cancelled")
             raise InterruptedError(
                 f"Task {self.task_name} for {self.lamella.name} cancelled during autofocus."
             )
@@ -255,7 +255,7 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
         elif not self.microscope.get_device_imaging_state(
             "FM", stage_position
         ).allows_acquisition:
-            logging.warning(
+            logger.warning(
                 f"Stage Position {self.lamella.name} is not one the fluorescence "
                 f"microscope can acquire from: {stage_position}, moving to SEM orientation..."
             )
@@ -265,7 +265,7 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
 
         # Check for cancellation before each position
         if self._stop_event and self._stop_event.is_set():
-            logging.info(
+            logger.info(
                 f"{self.task_name}: {self.lamella.name} - Acquisition cancelled"
             )
             return
@@ -278,7 +278,7 @@ class AcquireFluorescenceImageTask(AutoLamellaTask):
         # move objective to saved position
         self.log_status_message("MOVE_OBJECTIVE", "Moving Objective to position...")
         if self.microscope.fm.objective.state is not InsertableDeviceState.INSERTED:
-            logging.warning(
+            logger.warning(
                 "Objective is not inserted. Inserting the objective before acquiring fluorescence images."
             )
             self.microscope.fm.objective.insert()

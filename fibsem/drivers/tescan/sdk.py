@@ -12,6 +12,8 @@ from typing import Dict, Optional, Tuple
 import fibsem.constants as constants
 from fibsem.structures.settings import BeamType, FibsemStagePosition, MillingState
 
+logger = logging.getLogger(__name__)
+
 TESCAN_API_AVAILABLE = False
 # Read through this rather than importing tescanautomation yourself: the guarded
 # import below is also what strips the SDK's PySide6 GUI modules out of
@@ -52,7 +54,7 @@ try:
     # Tescan backend over a missing version string.
     TESCAN_API_VERSION = getattr(tescanautomation, "__version__", None)
 except Exception as e:
-    logging.debug(f"Automation (TESCAN) not installed. {e}")
+    logger.debug(f"Automation (TESCAN) not installed. {e}")
 
 try:
     DrawBeamStatusToPatterningState = {

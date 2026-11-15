@@ -40,6 +40,8 @@ from fibsem.gateway.tunnels import TASK_NAME
 from fibsem.server.operator_token import read_operator_token
 from fibsem.unreleased import refuse
 
+logger = logging.getLogger(__name__)
+
 __all__ = ["call", "main", "shortcut_command", "start_gateway", "stop"]
 
 SHORTCUT_NAME = "Agent Gateway"
@@ -224,7 +226,7 @@ def quit_gateway(gateway: Gateway) -> None:
     try:
         gateway.stop("operator", "quit")
     except GatewayRefused as refusal:
-        logging.warning("Gateway quit: %s", refusal)
+        logger.warning("Gateway quit: %s", refusal)
 
 
 def _run_window(

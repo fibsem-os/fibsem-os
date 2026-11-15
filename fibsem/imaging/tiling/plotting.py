@@ -26,6 +26,8 @@ from fibsem.structures.image import FibsemImage
 from fibsem.structures.settings import FibsemStagePosition, OverviewAcquisitionSettings
 from fibsem.theme.tokens import PANEL_COLOR
 
+logger = logging.getLogger(__name__)
+
 POSITION_COLOURS = [
     "lime",
     "blue",
@@ -509,7 +511,7 @@ def plot_minimap(
                 )
             )
         except Exception as e:
-            logging.debug(f"Could not add scalebar: {e}")
+            logger.debug(f"Could not add scalebar: {e}")
 
     ax.axis("off")
 

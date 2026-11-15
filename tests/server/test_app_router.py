@@ -482,7 +482,7 @@ def test_event_history_reads_the_record_before_the_live_buffer(
     import json
     from pathlib import Path
 
-    from fibsem.workflows.event_recording import EVENTS_FILENAME
+    from fibsem.workflows.events.recording import EVENTS_FILENAME
 
     event_buffer.append("task_started", {"task_name": "Polishing"})
     held = event_buffer.events_since(0)["events"][0]
@@ -516,7 +516,7 @@ def test_events_after_an_id_reach_back_past_a_restart(client, host, event_buffer
     import json
     from pathlib import Path
 
-    from fibsem.workflows.event_recording import EVENTS_FILENAME
+    from fibsem.workflows.events.recording import EVENTS_FILENAME
 
     event_buffer.append("task_started", {"task_name": "Polishing"})
     event_buffer.append("task_completed", {"task_name": "Polishing"})

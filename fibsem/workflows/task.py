@@ -67,6 +67,8 @@ from fibsem.workflows.status import TaskStatus, take_back_finish
 if TYPE_CHECKING:
     from fibsem.alignment import AlignmentResult
 
+logger = logging.getLogger(__name__)
+
 # Characters a folder name cannot hold on Windows (and ``/`` anywhere).
 _UNSAFE_IN_FOLDER_NAMES = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
@@ -622,7 +624,7 @@ class BaseTask(ABC):
                     f"{self.item.name} has no alignment reference {filename}; "
                     "run its setup first."
                 )
-            logging.warning(
+            logger.warning(
                 f"Reference image {full_filename} for alignment does not exist, "
                 f"but was requested by {self.task_name}. Skipping alignment."
             )
@@ -676,7 +678,7 @@ class BaseTask(ABC):
                 )
                 self._record_outcome()
             except Exception:
-                logging.exception(f"Could not record the outcome of {self.task_name}")
+                logger.exception(f"Could not record the outcome of {self.task_name}")
             self._fire_hook(
                 "task_cancelled" if cancelled else "task_failed", error=str(e)
             )
@@ -703,7 +705,7 @@ class BaseTask(ABC):
                     else f"Finished, but its result could not be recorded: {e}",
                 )
             except Exception:
-                logging.exception(f"Could not record the outcome of {self.task_name}")
+                logger.exception(f"Could not record the outcome of {self.task_name}")
             self._fire_hook(
                 "task_cancelled" if cancelled else "task_failed", error=str(e)
             )
@@ -714,7 +716,7 @@ class BaseTask(ABC):
     def _run(self) -> None: ...
 
     def pre_task(self) -> None:
-        logging.info(
+        logger.info(
             f"Running {self.task_name}, {self.task_type} ({self.task_id}) "
             f"for {self.item_type} {self.item.name} ({self.item.id})"
         )
@@ -834,7 +836,7 @@ class BaseTask(ABC):
     ) -> None:
         """Record a step of this run: in the log, on the item's task_state, as a
         task_step event and on the window's step line."""
-        logging.debug(
+        logger.debug(
             {
                 "msg": "status",
                 "timestamp": now_iso(),

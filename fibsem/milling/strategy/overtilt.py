@@ -22,6 +22,8 @@ from fibsem.milling.properties import angle_param, image_resolution_param
 from fibsem.structures.params import Display, RangeLimit, param
 from fibsem.structures.settings import FibsemStagePosition, ImageSettings
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class OvertiltTrenchMillingConfig(MillingStrategyConfig):
@@ -72,7 +74,7 @@ class OvertiltTrenchMillingStrategy(MillingStrategy[OvertiltTrenchMillingConfig]
     ) -> None:
         """Mill a trench pattern with overtilt,
         based on https://www.sciencedirect.com/science/article/abs/pii/S1047847716301514 and autolamella v1"""
-        logging.info(f"Running {self.fullname} for {stage.name}")
+        logger.info(f"Running {self.fullname} for {stage.name}")
 
         # assert pattern is TrenchPattern
         if not isinstance(stage.pattern, TrenchPattern):
@@ -118,7 +120,7 @@ class OvertiltTrenchMillingStrategy(MillingStrategy[OvertiltTrenchMillingConfig]
             try:
                 microscope.finish_milling()
             except Exception as e:
-                logging.error(
+                logger.error(
                     f"Failed to restore imaging conditions after {self.fullname}: {e}",
                     exc_info=True,
                 )
