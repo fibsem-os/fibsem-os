@@ -38,10 +38,10 @@ _MADE_UP_KINDS = frozenset(
 
 # A test not marked `slow` fails when its body takes longer than this. Slow tests
 # run once per pull request in their own job; one that is not marked lands on both
-# build legs, and the suite slows a little with every such test. Generous, so a
-# loaded Windows runner doesn't trip it: it catches tests that wait out a
-# timeout or simulate far more than they check. 0 turns it off.
-TIME_BUDGET_S = float(os.environ.get("FIBSEM_TEST_TIME_BUDGET_S", "15"))
+# build legs, and the suite slows a little with every such test. Generous, since
+# a Windows runner takes two to three times as long as Linux: it catches tests
+# that wait out a timeout or simulate far more than they check. 0 turns it off.
+TIME_BUDGET_S = float(os.environ.get("FIBSEM_TEST_TIME_BUDGET_S", "30"))
 
 
 @pytest.hookimpl(wrapper=True)

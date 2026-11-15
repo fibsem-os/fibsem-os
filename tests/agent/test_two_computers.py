@@ -194,6 +194,8 @@ def microscope_pc(tmp_path):
         log.close()
 
 
+# 7 s on Linux, 107 s on Windows.
+@pytest.mark.slow
 def test_an_agent_on_another_computer_works_through_the_tunnel_and_says_when_it_drops(
     microscope_pc, tmp_path
 ):
