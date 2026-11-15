@@ -69,18 +69,18 @@ from fibsem.util.records import dataframe_records
 from fibsem.util.timestamps import to_iso, wall_time_of
 from fibsem.workflows import workflow_edits
 from fibsem.workflows.actions import NOTE, note_record
-from fibsem.workflows.event_recording import (
-    EVENTS_FILENAME,
-    LIVE_KINDS,
-    read_events_after,
-    read_events_before,
-    read_new_events,
-)
 from fibsem.workflows.events import (
     buffer_or_unavailable,
     iso_time,
     split_event_id,
     to_plain,
+)
+from fibsem.workflows.events.recording import (
+    EVENTS_FILENAME,
+    LIVE_KINDS,
+    read_events_after,
+    read_events_before,
+    read_new_events,
 )
 from fibsem.workflows.evidence import (
     EVIDENCE,

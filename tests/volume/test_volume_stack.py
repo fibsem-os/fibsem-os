@@ -122,7 +122,7 @@ def test_an_image_taken_outside_a_task_is_a_row_of_the_positions_history(
     import json
     from pathlib import Path
 
-    from fibsem.workflows.event_recording import EVENTS_FILENAME
+    from fibsem.workflows.events.recording import EVENTS_FILENAME
 
     position, _ = sliced
     image = experiment.position_path(position) / "outside_ib.tif"

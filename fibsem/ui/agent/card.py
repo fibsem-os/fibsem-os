@@ -375,7 +375,7 @@ class AgentCard(QFrame):
         self._render()
 
     def set_asking(self, asking: Optional[Dict[str, Any]]) -> None:
-        """An agent on this PC asking to connect (``AgentSession.asking``),
+        """An agent on this PC asking to connect (``AgentControl.asking``),
         or None for none."""
         self._asking = dict(asking) if asking is not None else None
         self._render()

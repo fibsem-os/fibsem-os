@@ -7,8 +7,8 @@ import os
 import pytest
 
 from fibsem.acting import Actor
-from fibsem.workflows.event_recording import ProposalTap
 from fibsem.workflows.events import EventBuffer
+from fibsem.workflows.events.recording import ProposalTap
 from fibsem.workflows.experiment import FibsemExperiment
 from fibsem.workflows.proposals import ACTIONS, Decision, DecisionOutcome, Proposal
 

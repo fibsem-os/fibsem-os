@@ -33,7 +33,7 @@ Wiring that deliberately does NOT live here: constructing the buffer when a
 microscope connects, attaching the taps, and re-registering the lifecycle hook
 inside ``WorkflowRunner.run_hooks()`` — the app rebuilds its hook set every run, so a
 once-at-startup registration silently goes deaf after the first run. That is
-``event_recording.EventRecorder``, which also records the stream to
+``recording.EventRecorder``, which also records the stream to
 disk; the App Server reads the same buffer when it runs.
 """
 

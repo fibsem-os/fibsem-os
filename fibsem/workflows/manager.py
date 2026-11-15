@@ -23,7 +23,7 @@ from fibsem.control import MicroscopeBusy
 from fibsem.hooks import HookEvent, HookManager, fire_event
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures.settings import BeamType
-from fibsem.workflows.event_recording import run_recorder
+from fibsem.workflows.events.recording import run_recorder
 from fibsem.workflows.interaction import Responder
 from fibsem.workflows.queue import TaskQueue, WorkItem
 from fibsem.workflows.runner import ITEMS

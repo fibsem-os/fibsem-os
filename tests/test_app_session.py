@@ -12,7 +12,7 @@ import pytest
 
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.applications.autolamella.structures import Experiment
-from fibsem.workflows.event_recording import EVENTS_FILENAME, read_events, recorder_for
+from fibsem.workflows.events.recording import EVENTS_FILENAME, read_events, recorder_for
 from fibsem.workflows.session import EXPERIMENT, MICROSCOPE, AppSession
 from tests.protocols import add_planned, planned
 
