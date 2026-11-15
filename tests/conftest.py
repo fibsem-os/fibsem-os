@@ -3,6 +3,7 @@ import logging
 import os
 import sys
 import tempfile
+import time
 
 import pytest
 
@@ -33,6 +34,27 @@ _MADE_UP_KINDS = frozenset(
     | {"in the first", "in the second", "before any experiment"}
     | {"by_the_task", "by_the_agent"}
 )
+
+
+# A test not marked `slow` fails when its body takes longer than this. Slow tests
+# run once per pull request in their own job; one that is not marked lands on both
+# build legs, and the suite slows a little with every such test. Generous, so a
+# loaded Windows runner doesn't trip it: it catches tests that wait out a
+# timeout or simulate far more than they check.
+TIME_BUDGET_S = float(os.environ.get("FIBSEM_TEST_TIME_BUDGET_S", "15"))
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_call(item):
+    start = time.perf_counter()
+    result = yield
+    took = time.perf_counter() - start
+    if took > TIME_BUDGET_S and item.get_closest_marker("slow") is None:
+        pytest.fail(
+            f"took {took:.1f} s, over the {TIME_BUDGET_S:.0f} s budget for a test "
+            "not marked slow: make it faster, or mark it @pytest.mark.slow"
+        )
+    return result
 
 
 @pytest.fixture(autouse=True)
