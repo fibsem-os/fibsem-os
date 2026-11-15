@@ -271,6 +271,7 @@ def test_an_agent_runs_a_position_from_set_up_to_its_last_slice(
     assert [r["iteration"] for r in history] == [None, None, 0, 0, 1, 1]
 
 
+@pytest.mark.slow
 def test_the_agent_decides_a_supervised_set_up(
     agent, session, experiment, microscope, milled
 ):

@@ -49,6 +49,7 @@ def _ok(answer):
     return answer.json()
 
 
+@pytest.mark.slow
 def test_the_slices_are_one_stack_in_iteration_order(agent, sliced):
     _, thickness = sliced
     stack = _ok(
@@ -74,6 +75,7 @@ def test_the_slices_are_one_stack_in_iteration_order(agent, sliced):
         assert entry["acquired_at"]
 
 
+@pytest.mark.slow
 def test_the_milling_keeps_a_fib_image_per_slice(agent, sliced):
     position, _ = sliced
     stack = _ok(
@@ -85,6 +87,7 @@ def test_the_milling_keeps_a_fib_image_per_slice(agent, sliced):
     assert all(run.outputs.get("slice_fib") for run in milled)
 
 
+@pytest.mark.slow
 def test_a_slice_is_served_at_the_width_asked_for(agent, sliced):
     small = agent.get(
         "/app/experiment/items/aspen/outputs/slice_0001_eb.tif", params={"width": 64}
@@ -96,6 +99,7 @@ def test_a_slice_is_served_at_the_width_asked_for(agent, sliced):
     assert len(small.content) < len(full.content)
 
 
+@pytest.mark.slow
 def test_an_unknown_position_is_refused_and_an_unknown_role_is_empty(agent, sliced):
     missing = agent.get("/app/experiment/items/oak/stack", params={"role": "slice"})
     assert missing.status_code == 404
@@ -107,6 +111,7 @@ def test_an_unknown_position_is_refused_and_an_unknown_role_is_empty(agent, slic
     assert other["slices"] == []
 
 
+@pytest.mark.slow
 def test_a_position_has_a_history_like_any_item(agent, sliced):
     history = _ok(agent.get("/app/experiment/items/aspen/history"))
 
@@ -116,6 +121,7 @@ def test_a_position_has_a_history_like_any_item(agent, sliced):
     assert all(run["images"] for run in imaged)
 
 
+@pytest.mark.slow
 def test_an_image_taken_outside_a_task_is_a_row_of_the_positions_history(
     agent, sliced, experiment
 ):

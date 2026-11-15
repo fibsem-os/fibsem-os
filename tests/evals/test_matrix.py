@@ -19,6 +19,7 @@ def session(out, cell, repeat):
     return json.loads(folder.read_text())
 
 
+@pytest.mark.slow
 def test_every_cell_runs_repeat_by_repeat(home, polish_case, tmp_path, monkeypatch):
     monkeypatch.setenv("EVAL_FAKE_ANSWER", json.dumps(STOP_AT_P3))
     out = tmp_path / "matrix"
