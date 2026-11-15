@@ -93,7 +93,7 @@ odemis = ["pylibtiff", "shapely"]
 # labelling UI imports torch at module level.
 labelling = [
     "fibsem[ui,ml]",
-    "napari>=0.5.1,<0.10", # NumPy 2 well supported from 0.5.1; 0.6+ has Python 3.13 wheels (vispy>=0.15)
+    "napari>=0.5.1", # NumPy 2 well supported from 0.5.1; 0.6+ has Python 3.13 wheels (vispy>=0.15)
 ]
 
 # Empty: the server is in the base install. Kept so `pip install fibsem[server]` works.
