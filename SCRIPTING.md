@@ -189,13 +189,13 @@ Set `AUTOLAMELLA_SCRIPTS_DIR` to use a different folder. **Tools → Scripts →
 
 ### Working examples
 
-Three complete scripts live in [`examples/scripts/`](examples/scripts), one per tier. Copy any of them into your scripts folder and it will run as-is.
+Three complete scripts live in [`examples/app_scripts/`](examples/app_scripts), one per tier. Copy any of them into your scripts folder and it will run as-is.
 
 | File | Flags | What it shows |
 | -- | -- | -- |
-| [`export_summary.py`](examples/scripts/export_summary.py) | none | reading the experiment, and how the return value becomes output |
-| [`describe_lamellae.py`](examples/scripts/describe_lamellae.py) | `writes` | changing lamellae and letting the runner save |
-| [`survey_positions.py`](examples/scripts/survey_positions.py) | `uses_microscope` | moving the stage, acquiring, and honouring Stop |
+| [`export_summary.py`](examples/app_scripts/export_summary.py) | none | reading the experiment, and how the return value becomes output |
+| [`describe_lamellae.py`](examples/app_scripts/describe_lamellae.py) | `writes` | changing lamellae and letting the runner save |
+| [`survey_positions.py`](examples/app_scripts/survey_positions.py) | `uses_microscope` | moving the stage, acquiring, and honouring Stop |
 
 These are executed by the test suite (`tests/autolamella/test_example_scripts.py`) against a real experiment and a simulated microscope, so they cannot quietly rot. That is deliberate: earlier versions of the snippets below shipped with two bugs that only running them would have caught — one addressed a `lamella.state` attribute that does not exist, and one used `microscope.acquire_image`, which ignores `save=True` and writes nothing.
 

@@ -182,6 +182,13 @@ lists where each key went.
   objective or changing the filter. The example scripts and demos run again.
 - The two FM notebooks (`fibsem/fm/fm-notebook.ipynb`, `fm-example-notebook.ipynb`) are
   removed.
+- The examples live in one folder, `examples/`: the API scripts that were in `example/`
+  (`example_imaging.py` is now `imaging.py`, `example.py` is `quickstart.py`, and the
+  slice and view, lithography and AutoLamella V1 examples each have a folder with their
+  protocol) and the Script Manager examples, now in `examples/app_scripts/`. The
+  remaining notebooks are removed: the getting-started notebooks in `example/`, the
+  AutoLamella exports notebook, the segmentation example and the Tescan test notebook,
+  none of which ran against this release.
 - **For task and plugin authors:** a task type lists the questions it asks in `asks`
   (was `questions`) and asks them with `ask`; every decision lands through
   `Experiment.decide`. Milling stages can list monitors (plugins that run during each

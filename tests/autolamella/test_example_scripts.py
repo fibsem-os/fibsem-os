@@ -6,7 +6,7 @@ addressed ``lamella.state``, which does not exist, and another relied on
 claimed to write files and wrote none. Both looked completely reasonable on the
 page.
 
-That is why ``examples/scripts/`` holds real ``.py`` files instead of markdown
+That is why ``examples/app_scripts/`` holds real ``.py`` files instead of markdown
 snippets: they go through the same ``load_script`` / ``run_script`` path the GUI
 uses, against a real Experiment and a simulated microscope. If an example stops
 working, this fails.
@@ -27,7 +27,7 @@ from fibsem.drivers.demo.simulator import DemoMicroscope
 from fibsem.scripting import load_script, run_script
 from fibsem.structures.settings import FibsemStagePosition, MicroscopeState
 
-EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "scripts"
+EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "app_scripts"
 
 # Named individually rather than globbed: a typo in the folder name would make a
 # glob quietly collect nothing and the suite would pass having tested nothing.
