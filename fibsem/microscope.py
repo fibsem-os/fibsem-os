@@ -66,6 +66,8 @@ if TYPE_CHECKING:
     from fibsem.services.spot_burn import SpotBurn
     from fibsem.services.stage_movement import StageMovement
 
+logger = logging.getLogger(__name__)
+
 
 # The beam parameters a wrapper may ask for without a beam type; any other needs one.
 _BEAM_PARAMETERS_WITHOUT_BEAM = frozenset(("plasma_gas", "preset"))
@@ -222,7 +224,7 @@ class FibsemMicroscope(Instrument):
         try:
             self.disconnect()
         except Exception as e:
-            logging.warning(f"Could not cleanly disconnect the microscope: {e}")
+            logger.warning(f"Could not cleanly disconnect the microscope: {e}")
             return False
         return True
 
@@ -267,14 +269,14 @@ class FibsemMicroscope(Instrument):
             beam_type: The beam type to start acquisition for.
         """
         if self.is_acquiring:
-            logging.warning("Acquisition thread is already running.")
+            logger.warning("Acquisition thread is already running.")
             return
 
         # The beam's live view; its frames come on the beam's ``live_frame``. A beam
         # with no live view (Odemis), or no such beam, has nothing to start.
         beam = self.beams.get(beam_type)
         if beam is None or beam not in self._live_beams():
-            logging.warning(f"The {beam_type.name} beam has no live view here.")
+            logger.warning(f"The {beam_type.name} beam has no live view here.")
             return
         self._imaging_service().start_live(beam_type)
 
@@ -336,7 +338,7 @@ class FibsemMicroscope(Instrument):
         records it. Returns the shift afterwards, or None where there is no such beam
         or shift (absent = unsupported)."""
         if self._beam_parameter("shift", beam_type) is None:
-            logging.debug(f"shift is not supported here ({beam_type}).")
+            logger.debug(f"shift is not supported here ({beam_type}).")
             return None
         return self.beams[beam_type].shift_by(dx, dy)
 
@@ -358,7 +360,7 @@ class FibsemMicroscope(Instrument):
         if not isinstance(stage_position, FibsemStagePosition):
             raise TypeError(f"Expected FibsemStagePosition, got {type(stage_position)}")
 
-        logging.debug({"msg": "get_stage_position", "pos": stage_position.to_dict()})
+        logger.debug({"msg": "get_stage_position", "pos": stage_position.to_dict()})
         return deepcopy(stage_position)
 
     def _read_stage_capabilities(self) -> None:
@@ -431,7 +433,7 @@ class FibsemMicroscope(Instrument):
         except Exception as e:
             # A raising answer is ambiguous -- a missing subsystem and a sick
             # connection look the same -- so it is read as "cannot say".
-            logging.debug(f"{key}: is_installed failed: {e}")
+            logger.debug(f"{key}: is_installed failed: {e}")
             present = None
         if present is None:
             return bool(self.DEFAULT_FITTED[key]), "backend"
@@ -452,7 +454,7 @@ class FibsemMicroscope(Instrument):
         if sources is not None:
             sources[key] = source
         if not present:
-            logging.info(f"The instrument reports no {key}; its device is not kept.")
+            logger.info(f"The instrument reports no {key}; its device is not kept.")
             self._set_device(key, None)
 
     def _read_hardware_capabilities(self) -> None:
@@ -581,11 +583,11 @@ class FibsemMicroscope(Instrument):
             gas = None if ion is None else ion.installed_plasma_gas()
         except Exception as e:
             # A Ga column refuses the question the same way a sick connection does.
-            logging.debug(f"Reading the installed plasma gas failed: {e}")
+            logger.debug(f"Reading the installed plasma gas failed: {e}")
             gas = None
         if not gas:
             return
-        logging.info(
+        logger.info(
             f"The configuration names no plasma gas; the ion column reports '{gas}'."
         )
         self.system.ion.plasma_gas = str(gas)
@@ -620,7 +622,7 @@ class FibsemMicroscope(Instrument):
             try:
                 setattr(self.fm.objective, name, float(value))
             except Exception as e:
-                logging.warning(f"Could not apply configured objective {name}: {e}")
+                logger.warning(f"Could not apply configured objective {name}: {e}")
 
     def beam_uses_presets(self, beam_type: BeamType) -> bool:
         """Whether this column is set by choosing a preset rather than a voltage and
@@ -828,7 +830,7 @@ class FibsemMicroscope(Instrument):
         from fibsem.structures.system import DeviceEntry
 
         if not self._fluorescence_is_configured():
-            logging.info(
+            logger.info(
                 "No fluorescence microscope configured for this system. Set "
                 "`fm.enabled` in the microscope configuration to enable it."
             )
@@ -862,7 +864,7 @@ class FibsemMicroscope(Instrument):
                 self.imaging = bind_imaging(Imaging, self, fm=group)
             else:
                 self.imaging.fill_roles(fm=group)
-        logging.info(f"Fluorescence microscope connected: {type(fm).__name__}.")
+        logger.info(f"Fluorescence microscope connected: {type(fm).__name__}.")
         return fm
 
     def move_to_orientation(self, orientation: str) -> FibsemStagePosition:
@@ -1008,7 +1010,7 @@ class FibsemMicroscope(Instrument):
         return when the mill ends. Progress is reported on ``milling.progress``.
         A set ``stop_event`` stops the beam and raises `OperationCancelledError`. To
         start a mill and return at once, use `start_milling`."""
-        logging.debug("running milling now...")
+        logger.debug("running milling now...")
         self._milling_service().run(stop_event=stop_event)
 
     def finish_milling(self) -> None:
@@ -1246,12 +1248,12 @@ class FibsemMicroscope(Instrument):
 
     def set_imaging_settings(self, image_settings: ImageSettings) -> None:
         """Set the imaging settings for the specified beam type."""
-        logging.debug(f"Setting {image_settings.beam_type.name} imaging settings...")
+        logger.debug(f"Setting {image_settings.beam_type.name} imaging settings...")
         self.set_resolution(image_settings.resolution, image_settings.beam_type)
         self.set_dwell_time(image_settings.dwell_time, image_settings.beam_type)
         self.set_field_of_view(image_settings.hfw, image_settings.beam_type)
 
-        logging.debug(
+        logger.debug(
             {
                 "msg": "set_imaging_settings",
                 "image_settings": image_settings.to_dict(),
@@ -1264,7 +1266,7 @@ class FibsemMicroscope(Instrument):
     def get_beam_settings(self, beam_type: BeamType) -> BeamSettings:
         """Get the current beam settings for the specified beam type."""
 
-        logging.debug(f"Getting {beam_type.name} beam settings...")
+        logger.debug(f"Getting {beam_type.name} beam settings...")
         beam_settings = BeamSettings(
             beam_type=beam_type,
             working_distance=self.get_working_distance(beam_type),
@@ -1278,7 +1280,7 @@ class FibsemMicroscope(Instrument):
             scan_rotation=self.get_scan_rotation(beam_type),
             preset=self.get_preset(beam_type),
         )
-        logging.debug(
+        logger.debug(
             {
                 "msg": "get_beam_settings",
                 "beam_settings": beam_settings.to_dict(),
@@ -1290,7 +1292,7 @@ class FibsemMicroscope(Instrument):
 
     def set_beam_settings(self, beam_settings: BeamSettings) -> None:
         """Set the beam settings for the specified beam type"""
-        logging.debug(f"Setting {beam_settings.beam_type.name} beam settings...")
+        logger.debug(f"Setting {beam_settings.beam_type.name} beam settings...")
         # A None is "not stated", not a value to push. A configuration may leave
         # any of these out -- a `defaults:` block with only the voltage in it is a
         # configuration -- and the readers default them to None, so each one is
@@ -1320,13 +1322,13 @@ class FibsemMicroscope(Instrument):
                 continue
             param = self._beam_parameter(name, beam_type)
             if param is not None and not param.settable:
-                logging.debug(f"{name} is read-only here ({beam_type}), not restored.")
+                logger.debug(f"{name} is read-only here ({beam_type}), not restored.")
                 continue
             setter(value, beam_type)
         if beam_settings.preset is not None:
             self.set_preset(beam_settings.preset, beam_type)
 
-        logging.debug(
+        logger.debug(
             {
                 "msg": "set_beam_settings",
                 "beam_settings": beam_settings.to_dict(),
@@ -1378,7 +1380,7 @@ class FibsemMicroscope(Instrument):
         ):
             if self.is_available(key):
                 self._apply_beam_defaults(record)
-        logging.info("Configured defaults applied to the microscope.")
+        logger.info("Configured defaults applied to the microscope.")
 
     def get_detector_settings(
         self, beam_type: BeamType = BeamType.ELECTRON
@@ -1386,7 +1388,7 @@ class FibsemMicroscope(Instrument):
         """Get the current detector settings for the specified beam type: the four
         reads under one hold of the imaging channel, so they describe one detector.
         The lock is re-entrant, so the reads inside take it freely."""
-        logging.debug(f"Getting {beam_type.name} detector settings...")
+        logger.debug(f"Getting {beam_type.name} detector settings...")
         with self._threading_lock:
             detector_settings = FibsemDetectorSettings(
                 type=self.get_detector_type(beam_type),
@@ -1394,7 +1396,7 @@ class FibsemMicroscope(Instrument):
                 brightness=self.get_detector_brightness(beam_type),
                 contrast=self.get_detector_contrast(beam_type),
             )
-        logging.debug(
+        logger.debug(
             {
                 "msg": "get_detector_settings",
                 "detector_settings": detector_settings.to_dict(),
@@ -1409,12 +1411,12 @@ class FibsemMicroscope(Instrument):
         beam_type: BeamType = BeamType.ELECTRON,
     ) -> None:
         """Set the detector settings for the specified beam type"""
-        logging.debug(f"Setting {beam_type.name} detector settings...")
+        logger.debug(f"Setting {beam_type.name} detector settings...")
         self.set_detector_type(detector_settings.type, beam_type)
         self.set_detector_mode(detector_settings.mode, beam_type)
         self.set_detector_brightness(detector_settings.brightness, beam_type)
         self.set_detector_contrast(detector_settings.contrast, beam_type)
-        logging.debug(
+        logger.debug(
             {
                 "msg": "set_detector_settings",
                 "detector_settings": detector_settings.to_dict(),
@@ -1459,7 +1461,7 @@ class FibsemMicroscope(Instrument):
             ion_detector=ion_detector,  # ion beam detector state
         )
 
-        logging.debug(
+        logger.debug(
             {"msg": "get_microscope_state", "state": current_microscope_state.to_dict()}
         )
 
@@ -1493,7 +1495,7 @@ class FibsemMicroscope(Instrument):
         if self.fm is not None and microscope_state.objective_position is not None:
             self.fm.objective.move_absolute(microscope_state.objective_position)
 
-        logging.debug(
+        logger.debug(
             {"msg": "set_microscope_state", "state": microscope_state.to_dict()}
         )
 
@@ -1570,7 +1572,7 @@ class FibsemMicroscope(Instrument):
         unsupported)."""
         param = self._beam_parameter(name, beam_type)
         if param is None:
-            logging.debug(f"{name} is not supported here ({beam_type}).")
+            logger.debug(f"{name} is not supported here ({beam_type}).")
             return None
         return _plain_value(param.get_value())
 
@@ -1579,7 +1581,7 @@ class FibsemMicroscope(Instrument):
         nothing where there is no such beam or parameter (absent = unsupported)."""
         param = self._beam_parameter(name, beam_type)
         if param is None:
-            logging.debug(f"{name} is not supported here ({beam_type}).")
+            logger.debug(f"{name} is not supported here ({beam_type}).")
             return
         param.write_through(value)
 
@@ -1594,7 +1596,7 @@ class FibsemMicroscope(Instrument):
 
     def _switch_beam(self, command: str, beam_type: BeamType) -> Optional[bool]:
         if self._beam_parameter("on", beam_type) is None:
-            logging.debug(f"on is not supported here ({beam_type}).")
+            logger.debug(f"on is not supported here ({beam_type}).")
             return None
         return getattr(self.beams[beam_type], command)()
 
@@ -1633,7 +1635,7 @@ class FibsemMicroscope(Instrument):
         """Set the reduced area scanning mode for the specified beam type."""
         beam = self._scan_beam(beam_type)
         if beam is None:
-            logging.debug(f"No reduced area scan mode here ({beam_type}).")
+            logger.debug(f"No reduced area scan mode here ({beam_type}).")
             return
         beam.reduced_area(reduced_area)
 
@@ -1641,7 +1643,7 @@ class FibsemMicroscope(Instrument):
         """Set the full frame scanning mode for the specified beam type."""
         beam = self._scan_beam(beam_type)
         if beam is None:
-            logging.debug(f"No full frame scan mode here ({beam_type}).")
+            logger.debug(f"No full frame scan mode here ({beam_type}).")
             return
         beam.full_frame()
 
@@ -2177,7 +2179,7 @@ class FibsemMicroscope(Instrument):
         # default -- the objective under the grid, sharing the beams' origin -- so
         # every place-term answer is about somewhere its FM is not.
         if not self._fm_is_a_pose() and devices == DEFAULT_STAGE_DEVICES:
-            logging.warning(
+            logger.warning(
                 "A fluorescence microscope is enabled but its device entry declares "
                 "no `origin`, so the FM defaults to the beams' origin. An FM on an "
                 "offset mount must declare where it is, as the `origin` of its "

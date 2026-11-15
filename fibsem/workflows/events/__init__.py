@@ -33,7 +33,7 @@ Wiring that deliberately does NOT live here: constructing the buffer when a
 microscope connects, attaching the taps, and re-registering the lifecycle hook
 inside ``WorkflowRunner.run_hooks()`` — the app rebuilds its hook set every run, so a
 once-at-startup registration silently goes deaf after the first run. That is
-``event_recording.EventRecorder``, which also records the stream to
+``recording.EventRecorder``, which also records the stream to
 disk; the App Server reads the same buffer when it runs.
 """
 
@@ -48,6 +48,8 @@ from fibsem.devices.wire import to_wire
 from fibsem.structures.settings import BeamType
 from fibsem.structures.system import InsertableDeviceState
 from fibsem.util.timestamps import iso_from_posix
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "EventBuffer",
@@ -143,7 +145,7 @@ class EventBuffer:
             try:
                 extra = self._stamp(kind, payload, actor) or {}
             except Exception:  # noqa: BLE001 - a stamp must never cost the event
-                logging.debug("event stamp failed", exc_info=True)
+                logger.debug("event stamp failed", exc_info=True)
         if actor is not None:
             # Unstamped, or a stamp that failed: the writer's word still stands.
             extra.setdefault("actor", str(actor))
@@ -165,7 +167,7 @@ class EventBuffer:
                 try:
                     subscriber(record)
                 except Exception:  # noqa: BLE001 - subscribers are not allowed to matter
-                    logging.debug("event subscriber failed", exc_info=True)
+                    logger.debug("event subscriber failed", exc_info=True)
             self._cond.notify_all()
             return self._seq
 
@@ -271,7 +273,7 @@ def attach_microscope_taps(buffer: EventBuffer, microscope) -> List[Callable[[],
         try:
             buffer.append(kind, serialize(value))
         except Exception:  # noqa: BLE001
-            logging.debug(f"could not record a {kind} event", exc_info=True)
+            logger.debug(f"could not record a {kind} event", exc_info=True)
 
     def tap(
         signal,

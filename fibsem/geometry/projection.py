@@ -44,6 +44,8 @@ if TYPE_CHECKING:  # pragma: no cover - annotation only
     from fibsem.microscope import FibsemMicroscope
     from fibsem.structures.image import FibsemImage
 
+logger = logging.getLogger(__name__)
+
 
 # A displayed-plane probe length for `surface_foreshortening`. Any value does: the
 # projection is linear in the offset, so the ratio it is used for is scale-free.
@@ -152,7 +154,7 @@ class FMStageProjection:
                 shape=(height, width),
             )
         except Exception as e:
-            logging.debug(f"Could not read the live FM geometry: {e}")
+            logger.debug(f"Could not read the live FM geometry: {e}")
             return None
 
     @classmethod
@@ -252,7 +254,7 @@ class BeamStageProjection:
                 scan_rotation=microscope.get_scan_rotation(beam_type=beam_type),
             )
         except Exception as e:
-            logging.debug(f"Could not read the live beam geometry: {e}")
+            logger.debug(f"Could not read the live beam geometry: {e}")
             return None
 
     @classmethod
@@ -283,7 +285,7 @@ class BeamStageProjection:
                 scan_rotation=beam.scan_rotation,
             )
         except Exception as e:
-            logging.debug(f"Could not read the beam geometry from the image: {e}")
+            logger.debug(f"Could not read the beam geometry from the image: {e}")
             return None
 
     # ── the protocol ──────────────────────────────────────────────────────

@@ -69,6 +69,8 @@ from fibsem.ui.widgets.canvas.fm_canvas import FMCanvasWidget
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 from fibsem.ui.widgets.canvas.view_info_bar import ViewInfoBar, show_fm_plane
 
+logger = logging.getLogger(__name__)
+
 ViewerImage = Union[FibsemImage, FluorescenceImage]
 
 _TITLE_STYLE = f"color: {TEXT_STRONG_COLOR}; font-size: 13px; font-weight: 600;"
@@ -537,7 +539,7 @@ class ImageViewer(QWidget):
             return  # superseded by a later click
         self._pending = None
         if isinstance(result, Exception):
-            logging.warning("Could not open %s: %s", path, result)
+            logger.warning("Could not open %s: %s", path, result)
             self._placeholder = None
             self.loading_label.setPixmap(QPixmap())
             self.loading_label.setText(

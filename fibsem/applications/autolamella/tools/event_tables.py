@@ -43,12 +43,12 @@ import pandas as pd
 from fibsem.acting import Actor
 from fibsem.applications.autolamella.tools.replay import changed_values
 from fibsem.util.timestamps import wall_time_of
-from fibsem.workflows.event_recording import (
+from fibsem.workflows.events import kinds as event_kinds
+from fibsem.workflows.events.recording import (
     EVENTS_FILENAME,
     milling_run_of,
     read_events,
 )
-from fibsem.workflows.events import kinds as event_kinds
 from fibsem.workflows.proposals import DETECTION, POINT_OF_INTEREST, STATE
 
 RUN_COLUMNS = [

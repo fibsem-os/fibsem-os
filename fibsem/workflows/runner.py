@@ -37,6 +37,8 @@ from fibsem.workflows.actions import ACTION, action_record
 from fibsem.workflows.queue import QUEUE_ACTIONS, QueueOp
 from fibsem.workflows.status import TaskStatus
 
+logger = logging.getLogger(__name__)
+
 # What a run is over: an app's own items (AutoLamella's lamellae), or grids.
 ITEMS = "items"
 GRIDS = "grids"
@@ -434,7 +436,7 @@ class WorkflowRunner:
         so a stop with no actor named records nothing here."""
         if actor is None or not self.is_running:
             return
-        logging.info("%s stopped by the %s (%s)", stopped.capitalize(), actor, via)
+        logger.info("%s stopped by the %s (%s)", stopped.capitalize(), actor, via)
         buffer = self._session.event_buffer
         if buffer is not None:
             buffer.append(
@@ -521,7 +523,7 @@ class WorkflowRunner:
         try:
             self.starting.emit(request)
         except Exception:
-            logging.exception("a window's run chrome failed; the run goes on")
+            logger.exception("a window's run chrome failed; the run goes on")
         thread.start()
         return replace(checked, request=request)
 
@@ -541,7 +543,7 @@ class WorkflowRunner:
         if len(self.status):
             self.status.emit(event)
         elif event.report is None:
-            logging.info(event.message or event.status_bar or "")
+            logger.info(event.message or event.status_bar or "")
 
     def _run(self, manager: Any, request: RunRequest) -> None:
         try:
@@ -552,7 +554,7 @@ class WorkflowRunner:
             try:
                 self.last_summary = manager.build_run_summary_dataframe()
             except Exception as e:
-                logging.warning(f"Failed to build the run summary: {e}")
+                logger.warning(f"Failed to build the run summary: {e}")
                 self.last_summary = None
             self.last_note = manager.closing_note()
             self.last_outcome = run_outcome(manager)

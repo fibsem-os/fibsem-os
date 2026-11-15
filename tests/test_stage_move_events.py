@@ -27,7 +27,7 @@ from fibsem.devices.core import Session
 from fibsem.devices.stage import recording_move
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures.settings import BeamType, FibsemStagePosition, Point
-from fibsem.workflows.event_recording import (
+from fibsem.workflows.events.recording import (
     EVENTS_FILENAME,
     EventRecorder,
     read_events,

@@ -202,6 +202,6 @@ class AgentChipHost(QObject):
         self.refresh()
 
     def _on_stop(self) -> None:
-        """The brake (``AgentSession.stop``)."""
+        """The brake (``AgentControl.stop``)."""
         self._agent.stop()
         self.refresh()

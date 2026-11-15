@@ -26,6 +26,8 @@ from fibsem.theme.tokens import (
 )
 from fibsem.ui.icon import fibsem_icon
 
+logger = logging.getLogger(__name__)
+
 _OVERLAY_BTN_STYLE = (
     "QPushButton { background: rgba(40,41,48,180); border: 1px solid #555;"
     " border-radius: 3px; padding: 0px; }"
@@ -483,7 +485,7 @@ class LinePlotWidget(QWidget):
             self.label_stats.setText(stats_text)
 
         except Exception as e:
-            logging.error(f"Error updating line plot: {e}")
+            logger.error(f"Error updating line plot: {e}")
             self.axes_setup_complete = False
             self._plot_empty_chart()
             self.label_stats.setText(f"Error: {str(e)}")

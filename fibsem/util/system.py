@@ -28,6 +28,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Optional, Union
 
+logger = logging.getLogger(__name__)
+
 PathLike = Union[str, os.PathLike]
 
 # What counts as room to work in. Absolute figures rather than a fraction of the
@@ -109,12 +111,12 @@ def disk_space(path: PathLike) -> Optional[DiskSpace]:
     """
     target = nearest_existing(path)
     if target is None:
-        logging.debug("no existing ancestor of %s to measure", path)
+        logger.debug("no existing ancestor of %s to measure", path)
         return None
     try:
         usage = shutil.disk_usage(target)
     except OSError as exc:
-        logging.debug("disk_usage(%s) failed: %s", target, exc)
+        logger.debug("disk_usage(%s) failed: %s", target, exc)
         return None
     return DiskSpace(path=target, total=usage.total, used=usage.used, free=usage.free)
 

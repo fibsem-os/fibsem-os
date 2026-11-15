@@ -29,7 +29,10 @@ from fibsem.client.transport import NO_SERVER, ServerUnreachable, resolve, serve
 from fibsem.drivers.remote.devices import REMOTE_FM_PARTS, DeviceClient
 from fibsem.drivers.remote.services import connect_remote_services
 from fibsem.microscope import FibsemMicroscope
+from fibsem.server.discovery import check_api
 from fibsem.structures.system import FibsemExperimentRef, FibsemUser
+
+logger = logging.getLogger(__name__)
 
 ROOT = "/microscope"
 
@@ -107,6 +110,7 @@ class RemoteMicroscope(FibsemMicroscope):
         # Control is the server's: a run here holds it there, by a lease.
         self.control = RemoteControl(client._transport)
         try:
+            check_api(self.client.capabilities(), "RemoteMicroscope")
             self.system = self.client.system
             self.system.info.ip_address = ip_address
             descriptions = client.describe()
@@ -145,7 +149,7 @@ class RemoteMicroscope(FibsemMicroscope):
             raise
         if reset_beam_shift:
             self.reset_beam_shifts()
-        logging.info(
+        logger.info(
             f"Connected to the {self.system.info.model} at {self.url} "
             f"({len(self.devices)} devices, {len(self.services)} services)"
         )
@@ -172,7 +176,7 @@ class RemoteMicroscope(FibsemMicroscope):
         if self._client is not None:
             self._client.close()
             self._client = None
-        logging.info(f"Disconnected from the microscope at {self.url}")
+        logger.info(f"Disconnected from the microscope at {self.url}")
 
 
 def remote_microscope(system: Any) -> RemoteMicroscope:

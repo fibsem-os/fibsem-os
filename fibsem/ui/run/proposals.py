@@ -33,6 +33,8 @@ if TYPE_CHECKING:
     from fibsem.workflows.deciding import ProposalDecisions
     from fibsem.workflows.session import AppSession
 
+logger = logging.getLogger(__name__)
+
 __all__ = ["ProposalPresenter"]
 
 
@@ -154,9 +156,7 @@ class ProposalPresenter:
         )
         if not result.applied:
             # Left up: the question is still open, and the reason is logged.
-            logging.warning(
-                f"{task_name}: could not confirm the state: {result.reason}"
-            )
+            logger.warning(f"{task_name}: could not confirm the state: {result.reason}")
             self._panel.prompt_bar.reopen()
 
     def _loop_widget(self, kind: str):
@@ -246,7 +246,7 @@ class ProposalPresenter:
         )
         if not result.applied:
             # Left up: the question is still open, and the reason is logged.
-            logging.warning(f"{task_name}: could not decide the pass: {result.reason}")
+            logger.warning(f"{task_name}: could not decide the pass: {result.reason}")
             self._panel.prompt_bar.reopen()
 
     def show_widget_proposal(self, item_id: str, task_name: str, proposal) -> None:
@@ -369,7 +369,7 @@ class ProposalPresenter:
         )
         if not result.applied:
             # Left up: the question is still open, and the reason is logged.
-            logging.warning(f"{task_name}: could not decide it: {result.reason}")
+            logger.warning(f"{task_name}: could not decide it: {result.reason}")
             self._panel.prompt_bar.reopen()
 
     def front_proposal(self) -> None:

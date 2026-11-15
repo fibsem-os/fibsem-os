@@ -42,6 +42,8 @@ from fibsem.server.discovery import read_discovery_file
 from fibsem.server.pairing import AGENT, PairedTokens
 from fibsem.util import timestamps
 
+logger = logging.getLogger(__name__)
+
 __all__ = ["AGENT_NAME", "API_KEY", "GatewayAgent", "AgentState"]
 
 API_KEY = "ANTHROPIC_API_KEY"
@@ -344,7 +346,7 @@ class GatewayAgent:
             except (AgentRunning, OSError) as error:
                 self._undo(url)
                 raise GatewayRefused(409, "agent_not_started", str(error)) from None
-            logging.info(
+            logger.info(
                 "Gateway started the agent (%s, %s) for %s", playbook, level, who
             )
             return self.state()
@@ -414,7 +416,7 @@ class GatewayAgent:
             except (AgentRunning, OSError) as error:
                 self._undo(url)
                 raise GatewayRefused(409, "agent_not_started", str(error)) from None
-            logging.info(
+            logger.info(
                 "Gateway resumed session %s (%s) for %s", session_id, level, who
             )
             return self.state()
@@ -484,7 +486,7 @@ class GatewayAgent:
         ended = self._manager.end(self.microscope)
         if ended is not None:
             self._unpair()
-            logging.info("Gateway ended the agent for %s", who)
+            logger.info("Gateway ended the agent for %s", who)
         if stop_app:
             self._gateway.stop(who, via, force, window=window)
         return self.state()
@@ -507,7 +509,7 @@ class GatewayAgent:
         try:
             self._level(url, level)
         except GatewayRefused as refusal:
-            logging.warning("The agent's level wasn't set again: %s", refusal)
+            logger.warning("The agent's level wasn't set again: %s", refusal)
 
     def _url(self) -> Optional[str]:
         found = self._discovery()

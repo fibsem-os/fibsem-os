@@ -16,6 +16,8 @@ from fibsem.structures.params import Configurable, param
 if TYPE_CHECKING:
     from fibsem.milling.monitors.base import MillingMonitor
 
+logger = logging.getLogger(__name__)
+
 TMillingMonitorConfig = TypeVar("TMillingMonitorConfig", bound="MillingMonitorConfig")
 
 
@@ -69,7 +71,7 @@ class MillingMonitorConfig(Tagged, Configurable):
 
         monitor = get_monitors().get(name)
         if monitor is None:
-            logging.warning(
+            logger.warning(
                 f"No milling monitor is called {name!r} (a plugin not installed "
                 "here?); the stage mills without it."
             )

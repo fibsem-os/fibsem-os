@@ -23,7 +23,7 @@ from fibsem.ai.evals.cases import (
     find_cases,
     load_case,
 )
-from fibsem.ai.evals.runner import ANSWER, RESULT
+from fibsem.ai.evals.runner import ANSWER, RESULT, run_answer
 from fibsem.ai.evals.scoring import (
     score_case,
     score_live,
@@ -225,10 +225,7 @@ def load_runs(out: Path) -> Dict[str, List[Tuple[Path, Run]]]:
     for path in sorted(Path(out).rglob(RESULT)):
         result = json.loads(path.read_text())
         folder = path.parent
-        try:
-            answer = json.loads((folder / "work" / ANSWER).read_text())
-        except (OSError, ValueError):
-            answer = None
+        answer = run_answer(folder)
         runs[result["case"]].append((folder, (result, answer)))
     for items in runs.values():
         items.sort(key=lambda item: item[1][0].get("repeat", 0))

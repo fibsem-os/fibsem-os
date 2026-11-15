@@ -41,7 +41,7 @@ if TYPE_CHECKING:
     from fibsem.structures.image import FibsemImage
 
 __all__ = [
-    "Request",
+    "ShowRequest",
     "ClearSpotBurn",
     "SetImages",
     "SetMillingConfig",
@@ -60,10 +60,10 @@ R = TypeVar("R")
 _POLL_INTERVAL_S = 0.1
 
 
-class Request(Generic[R]):
+class ShowRequest(Generic[R]):
     """A single instruction to the supervisor; ``R`` is the type of its answer.
 
-    Subclasses are frozen dataclasses. An instruction subclasses ``Request[None]``
+    Subclasses are frozen dataclasses. An instruction subclasses ``ShowRequest[None]``
     and its "answer" is the acknowledgement that the responder has finished
     acting on it.
     """
@@ -73,7 +73,7 @@ class Request(Generic[R]):
 
 
 @dataclass(frozen=True)
-class SetImages(Request[None]):
+class SetImages(ShowRequest[None]):
     """Display these acquisition images."""
 
     sem_image: Optional["FibsemImage"] = None
@@ -81,19 +81,19 @@ class SetImages(Request[None]):
 
 
 @dataclass(frozen=True)
-class SetMillingConfig(Request[None]):
+class SetMillingConfig(ShowRequest[None]):
     """Load this config into the milling editor."""
 
     config: "FibsemMillingTaskConfig"
 
 
 @dataclass(frozen=True)
-class ClearMillingConfig(Request[None]):
+class ClearMillingConfig(ShowRequest[None]):
     """Clear the milling editor."""
 
 
 @dataclass(frozen=True)
-class ShowDetection(Request[None]):
+class ShowDetection(ShowRequest[None]):
     """Put what the model found on the detection widget, for the ``detection``
     proposal asked on the record next."""
 
@@ -101,12 +101,12 @@ class ShowDetection(Request[None]):
 
 
 @dataclass(frozen=True)
-class ClearSpotBurn(Request[None]):
+class ClearSpotBurn(ShowRequest[None]):
     """Clear the spot burn widget's points and leave workflow mode."""
 
 
 @dataclass(frozen=True)
-class SetFluorescenceChannels(Request[None]):
+class SetFluorescenceChannels(ShowRequest[None]):
     """Load these channel settings into the fluorescence widget."""
 
     channels: Sequence["ChannelSettings"]
@@ -143,7 +143,7 @@ class Responder(Protocol):
     a Qt slot and taking the process down.
     """
 
-    def submit(self, request: Request[R], future: "Future[R]") -> None:
+    def submit(self, request: ShowRequest[R], future: "Future[R]") -> None:
         """Deliver ``request``, later completing ``future`` with its answer."""
         ...
 
@@ -180,7 +180,7 @@ def wait_for(
 
 def ask(
     responder: Responder,
-    request: Request[R],
+    request: ShowRequest[R],
     *,
     abort: Optional[Callable[[], bool]] = None,
     timeout: Optional[float] = None,

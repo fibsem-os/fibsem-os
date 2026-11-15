@@ -47,6 +47,8 @@ if TYPE_CHECKING:
     from fibsem.drivers.tescan.microscope import TescanMicroscope
     from fibsem.structures.system import DeviceEntry
 
+logger = logging.getLogger(__name__)
+
 # The "current" choices, a fixed list.
 _CURRENT_CHOICES: Dict[BeamType, List[float]] = {
     BeamType.ELECTRON: [1.0e-12],
@@ -110,7 +112,7 @@ class TescanBeam(Beam):
     def _not_supported(self, key: str) -> None:
         with self._lock:
             self._prepared()
-            logging.info(f"Setting {key} directly is not supported by Tescan API.")
+            logger.info(f"Setting {key} directly is not supported by Tescan API.")
 
     # -- on --------------------------------------------------------------------------
 
@@ -123,7 +125,7 @@ class TescanBeam(Beam):
         with self._lock:
             beam = self._prepared()
             beam.Beam.On() if value else beam.Beam.Off()
-            logging.info(
+            logger.info(
                 f"{self.beam_type.name} beam turned {'on' if value else 'off'}."
             )
 
@@ -140,7 +142,7 @@ class TescanBeam(Beam):
         with self._lock:
             beam = self._prepared()
             beam.Optics.SetWD(value * constants.METRE_TO_MILLIMETRE)
-            logging.debug(f"Electron beam working distance set to {value} m.")
+            logger.debug(f"Electron beam working distance set to {value} m.")
 
     # -- current and voltage: set by preset on the ion column ------------------------
 
@@ -155,12 +157,12 @@ class TescanBeam(Beam):
         with self._lock:
             beam = self._prepared()
             if self.beam_type is BeamType.ION:
-                logging.info(
+                logger.info(
                     f"Setting current directly for {self.beam_type} is not supported by Tescan API, please use presets instead."
                 )
                 return
             beam.Beam.SetCurrent(value * constants.SI_TO_PICO)
-            logging.debug(f"Electron beam current set to {value} A.")
+            logger.debug(f"Electron beam current set to {value} A.")
 
     def metadata_current(self) -> ParameterMetadata:
         # Not settable on either column: the ion current is the preset's, and the
@@ -177,12 +179,12 @@ class TescanBeam(Beam):
         with self._lock:
             beam = self._prepared()
             if self.beam_type is BeamType.ION:
-                logging.warning(
+                logger.warning(
                     f"Setting voltage directly for {self.beam_type} is not supported by Tescan API, please use presets instead."
                 )
                 return
             beam.Beam.SetVoltage(value)
-            logging.debug(f"Electron beam voltage set to {value} V.")
+            logger.debug(f"Electron beam voltage set to {value} V.")
 
     def metadata_voltage(self) -> ParameterMetadata:
         return ParameterMetadata(settable=self.beam_type is BeamType.ELECTRON)
@@ -199,7 +201,7 @@ class TescanBeam(Beam):
             limits = sdk.LIMITS[self.beam_type]["hfw"]
             value = np.clip(value, limits[0], limits[1])
             beam.Optics.SetViewfield(value * constants.METRE_TO_MILLIMETRE)
-            logging.debug(f"{self.beam_type.name} HFW set to {value} m.")
+            logger.debug(f"{self.beam_type.name} HFW set to {value} m.")
 
     def metadata_hfw(self) -> ParameterMetadata:
         low, high = sdk.LIMITS[self.beam_type]["hfw"]
@@ -217,9 +219,7 @@ class TescanBeam(Beam):
         with self._lock:
             beam = self._prepared()
             beam.Optics.SetImageRotation(value * constants.RADIANS_TO_DEGREES)
-            logging.debug(
-                f"{self.beam_type.name} scan rotation set to {value} radians."
-            )
+            logger.debug(f"{self.beam_type.name} scan rotation set to {value} radians.")
 
     def read_shift(self) -> Point:
         with self._lock:
@@ -234,7 +234,7 @@ class TescanBeam(Beam):
             beam = self._prepared()
             point = value * constants.METRE_TO_MILLIMETRE
             beam.Optics.SetImageShift(point.x, point.y)
-            logging.debug(f"{self.beam_type.name} beam shift set to {value}.")
+            logger.debug(f"{self.beam_type.name} beam shift set to {value}.")
 
     def metadata_shift(self) -> ParameterMetadata:
         # the TESCAN API doesn't report an image-shift range
@@ -244,7 +244,7 @@ class TescanBeam(Beam):
         # invert direction for scan rotated images...
         if np.isclose(self.scan_rotation.get_value(), np.pi):
             dx, dy = -dx, -dy
-        logging.info(f"{self.beam_type.name} shifting by ({dx}, {dy})")
+        logger.info(f"{self.beam_type.name} shifting by ({dx}, {dy})")
         super()._shift_by(dx, dy)
 
     # -- read from the last image: the API cannot read or set these ------------------
@@ -303,11 +303,11 @@ class TescanBeam(Beam):
             beam = self._prepared()
             detector = self._get_detector(value)
             if detector is None:
-                logging.warning(f"Detector {value} not found for {self.beam_type}.")
+                logger.warning(f"Detector {value} not found for {self.beam_type}.")
                 return
             beam.Detector.Set(Channel=0, Detector=detector)
             self._detector = detector
-            logging.debug(f"{self.beam_type.name} detector type set to {value}.")
+            logger.debug(f"{self.beam_type.name} detector type set to {value}.")
 
     def metadata_detector_type(self) -> ParameterMetadata:
         detectors = self.list_detectors()
@@ -337,13 +337,13 @@ class TescanBeam(Beam):
         with self._lock:
             beam = self._prepared()
             if not (0 <= value <= 1):
-                logging.warning(
+                logger.warning(
                     f"Invalid value for {self.beam_type} {key}: {value}. Must be between 0 and 1."
                 )
                 return
             active_detector = self._detector
             if active_detector is None:
-                logging.warning(
+                logger.warning(
                     f"No active detector for {self.beam_type}. Please set detector type first."
                 )
                 return
@@ -355,7 +355,7 @@ class TescanBeam(Beam):
             beam.Detector.SetGainBlack(
                 Detector=active_detector, Gain=contrast, Black=brightness
             )
-            logging.debug(f"{self.beam_type.name} {key} set to {value}.")
+            logger.debug(f"{self.beam_type.name} {key} set to {value}.")
 
     # -- imaging and the autofunctions -----------------------------------------------
     # TescanMicroscope's acquire_image, autocontrast, auto_focus and live
@@ -369,7 +369,7 @@ class TescanBeam(Beam):
         settings = (
             image_settings if image_settings is not None else self.image_settings()
         )
-        logging.debug(f"acquiring new {beam_type.name} image.")
+        logger.debug(f"acquiring new {beam_type.name} image.")
 
         if image_settings is not None:
             connection.settle_after_electron_image(beam_type)
@@ -442,7 +442,7 @@ class TescanBeam(Beam):
     def _autocontrast(self, reduced_area: Optional[FibsemRectangle]) -> None:
         # The SDK's AutoSignal works on the whole frame: the area is not used.
         beam = self.connection.prepare_beam(beam_type=self.beam_type)
-        logging.debug(f"Running autocontrast on {self.beam_type.name}.")
+        logger.debug(f"Running autocontrast on {self.beam_type.name}.")
         with self._lock:
             beam.Detector.AutoSignal(Detector=self._detector)
 
@@ -469,7 +469,7 @@ class TescanBeam(Beam):
                     break
                 self.live_frame.emit(image)
         except Exception as e:
-            logging.error(f"Error in TESCAN acquisition worker: {e}")
+            logger.error(f"Error in TESCAN acquisition worker: {e}")
 
     # -- the column's presets and detectors ------------------------------------------
 
@@ -490,7 +490,7 @@ class TescanBeam(Beam):
 
         for detector in self.list_detectors():
             if detector_type == detector.name:
-                logging.debug(f"Found detector {detector.name}, index {detector.index}")
+                logger.debug(f"Found detector {detector.name}, index {detector.index}")
                 return detector
         return None
 
@@ -502,7 +502,7 @@ class TescanBeam(Beam):
         with self._lock:
             available = beam.Preset.IsAvailable(preset_name)
         if not available:
-            logging.warning(f"Preset {preset_name} not available for {beam_type}.")
+            logger.warning(f"Preset {preset_name} not available for {beam_type}.")
             return
 
         preserve_settings = self.preserve_settings_on_preset_change
@@ -518,9 +518,9 @@ class TescanBeam(Beam):
                 image_rotation = beam.Optics.GetImageRotation()
                 view_field = beam.Optics.GetViewfield()
                 image_shift_x, image_shift_y = beam.Optics.GetImageShift()
-            logging.debug(f"Image rotation before changing preset: {image_rotation}.")
-            logging.debug(f"FOV before changing preset: {view_field}.")
-            logging.debug(
+            logger.debug(f"Image rotation before changing preset: {image_rotation}.")
+            logger.debug(f"FOV before changing preset: {view_field}.")
+            logger.debug(
                 f"XY shift before changing preset: {image_shift_x}, {image_shift_y}."
             )
 
@@ -528,7 +528,7 @@ class TescanBeam(Beam):
             # Activate preset
             with self._lock:
                 beam.Preset.Activate(preset_name)
-            logging.info(f"Preset {preset_name} activated for {beam_type}.")
+            logger.info(f"Preset {preset_name} activated for {beam_type}.")
 
             # Wait for preset to fully apply
             self.connection.wait_for_beam_ready(
@@ -539,7 +539,7 @@ class TescanBeam(Beam):
             self._cache.preset = preset_name
 
         except Exception as e:
-            logging.error(
+            logger.error(
                 f"Failed to activate preset {preset_name} for {beam_type}: {e}"
             )
             raise  # Re-raise to ensure finally block runs and then propagate error
@@ -552,17 +552,15 @@ class TescanBeam(Beam):
                         beam.Optics.SetImageRotation(image_rotation)
                         beam.Optics.SetViewfield(view_field)
                         beam.Optics.SetImageShift(image_shift_x, image_shift_y)
-                    logging.debug(
+                    logger.debug(
                         f"Restored image rotation after changing preset to {image_rotation}."
                     )
-                    logging.debug(
-                        f"Restored FOV after changing preset to {view_field}."
-                    )
-                    logging.debug(
+                    logger.debug(f"Restored FOV after changing preset to {view_field}.")
+                    logger.debug(
                         f"Restored XY shift after changing preset to {image_shift_x}, {image_shift_y}."
                     )
                 except Exception as restore_error:
-                    logging.error(f"Failed to restore beam settings: {restore_error}")
+                    logger.error(f"Failed to restore beam settings: {restore_error}")
 
 
 STAGE_FRAME_TESCAN = "tescan_native"
@@ -690,7 +688,7 @@ class TescanStage(Stage):
     def _link(self) -> None:
         # Nothing to link: ``link`` leaves the stage as it is and reports False, as
         # ``link_stage`` did before the stage was a device.
-        logging.info("The Tescan stage is not linked to the working distance.")
+        logger.info("The Tescan stage is not linked to the working distance.")
 
     def _native(self, position: FibsemStagePosition) -> FibsemStagePosition:
         """``position`` in Tescan's frame, with None where the move leaves an axis."""
@@ -712,23 +710,23 @@ class TescanStage(Stage):
         return FibsemStagePosition(x=x, y=y, z=z, r=position.r, t=position.t)
 
     def _move_absolute(self, position: FibsemStagePosition) -> None:
-        logging.info(f"Moving stage to {position}.")
+        logger.info(f"Moving stage to {position}.")
         x, y, z, r, t = sdk.to_tescan_stage_position(position=self._native(position))
         with self._lock:
             self.connection.sdk.Stage.MoveTo(x=x, y=y, z=z, rot=r, tiltx=t)
-        logging.debug({"msg": "move_stage_absolute", "position": position.to_dict()})
+        logger.debug({"msg": "move_stage_absolute", "position": position.to_dict()})
 
     def _move_relative(self, delta: FibsemStagePosition) -> None:
-        logging.info(f"Moving stage by {delta}.")
+        logger.info(f"Moving stage by {delta}.")
         current = self.position.get_value()
         # x, y or z the delta leaves None stays None, so a tilt alone stays a pure tilt
         target = current + delta
         for axis in ("x", "y", "z"):
             if getattr(delta, axis) is None:
                 setattr(target, axis, None)
-        logging.debug(f"Moving stage to {target}")
+        logger.debug(f"Moving stage to {target}")
         self._move_absolute(target)
-        logging.debug({"msg": "move_stage_relative", "position": delta.to_dict()})
+        logger.debug({"msg": "move_stage_relative", "position": delta.to_dict()})
 
 
 def build_tescan_beam(entry: DeviceEntry, context: BuildContext) -> TescanBeam:

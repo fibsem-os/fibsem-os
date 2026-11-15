@@ -32,6 +32,8 @@ from fibsem.workflows.task import ALIGNMENT_REFERENCE_IMAGE_FILENAME
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Lamella
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class MillFiducialTaskConfig(AutoLamellaTaskConfig):
@@ -132,7 +134,7 @@ def sync_fiducial_to_alignment_area(
             milling_config, lamella.alignment_area, image
         )
         if point is None:
-            logging.warning(
+            logger.warning(
                 f"The fiducial for {task_name} does not fit in the alignment "
                 f"area {lamella.alignment_area}; keeping its configured position."
             )
@@ -140,7 +142,7 @@ def sync_fiducial_to_alignment_area(
         diff = point - milling_config.stages[0].pattern.point
         for stage in milling_config.stages:
             stage.pattern.point = stage.pattern.point + diff
-        logging.info(
+        logger.info(
             f"Synced {task_name} fiducial position to the alignment area: {point}"
         )
         synced.append(task_name)
@@ -281,7 +283,7 @@ class MillFiducialTask(AutoLamellaTask):
                     ]
                     polishing_milling_name = task_name
         except Exception as e:
-            logging.warning(
+            logger.warning(
                 f"Unable to find MillRoughTaskConfig or MillPolishingTaskConfig in lamella task config: {e}"
             )
 

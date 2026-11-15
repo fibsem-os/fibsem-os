@@ -38,6 +38,8 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from fibsem.plugins.loader import PluginRegistry
 
+logger = logging.getLogger(__name__)
+
 __all__ = [
     "GROUP_NAMES",
     "ExtensionSource",
@@ -344,9 +346,7 @@ def _collect_group(
     try:
         return collect()
     except Exception as exc:
-        logging.error(
-            "Could not inspect the '%s' extension group", group, exc_info=True
-        )
+        logger.error("Could not inspect the '%s' extension group", group, exc_info=True)
         return ExtensionGroup(
             group=group,
             label=label,

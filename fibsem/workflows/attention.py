@@ -10,6 +10,8 @@ import logging
 from enum import Enum
 from typing import Any
 
+logger = logging.getLogger(__name__)
+
 
 class Attention(str, Enum):
     """Whether a person (or an agent) decides this task's answers. A property
@@ -51,5 +53,5 @@ def attention_from(value: Any, where: str = "") -> Attention:
         return Attention(value)
     except ValueError:
         on = f" on {where}" if where else ""
-        logging.warning(f"Unknown attention {value!r}{on}; read as automated.")
+        logger.warning(f"Unknown attention {value!r}{on}; read as automated.")
         return Attention.automated

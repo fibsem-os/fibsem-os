@@ -49,6 +49,7 @@ from fibsem.ai.agent.catalog import (
 from fibsem.client import tools
 from fibsem.client.transport import ServerUnreachable, Transport
 from fibsem.extras import missing_extra_message
+from fibsem.server.discovery import api_mismatch, code_mismatch
 from fibsem.unreleased import refuse
 
 # How long start-up looks for the server before answering the MCP client anyway:
@@ -126,6 +127,11 @@ def _connect_with_retry(
         if transport is not None:
             capabilities, err = _call(transport, "GET", "/capabilities")
             if err is None:
+                why = api_mismatch(capabilities, "fibsem-mcp")
+                if why:
+                    # Another version's routes: retrying can't help.
+                    transport.close()
+                    raise ServerUnreachable(why)
                 return transport, capabilities
             transport.close()
             if "connect_waiting" in err or "connect_denied" in err:
@@ -203,8 +209,6 @@ def _connected_lines(base_url, capabilities):
     """What ``--check`` and the first call print: where the sidecar connected,
     the agent level when the server says one, and a warning when the app runs
     other ``fibsem`` code than this sidecar."""
-    from fibsem.server.discovery import code_mismatch
-
     level = capabilities.get("level")
     line = f"fibsem-mcp: connected to {base_url}"
     lines = [f"{line} (agent level {level})" if level else line]

@@ -29,6 +29,8 @@ from fibsem import vendor_libraries
 from fibsem.drivers.jeol.setup import LIBRARY
 from fibsem.structures.settings import BeamType
 
+logger = logging.getLogger(__name__)
+
 # The SEM client's port; the FIB client's is the driver's (``DRIVER.port``).
 SEM_PORT = 22300
 
@@ -114,7 +116,7 @@ class JeolConnection:
         else:
             status, values = result, ()
         if not _succeeded(status, ok):
-            logging.warning(f"JEOL {method}{args} returned status {status}")
+            logger.warning(f"JEOL {method}{args} returned status {status}")
         if not values:
             return None
         return values[0] if len(values) == 1 else values
@@ -163,14 +165,14 @@ class JeolConnection:
         loglevel: str = "DEBUG",
     ) -> "JeolConnection":
         """Connect both clients and image with the default FIB scan."""
-        logging.info(f"JEOL FIB client connecting to [{ip_address}:{port}]")
+        logger.info(f"JEOL FIB client connecting to [{ip_address}:{port}]")
         # What connect returns is not known well enough to check (the old driver kept
         # it and never read it), so it is logged; the first call fails if it failed.
         fib = sdk.command.JeolFibExternalControlClient(ip_address, port, loglevel)
-        logging.info(f"JEOL FIB client connect returned {fib.connect()!r}")
-        logging.info(f"JEOL SEM client connecting to [{ip_address}:{sem_port}]")
+        logger.info(f"JEOL FIB client connect returned {fib.connect()!r}")
+        logger.info(f"JEOL SEM client connecting to [{ip_address}:{sem_port}]")
         sem = sdk.ecommand.PcSemExternalControlClient(ip_address, sem_port, loglevel)
-        logging.info(f"JEOL SEM client connect returned {sem.connect_sem()!r}")
+        logger.info(f"JEOL SEM client connect returned {sem.connect_sem()!r}")
         connection = cls(sdk, fib, sem, ip_address, port, sem_port)
         connection.fib_call(
             "setFibScanType", DEFAULT_FIB_SCAN_MODE, DEFAULT_FIB_SCAN_TYPE

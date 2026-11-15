@@ -23,6 +23,8 @@ from fibsem.ui.stylesheets import NAPARI_STYLE, PRIMARY_BUTTON_STYLESHEET
 from fibsem.ui.widgets.canvas.fm_canvas import FMCanvasWidget
 from fibsem.ui.widgets.image_viewer_dialog import ImageViewer, ViewerItem
 
+logger = logging.getLogger(__name__)
+
 
 class FMImageViewerWidget(QWidget):
     """Load FluorescenceImages from file and look at them, one at a time.
@@ -85,9 +87,9 @@ class FMImageViewerWidget(QWidget):
         dialog.image_loaded_signal.connect(self.image_loaded_signal.emit)
 
         if dialog.exec():
-            logging.info("Image loaded successfully")
+            logger.info("Image loaded successfully")
         else:
-            logging.info("Image loading canceled")
+            logger.info("Image loading canceled")
 
     @ensure_main_thread
     @Slot(FluorescenceImage)

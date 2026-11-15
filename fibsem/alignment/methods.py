@@ -17,6 +17,8 @@ from fibsem.structures.settings import Point
 if TYPE_CHECKING:
     from fibsem.alignment import AlignmentIteration
 
+logger = logging.getLogger(__name__)
+
 # ---------------------------------------------------------------------------
 # Shift coordinate convention
 # ---------------------------------------------------------------------------
@@ -173,7 +175,7 @@ def shift_from_crosscorrelation(
         "shift": (err[1], err[0]),
         "shift_meters": (dx, dy),
     }
-    logging.debug(msgd)
+    logger.debug(msgd)
 
     if save:
         _save_alignment_data(
@@ -262,7 +264,7 @@ def shift_from_crosscorrelation_v2(
 
     shift_x, shift_y, response = crosscorrelation_cv2(ref_image.data, new_image.data)
 
-    logging.debug(
+    logger.debug(
         {
             "msg": "cross-correlation-v2",
             "pixelsize": (pixelsize_x, pixelsize_y),
@@ -272,7 +274,7 @@ def shift_from_crosscorrelation_v2(
     )
 
     if minimum_response is not None and response < minimum_response:
-        logging.warning(
+        logger.warning(
             f"shift_from_crosscorrelation_v2: response {response:.3f} below "
             f"minimum {minimum_response:.3f} — returning zero shift."
         )
@@ -329,7 +331,7 @@ def crosscorrelation_v2(
         err = (
             f"Image 1 {img1.shape} and Image 2 {img2.shape} need to have the same shape"
         )
-        logging.error(err)
+        logger.error(err)
         raise ValueError(err)
 
     if bandpass is None:
@@ -466,7 +468,7 @@ def shift_from_skimage_phase_correlation(
 
     success = True
     if minimum_response is not None and score < minimum_response:
-        logging.warning(
+        logger.warning(
             f"shift_from_skimage_phase_correlation: score {score:.3f} below "
             f"minimum {minimum_response:.3f} — returning zero shift."
         )
@@ -476,7 +478,7 @@ def shift_from_skimage_phase_correlation(
     dx = dx_px * pixelsize_x
     dy = dy_px * pixelsize_y
 
-    logging.debug(
+    logger.debug(
         {
             "msg": "skimage-phase-cross-correlation",
             "pixelsize": (pixelsize_x, pixelsize_y),

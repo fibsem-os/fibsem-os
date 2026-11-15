@@ -23,6 +23,8 @@ from fibsem.milling.monitors.base import (
 from fibsem.milling.rtm import RTM_MODES, RtmFrame
 from fibsem.structures.params import param
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class RtmConfig(MillingMonitorConfig):
@@ -78,7 +80,7 @@ class RtmMonitor(MillingMonitor[RtmConfig]):
         took = time.monotonic() - started
         if took > interval and not self._warned:
             self._warned = True
-            logging.warning(
+            logger.warning(
                 f"An RTM read and its subscribers took {took:.2f} s, longer than "
                 f"the {interval:.2f} s interval; a subscriber should return quickly."
             )

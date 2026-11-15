@@ -34,6 +34,8 @@ from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.widgets.custom_widgets import TitledPanel, ValueComboBox, ValueSpinBox
 from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
 
+logger = logging.getLogger(__name__)
+
 HIDE_PROGRESS_DELAY_MS = 2000  # how long the "Done" bar stays up before hiding
 _MAX_SECONDS = 600
 
@@ -198,7 +200,7 @@ class CoatingWidget(QWidget):
 
     def _on_deposit_clicked(self) -> None:
         if self._which() == "deposit":
-            logging.info("Stopping the deposition...")
+            logger.info("Stopping the deposition...")
             self.coating.stop()
         else:
             self.run_deposit()
@@ -221,7 +223,7 @@ class CoatingWidget(QWidget):
 
     def _errored(self, error: Any) -> None:
         # the failed bar stays up, so a failure is still there to read
-        logging.error(f"Coating failed: {error}")
+        logger.error(f"Coating failed: {error}")
         self._running = None
         self._show_running()
 
@@ -283,7 +285,7 @@ class CoatingWidget(QWidget):
                 "Open" if gis.opened.get_value() else "Closed",
             ]
         except Exception:  # noqa: BLE001 - a read that fails shows as unknown
-            logging.debug("could not read the GIS state", exc_info=True)
+            logger.debug("could not read the GIS state", exc_info=True)
             words = ["Unknown"]
         self.gis_state.setText(" · ".join(words))
 

@@ -13,8 +13,8 @@ import time
 from datetime import datetime
 
 from fibsem.structures.settings import FibsemStagePosition
-from fibsem.workflows import event_recording
-from fibsem.workflows.event_recording import (
+from fibsem.workflows.events import EventBuffer, recording
+from fibsem.workflows.events.recording import (
     EVENTS_FILENAME,
     EventFileWriter,
     EventRecorder,
@@ -22,7 +22,6 @@ from fibsem.workflows.event_recording import (
     read_events_before,
     read_new_events,
 )
-from fibsem.workflows.events import EventBuffer
 
 
 def _move(microscope):
@@ -122,7 +121,7 @@ def test_a_stalled_disk_never_blocks_the_emitting_thread(tmp_path, monkeypatch):
         released.wait(10)
         return real_dumps(*args, **kwargs)
 
-    monkeypatch.setattr(event_recording.json, "dumps", slow_dumps)
+    monkeypatch.setattr(recording.json, "dumps", slow_dumps)
     path = tmp_path / EVENTS_FILENAME
     writer = EventFileWriter()
     writer.set_path(path)
@@ -139,10 +138,10 @@ def test_when_the_disk_is_far_behind_records_are_dropped_not_waited_for(
     tmp_path, monkeypatch
 ):
     released = threading.Event()
-    monkeypatch.setattr(event_recording, "_QUEUE_LIMIT", 5)
+    monkeypatch.setattr(recording, "_QUEUE_LIMIT", 5)
     real_dumps = json.dumps
     monkeypatch.setattr(
-        event_recording.json,
+        recording.json,
         "dumps",
         lambda *a, **k: (released.wait(10), real_dumps(*a, **k))[1],
     )
@@ -212,7 +211,7 @@ def test_reading_back_from_the_end_pages_the_whole_file_newest_last(
     tmp_path, monkeypatch
 ):
     # Chunks smaller than a line, so every page crosses the seams.
-    monkeypatch.setattr(event_recording, "_CHUNK", 13)
+    monkeypatch.setattr(recording, "_CHUNK", 13)
     path = tmp_path / EVENTS_FILENAME
     kinds = ["task_started", "milling_progress", "agent_note"]
     records = [{"n": n, "kind": kinds[n % 3], "pad": "x" * (n % 17)} for n in range(60)]

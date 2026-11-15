@@ -14,6 +14,8 @@ from fibsem import paths, state_move
 from fibsem.util.timestamps import to_datetime
 from fibsem.workflows.saved_format import saved_app
 
+logger = logging.getLogger(__name__)
+
 # Documentation for a human reading a file, not a parsing switch: from_dict detects
 # additive changes from field presence, and recovers `system_info` and
 # `hardware_geometry` from a v5-and-earlier `system` blob. The fields added since v8,
@@ -523,14 +525,14 @@ def load_user_preferences() -> UserPreferences:
             loaded = yaml.safe_load(f) or {}
         preferences = UserPreferences.from_dict(loaded)
     except Exception as e:
-        logging.warning(
+        logger.warning(
             f"Failed to load user preferences from {USER_PREFERENCES_PATH}: {e}"
         )
         return UserPreferences()
     try:
         _move_old_state(loaded)
     except Exception as e:
-        logging.warning(f"Could not move remembered values out of preferences: {e}")
+        logger.warning(f"Could not move remembered values out of preferences: {e}")
     _preferences_cache = ((USER_PREFERENCES_PATH, key), preferences)
     return copy.deepcopy(preferences)
 
@@ -548,7 +550,7 @@ def save_user_preferences(preferences) -> None:
         with open(USER_PREFERENCES_PATH, "w") as f:
             yaml.safe_dump(data, f)
     except Exception as e:
-        logging.warning(
+        logger.warning(
             f"Failed to save user preferences to {USER_PREFERENCES_PATH}: {e}"
         )
 
@@ -635,7 +637,7 @@ def peek_experiment(experiment_yaml_path: str) -> ExperimentSummary:
             software_version=system.get("fibsem_version"),
         )
     except Exception as e:
-        logging.warning(
+        logger.warning(
             f"Failed to read experiment info from {experiment_yaml_path}: {e}"
         )
         return ExperimentSummary(

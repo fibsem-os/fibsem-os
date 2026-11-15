@@ -5,6 +5,8 @@ import numpy as np
 from fibsem import utils
 from fibsem.structures.settings import FibsemStagePosition
 
+logger = logging.getLogger(__name__)
+
 """
 This script demonstrates how to get the current stage position, and how to move the stage to a new position.
 
@@ -29,16 +31,16 @@ def main():
     )
 
     # info about ImageSettings
-    logging.info(
+    logger.info(
         "---------------------------------- Current Position ----------------------------------\n"
     )
 
     # get current position
     intial_position = microscope.get_stage_position()
-    logging.info("\nStage Movement Example:")
-    logging.info(f"Current stage position: {intial_position}")
+    logger.info("\nStage Movement Example:")
+    logger.info(f"Current stage position: {intial_position}")
 
-    logging.info(
+    logger.info(
         "\n---------------------------------- Relative Movement ----------------------------------\n"
     )
 
@@ -56,9 +58,9 @@ def main():
     # move by relative position
     microscope.move_stage_relative(relative_move)
     current_position = microscope.get_stage_position()
-    logging.info(f"After move stage position: {current_position}")
+    logger.info(f"After move stage position: {current_position}")
 
-    logging.info(
+    logger.info(
         "\n---------------------------------- Absolute Movement ----------------------------------\n"
     )
 
@@ -78,9 +80,9 @@ def main():
     # move to absolute position
     microscope.move_stage_absolute(stage_position)
     current_position = microscope.get_stage_position()
-    logging.info(f"After move stage position: {current_position}")
+    logger.info(f"After move stage position: {current_position}")
 
-    logging.info(
+    logger.info(
         "---------------------------------- End Example ----------------------------------"
     )
 
