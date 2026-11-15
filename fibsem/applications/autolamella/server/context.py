@@ -124,6 +124,8 @@ from fibsem.workflows.session import CONFIG, GRID_RECORDS
 from fibsem.workflows.status import TaskStatus
 from fibsem.workflows.task_configs import config_version, workflow_field_refusal
 
+logger = logging.getLogger(__name__)
+
 __all__ = [
     "AutoLamellaAppContext",
     "ITEM_PATCH_FIELDS",
@@ -430,7 +432,7 @@ class AutoLamellaAppContext(AppContext):
                 result.save(os.path.join(os.path.dirname(target), "thickness"), stem)
             )
         except OSError:
-            logging.exception(f"Could not save the thickness result for {path!r}")
+            logger.exception(f"Could not save the thickness result for {path!r}")
             saved_to = None
         return {
             "item_name": item_name,

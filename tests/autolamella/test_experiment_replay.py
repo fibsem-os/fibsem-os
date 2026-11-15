@@ -21,7 +21,7 @@ from fibsem.applications.autolamella.tools.replay import (
     read_log_records,
 )
 from fibsem.milling.base import FibsemMillingStage
-from fibsem.workflows.event_recording import (
+from fibsem.workflows.events.recording import (
     EVENTS_FILENAME,
     read_events,
 )

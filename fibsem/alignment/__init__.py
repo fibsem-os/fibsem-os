@@ -38,6 +38,8 @@ from fibsem.alignment.plotting import (
     plot_multi_step_alignment,
 )
 
+logger = logging.getLogger(__name__)
+
 ALIGNMENT_SUBDIR = "Alignment"
 
 
@@ -189,7 +191,7 @@ class AlignmentResult:
             try:
                 self.plot(title=plot_title, path=run_dir)
             except Exception as e:
-                logging.warning(f"Failed to save alignment plot: {e}")
+                logger.warning(f"Failed to save alignment plot: {e}")
         return run_dir
 
     def plot(
@@ -272,7 +274,7 @@ def _calculate_shift(
     method: AlignmentMethod = DEFAULT_ALIGNMENT_METHOD,
 ) -> AlignmentIteration:
     """Calculate the shift between two images using the specified alignment method."""
-    logging.debug(f"Calculating shift using method: {method.value}...")
+    logger.debug(f"Calculating shift using method: {method.value}...")
     if method is AlignmentMethod.SKIMAGE_PHASE_CORRELATION:
         result = shift_from_skimage_phase_correlation(ref_image, new_image)
         result.method = method
@@ -332,7 +334,7 @@ def compare_alignment_methods(
             diff = np.hypot(points[i].x - points[j].x, points[i].y - points[j].y)
             max_disagreement = max(max_disagreement, diff)
 
-    logging.debug(
+    logger.debug(
         {
             "msg": "compare_alignment_methods",
             "shifts_px": {k: (v.x, v.y) for k, v in shifts_px.items()},
@@ -431,7 +433,7 @@ def beam_shift_alignment_v2(
         subsystem=subsystem,
     )
 
-    logging.debug(
+    logger.debug(
         f"Beam Shift Alignment: dx: {result.shift.x}, dy: {result.shift.y}, score: {result.score}"
     )
 
@@ -555,7 +557,7 @@ def _multi_step_alignment(
         if validate:
             validation = compare_alignment_methods(ref_image, final_image)
             if not validation.agreement:
-                logging.warning(
+                logger.warning(
                     f"Alignment validation failed: max disagreement "
                     f"{validation.max_disagreement_px:.2f}px across methods."
                 )
@@ -578,7 +580,7 @@ def _multi_step_alignment(
     # one line per run; each step's shift is logged at debug level
     if alignment_results:
         last = alignment_results[-1]
-        logging.info(
+        logger.info(
             f"{run_name}: {len(alignment_results)}/{steps} steps, last shift "
             f"({last.shift.x * 1e9:.0f}, {last.shift.y * 1e9:.0f}) nm, "
             f"score {last.score:.2f}"
@@ -614,7 +616,7 @@ def _record_alignment(
         if not aborted:
             payload["check"] = run.check()
     except Exception:  # noqa: BLE001 - recording must not matter
-        logging.debug("could not record an alignment", exc_info=True)
+        logger.debug("could not record an alignment", exc_info=True)
         return
     microscope.record_event("alignment", payload)
 
@@ -646,6 +648,6 @@ def _record_alignment_that_raised(
             **ended_by(error),
         }
     except Exception:  # noqa: BLE001 - recording must not matter
-        logging.debug("could not record an alignment", exc_info=True)
+        logger.debug("could not record an alignment", exc_info=True)
         return
     microscope.record_event("alignment", payload)

@@ -8,6 +8,8 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
+from fibsem.autofunctions.autofocus import AutoFocusSettings, run_auto_focus
+from fibsem.autofunctions.metrics import tenengrad_focus_measure
 from fibsem.drivers.demo import sim_optics
 from fibsem.drivers.demo.sim_optics import Optics
 from fibsem.structures.settings import BeamType, ImageSettings, Point
@@ -83,6 +85,49 @@ def test_autofocus_finds_the_focus(microscope):
     focus = microscope._connection.scene_focus(beam_type, here=True)
     assert abs(microscope.get_working_distance(beam_type) - focus) <= 2e-6
     assert _detail(_image(microscope, beam_type)) > 0.97 * sharp
+
+
+def test_the_default_focus_sweep_finds_the_focus_of_a_noisy_surface():
+    """The sweep's own score has to peak at focus on what the simulator
+    draws by default: a noisy probe image of a surface with little in view.
+    It does because the surface has fine texture all over (`surface_grain`);
+    a few hard edges alone score lowest at focus."""
+    microscope, _ = utils.setup_session(manufacturer="Demo", config_path=CONFIG)
+    microscope.system.sim["sample"] = {"enabled": True, "seed": 3, "charging": 0.0}
+    microscope._connection.setup_sample_scene()
+    beam_type = BeamType.ELECTRON
+    try:
+        assert microscope._connection.sample_scene.surface_grain == 1.0
+        focus = microscope._connection.scene_focus(beam_type, here=True)
+        settings = ImageSettings(
+            resolution=(768, 512),
+            hfw=80e-6,
+            dwell_time=0.5e-6,
+            save=False,
+            beam_type=beam_type,
+        )
+
+        def score(off):
+            microscope.set_working_distance(focus + off, beam_type)
+            scores = [
+                tenengrad_focus_measure(
+                    microscope.acquire_image(settings).filtered_data.astype(np.float32)
+                ).mean()
+                for _ in range(3)
+            ]
+            return float(np.mean(scores))
+
+        assert score(0.0) > 1.03 * score(60e-6)
+        assert score(0.0) > 1.03 * score(-60e-6)
+
+        microscope.set_working_distance(focus + 20e-6, beam_type)
+        result = run_auto_focus(
+            microscope, beam_type, hfw=80e-6, settings=AutoFocusSettings()
+        )
+        assert abs(result.working_distance - focus) <= 12e-6
+        assert result.check()["verdict"] == "passed"
+    finally:
+        microscope.disconnect()
 
 
 def test_stigmation_stretches_the_blur_one_way(microscope):

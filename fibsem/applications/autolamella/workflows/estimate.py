@@ -24,6 +24,8 @@ if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment
     from fibsem.workflows.queue import TaskQueue
 
+logger = logging.getLogger(__name__)
+
 
 def task_schedule(experiment: "Experiment") -> Dict[str, datetime]:
     """``scheduled_at`` per task name, for the tasks that have one."""
@@ -67,7 +69,7 @@ def step_seconds(
                 return grid_seconds(item_name, task_name)
             return None
         except Exception:
-            logging.warning(
+            logger.warning(
                 "Could not estimate duration for %s on %s.",
                 task_name,
                 item_name,
@@ -145,7 +147,7 @@ def loaded_grid_names(stage: Any) -> List[str]:
     try:
         return [e.name for e in stage.grid_inventory() if e.name and e.loaded]
     except Exception as e:  # noqa: BLE001 - priced as nothing loaded
-        logging.warning(f"Could not read the grid inventory: {e}")
+        logger.warning(f"Could not read the grid inventory: {e}")
         return []
 
 
@@ -181,5 +183,5 @@ def grid_run_estimate(
             experiment, task_names, grid_names, exchanges, exchange_seconds(stage)
         )
     except Exception:
-        logging.warning("Could not estimate the grid run.", exc_info=True)
+        logger.warning("Could not estimate the grid run.", exc_info=True)
         return None

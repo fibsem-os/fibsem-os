@@ -35,6 +35,8 @@ from fibsem.structures.system import (
 )
 from fibsem.util.timestamps import acquisition_datetime_of
 
+logger = logging.getLogger(__name__)
+
 
 @saved(keys={"image_settings": "image"})
 @dataclass
@@ -148,7 +150,7 @@ class FibsemImageMetadata:
                 raw = image_format.read_metadata_dict(tiff)
             return FibsemImageMetadata.from_dict(raw) if raw is not None else None
         except Exception:
-            logging.debug(f"Could not read the metadata of {path}", exc_info=True)
+            logger.debug(f"Could not read the metadata of {path}", exc_info=True)
             return None
 
 

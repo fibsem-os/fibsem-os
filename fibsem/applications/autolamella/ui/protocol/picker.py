@@ -11,6 +11,8 @@ from qtpy import QtWidgets
 from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
 from fibsem.ui import utils as fui
 
+logger = logging.getLogger(__name__)
+
 ERROR_INVALID_PROTOCOL_TITLE = "Invalid Protocol"
 ERROR_INVALID_PROTOCOL_MSG = (
     "The selected protocol file is not valid. It may be corrupted, incorrectly formatted, or missing required fields.\n\n"
@@ -33,14 +35,14 @@ def pick_protocol(
     try:
         protocol = AutoLamellaTaskProtocol.load(path)
     except Exception as e:
-        logging.error(f"Failed to load protocol: {e}")
+        logger.error(f"Failed to load protocol: {e}")
         QtWidgets.QMessageBox.critical(
             parent,
             ERROR_INVALID_PROTOCOL_TITLE,
             ERROR_INVALID_PROTOCOL_MSG.format(error=e),
         )
         return None
-    logging.info(f"Protocol loaded from {path}")
+    logger.info(f"Protocol loaded from {path}")
     return path, protocol
 
 

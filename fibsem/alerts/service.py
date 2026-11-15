@@ -30,6 +30,8 @@ from fibsem.alerts.slack import SlackChannel
 from fibsem.config import NotificationPreferences, load_user_preferences
 from fibsem.keystore import get_secret
 
+logger = logging.getLogger(__name__)
+
 TOKEN_ENV = "FIBSEM_SLACK_TOKEN"
 POLL_S = 3.0
 
@@ -134,7 +136,7 @@ class Alerts:
             return
         if not self._token:
             # Read only here, so nothing could be sent until a restart.
-            logging.info("Slack notifications: no %s, so none are sent", TOKEN_ENV)
+            logger.info("Slack notifications: no %s, so none are sent", TOKEN_ENV)
             return
         self._stop.clear()
         self._thread = threading.Thread(
@@ -156,7 +158,7 @@ class Alerts:
             try:
                 self.tick()
             except Exception:  # noqa: BLE001 - one bad pass must not end the next
-                logging.warning("Slack notifications: a pass failed", exc_info=True)
+                logger.warning("Slack notifications: a pass failed", exc_info=True)
 
     # --- one pass ------------------------------------------------------------
 
@@ -176,14 +178,14 @@ class Alerts:
         try:
             asks = self._rules.asks()
         except Exception:  # noqa: BLE001 - keep what was last seen
-            logging.debug(
+            logger.debug(
                 "Slack notifications: could not read what waits", exc_info=True
             )
             asks = None
         try:
             settings = self._settings()
         except Exception:  # noqa: BLE001 - unreadable settings send nothing
-            logging.warning(
+            logger.warning(
                 "Slack notifications: could not read the settings", exc_info=True
             )
             settings = None
@@ -218,7 +220,7 @@ class Alerts:
             try:
                 image = alert.image()
             except Exception:  # noqa: BLE001 - send it without the picture
-                logging.debug(
+                logger.debug(
                     "Slack notifications: no picture for %s", alert.key, exc_info=True
                 )
         try:
@@ -226,7 +228,7 @@ class Alerts:
             return True
         except Exception as e:  # noqa: BLE001 - the next one may go
             # The message names Slack's error or the network's, never the token.
-            logging.warning(
+            logger.warning(
                 "Slack notifications: could not send %r: %s",
                 alert.headline,
                 type(e).__name__ + f": {e}",

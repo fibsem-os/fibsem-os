@@ -28,7 +28,7 @@ from fibsem.applications.autolamella.tools.report_v2 import (  # noqa: E402
     REPORT_DIRNAME,
     REPORT_FILENAME,
 )
-from fibsem.workflows.event_recording import (  # noqa: E402
+from fibsem.workflows.events.recording import (  # noqa: E402
     EVENTS_FILENAME,
 )
 

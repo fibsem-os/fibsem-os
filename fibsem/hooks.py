@@ -15,6 +15,8 @@ from typing import Any, Callable, Dict, List, Optional
 
 from fibsem.structures.params import Configurable, Display, param
 
+logger = logging.getLogger(__name__)
+
 
 class HookEvent(str, Enum):
     TASK_STARTED = "task_started"
@@ -207,7 +209,7 @@ class HookContext:
         try:
             self.task_state = deepcopy(self.task_state)
         except Exception:
-            logging.exception(
+            logger.exception(
                 "Could not snapshot task_state for the %s hook; passing the live "
                 "object, which a deferred hook may see mutated",
                 self.event,
@@ -249,7 +251,7 @@ class _TemplateFieldMap(dict):
     """
 
     def __missing__(self, key: str) -> str:
-        logging.warning(f"Hook message template references unknown field '{key}'")
+        logger.warning(f"Hook message template references unknown field '{key}'")
         return "{" + key + "}"
 
 
@@ -273,7 +275,7 @@ class Hook(Configurable, ABC):
         # the hook's other subscriptions still work.
         unknown = unknown_subscriptions(self.events)
         if unknown:
-            logging.warning(
+            logger.warning(
                 f"Hook '{self.name}' subscribes to unknown event(s) {unknown}, which "
                 f"will never fire. Known events and groups: "
                 f"{sorted(KNOWN_SUBSCRIPTIONS)}"
@@ -295,7 +297,7 @@ class LoggingHook(Hook):
 
     def run(self, context: HookContext) -> None:
         level = getattr(logging, self.level.upper(), logging.INFO)
-        logging.log(
+        logger.log(
             level,
             f"[Hook] {context.event} | task={context.task_name} item={context.item_name} error={context.error}",
         )
@@ -321,7 +323,7 @@ class NotificationHook(Hook):
         if self._notify:
             self._notify(message, self.notification_type)
         else:
-            logging.info(
+            logger.info(
                 f"[NotificationHook] {self.notification_type.upper()}: {message}"
             )
 
@@ -363,7 +365,7 @@ class HookManager:
             try:
                 hook.run(context)
             except Exception:
-                logging.exception(f"Hook '{hook.name}' failed silently")
+                logger.exception(f"Hook '{hook.name}' failed silently")
 
     def set_notifier(self, notify: Optional[Callable[[str, str], None]]) -> None:
         """Supply the sink NotificationHooks deliver to, as notify(message, type).

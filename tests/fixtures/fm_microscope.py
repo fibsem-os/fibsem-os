@@ -20,6 +20,8 @@ from fibsem import utils
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures.settings import BeamType, FibsemStagePosition, ImageSettings
 
+logger = logging.getLogger(__name__)
+
 SIM_COMPUSTAGE_CONFIG = os.path.join(
     cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"
 )
@@ -69,7 +71,7 @@ def acquire_beam_overviews(
             )
         )
         views[OverviewView(beam_type, orientation)] = [image]
-        logging.debug(
+        logger.debug(
             f"acquired {beam_type.name} @ {orientation}, "
             f"t = {np.degrees(pose.t):.1f} deg"
         )

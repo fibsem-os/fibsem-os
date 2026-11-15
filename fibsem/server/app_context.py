@@ -69,18 +69,18 @@ from fibsem.util.records import dataframe_records
 from fibsem.util.timestamps import to_iso, wall_time_of
 from fibsem.workflows import workflow_edits
 from fibsem.workflows.actions import NOTE, note_record
-from fibsem.workflows.event_recording import (
-    EVENTS_FILENAME,
-    LIVE_KINDS,
-    read_events_after,
-    read_events_before,
-    read_new_events,
-)
 from fibsem.workflows.events import (
     buffer_or_unavailable,
     iso_time,
     split_event_id,
     to_plain,
+)
+from fibsem.workflows.events.recording import (
+    EVENTS_FILENAME,
+    LIVE_KINDS,
+    read_events_after,
+    read_events_before,
+    read_new_events,
 )
 from fibsem.workflows.evidence import (
     EVIDENCE,
@@ -126,6 +126,8 @@ from fibsem.workflows.session import CONFIG, PROTOCOL
 from fibsem.workflows.status import TaskStatus
 from fibsem.workflows.task_configs import agent_patch_task_config, config_version
 from fibsem.workflows.workflow_edits import set_supervision
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "AppContext",
@@ -230,7 +232,7 @@ class AppContext:
         try:
             experiment.save()
         except Exception:
-            logging.exception("could not save the experiment's sample")
+            logger.exception("could not save the experiment's sample")
             return False
         return True
 
@@ -554,6 +556,7 @@ class AppContext:
                 str(experiment.path),
                 len(experiment.positions),
                 getattr(experiment, "sample", "") or "",
+                getattr(experiment, "id", "") or "",
             )
             # The proposals a task is stopped on, for an agent that has just
             # connected: their events are behind its cursor.
@@ -1283,7 +1286,7 @@ class AppContext:
             if refusal:
                 return refusal
             item_id = item.id
-        logging.info(
+        logger.info(
             "agent %s%s: %s",
             "message" if fields.get("to") else "note",
             f" [{item_name}]" if item_name else "",
@@ -1310,7 +1313,7 @@ class AppContext:
                 return refusal
             item_id = item.id
         record = save()
-        logging.info(
+        logger.info(
             "agent evidence %s%s: %s",
             record["evidence_id"],
             f" [{item_name}]" if item_name else "",
@@ -1842,7 +1845,7 @@ class AppContext:
         try:
             experiment.save(save_protocol=True)
         except Exception:
-            logging.exception("save after a protocol change failed; applied in memory")
+            logger.exception("save after a protocol change failed; applied in memory")
             return False
         return True
 

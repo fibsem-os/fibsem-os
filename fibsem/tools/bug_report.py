@@ -42,6 +42,8 @@ from fibsem.versioning import get_revision
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
 
+logger = logging.getLogger(__name__)
+
 # Support / issue destinations
 SUPPORT_EMAIL = "contact@fibsemos.org"
 GITHUB_REPO_URL = "https://github.com/fibsem-os/fibsem-os"
@@ -200,7 +202,7 @@ def collect_system_context(
                 getattr(info, "software_version", "")
             )
         except Exception:
-            logging.debug("Could not read microscope system info for bug report.")
+            logger.debug("Could not read microscope system info for bug report.")
 
     return {k: v for k, v in ctx.items() if v}
 
@@ -513,9 +515,9 @@ def build_bug_report_bundle(
                 else:
                     zf.write(path, arcname)
             except OSError as e:
-                logging.warning("Skipping %s in bug report bundle: %s", path, e)
+                logger.warning("Skipping %s in bug report bundle: %s", path, e)
 
-    logging.info("Created bug report bundle at %s", zip_path)
+    logger.info("Created bug report bundle at %s", zip_path)
     return zip_path
 
 
@@ -558,11 +560,11 @@ def open_github_issue(content: BugReportContent) -> SubmitResult:
 
     url, truncated = _fit_url(_build, body, GITHUB_MAX_URL_LENGTH)
 
-    logging.info("Opening GitHub issue in browser.")
+    logger.info("Opening GitHub issue in browser.")
     try:
         opened = bool(webbrowser.open(url))
     except Exception:
-        logging.exception("Could not open a browser for the GitHub issue.")
+        logger.exception("Could not open a browser for the GitHub issue.")
         opened = False
 
     return SubmitResult(opened=opened, full_text=body, truncated=truncated)

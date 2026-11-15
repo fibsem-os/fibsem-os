@@ -16,7 +16,7 @@ fibsem/ai/agent/pictures.py 17
 fibsem/ai/agent/session.py 8
 fibsem/ai/agent/sources.py 2
 fibsem/ai/agent/watch.py 1
-fibsem/ai/evals/__main__.py 1
+fibsem/ai/evals/__main__.py 3
 fibsem/alignment/coincidence.py 10
 fibsem/alignment/methods.py 1
 fibsem/alignment/plotting.py 5
@@ -179,8 +179,8 @@ fibsem/utils.py 7
 fibsem/versioning.py 1
 fibsem/workflows/config_patch.py 1
 fibsem/workflows/estimate.py 3
-fibsem/workflows/event_recording.py 2
 fibsem/workflows/events/__init__.py 2
+fibsem/workflows/events/recording.py 2
 fibsem/workflows/evidence.py 10
 fibsem/workflows/experiment.py 3
 fibsem/workflows/grid/manager.py 1

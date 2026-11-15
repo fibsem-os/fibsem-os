@@ -27,6 +27,8 @@ from fibsem.ui.icon import ICON_MOVE_TO_POSITION, ICON_UPDATE_POSITION
 from fibsem.ui.utils import message_box_ui
 from fibsem.ui.widgets.custom_widgets import IconToolButton
 
+logger = logging.getLogger(__name__)
+
 _NAME_MIN_WIDTH = 160
 _BTN_SIZE = QSize(32, 32)
 _ROW_HEIGHT = 40
@@ -224,7 +226,7 @@ class SavedPositionListWidget(QWidget):
         try:
             edit(service)
         except Exception as e:
-            logging.warning(f"Saved positions: {e}")
+            logger.warning(f"Saved positions: {e}")
             self._show(service.saved_positions())
             return False
         self._show(service.saved_positions())
@@ -242,7 +244,7 @@ class SavedPositionListWidget(QWidget):
         elif not self._saved(lambda s: s.save_position(position.name, position)):
             return
         self.positions_updated.emit(self.positions)
-        logging.info(f"Saved position added: {position.name}")
+        logger.info(f"Saved position added: {position.name}")
 
     def remove_position(self, position: FibsemStagePosition) -> None:
         if self._service() is None:
@@ -258,7 +260,7 @@ class SavedPositionListWidget(QWidget):
         elif not self._saved(lambda s: s.remove_saved_position(position.name)):
             return
         self.positions_updated.emit(self.positions)
-        logging.info(f"Saved position removed: {position.name}")
+        logger.info(f"Saved position removed: {position.name}")
 
     def update_position(self, position: FibsemStagePosition) -> None:
         if self._service() is None or not self._saved(
@@ -266,7 +268,7 @@ class SavedPositionListWidget(QWidget):
         ):
             return
         self.positions_updated.emit(self.positions)
-        logging.info(f"Saved position updated: {position.name}")
+        logger.info(f"Saved position updated: {position.name}")
 
     def get_positions(self) -> List[FibsemStagePosition]:
         return list(self.positions)

@@ -348,6 +348,8 @@ class ExperimentRef:
     num_items: int
     # The sample, from the experiment's metadata ("" when nobody has named it).
     sample: str = ""
+    # The experiment's own id, which a rename or a move does not change.
+    id: str = ""
 
 
 @dataclass
@@ -1097,7 +1099,7 @@ class RunStep:
 
 
 @dataclass
-class RunPlan:
+class RunEstimateView:
     """A lamella run's steps in queue order and its estimate, or for an
     addition to the running queue what it adds and delays."""
 

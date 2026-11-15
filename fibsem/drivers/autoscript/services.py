@@ -38,6 +38,8 @@ if TYPE_CHECKING:
     from fibsem.drivers.autoscript.connection import AutoScriptConnection
     from fibsem.drivers.autoscript.microscope import ThermoMicroscope
 
+logger = logging.getLogger(__name__)
+
 
 def match_application_file(
     application_file: str, application_files: List[str], strict: bool = True
@@ -121,7 +123,7 @@ class AutoScriptMilling(BeamMilling):
         self._current_application_file = application_file
         if default:
             self._default_application_file = application_file
-        logging.debug(
+        logger.debug(
             {
                 "msg": "set_application_file",
                 "application_file": application_file,
@@ -132,7 +134,7 @@ class AutoScriptMilling(BeamMilling):
 
     def _set_patterning_mode(self, mode: str) -> str:
         self._sdk.patterning.mode = mode
-        logging.debug({"msg": "set_patterning_mode", "mode": mode})
+        logger.debug({"msg": "set_patterning_mode", "mode": mode})
         return mode
 
     @classmethod
@@ -201,7 +203,7 @@ class AutoScriptMilling(BeamMilling):
         )
 
         if not np.isclose(pattern_settings.time, 0.0):
-            logging.debug(f"Setting pattern time to {pattern_settings.time}.")
+            logger.debug(f"Setting pattern time to {pattern_settings.time}.")
             pattern.time = pattern_settings.time
 
         # set pattern rotation
@@ -217,10 +219,10 @@ class AutoScriptMilling(BeamMilling):
             pattern.scan_direction = pattern_settings.scan_direction
         else:
             pattern.scan_direction = "TopToBottom"
-            logging.warning(
+            logger.warning(
                 f"Scan direction {pattern_settings.scan_direction} not supported. Using TopToBottom instead."
             )
-            logging.warning(
+            logger.warning(
                 f"Supported scan directions are: {available_scan_directions}"
             )
 
@@ -238,7 +240,7 @@ class AutoScriptMilling(BeamMilling):
                 # if we adjust passes directly, it just reduces the total time to compensate, rather than increasing the dwell_time
                 # NB: the current must be set before doing this, otherwise it will be out of range
 
-        logging.debug(
+        logger.debug(
             {"msg": "draw_rectangle", "pattern_settings": pattern_settings.to_dict()}
         )
 
@@ -268,7 +270,7 @@ class AutoScriptMilling(BeamMilling):
             end_y=pattern_settings.end_y,
             depth=pattern_settings.depth,
         )
-        logging.debug(
+        logger.debug(
             {"msg": "draw_line", "pattern_settings": pattern_settings.to_dict()}
         )
         self._patterns.append(pattern)
@@ -308,7 +310,7 @@ class AutoScriptMilling(BeamMilling):
             if self._current_application_file == fallback_application_file:
                 # No need to try again with the same application file
                 raise
-            logging.warning(
+            logger.warning(
                 "Failed to draw circle pattern, falling back on application file %s",
                 fallback_application_file,
             )
@@ -323,7 +325,7 @@ class AutoScriptMilling(BeamMilling):
         # set exclusion
         pattern.is_exclusion_zone = pattern_settings.is_exclusion
 
-        logging.debug(
+        logger.debug(
             {"msg": "draw_circle", "pattern_settings": pattern_settings.to_dict()}
         )
         self._patterns.append(pattern)
@@ -334,7 +336,7 @@ class AutoScriptMilling(BeamMilling):
         pattern_settings = deepcopy(pattern_settings)
 
         if pattern_settings.bitmap is None:
-            logging.warning("Bitmap pattern will be skipped as no bitmap has been set")
+            logger.warning("Bitmap pattern will be skipped as no bitmap has been set")
             return None
 
         # Get bitmap from pattern settings
@@ -362,7 +364,7 @@ class AutoScriptMilling(BeamMilling):
             if self._current_application_file == fallback_application_file:
                 # No need to try again with the same application file
                 raise
-            logging.warning(
+            logger.warning(
                 "Failed to draw bitmap pattern, falling back on application file %s",
                 fallback_application_file,
             )
@@ -381,7 +383,7 @@ class AutoScriptMilling(BeamMilling):
             )
 
         if not np.isclose(pattern_settings.time, 0.0):
-            logging.debug("Setting pattern time to %f", pattern_settings.time)
+            logger.debug("Setting pattern time to %f", pattern_settings.time)
             pattern.time = pattern_settings.time
 
         # set pattern rotation
@@ -397,11 +399,11 @@ class AutoScriptMilling(BeamMilling):
             pattern.scan_direction = pattern_settings.scan_direction
         else:
             pattern.scan_direction = "TopToBottom"
-            logging.warning(
+            logger.warning(
                 "Scan direction %s not supported. Using TopToBottom instead.",
                 pattern_settings.scan_direction,
             )
-            logging.warning(
+            logger.warning(
                 "Supported scan directions are: %s", str(available_scan_directions)
             )
 
@@ -415,7 +417,7 @@ class AutoScriptMilling(BeamMilling):
             # if we adjust passes directly, it just reduces the total time to compensate, rather than increasing the dwell_time
             # NB: the current must be set before doing this, otherwise it will be out of range
 
-        logging.debug(
+        logger.debug(
             {
                 "msg": "draw_bitmap_pattern",
                 "pattern_settings": pattern_settings.to_dict(),
@@ -489,7 +491,7 @@ class AutoScriptMilling(BeamMilling):
         )
         pattern.is_exclusion_zone = pattern_settings.is_exclusion
 
-        logging.debug(
+        logger.debug(
             {"msg": "draw_polygon", "pattern_settings": pattern_settings.to_dict()}
         )
         self._patterns.append(pattern)

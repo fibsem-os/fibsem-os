@@ -50,6 +50,8 @@ from fibsem.workflows.status import TaskStatus
 if TYPE_CHECKING:
     from fibsem.workflows.session import AppSession
 
+logger = logging.getLogger(__name__)
+
 __all__ = ["PositionsTab", "SliceScrubber"]
 
 THUMB_W, THUMB_H = 120, 80
@@ -68,7 +70,7 @@ def _decode(path: str, width: int) -> QImage:
     try:
         data, _px, _info = load_and_resize(path, width)
     except Exception:  # noqa: BLE001 - a file that can't be read shows nothing
-        logging.debug(f"could not load {path}", exc_info=True)
+        logger.debug(f"could not load {path}", exc_info=True)
         return QImage()
     return arr_to_qimage(data)
 

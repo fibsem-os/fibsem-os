@@ -31,6 +31,8 @@ from fibsem import config as cfg
 from fibsem.drivers.registry import driver_setups
 from fibsem.drivers.setup import SetupLibrary
 
+logger = logging.getLogger(__name__)
+
 SOURCE_ENV = "environment"
 SOURCE_PREFERENCE = "preference"
 SOURCE_FOUND = "found"
@@ -83,7 +85,7 @@ def version(folder: str, packages: Sequence[str]) -> Optional[str]:
             name = (dist.metadata["Name"] or "").lower().replace("-", "_")
             versions.setdefault(name, dist.version)
     except Exception as e:  # noqa: BLE001 - a broken dist-info is no version
-        logging.debug(f"Could not read package metadata in {folder}: {e}")
+        logger.debug(f"Could not read package metadata in {folder}: {e}")
     return next((versions[n.lower()] for n in packages if n.lower() in versions), None)
 
 
@@ -132,7 +134,7 @@ def installed(library: SetupLibrary) -> Optional[str]:
     try:
         spec = PathFinder.find_spec(library.packages[0])
     except Exception as e:  # noqa: BLE001 - a package that breaks on inspection
-        logging.debug(f"Could not look for {library.packages[0]}: {e}")
+        logger.debug(f"Could not look for {library.packages[0]}: {e}")
         return None
     return _spec_folder(spec)
 
@@ -233,7 +235,7 @@ def search(library: SetupLibrary, timeout: float = 10.0) -> List[LibraryFolder]:
                 timeout=timeout,
             )
         except (OSError, subprocess.SubprocessError) as e:
-            logging.debug(f"Could not ask {python} for the {library.label}: {e}")
+            logger.debug(f"Could not ask {python} for the {library.label}: {e}")
             continue
         folder = result.stdout.strip()
         if result.returncode == 0 and folder and held(folder, library.packages):
@@ -285,7 +287,7 @@ def serve(
     # last, so a package installed in this environment wins over the folder's copy
     sys.meta_path.append(finder)
     version_text = f" {found.version}" if found.version else ""
-    logging.info(
+    logger.info(
         f"{driver}: the {library.label}{version_text} is served from {found.folder}."
     )
     return found.folder
