@@ -139,6 +139,20 @@ lists where each key went.
   values are unchanged, and saved experiments load as before. A plugin task that
   imports the old name from `fibsem.applications.autolamella.structures` imports
   `from fibsem.workflows.status import TaskStatus` instead.
+- **`fibsem.structures` is a package, and imports name its submodules.** `from
+  fibsem.structures import BeamType` fails: import settings types (`BeamType`, `Point`,
+  `ImageSettings`, `FibsemRectangleSettings`, `CrossSectionPattern`, ...) from
+  `fibsem.structures.settings`, `FibsemImage` from `fibsem.structures.image`, and
+  field declarations (`param`, `Display`, `RangeLimit`) from `fibsem.structures.params`.
+- **`acquire.new_image` is removed.** Call `acquire.acquire_image(microscope, settings)`
+  or `microscope.acquire_image(settings)`.
+- **`microscope.run_milling` takes only `stop_event`.** The current and voltage come
+  from `microscope.setup_milling(settings)`, as they did; `milling_current`,
+  `milling_voltage` and `asynch` are gone, and a call that passes them raises.
+- **The `DEFAULT_*_METADATA` constants in `fibsem.milling.properties` are removed**, so a
+  pattern or strategy plugin that imports them does not load. Declare each field with
+  `param(default, distance_param("Width", "..."))`, and `angle_param`,
+  `cross_section_param` and the other helpers in that module, as the built-in patterns do.
 - **`microscope.move_to_milling_angle` takes the angle and the rotation in degrees**,
   like the other milling-angle methods, not radians.
 - **`microscope.last_image` and the beam's `last_image` command are removed.** Acquire a
