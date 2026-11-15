@@ -130,10 +130,10 @@ def test_an_unhandled_request_type_fails_fast_not_by_timeout(ui, qapp):
     # this test survives every conversion.
     from dataclasses import dataclass
 
-    from fibsem.workflows.interaction import Request
+    from fibsem.workflows.interaction import ShowRequest
 
     @dataclass(frozen=True)
-    class NeverHandled(Request[None]):
+    class NeverHandled(ShowRequest[None]):
         pass
 
     started = time.monotonic()

@@ -22,6 +22,8 @@ from typing import (
 
 from fibsem.codec import LowerBound, UpperBound, decode, encode, saved
 
+logger = logging.getLogger(__name__)
+
 
 @saved(required=("min", "max"))
 @dataclass
@@ -481,7 +483,7 @@ def _warn_unknown_metadata_keys(
         if marker in _warned_metadata_keys:
             continue
         _warned_metadata_keys.add(marker)
-        logging.warning(
+        logger.warning(
             f"{struct_cls.__name__}.{field_name} declares metadata key {key!r}, which no "
             f"form reads. A field declares its unit, limits, doc and display as a "
             f"Parameter: name: float = param(default, unit=..., doc=...)."

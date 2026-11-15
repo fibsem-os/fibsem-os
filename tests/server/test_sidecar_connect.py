@@ -5,6 +5,7 @@ import pytest
 pytest.importorskip("mcp")
 
 from fibsem.ai.agent.mcp import sidecar  # noqa: E402
+from fibsem.server.discovery import API_VERSION  # noqa: E402
 
 
 class _FakeResponse:
@@ -41,7 +42,8 @@ def _refused():
 
 
 def test_retry_succeeds_after_server_appears():
-    ok = _FakeResponse(200, {"level": "watch"})
+    served = {"level": "watch", "api_version": API_VERSION}
+    ok = _FakeResponse(200, served)
     attempts = [
         None,  # no server known yet
         _FakeClient([_refused()]),
@@ -56,9 +58,24 @@ def test_retry_succeeds_after_server_appears():
         sleep_fn=sleeps.append,
         connect=lambda url, token: attempts.pop(0),
     )
-    assert caps == {"level": "watch"}
+    assert caps == served
     assert len(sleeps) == 3  # slept between the four attempts
     assert not client.closed  # the successful client stays open
+
+
+def test_a_server_of_another_api_version_is_refused_without_a_retry():
+    client = _FakeClient([_FakeResponse(200, {"api_version": "99.0.0"})])
+    sleeps = []
+    with pytest.raises(sidecar.ServerUnreachable) as excinfo:
+        sidecar._connect_with_retry(
+            "http://x",
+            "t",
+            wait_s=60,
+            sleep_fn=sleeps.append,
+            connect=lambda url, token: client,
+        )
+    assert "99.0.0" in str(excinfo.value) and API_VERSION in str(excinfo.value)
+    assert client.closed and not sleeps
 
 
 def test_retry_times_out_with_guidance():

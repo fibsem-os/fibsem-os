@@ -41,6 +41,8 @@ from fibsem.ui.icon import fibsem_icon, qta
 from fibsem.ui.utils import find_data, install_wheel_blocker
 from fibsem.utils import format_value
 
+logger = logging.getLogger(__name__)
+
 
 class QFilePathLineEdit(QWidget):
     textChanged = Signal(str)
@@ -198,9 +200,9 @@ def _create_combobox_control(
 
     if idx == -1:
         if len(items) == 0:
-            logging.warning(f"No items available for combobox with value {value}")
+            logger.warning(f"No items available for combobox with value {value}")
         else:
-            logging.debug(
+            logger.debug(
                 f"Warning: No matching item or nearest found for {items} with value {value}. Using first item."
             )
             idx = 0
@@ -493,7 +495,7 @@ class ContextMenu(QMenu):
             if menu_action.callback is not None:
                 menu_action.callback()
         except Exception:
-            logging.exception(
+            logger.exception(
                 "Context menu action '%s' raised an exception.", menu_action.label
             )
             try:

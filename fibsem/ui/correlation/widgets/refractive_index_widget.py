@@ -40,6 +40,8 @@ from fibsem.ui.widgets.custom_widgets import (
 )
 from fibsem.ui.widgets.form_builder import configure_spinbox
 
+logger = logging.getLogger(__name__)
+
 _LUT_MISSING_MSG = (
     f"Correction factor calculator unavailable: LUT file not found at\n{_LUT_PATH}\n"
     "The correction factor can still be edited manually."
@@ -74,7 +76,7 @@ def _default_factor() -> float:
             wavelength_um=_DEFAULTS.wavelength_um,
         )
     except Exception:
-        logging.debug(
+        logger.debug(
             "Lookup table unusable; falling back to the stored default correction factor",
             exc_info=True,
         )

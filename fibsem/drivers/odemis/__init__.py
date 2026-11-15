@@ -16,6 +16,8 @@ import sys
 
 from fibsem.drivers.registry import DeviceBuilder, DriverEntry
 
+logger = logging.getLogger(__name__)
+
 # No port: Odemis reaches the instrument through its own back end.
 DRIVER = DriverEntry(
     manufacturer="Odemis",
@@ -62,7 +64,7 @@ def add_odemis_path(config_path: str = "/etc/odemis.conf"):
     try:
         config = parse_config(config_path)
     except Exception as e:
-        logging.debug(f"Odemis config not available at {config_path}: {e}")
+        logger.debug(f"Odemis config not available at {config_path}: {e}")
         return
 
     # Each module that imports odemis calls this, so a path is added once.
@@ -96,5 +98,5 @@ def shut_down_pyro_future_daemons() -> None:
         try:
             daemon.shutdown()
         except Exception as e:
-            logging.debug(f"Odemis proxy's future daemon did not shut down: {e}")
+            logger.debug(f"Odemis proxy's future daemon did not shut down: {e}")
         obj._pyroFutureDaemon = None

@@ -110,6 +110,8 @@ if TYPE_CHECKING:
     from fibsem.fm.structures import CameraSettings
     from fibsem.microscope import FibsemMicroscope
 
+logger = logging.getLogger(__name__)
+
 
 def _hfw_max(vendor_max: float) -> float:
     """Just inside the vendor's maximum field width, by a fraction of it: a fixed
@@ -196,7 +198,7 @@ class AutoscriptStage(Stage):
             self.parent.stage_movement.without_blocked_axes(position)
         )
 
-        logging.info(f"Moving stage to {position}.")
+        logger.info(f"Moving stage to {position}.")
         self._stage.absolute_move(
             autoscript_position, MoveSettings(rotate_compucentric=True)
         )
@@ -205,22 +207,22 @@ class AutoscriptStage(Stage):
         if not self.compustage:
             self.parent.set_working_distance(wd, BeamType.ELECTRON)
 
-        logging.debug({"msg": "move_stage_absolute", "position": position.to_dict()})
+        logger.debug({"msg": "move_stage_absolute", "position": position.to_dict()})
 
     def _move_relative(self, delta: FibsemStagePosition) -> None:
-        logging.info(f"Moving stage by {delta}.")
+        logger.info(f"Moving stage by {delta}.")
         self._stage.relative_move(self._to_autoscript(delta))
-        logging.debug({"msg": "move_stage_relative", "position": delta.to_dict()})
+        logger.debug({"msg": "move_stage_relative", "position": delta.to_dict()})
 
     def _home(self) -> None:
-        logging.info("Homing stage...")
+        logger.info("Homing stage...")
         self._stage.home()
-        logging.info("Stage homed.")
+        logger.info("Stage homed.")
 
     def _link(self) -> None:
-        logging.info("Linking stage...")
+        logger.info("Linking stage...")
         self._stage.link()
-        logging.info("Stage linked.")
+        logger.info("Stage linked.")
 
 
 class AutoscriptCompustage(AutoscriptStage):
@@ -316,7 +318,7 @@ class AutoscriptBeam(Beam):
         return self.connection.beam(self.beam_type)
 
     def _set_log(self, what: str, value: Any, unit: str) -> None:
-        logging.debug(
+        logger.debug(
             f"{self.beam_type.name} {what} set to {value}{unit}.",
             stacklevel=2,  # name the write_* method, not this helper
         )
@@ -327,7 +329,7 @@ class AutoscriptBeam(Beam):
     def write_on(self, value: bool) -> None:
         beam = self._beam
         beam.turn_on() if value else beam.turn_off()
-        logging.info(f"{self.beam_type.name} beam turned {'on' if value else 'off'}.")
+        logger.info(f"{self.beam_type.name} beam turned {'on' if value else 'off'}.")
 
     def read_blanked(self) -> bool:
         return self._beam.is_blanked
@@ -335,7 +337,7 @@ class AutoscriptBeam(Beam):
     def write_blanked(self, value: bool) -> None:
         beam = self._beam
         beam.blank() if value else beam.unblank()
-        logging.debug(
+        logger.debug(
             f"{self.beam_type.name} beam {'blanked' if value else 'unblanked'}."
         )
 
@@ -392,13 +394,13 @@ class AutoscriptBeam(Beam):
         limits = beam.horizontal_field_width.limits
         clipped = float(np.clip(value, limits.min, _hfw_max(limits.max)))
         if clipped != value:
-            logging.warning(
+            logger.warning(
                 f"{self.beam_type.name} HFW {value * 1e6:.2f} µm is outside "
                 f"{limits.min * 1e6:.2f}-{limits.max * 1e6:.2f} µm: set "
                 f"{clipped * 1e6:.2f} µm."
             )
         beam.horizontal_field_width.value = clipped
-        logging.debug(f"{self.beam_type.name} HFW set to {clipped} m.")
+        logger.debug(f"{self.beam_type.name} HFW set to {clipped} m.")
 
     def metadata_hfw(self) -> ParameterMetadata:
         limits = self._beam.horizontal_field_width.limits
@@ -527,9 +529,9 @@ class AutoscriptBeam(Beam):
         detector = self._detector
         if value in detector.type.available_values:
             detector.type.value = value
-            logging.debug(f"Detector type set to {value}.")
+            logger.debug(f"Detector type set to {value}.")
         else:
-            logging.warning(f"Detector type {value} not available.")
+            logger.warning(f"Detector type {value} not available.")
 
     def metadata_detector_type(self) -> ParameterMetadata:
         # read outside a parameter's claim, so it selects the channel itself
@@ -544,9 +546,9 @@ class AutoscriptBeam(Beam):
         detector = self._detector
         if value in detector.mode.available_values:
             detector.mode.value = value
-            logging.debug(f"Detector mode set to {value}.")
+            logger.debug(f"Detector mode set to {value}.")
         else:
-            logging.warning(f"Detector mode {value} not available.")
+            logger.warning(f"Detector mode {value} not available.")
 
     def metadata_detector_mode(self) -> ParameterMetadata:
         # the detector type's modes, read again when the type changes; read outside a
@@ -561,9 +563,9 @@ class AutoscriptBeam(Beam):
     def write_detector_brightness(self, value: float) -> None:
         if 0 < value <= 1:
             self._detector.brightness.value = value
-            logging.debug(f"Detector brightness set to {value}.")
+            logger.debug(f"Detector brightness set to {value}.")
         else:
-            logging.warning(
+            logger.warning(
                 f"Detector brightness {value} not available, must be between 0 and 1."
             )
 
@@ -573,9 +575,9 @@ class AutoscriptBeam(Beam):
     def write_detector_contrast(self, value: float) -> None:
         if 0 < value <= 1:
             self._detector.contrast.value = value
-            logging.debug(f"Detector contrast set to {value}.")
+            logger.debug(f"Detector contrast set to {value}.")
         else:
-            logging.warning(
+            logger.warning(
                 f"Detector contrast {value} not available, mut be between 0 and 1."
             )
 
@@ -588,7 +590,7 @@ class AutoscriptBeam(Beam):
         try:
             mode = self._beam.scanning.mode.value
         except Exception as e:
-            logging.warning(f"{self.beam_type.name} scan mode could not be read: {e}")
+            logger.warning(f"{self.beam_type.name} scan mode could not be read: {e}")
             return None
         # AutoScript reads an int from its ScanningMode enumeration; a name is read
         # too, in case a version reports one.
@@ -597,7 +599,7 @@ class AutoscriptBeam(Beam):
         else:
             found = _SCAN_MODES.get(str(mode).replace("_", "").replace(" ", "").lower())
         if found is None:
-            logging.warning(
+            logger.warning(
                 f"{self.beam_type.name} scan mode {mode} is not one of ours."
             )
         return found
@@ -623,7 +625,7 @@ class AutoscriptBeam(Beam):
 
     def write_angular_correction(self, value: float) -> None:
         self._beam.angular_correction.angle.value = value
-        logging.debug(f"Angular correction angle set to {value} radians.")
+        logger.debug(f"Angular correction angle set to {value} radians.")
 
     def available_tilt_correction(self) -> bool:
         return self.beam_type is BeamType.ELECTRON
@@ -634,7 +636,7 @@ class AutoscriptBeam(Beam):
         try:
             return bool(self._beam.angular_correction.tilt_correction.is_on)
         except Exception as e:
-            logging.warning(f"Tilt correction could not be read: {e}")
+            logger.warning(f"Tilt correction could not be read: {e}")
             return None
 
     def write_tilt_correction(self, value: bool) -> None:
@@ -663,12 +665,12 @@ class AutoscriptBeam(Beam):
         # An unlisted gas warns and is still set.
         gases = self._beam.source.plasma_gas.available_values
         if value not in gases:
-            logging.warning(
+            logger.warning(
                 f"Plasma gas {value} not available. Available values: {gases}"
             )
-        logging.info(f"Setting plasma gas to {value}... this may take some time...")
+        logger.info(f"Setting plasma gas to {value}... this may take some time...")
         self._beam.source.plasma_gas.value = value
-        logging.info(f"Plasma gas set to {value}.")
+        logger.info(f"Plasma gas set to {value}.")
 
     def metadata_plasma_gas(self) -> ParameterMetadata:
         return ParameterMetadata(
@@ -690,15 +692,15 @@ class AutoscriptBeam(Beam):
         if image_settings is None:
             # acquire_image(beam_type=...): the beam's current settings
             settings = self.image_settings()
-            logging.debug(f"acquiring new {name} image.")
+            logger.debug(f"acquiring new {name} image.")
             with self.claim_channel():
                 adorned = self.connection.sdk.imaging.grab_frame(None)
-            logging.debug(f"acquiring new {name} image.")
+            logger.debug(f"acquiring new {name} image.")
         else:
             settings = image_settings
             resolution = self.scan_resolution(settings.resolution)
             if resolution != tuple(settings.resolution):
-                logging.warning(
+                logger.warning(
                     f"Resolution {settings.resolution} not available, using {resolution}"
                 )
                 settings = copy.deepcopy(settings)
@@ -708,14 +710,14 @@ class AutoscriptBeam(Beam):
                 reduced_area = thermo.Rectangle(
                     rect.left, rect.top, rect.width, rect.height
                 )
-                logging.debug(
+                logger.debug(
                     f"Set reduced are: {reduced_area} for beam type {settings.beam_type}"
                 )
             else:
                 reduced_area = None
                 self.full_frame()
             microscope.set_field_of_view(hfw=settings.hfw, beam_type=self.beam_type)
-            logging.debug(f"acquiring new {name} image.")
+            logger.debug(f"acquiring new {name} image.")
             frame_settings = thermo.GrabFrameSettings(
                 resolution=str(Resolution(*settings.resolution)),
                 dwell_time=settings.dwell_time,
@@ -734,31 +736,31 @@ class AutoscriptBeam(Beam):
         image = images.fibsem_image_from_adorned_image(
             copy.deepcopy(adorned), copy.deepcopy(settings), copy.deepcopy(state)
         )
-        logging.debug({"msg": "acquire_image", "metadata": image.metadata.to_dict()})
+        logger.debug({"msg": "acquire_image", "metadata": image.metadata.to_dict()})
         return image
 
     def _autocontrast(self, reduced_area: Optional[FibsemRectangle]) -> None:
         # The routine optimises the active detector in the active view, so the channel
         # is held for all of it, with the reduced area set inside.
-        logging.debug(f"Running autocontrast on {self.beam_type.name}.")
+        logger.debug(f"Running autocontrast on {self.beam_type.name}.")
         with self.claim_channel():
             if reduced_area is not None:
                 self.reduced_area(reduced_area)
             self.connection.sdk.auto_functions.run_auto_cb()
         if reduced_area is not None:
             self.full_frame()
-        logging.debug({"msg": "autocontrast", "beam_type": self.beam_type.name})
+        logger.debug({"msg": "autocontrast", "beam_type": self.beam_type.name})
 
     def _auto_focus(self, reduced_area: Optional[FibsemRectangle]) -> None:
         # Held for the whole routine, as autocontrast is: it runs in the active view.
-        logging.debug(f"Running auto-focus on {self.beam_type.name}.")
+        logger.debug(f"Running auto-focus on {self.beam_type.name}.")
         with self.claim_channel():
             if reduced_area is not None:
                 self.reduced_area(reduced_area)
             self.connection.sdk.auto_functions.run_auto_focus()
         if reduced_area is not None:
             self.full_frame()
-        logging.debug({"msg": "auto_focus", "beam_type": self.beam_type.name})
+        logger.debug({"msg": "auto_focus", "beam_type": self.beam_type.name})
 
     # Live view: ThermoMicroscope's _acquisition_worker and _fast_acquisition_worker,
     # moved as they are, with this beam's live_frame in place of the microscope's
@@ -776,7 +778,7 @@ class AutoscriptBeam(Beam):
                 # acquire an image with the current beam settings
                 self.live_frame.emit(self.acquire())
         except Exception as e:
-            logging.error(f"Error in acquisition worker: {e}")
+            logger.error(f"Error in acquisition worker: {e}")
 
     def _live_fast(self, stop: threading.Event) -> None:
         from fibsem.drivers.autoscript import microscope as thermo
@@ -795,10 +797,10 @@ class AutoscriptBeam(Beam):
                         thermo.GetImageSettings(wait_for_frame=True)
                     )
                     image = self._image_from_adorned(adorned_image)
-                    logging.debug(f"Acquired Image: {image.data.shape}")
+                    logger.debug(f"Acquired Image: {image.data.shape}")
                     self.live_frame.emit(image)
         except Exception as e:
-            logging.error(f"Exception occurred during fast acquisition: {e}")
+            logger.error(f"Exception occurred during fast acquisition: {e}")
         finally:
             with self.claim_channel():
                 imaging.stop_acquisition()
@@ -873,7 +875,7 @@ class AutoscriptChamberCamera(ChamberCamera):
                 image = imaging.get_image()
             finally:
                 imaging.set_active_view(restore_view)
-        logging.debug({"msg": "acquire_chamber_image"})
+        logger.debug({"msg": "acquire_chamber_image"})
         return image.data
 
 
@@ -967,14 +969,14 @@ class AutoscriptChamber(Chamber):
             return False
 
     def _pump(self) -> None:
-        logging.info("Pumping chamber...")
+        logger.info("Pumping chamber...")
         self._vacuum.pump()
-        logging.info("Chamber pumped.")
+        logger.info("Chamber pumped.")
 
     def _vent(self) -> None:
-        logging.info("Venting chamber...")
+        logger.info("Venting chamber...")
         self._vacuum.vent()
-        logging.info("Chamber vented.")
+        logger.info("Chamber vented.")
 
 
 def _answers(read: Callable[[], Any]) -> bool:
@@ -1015,7 +1017,7 @@ def _read_compartment(connection: AutoScriptConnection, kind: str) -> CryoCompar
         try:
             temperatures[str(sensor)] = float(read(sensor))
         except Exception:  # noqa: BLE001 - one sensor not answering
-            logging.debug(f"Cryo compartment {kind}: sensor {sensor} did not answer.")
+            logger.debug(f"Cryo compartment {kind}: sensor {sensor} did not answer.")
     return CryoCompartment(state, dewar_level, temperatures)
 
 
@@ -1118,13 +1120,13 @@ class AutoscriptSampleLoader(SampleLoader):
         # The rows as the hardware gave them: what a bench session needs from the log
         # when every slot shows unknown or empty and the question is what AutoScript
         # actually said.
-        logging.info(
+        logger.info(
             "Autoloader slots: "
             + ", ".join(f"{hw.id}={_describe_hw(hw)}" for hw in hw_slots)
         )
         stage = getattr(self._autoloader, "stage", None)
         if stage is not None:
-            logging.info(f"Autoloader stage: {_describe_hw(stage)}")
+            logger.info(f"Autoloader stage: {_describe_hw(stage)}")
         if hw_slots:
             self._capacity = len(hw_slots)
         return Magazine(
@@ -1240,7 +1242,7 @@ class AutoscriptManipulator(Manipulator):
             ManipulatorCoordinateSystem.STAGE,
         )
         position = manipulator_position_from_autoscript(autoscript_position)
-        logging.debug(
+        logger.debug(
             {
                 "msg": "get_saved_manipulator_position",
                 "name": name,
@@ -1258,9 +1260,9 @@ class AutoscriptManipulator(Manipulator):
         insert_position = self._needle.get_saved_position(
             saved_position, ManipulatorCoordinateSystem.RAW
         )
-        logging.info("inserting manipulator to {saved_position}: {insert_position}.")
+        logger.info("inserting manipulator to {saved_position}: {insert_position}.")
         self._needle.insert(insert_position)
-        logging.info("insert manipulator complete.")
+        logger.info("insert manipulator complete.")
 
     def _retract(self) -> None:
         from fibsem.drivers.autoscript.microscope import (
@@ -1272,12 +1274,12 @@ class AutoscriptManipulator(Manipulator):
         park_position = needle.get_saved_position(
             ManipulatorSavedPosition.PARK, ManipulatorCoordinateSystem.RAW
         )
-        logging.info(f"retracting needle to {park_position}")
+        logger.info(f"retracting needle to {park_position}")
         needle.absolute_move(park_position)
         time.sleep(1)  # AutoScript sometimes throws errors if you retract too quick?
-        logging.info("retracting needle...")
+        logger.info("retracting needle...")
         needle.retract()
-        logging.info("retract needle complete")
+        logger.info("retract needle complete")
 
     def _move_relative(self, delta: FibsemManipulatorPosition) -> None:
         from fibsem.drivers.autoscript.microscope import (
@@ -1285,9 +1287,9 @@ class AutoscriptManipulator(Manipulator):
         )
 
         delta = _in_raw_unlessnamed(delta)
-        logging.info(f"moving manipulator by {delta}")
+        logger.info(f"moving manipulator by {delta}")
         self._needle.relative_move(manipulator_position_to_autoscript(delta))
-        logging.debug({"msg": "move_manipulator_relative", "position": delta.to_dict()})
+        logger.debug({"msg": "move_manipulator_relative", "position": delta.to_dict()})
 
     def _move_absolute(self, position: FibsemManipulatorPosition) -> None:
         from fibsem.drivers.autoscript.microscope import (
@@ -1295,9 +1297,9 @@ class AutoscriptManipulator(Manipulator):
         )
 
         position = _in_raw_unlessnamed(position)
-        logging.info(f"moving manipulator to {position}")
+        logger.info(f"moving manipulator to {position}")
         self._needle.absolute_move(manipulator_position_to_autoscript(position))
-        logging.debug(
+        logger.debug(
             {"msg": "move_manipulator_absolute", "position": position.to_dict()}
         )
 
@@ -1359,7 +1361,7 @@ class AutoscriptManipulator(Manipulator):
         saved_position.z += yz_move.z  # RAW, up = negative, STAGE: down = negative
         saved_position.r = None  # rotation is not supported
 
-        logging.debug(
+        logger.debug(
             {
                 "msg": "move_manipulator_to_position_offset",
                 "name": name,
@@ -1487,25 +1489,25 @@ class _AutoscriptGasInjector(GasInjector):
     def _insert(self, position: Optional[str]) -> None:
         vendor = self._vendor
         if position:
-            logging.info(f"Inserting {self.name} to {position}")
+            logger.info(f"Inserting {self.name} to {position}")
             vendor.insert(position)
         else:
-            logging.info(f"Inserting {self.name}")
+            logger.info(f"Inserting {self.name}")
             vendor.insert()
         self._inserted = True
 
     def _retract(self) -> None:
-        logging.info(f"Retracting {self.name}")
+        logger.info(f"Retracting {self.name}")
         self._vendor.retract()
         self._inserted = False
 
     def _open(self) -> None:
-        logging.info(f"Opening the {self.name} valve")
+        logger.info(f"Opening the {self.name} valve")
         self._vendor.open()
         self._opened = True
 
     def _close(self) -> None:
-        logging.info(f"Closing the {self.name} valve")
+        logger.info(f"Closing the {self.name} valve")
         self._vendor.close()
         self._opened = False
 
@@ -1517,7 +1519,7 @@ class _AutoscriptGasInjector(GasInjector):
         deadline = time.monotonic() + GIS_HEATER_TIMEOUT
         while True:
             temperature = self.read_temperature()
-            logging.info(
+            logger.info(
                 f"{self.name} heater: {temperature:.1f} K, "
                 f"waiting for {GIS_HEATED_TEMPERATURE:.0f} K"
             )
@@ -1595,13 +1597,13 @@ class AutoscriptGisPort(_AutoscriptGasInjector):
                 f"{self.name}: the {self.port} port has no gas {gas!r}; a gas is "
                 "chosen on a multichem only."
             )
-        logging.info(f"Turning on the {self.name} heater ({self.port})")
+        logger.info(f"Turning on the {self.name} heater ({self.port})")
         self._vendor.turn_heater_on()
         self._heated = True
         self._wait_for_temperature()
 
     def _heater_off(self) -> None:
-        logging.info(f"Turning off the {self.name} heater")
+        logger.info(f"Turning off the {self.name} heater")
         self._vendor.turn_heater_off()
         self._heated = False
 
@@ -1657,14 +1659,14 @@ class AutoscriptMultichem(_AutoscriptGasInjector):
         gas = gas or self._gas
         if not gas:
             raise ValueError(f"{self.name}: name the gas to heat on the multichem.")
-        logging.info(f"Turning on the {self.name} heater ({gas})")
+        logger.info(f"Turning on the {self.name} heater ({gas})")
         self._vendor.turn_heater_on(gas)
         self._gas = gas
         self._heated = True
         self._wait_for_temperature()
 
     def _heater_off(self) -> None:
-        logging.info(f"Turning off the {self.name} heater ({self._gas})")
+        logger.info(f"Turning off the {self.name} heater ({self._gas})")
         self._vendor.turn_heater_off(self._gas)
         self._heated = False
 
@@ -1703,7 +1705,7 @@ class _AutoscriptSputterCoater(SputterCoater):
 
     def write_current(self, value: float) -> None:
         self._coater.current.value = value
-        logging.debug(f"Sputter coater current set to {value} A.")
+        logger.debug(f"Sputter coater current set to {value} A.")
 
     def metadata_current(self) -> ParameterMetadata:
         # Arctis and Hydra Bio select the current from presets; current.limits
@@ -1731,7 +1733,7 @@ class _AutoscriptSputterCoater(SputterCoater):
                 beam.turn_on()
         self._before_run()
         on = f" on grids {list(grids)}" if grids else ""
-        logging.info(f"Sputtering for {whole} s{on}...")
+        logger.info(f"Sputtering for {whole} s{on}...")
         self._running = True
         try:
             self._vendor_run(whole, grids)
@@ -1808,9 +1810,9 @@ class AutoscriptHydraBioSputterCoater(_AutoscriptSputterCoater):
                 f"currents {presets}."
             )
         if not coater.is_homed:
-            logging.info(f"Homing {self.name}...")
+            logger.info(f"Homing {self.name}...")
             coater.home()
-        logging.info(f"Setting the sputter current to {self._run_current:.2e} A.")
+        logger.info(f"Setting the sputter current to {self._run_current:.2e} A.")
         coater.current.value = self._run_current
 
     def _vendor_run(self, seconds: int, grids: Optional[Tuple[int, ...]]) -> None:
@@ -2465,7 +2467,7 @@ class AutoscriptFMObjective(_OnTheFMChannel, Objective):
 
     def write_limit_position(self, value: float) -> None:
         self._limit_position = value
-        logging.info(
+        logger.info(
             f"Objective user-defined position limit set to: "
             f"{self._limit_position * 1e3:.3f} mm"
         )
@@ -2480,7 +2482,7 @@ class AutoscriptFMObjective(_OnTheFMChannel, Objective):
                     f"Position {position} out of limits {self._focus_limits()}"
                 )
             if not position <= self._limit_position:
-                logging.warning(
+                logger.warning(
                     f"Clipping position {position} to user-defined limits "
                     f"{self._limit_position}"
                 )
@@ -2493,7 +2495,7 @@ class AutoscriptFMObjective(_OnTheFMChannel, Objective):
     def _insert(self) -> bool:
         with self._channel.held():
             if self.state.get_value() is InsertableDeviceState.INSERTED:
-                logging.warning("Objective lens is already inserted.")
+                logger.warning("Objective lens is already inserted.")
                 return False
             self._channel.connection.detector.insert()
             return True
@@ -2501,7 +2503,7 @@ class AutoscriptFMObjective(_OnTheFMChannel, Objective):
     def _retract(self) -> bool:
         with self._channel.held():
             if self.state.get_value() is InsertableDeviceState.RETRACTED:
-                logging.warning("Objective lens is already retracted.")
+                logger.warning("Objective lens is already retracted.")
                 return False
             self._channel.connection.detector.retract()
             return True

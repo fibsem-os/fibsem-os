@@ -37,6 +37,8 @@ from fibsem.structures.settings import FibsemRectangle, Point
 from fibsem.structures.system import InsertableDeviceState
 from fibsem.workflows.attention import Attention
 
+logger = logging.getLogger(__name__)
+
 SETUP_COINCIDENCE_MILLING_KEY = "SETUP_COINCIDENCE_MILLING"
 
 # The FIB image the boxes are drawn against. The mill task beam-shift aligns to
@@ -206,7 +208,7 @@ class SetupCoincidenceMillingTask(AutoLamellaTask):
             return self.config.objective_position
         fm_pose = self.lamella.fluorescence_pose
         if fm_pose is not None and fm_pose.objective_position is not None:
-            logging.info(
+            logger.info(
                 f"{self.task_name}: no coincidence objective position stored for "
                 f"{self.lamella.name}; starting from the fluorescence pose's."
             )
@@ -219,7 +221,7 @@ class SetupCoincidenceMillingTask(AutoLamellaTask):
         if objective.state is not InsertableDeviceState.INSERTED:
             objective.insert()
         if position is None:
-            logging.warning(
+            logger.warning(
                 f"{self.task_name}: no objective position known for "
                 f"{self.lamella.name}; leaving the objective where insertion put it."
             )
@@ -261,7 +263,7 @@ class SetupCoincidenceMillingTask(AutoLamellaTask):
             fm.acquisition_signal.emit(image)
         except Exception as e:
             # a missing frame costs the operator a click on Acquire, not the task
-            logging.warning(
+            logger.warning(
                 f"{self.task_name}: could not acquire a fluorescence frame: {e}"
             )
 
@@ -272,7 +274,7 @@ class SetupCoincidenceMillingTask(AutoLamellaTask):
         """
         mill = self._mill_task_config()
         if mill is None:
-            logging.info(
+            logger.info(
                 f"{self.task_name}: {self.lamella.name} has no Coincident Milling "
                 "task; acquiring on the current channel."
             )
@@ -299,7 +301,7 @@ class SetupCoincidenceMillingTask(AutoLamellaTask):
         self.log_status_message("ALIGN_COINCIDENCE", "Aligning SEM/FIB coincidence...")
         result = ensure_coincident(self.microscope, reference=BeamType.ION)
         if not result.converged:
-            logging.warning(
+            logger.warning(
                 f"{self.task_name}: coincidence alignment did not converge for "
                 f"{self.lamella.name}: {result.reason}. Continuing at the milling pose."
             )
@@ -322,7 +324,7 @@ class SetupCoincidenceMillingTask(AutoLamellaTask):
         supervised run is the same as a headless one: the defaults and
         the objective position are recorded, and the operator adjusts nothing.
         """
-        logging.info(
+        logger.info(
             f"{self.task_name}: viewer hand-off not yet available; recording defaults "
             f"for {self.lamella.name}."
         )

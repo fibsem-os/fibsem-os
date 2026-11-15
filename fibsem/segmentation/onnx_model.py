@@ -15,6 +15,8 @@ from skimage.util.shape import view_as_windows
 
 from fibsem.segmentation.utils import decode_segmap_v2, download_checkpoint
 
+logger = logging.getLogger(__name__)
+
 ### ONNX
 
 
@@ -234,7 +236,7 @@ class SegmentationModelWindowONNX:
             img, (3, self.window_shape[0], self.window_shape[1]), step=stride
         ).reshape(-1, 3, self.window_shape[0], self.window_shape[1])
 
-        logging.debug(
+        logger.debug(
             f"pre_process: {img.shape}, {windows.shape}, {h}, {w}, {pad_h}, {pad_w}, {stride}"
         )
 

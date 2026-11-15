@@ -16,6 +16,8 @@ from fibsem.structures.system import (
     SystemSettings,
 )
 
+logger = logging.getLogger(__name__)
+
 # The device types each connect step builds (``FibsemMicroscope._build_devices``).
 # The FM is built on its own path; any other type a configuration adds is built last.
 _OWN_TYPES = BEAM_TYPES + STAGE_TYPES + ("fm",)
@@ -51,7 +53,7 @@ class JeolMicroscope(FibsemMicroscope):
         self.user = FibsemUser.from_environment()
         self.experiment = FibsemExperimentRef()
 
-        logging.debug(
+        logger.debug(
             {
                 "msg": "create_microscope_client",
                 "system_settings": system_settings.to_dict(),
@@ -107,7 +109,7 @@ class JeolMicroscope(FibsemMicroscope):
             self.set_detector_type(ion.detector_type.choices[0], BeamType.ION)
 
         self.system.info.manufacturer = self.driver_name
-        logging.info(f"Microscope client connected to JEOL at {ip_address}.")
+        logger.info(f"Microscope client connected to JEOL at {ip_address}.")
 
         if reset_beam_shift:
             self.reset_beam_shifts()
@@ -115,7 +117,7 @@ class JeolMicroscope(FibsemMicroscope):
         try:
             self._build_sample_handling()
         except Exception as e:
-            logging.warning(f"Could not build the sample handling: {e}")
+            logger.warning(f"Could not build the sample handling: {e}")
 
     def _build_milling(self) -> None:
         self.milling = bind_jeol_milling(self)

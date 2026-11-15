@@ -47,6 +47,8 @@ from fibsem.devices.stage import Stage
 from fibsem.structures.settings import BeamType, FibsemManipulatorPosition
 from fibsem.structures.system import InsertableDeviceState
 
+logger = logging.getLogger(__name__)
+
 MANIPULATOR_RESOURCE = "manipulator"
 
 
@@ -160,7 +162,7 @@ class Manipulator(Device):
             try:
                 saved[name] = self.saved_position(name).to_dict()
             except Exception as error:  # one unreadable name hides only itself
-                logging.warning(f"{self.name}: saved position {name}: {error}")
+                logger.warning(f"{self.name}: saved position {name}: {error}")
         return {
             "named_positions": self.named_positions(),
             "saved_positions": saved,
@@ -173,7 +175,7 @@ class Manipulator(Device):
         try:
             return self.is_installed()
         except Exception as error:
-            logging.debug(f"{self.name}: is_installed: {error}")
+            logger.debug(f"{self.name}: is_installed: {error}")
             return None
 
     # -- what a backend implements -------------------------------------------------

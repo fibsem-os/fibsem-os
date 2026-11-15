@@ -22,6 +22,8 @@ from fibsem.microscope import FibsemMicroscope
 from fibsem.structures.params import Parameter
 from fibsem.structures.settings import BeamType
 
+logger = logging.getLogger(__name__)
+
 
 def beam_choices(microscope: FibsemMicroscope, name: str, beam_type: BeamType) -> list:
     """The values a beam parameter can take: its device's choices, kept on the
@@ -68,7 +70,7 @@ def open_path_in_file_explorer(path: str) -> bool:
     ``os.startfile`` on Windows, and ``xdg-open`` elsewhere.
     """
     if not path or not os.path.isdir(path):
-        logging.warning("Cannot open path in file explorer (not found): %s", path)
+        logger.warning("Cannot open path in file explorer (not found): %s", path)
         return False
     try:
         if sys.platform.startswith("darwin"):
@@ -79,7 +81,7 @@ def open_path_in_file_explorer(path: str) -> bool:
             subprocess.Popen(["xdg-open", path])
         return True
     except Exception:
-        logging.exception("Failed to open path in file explorer: %s", path)
+        logger.exception("Failed to open path in file explorer: %s", path)
         return False
 
 
@@ -125,7 +127,7 @@ class WheelBlocker(QObject):
         try:
             QApplication.sendEvent(target.viewport(), _clone_wheel_event(event))
         except Exception:
-            logging.debug("Failed to forward wheel event", exc_info=True)
+            logger.debug("Failed to forward wheel event", exc_info=True)
         finally:
             self._forwarding = False
 

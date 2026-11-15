@@ -9,6 +9,8 @@ from fibsem.milling.base import get_milling_stages
 from fibsem.structures.image import FibsemImage
 from fibsem.structures.settings import BeamType, MicroscopeState
 
+logger = logging.getLogger(__name__)
+
 PROTOCOL_PATH = os.path.join(os.path.dirname(__file__), "protocol_autolamella.yaml")
 
 
@@ -62,16 +64,16 @@ def main():
 
     # sanity check
     if len(experiment) == 0:
-        logging.info("No lamella positions selected. Exiting.")
+        logger.info("No lamella positions selected. Exiting.")
         return
 
     # mill (rough, polish)
     workflow_stages = ["mill_rough", "mill_polishing"]
     for stage_no, stage_name in enumerate(workflow_stages):
-        logging.info(f"Starting milling stage {stage_no}")
+        logger.info(f"Starting milling stage {stage_no}")
 
         for lamella in experiment:
-            logging.info(f"Starting lamella {lamella.num:02d}")
+            logger.info(f"Starting lamella {lamella.num:02d}")
 
             # return to lamella
             microscope.set_microscope_state(lamella.state)
@@ -90,7 +92,7 @@ def main():
                 stage_name, settings.protocol["milling"]
             )
             for milling_stage in milling_stages:
-                logging.info(
+                logger.info(
                     f"Running milling stage {milling_stage.name} for lamella {lamella.num:02d}"
                 )
                 milling_stage.run(microscope)
@@ -105,7 +107,7 @@ def main():
                 settings.image.filename = "ref_final"
                 acquire.take_reference_images(microscope, settings.image)
 
-    logging.info(f"Finished autolamella example. {len(experiment)} lamellas processed.")
+    logger.info(f"Finished autolamella example. {len(experiment)} lamellas processed.")
 
 
 if __name__ == "__main__":

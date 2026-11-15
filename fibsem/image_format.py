@@ -22,6 +22,8 @@ from typing import Any, Dict, Optional, Sequence, Tuple
 import numpy as np
 import tifffile as tff
 
+logger = logging.getLogger(__name__)
+
 FORMAT_KEY = "fibsem_format"
 FORMAT_VERSION = 1
 METADATA_KEY = "FibsemImageMetadata"
@@ -117,7 +119,7 @@ def metadata_dict(description: Optional[str]) -> Optional[dict]:
     try:
         value = json.loads(text)
     except ValueError:
-        logging.debug("Image description is neither OME nor JSON")
+        logger.debug("Image description is neither OME nor JSON")
         return None
     return value if isinstance(value, dict) else None
 

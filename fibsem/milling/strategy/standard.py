@@ -16,6 +16,8 @@ from fibsem.milling.base import (
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.services.milling import report_progress
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class StandardMillingConfig(MillingStrategyConfig):
@@ -39,13 +41,13 @@ class StandardMillingStrategy(MillingStrategy[StandardMillingConfig]):
     ) -> MillingStrategyResult:
         """Mill the stage's patterns once through; says which pattern it
         milled."""
-        logging.info(f"Running {self.name} Milling Strategy for {stage.name}")
+        logger.info(f"Running {self.name} Milling Strategy for {stage.name}")
         setup_milling(microscope, milling_stage=stage, stop_event=stop_event)
 
         microscope.draw_patterns(stage.define_patterns())
 
         estimated_time = microscope.estimate_milling_time()
-        logging.info(f"Estimated time for {stage.name}: {estimated_time:.2f} seconds")
+        logger.info(f"Estimated time for {stage.name}: {estimated_time:.2f} seconds")
 
         # The strategy's own words. This used to carry no `state` at all, so it matched
         # no branch in any of the three consumers and rendered nowhere -- the one

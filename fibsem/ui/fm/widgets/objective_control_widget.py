@@ -33,6 +33,8 @@ from fibsem.ui.widgets.custom_widgets import (
 )
 from fibsem.ui.widgets.form_builder import configure_spinbox, parameter_spec
 
+logger = logging.getLogger(__name__)
+
 # How a position is shown (unit, step, decimals) is the objective's display hint.
 POSITION_FIELD = parameter_spec(Objective.position)
 
@@ -368,7 +370,7 @@ class ObjectiveControlWidget(QWidget):
         reason = self._objective_busy_reason()
         if reason is None:
             return False
-        logging.info(f"{what} refused: {reason} is driving the objective")
+        logger.info(f"{what} refused: {reason} is driving the objective")
         notification_service.show_toast(
             f"The objective is busy with {reason}.", "warning"
         )
@@ -383,7 +385,7 @@ class ObjectiveControlWidget(QWidget):
     def _on_objective_action_error(self, exc: Exception) -> None:
         """Report a failed objective operation without crashing the app."""
         self._action_worker = None
-        logging.error(f"Objective operation failed: {exc}", exc_info=exc)
+        logger.error(f"Objective operation failed: {exc}", exc_info=exc)
         self._set_objective_actions_enabled(True)
         self.update_objective_position_labels()
         message_box_ui(
@@ -420,7 +422,7 @@ class ObjectiveControlWidget(QWidget):
             # A compustage images the FM at one of two tilts, so the operator picks.
             dlg = _InsertObjectiveDialog(tilt_deg=tilt_deg, parent=self)
             if dlg.exec() != QDialog.DialogCode.Accepted or dlg.selected_tilt is None:
-                logging.info("Objective insertion cancelled by user.")
+                logger.info("Objective insertion cancelled by user.")
                 return
             tilt: Optional[float] = np.radians(dlg.selected_tilt)
         else:
@@ -435,7 +437,7 @@ class ObjectiveControlWidget(QWidget):
                 parent=self,
             )
             if ret is False:
-                logging.info("Objective insertion cancelled by user.")
+                logger.info("Objective insertion cancelled by user.")
                 return
             tilt = None
 
@@ -471,7 +473,7 @@ class ObjectiveControlWidget(QWidget):
             parent=self,
         )
         if ret is False:
-            logging.info("Objective retraction cancelled by user.")
+            logger.info("Objective retraction cancelled by user.")
             return
 
         self._set_objective_actions_enabled(False)
@@ -592,7 +594,7 @@ class ObjectiveControlWidget(QWidget):
         )  # 1 mm threshold
 
         if is_large_change:
-            logging.info(
+            logger.info(
                 f"Large change in objective position requested: {position:.1f} µm"
             )
 
@@ -603,12 +605,12 @@ class ObjectiveControlWidget(QWidget):
             )
 
             if ret is False:
-                logging.info("Objective position move cancelled by user.")
+                logger.info("Objective position move cancelled by user.")
                 # Reset the spin box to the current position
                 self.update_objective_position_labels()
                 return
 
-        logging.info(f"Changing objective position to: {position:.1f} µm")
+        logger.info(f"Changing objective position to: {position:.1f} µm")
         try:
             if operator_acts(
                 control_of(self.microscope),
@@ -616,9 +618,9 @@ class ObjectiveControlWidget(QWidget):
                 self.fm.objective.move_absolute,
                 position * MICRON_TO_METRE,
             ):
-                logging.info(f"Objective moved to position: {position:.1f} µm")
+                logger.info(f"Objective moved to position: {position:.1f} µm")
         except Exception as e:
-            logging.error(f"Failed to move objective: {e}", exc_info=e)
+            logger.error(f"Failed to move objective: {e}", exc_info=e)
             message_box_ui(
                 title="Objective Error",
                 text=f"Failed to move the objective:\n\n{e}",
@@ -633,7 +635,7 @@ class ObjectiveControlWidget(QWidget):
     def on_objective_limit_changed(self, limit_um: float):
         """Handle changes to the user-defined objective limit."""
         limit_m = limit_um * MICRON_TO_METRE
-        logging.info(f"Updating objective user limit to: {limit_um:.1f} µm")
+        logger.info(f"Updating objective user limit to: {limit_um:.1f} µm")
         self.fm.objective.limit_position = limit_m
         max_limit_um = min(limit_um, self.fm.objective.limits[1] * METRE_TO_MICRON)
         min_limit_um = self.fm.objective.limits[0] * METRE_TO_MICRON
@@ -643,7 +645,7 @@ class ObjectiveControlWidget(QWidget):
     @Slot(float)
     def on_focus_position_changed(self, position: float):
         """Handle changes to the focus position setting."""
-        logging.info(f"Focus position updated to: {position:.1f} µm")
+        logger.info(f"Focus position updated to: {position:.1f} µm")
         self.fm.objective.focus_position = position * MICRON_TO_METRE  # Convert µm to m
 
     def move_to_focus_position(self):
@@ -651,7 +653,7 @@ class ObjectiveControlWidget(QWidget):
         if self._refuse_if_objective_busy("Move to focus position"):
             return
         if self.fm.objective.focus_position is None:
-            logging.warning("No focus position has been set")
+            logger.warning("No focus position has been set")
             return
 
         focus_position_um = self.fm.objective.focus_position * METRE_TO_MICRON
@@ -669,10 +671,10 @@ class ObjectiveControlWidget(QWidget):
                 parent=self,
             )
             if ret is False:
-                logging.info("Move to focus position cancelled by user.")
+                logger.info("Move to focus position cancelled by user.")
                 return
 
-        logging.info(f"Moving objective to focus position: {focus_position_um:.1f} µm")
+        logger.info(f"Moving objective to focus position: {focus_position_um:.1f} µm")
         try:
             if operator_acts(
                 control_of(self.microscope),
@@ -680,13 +682,11 @@ class ObjectiveControlWidget(QWidget):
                 self.fm.objective.move_absolute,
                 self.fm.objective.focus_position,
             ):
-                logging.info(
+                logger.info(
                     f"Objective moved to focus position: {focus_position_um:.1f} µm"
                 )
         except Exception as e:
-            logging.error(
-                f"Failed to move objective to focus position: {e}", exc_info=e
-            )
+            logger.error(f"Failed to move objective to focus position: {e}", exc_info=e)
             message_box_ui(
                 title="Objective Error",
                 text=f"Failed to move the objective:\n\n{e}",
@@ -713,11 +713,11 @@ class ObjectiveControlWidget(QWidget):
         )
 
         if ret is False:
-            logging.info("Set focus position cancelled by user.")
+            logger.info("Set focus position cancelled by user.")
             return
 
         # set microscope objective focus position
-        logging.info(f"Setting focus position to {current_position_um:.1f} µm")
+        logger.info(f"Setting focus position to {current_position_um:.1f} µm")
         self.fm.objective.save_focus_position()
 
     def save_calibration(self) -> None:
@@ -751,12 +751,12 @@ class ObjectiveControlWidget(QWidget):
                 path, fm.focus_position, fm.limit_position
             )
         except Exception as e:
-            logging.error(f"Could not save the objective calibration: {e}")
+            logger.error(f"Could not save the objective calibration: {e}")
             notification_service.show_toast(
                 f"Could not save the objective calibration: {e}", "error"
             )
             return
-        logging.info(
+        logger.info(
             f"Objective calibration saved to {path}: focus "
             f"{(fm.focus_position or 0) * METRE_TO_MICRON:.1f} µm, limit "
             f"{(fm.limit_position or 0) * METRE_TO_MICRON:.1f} µm"
@@ -768,7 +768,7 @@ class ObjectiveControlWidget(QWidget):
         Args:
             position (float): Focus position in meters.
         """
-        logging.info(
+        logger.info(
             f"Programmatically setting focus position to: {position * METRE_TO_MICRON:.1f} µm"
         )
         self.doubleSpinBox_focus_position.blockSignals(True)
@@ -781,7 +781,7 @@ class ObjectiveControlWidget(QWidget):
         Args:
             position (float): Limit position in meters.
         """
-        logging.info(
+        logger.info(
             f"Programmatically setting limit position to: {position * METRE_TO_MICRON:.1f} µm"
         )
         self.doubleSpinBox_objective_limit.blockSignals(True)
@@ -816,7 +816,7 @@ class ObjectiveControlWidget(QWidget):
         # toasts. The deliberate single actions each say so on screen instead.
         reason = self._objective_busy_reason()
         if reason is not None:
-            logging.info(f"Objective movement disabled: {reason}")
+            logger.info(f"Objective movement disabled: {reason}")
             event.handled = True
             return
 
@@ -832,7 +832,7 @@ class ObjectiveControlWidget(QWidget):
         current_pos_um = self.doubleSpinBox_objective_position.value()
         new_pos_um = current_pos_um + step_um
 
-        logging.info(f"Mouse wheel: step={step_um:.1f} µm, target={new_pos_um:.1f} µm")
+        logger.info(f"Mouse wheel: step={step_um:.1f} µm, target={new_pos_um:.1f} µm")
 
         # Update spinbox immediately for visual feedback (no hardware call)
         self.doubleSpinBox_objective_position.blockSignals(True)
@@ -863,7 +863,7 @@ class ObjectiveControlWidget(QWidget):
         # Logged rather than toasted -- see `_on_mouse_wheel`.
         reason = self._objective_busy_reason()
         if reason is not None:
-            logging.info(f"Objective movement disabled: {reason}")
+            logger.info(f"Objective movement disabled: {reason}")
             return
 
         step_um = float(
@@ -914,12 +914,12 @@ class ObjectiveControlWidget(QWidget):
         """
         reason = self._objective_busy_reason()
         if reason is not None:
-            logging.info(f"Wheel move abandoned: {reason} is driving the objective")
+            logger.info(f"Wheel move abandoned: {reason} is driving the objective")
             self._wheel_moving_to_um = None  # give the readout back to the device
             self.update_objective_position_labels()
             return
         position_um = self._wheel_target_um
-        logging.debug(f"Executing debounced wheel move to: {position_um:.1f} µm")
+        logger.debug(f"Executing debounced wheel move to: {position_um:.1f} µm")
         self._wheel_moving_to_um = position_um
         worker = self._wheel_move_worker(position_um * MICRON_TO_METRE)
         worker.returned.connect(self._on_wheel_move_finished)
@@ -1000,7 +1000,7 @@ class ObjectiveControlWidget(QWidget):
         # Abandon the chase too: the target is unreachable, and the honest thing to show
         # is where the objective actually stopped, not where the wheel was pointing.
         self._wheel_moving_to_um = None
-        logging.error(f"Objective wheel move failed: {exc}", exc_info=exc)
+        logger.error(f"Objective wheel move failed: {exc}", exc_info=exc)
         notification_service.show_toast(f"Objective move failed: {exc}", "warning")
         self.update_objective_position_labels()  # re-sync to actual position
 

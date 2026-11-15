@@ -65,6 +65,8 @@ from fibsem.ui.widgets.custom_widgets import (
     unit_suffix,
 )
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass(frozen=True)
 class FormDefaults:
@@ -231,7 +233,7 @@ def bound_spec(
         try:
             parameter = device.parameters.get(name)
         except Exception as e:  # a form must open even when the device can't answer
-            logging.warning(
+            logger.warning(
                 f"Could not read {spec.device_parameter}, using its declared limits: {e}"
             )
     return spec.with_reported(reported_metadata(parameter or declared))
@@ -552,7 +554,7 @@ def build_control(
 
     if not read_only_fallback:
         # A milling form: there is no value in showing a field it can't edit.
-        logging.warning(
+        logger.warning(
             "No control for field %s of type %r (value %r)",
             spec.name,
             spec.type,
@@ -562,5 +564,5 @@ def build_control(
 
     # Debug, not warning: the form says this itself, visibly and in the right
     # place -- greyed out with a tooltip naming where to edit it instead.
-    logging.debug("No editor for %r; showing it read-only.", kind)
+    logger.debug("No editor for %r; showing it read-only.", kind)
     return _read_only(value, kind)

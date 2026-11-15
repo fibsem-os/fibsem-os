@@ -60,6 +60,8 @@ from fibsem.structures.settings import (
 from fibsem.structures.system import ChamberState, InsertableDeviceState
 from fibsem.util.timestamps import iso_from_posix
 
+logger = logging.getLogger(__name__)
+
 add_odemis_path()
 
 # The voltages Odemis offers on a ThermoFisher column, before the column's own range
@@ -113,7 +115,7 @@ class OdemisBeam(Beam):
         return self.connection.sdk
 
     def _set_log(self, what: str, value: Any, unit: str) -> None:
-        logging.debug(
+        logger.debug(
             f"{self.beam_type.name} {what} set to {value}{unit}.",
             stacklevel=2,  # name the write_* method, not this helper
         )
@@ -123,7 +125,7 @@ class OdemisBeam(Beam):
 
     def write_on(self, value: bool) -> None:
         self._client.set_beam_power(value, self.channel)
-        logging.info(f"{self.beam_type.name} beam turned {'on' if value else 'off'}.")
+        logger.info(f"{self.beam_type.name} beam turned {'on' if value else 'off'}.")
 
     def read_blanked(self) -> bool:
         return self._client.beam_is_blanked(self.channel)
@@ -131,7 +133,7 @@ class OdemisBeam(Beam):
     def write_blanked(self, value: bool) -> None:
         client = self._client
         client.blank_beam(self.channel) if value else client.unblank_beam(self.channel)
-        logging.debug(
+        logger.debug(
             f"{self.beam_type.name} beam {'blanked' if value else 'unblanked'}."
         )
 
@@ -250,9 +252,9 @@ class OdemisBeam(Beam):
     def write_detector_type(self, value: str) -> None:
         if value in self._detector_choices("type"):
             self._client.set_detector_type(value, self.channel)
-            logging.debug(f"Detector type set to {value}.")
+            logger.debug(f"Detector type set to {value}.")
         else:
-            logging.warning(f"Detector type {value} not available.")
+            logger.warning(f"Detector type {value} not available.")
 
     def metadata_detector_type(self) -> ParameterMetadata:
         return ParameterMetadata(choices=list(self._detector_choices("type")))
@@ -263,9 +265,9 @@ class OdemisBeam(Beam):
     def write_detector_mode(self, value: str) -> None:
         if value in self._detector_choices("mode"):
             self._client.set_detector_mode(value, self.channel)
-            logging.debug(f"Detector mode set to {value}.")
+            logger.debug(f"Detector mode set to {value}.")
         else:
-            logging.warning(f"Detector mode {value} not available.")
+            logger.warning(f"Detector mode {value} not available.")
 
     def metadata_detector_mode(self) -> ParameterMetadata:
         # the detector type's modes, read again when the type changes
@@ -277,9 +279,9 @@ class OdemisBeam(Beam):
     def write_detector_brightness(self, value: float) -> None:
         if 0 < value <= 1:
             self._client.set_brightness(value, self.channel)
-            logging.debug(f"Detector brightness set to {value}.")
+            logger.debug(f"Detector brightness set to {value}.")
         else:
-            logging.warning(
+            logger.warning(
                 f"Detector brightness {value} not available, must be between 0 and 1."
             )
 
@@ -289,9 +291,9 @@ class OdemisBeam(Beam):
     def write_detector_contrast(self, value: float) -> None:
         if 0 < value <= 1:
             self._client.set_contrast(value, self.channel)
-            logging.debug(f"Detector contrast set to {value}.")
+            logger.debug(f"Detector contrast set to {value}.")
         else:
-            logging.warning(
+            logger.warning(
                 f"Detector contrast {value} not available, mut be between 0 and 1."
             )
 
@@ -440,14 +442,14 @@ class OdemisStage(Stage):
         self._stage.moveRel(stage_position_to_odemis_dict(delta)).result()
 
     def _home(self) -> None:
-        logging.info("Homing stage...")
+        logger.info("Homing stage...")
         self.connection.sdk.home_stage()
-        logging.info("Stage homed.")
+        logger.info("Stage homed.")
 
     def _link(self) -> None:
-        logging.info("Linking stage...")
+        logger.info("Linking stage...")
         self.connection.sdk.link(True)
-        logging.info("Stage linked.")
+        logger.info("Stage linked.")
 
 
 class OdemisChamber(Chamber):
@@ -485,14 +487,14 @@ class OdemisChamber(Chamber):
         return self._client.get_pressure()
 
     def _pump(self) -> None:
-        logging.info("Pumping chamber...")
+        logger.info("Pumping chamber...")
         self._client.pump()
-        logging.info("Chamber pumped.")
+        logger.info("Chamber pumped.")
 
     def _vent(self) -> None:
-        logging.info("Venting chamber...")
+        logger.info("Venting chamber...")
         self._client.vent()
-        logging.info("Chamber vented.")
+        logger.info("Chamber vented.")
 
 
 # The builders the Odemis driver record names, one per device type: how
@@ -594,7 +596,7 @@ class OdemisFMCamera(Camera):
         pixel_size = camera_md.get(model.MD_PIXEL_SIZE)
         if pixel_size is None:
             pixel_size = self._camera.pixelSize.value  # sensor pixel size
-            logging.warning(
+            logger.warning(
                 "Camera metadata has no MD_PIXEL_SIZE; falling back to the "
                 f"sensor pixel size {pixel_size} - image scale will not "
                 "account for magnification."
@@ -662,7 +664,7 @@ class OdemisFMCamera(Camera):
 
     def write_gain(self, value: float) -> None:
         if not 0.0 <= value <= 1.0:
-            logging.warning(f"Gain fraction {value} outside [0, 1], clipping.")
+            logger.warning(f"Gain fraction {value} outside [0, 1], clipping.")
             value = min(max(value, 0.0), 1.0)
         raw = value * self._max_gain()
         choices = getattr(self._camera.gain, "choices", None)
@@ -689,7 +691,7 @@ class OdemisFMCamera(Camera):
         try:
             pixel_size = self._camera.getMetadata().get(model.MD_PIXEL_SIZE)
         except Exception as e:
-            logging.warning(
+            logger.warning(
                 f"Failed to read camera metadata, using cached pixel size: {e}"
             )
             return tuple(self._pixel_size)
@@ -734,7 +736,7 @@ class OdemisFMLightSource(LightSource):
 
     def write_power(self, value: float) -> None:
         if not 0.0 <= value <= 1.0:
-            logging.warning(f"Power fraction {value} outside [0, 1], clipping.")
+            logger.warning(f"Power fraction {value} outside [0, 1], clipping.")
             value = min(max(value, 0.0), 1.0)
         max_power = self._stream.power.range[1]
         self._stream.power.value = value * max_power
@@ -771,7 +773,7 @@ class OdemisFMFilterSet(FilterSet):
             raise ValueError("No excitation wavelengths available.")
         closest_nm = min(choices_by_nm, key=lambda nm: abs(nm - value))
         choice = choices_by_nm[closest_nm]
-        logging.info(
+        logger.info(
             f"Setting excitation wavelength to {closest_nm:.0f} nm "
             f"(requested: {value} nm, band: {choice})"
         )
@@ -795,7 +797,7 @@ class OdemisFMFilterSet(FilterSet):
             return
         if self._stream.emission.value == choice:
             return  # setting the emission filter is slow, skip if unchanged
-        logging.info(f"Setting emission filter to {value.name} (band: {choice})")
+        logger.info(f"Setting emission filter to {value.name} (band: {choice})")
         self._stream.emission.value = choice
 
     def metadata_emission_filter(self) -> ParameterMetadata:
@@ -816,7 +818,7 @@ class OdemisFMFilterSet(FilterSet):
             raise ValueError("No emission bands available for fluorescence mode.")
         choice = fluo.get_one_band_em(bands, self._stream.excitation.value)
         if self._stream.emission.value != choice:
-            logging.info(
+            logger.info(
                 f"Mapping emission 'Fluorescence' to band {choice} for the "
                 f"current excitation"
             )
@@ -852,7 +854,7 @@ class OdemisFMObjective(Objective):
                 "deactive_position": metadata[model.MD_FAV_POS_DEACTIVE],
             }
         except Exception as e:
-            logging.warning(f"Failed to cache metadata: {e}")
+            logger.warning(f"Failed to cache metadata: {e}")
 
         # Where the objective focuses, for the FM API: the inserted position.
         active_position = self.active_position
@@ -860,7 +862,7 @@ class OdemisFMObjective(Objective):
             self._focus_position = active_position["z"]
         else:
             self._focus_position = self._focuser.position.value["z"]
-            logging.warning(
+            logger.warning(
                 "Focuser has no active-position metadata; using the current "
                 f"position ({self._focus_position * 1e3:.3f} mm) as the focus position."
             )
@@ -874,7 +876,7 @@ class OdemisFMObjective(Objective):
             try:
                 return self._focuser.getMetadata()[md_key]
             except Exception as e:
-                logging.error(f"Failed to get {label} position: {e}")
+                logger.error(f"Failed to get {label} position: {e}")
                 return None
 
     @property
@@ -929,7 +931,7 @@ class OdemisFMObjective(Objective):
                 return InsertableDeviceState.RETRACTED
             return InsertableDeviceState.UNKNOWN
         except Exception as e:
-            logging.error(f"Failed to get objective lens state: {e}")
+            logger.error(f"Failed to get objective lens state: {e}")
             return InsertableDeviceState.ERROR
 
     def read_magnification(self) -> float:
@@ -943,7 +945,7 @@ class OdemisFMObjective(Objective):
 
     def write_limit_position(self, value: float) -> None:
         self._limit_position = value
-        logging.info(
+        logger.info(
             f"Objective user-defined position limit set to: "
             f"{self._limit_position * 1e3:.3f} mm"
         )
@@ -952,7 +954,7 @@ class OdemisFMObjective(Objective):
         # clip to the user-defined safety limit, then check the focuser's range
         # (odemis raises ValueError for an out-of-range move)
         if position > self._limit_position:
-            logging.warning(
+            logger.warning(
                 f"Clipping position {position} to user-defined limit "
                 f"{self._limit_position}"
             )
@@ -968,7 +970,7 @@ class OdemisFMObjective(Objective):
         position = self._focuser.position.value["z"]
         if position + delta > self._limit_position:
             clipped = max(self._limit_position - position, 0.0)
-            logging.warning(
+            logger.warning(
                 f"Clipping relative move {delta * 1e6:.3f} um to {clipped * 1e6:.3f} "
                 f"um: user-defined limit {self._limit_position * 1e3:.3f} mm"
             )
@@ -982,7 +984,7 @@ class OdemisFMObjective(Objective):
         # limit is not applied here.
         active_position = self.active_position
         if active_position is None:
-            logging.warning(
+            logger.warning(
                 "Cannot insert objective: no active-position metadata available."
             )
             return False
@@ -992,7 +994,7 @@ class OdemisFMObjective(Objective):
     def _retract(self) -> Optional[bool]:
         deactive_position = self.deactive_position
         if deactive_position is None:
-            logging.warning(
+            logger.warning(
                 "Cannot retract objective: no deactive-position metadata available."
             )
             return False
@@ -1063,7 +1065,7 @@ class OdemisFM(FM):
         try:
             self._stream.is_active.value = False  # light off, camera stopped
         except Exception as e:
-            logging.error(f"Failed to deactivate stream after live view: {e}")
+            logger.error(f"Failed to deactivate stream after live view: {e}")
 
     def _light_off(self) -> None:
         """The stream inactive, then every source of the light at 0 W: odemis keeps

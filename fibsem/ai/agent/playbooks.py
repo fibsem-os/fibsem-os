@@ -106,7 +106,7 @@ class PlaybookError(ValueError):
 
 
 @dataclass
-class Session:
+class SessionSettings:
     """What a session started on the playbook runs with; None is the default."""
 
     level: Optional[str] = None
@@ -124,9 +124,9 @@ class Session:
     quiet_min: Optional[float] = None
     """A running workflow quiet this many minutes wakes the agent, once."""
 
-    def merged(self, child: "Session") -> "Session":
+    def merged(self, child: "SessionSettings") -> "SessionSettings":
         """This, with *child*'s settings winning where it has them."""
-        return Session(
+        return SessionSettings(
             **{
                 key: getattr(child, key)
                 if getattr(child, key) is not None
@@ -171,7 +171,7 @@ class Playbook:
     agents: List[str] = field(default_factory=list)
     # plan.md's headings, the nearest playbook's that names them.
     plan: List[str] = field(default_factory=lambda: list(PLAN))
-    session: Session = field(default_factory=Session)
+    session: SessionSettings = field(default_factory=SessionSettings)
     # The instrument kind its prompts are for (`instruments`).
     instrument: Optional[str] = None
 
@@ -416,15 +416,15 @@ def _read(
         rules=_merge(parent.rules if parent else [], rules),
         agents=_merge(parent.agents if parent else [], agents),
         plan=plan or (parent.plan if parent else list(PLAN)),
-        session=(parent.session if parent else Session()).merged(session),
+        session=(parent.session if parent else SessionSettings()).merged(session),
         instrument=instrument or (parent.instrument if parent else None),
     )
     return playbook
 
 
-def _session(value: Any, path: Path, efforts=()) -> Session:
+def _session(value: Any, path: Path, efforts=()) -> SessionSettings:
     if value is None:
-        return Session()
+        return SessionSettings()
     if not isinstance(value, dict):
         raise PlaybookError(f"{path}: session is a mapping of settings")
     unknown = sorted(set(value) - set(SESSION))
@@ -451,7 +451,7 @@ def _session(value: Any, path: Path, efforts=()) -> Session:
         raise PlaybookError(f"{path}: session mode is one of {', '.join(MODES)}")
     if efforts and found.get("effort", efforts[0]) not in efforts:
         raise PlaybookError(f"{path}: session effort is one of {', '.join(efforts)}")
-    return Session(**found)
+    return SessionSettings(**found)
 
 
 def _names(value: Any, key: str, path: Path) -> List[str]:
