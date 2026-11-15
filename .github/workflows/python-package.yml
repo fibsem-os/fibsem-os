@@ -117,19 +117,11 @@ jobs:
     # its green says nothing about that directory; two pull requests each green alone
     # can break it together, and only a run with Qt installed catches that.
     #
-    # Outside tests/ui/, only the files that name qtpy or PyQt5 run here, found at run
+    # Outside tests/ui/, only the files that name qtpy run here, found at run
     # time rather than listed, so a Qt test added later is still picked up. Their
     # other tests run in the matrix. Until FIB-1565 step 4 only tests/correlation/
     # and tests/fm/ were searched, and the volume window never ran under Qt here.
-    #
-    # Once per Qt binding: PySide6, which [ui] installs, and PyQt5, kept as a
-    # fallback for one release (FIB-1565). The code imports qtpy; QT_API picks.
-    strategy:
-      fail-fast: false
-      matrix:
-        qt: [pyside6, pyqt5]
-    # The default binding's leg keeps the plain name, which branch rules may require.
-    name: ${{ matrix.qt == 'pyside6' && 'ui-tests' || 'ui-tests (pyqt5)' }}
+    name: ui-tests
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v7
@@ -157,24 +149,17 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        if [ "${{ matrix.qt }}" = "pyqt5" ]; then
-          python -m pip install ".[test,ui,pyqt5]"
-        else
-          python -m pip install ".[test,ui]"
-        fi
+        python -m pip install ".[test,ui]"
     - name: Fail if the UI extra did not actually install
       # A green job that skipped everything is the exact failure mode this job
       # exists to end. Because every file guards on importorskip, a broken install
       # does not turn the run red -- it empties it, and empty reads as passing.
       # So check the imports directly, where absence is an error.
-      env:
-        QT_API: ${{ matrix.qt }}
       run: |
-        python -c "import qtpy.QtWidgets, qtawesome, superqt; assert qtpy.API_NAME.lower() == '${{ matrix.qt }}', qtpy.API_NAME"
+        python -c "import fibsem, qtpy.QtWidgets, qtawesome, superqt; assert qtpy.API_NAME == 'PySide6', qtpy.API_NAME"
     - name: Test with pytest
       env:
         QT_QPA_PLATFORM: offscreen
-        QT_API: ${{ matrix.qt }}
       # Four fixed shards, each serial, not xdist. These tests share one QApplication
       # and leak top-level widgets across files, so some depend on what the files
       # before them left behind. xdist hands files to workers in a different order
@@ -183,13 +168,13 @@ jobs:
       # failure reproduces with `pytest <that shard's files>`, which the log prints.
       run: |
         set -euo pipefail
-        qt_files=$(grep -rlE --include='test_*.py' --exclude-dir=ui 'qtpy|PyQt5' tests | sort)
+        qt_files=$(grep -rlE --include='test_*.py' --exclude-dir=ui 'qtpy' tests | sort)
         # Echoed so an empty or shrunken list is visible rather than silently green.
         echo "Qt test files outside tests/ui: $(echo "$qt_files" | grep -c .)"
         files=$( (find tests/ui -name 'test_*.py'; echo "$qt_files") | grep . | sort)
         echo "Qt test files in all: $(echo "$files" | grep -c .)"
         shards=4
-        chunk=${{ matrix.qt == 'pyside6' && 20 || 1000 }}
+        chunk=20
         logs=$(mktemp -d)
         pids=()
         for i in $(seq 0 $((shards - 1))); do

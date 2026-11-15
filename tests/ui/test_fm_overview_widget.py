@@ -4,7 +4,7 @@ Covers the parts where being wrong is silent: what the tile mask means, whether 
 settings round-trip into the object the acquisition actually consumes, and whether a
 combo box shows the label it was given.
 
-Uses PyQt5 directly with the offscreen platform (no pytest-qt dependency).
+Uses Qt directly with the offscreen platform (no pytest-qt dependency).
 """
 
 import os

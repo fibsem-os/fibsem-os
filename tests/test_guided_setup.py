@@ -1,6 +1,6 @@
 """What the guided setup writes, tested without Qt.
 
-CI installs ``.[test]``, not ``.[ui]``, so every test that imports PyQt5 is skipped
+CI installs ``.[test]``, not ``.[ui]``, so every test that imports Qt is skipped
 there. The wizard's file-writing half is the half worth protecting -- it creates a
 configuration, registers it, and can make it the default -- so it lives in a Qt-free
 module and is tested here, where CI actually runs it.

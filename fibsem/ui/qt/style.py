@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import qtpy
 from qtpy.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
@@ -25,10 +24,7 @@ class _Qt6Fusion(QProxyStyle):
 
 
 def set_app_style(app: QApplication) -> None:
-    """Fusion for *app*. On Qt 6 through a proxy that fixes spin box text."""
-    if not qtpy.QT6:
-        app.setStyle("Fusion")
-        return
+    """Fusion for *app*, through a proxy that fixes spin box text."""
     style = _Qt6Fusion(QStyleFactory.create("Fusion"))
     app.setStyle(style)
     app._fibsem_style = style  # PySide: keep the Python side alive with the app

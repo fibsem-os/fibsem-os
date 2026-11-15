@@ -21,7 +21,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-# CI installs `.[test]`, not `.[ui]`, so PyQt5 is absent there. Without this the
+# CI installs `.[test]`, not `.[ui]`, so Qt is absent there. Without this the
 # module-level import below turns a skip into a collection error.
 pytest.importorskip("qtpy.QtWidgets")
 

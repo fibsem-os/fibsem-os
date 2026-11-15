@@ -256,7 +256,7 @@ def qapp():
     try:
         from qtpy.QtWidgets import QApplication
     except Exception as exc:  # pragma: no cover - environment without Qt
-        pytest.skip(f"PyQt5 not available: {exc}")
+        pytest.skip(f"Qt not available: {exc}")
     app = QApplication.instance() or QApplication([])
 
     gc_was_enabled = gc.isenabled()
