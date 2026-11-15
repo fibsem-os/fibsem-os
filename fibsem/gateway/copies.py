@@ -1,11 +1,15 @@
-"""The copy of this PC's experiments to a shared folder, kept by the gateway.
+"""The lab's data store as this PC knows it, and the copy to it.
 
-Off until the operator names the folder. Then, once a night, each experiment
-on this PC is copied up one way (`fibsem.copy_up`): what is new or changed
-goes, nothing is removed from the shared folder, and the folder on this PC
-stays the one that is worked on. The nightly copy waits while a workflow
-runs; "Copy now" is a person's and goes at once. A shared folder that is not
-there costs a copy, never a run.
+Two settings that don't depend on each other. The *data store* is where the
+lab keeps its experiments' data: a folder this PC can see. Naming it copies
+nothing. *Sync* is whether fibsem copies this PC's experiments there: off by
+default, and left off by a lab whose own backup already fills the store.
+
+With sync on, once a night each experiment on this PC is copied up one way
+(`fibsem.copy_up`): what is new or changed goes, nothing is removed from the
+store, and the folder on this PC stays the one that is worked on. The nightly
+copy waits while a workflow runs and stops when one starts; "Copy now" is a
+person's and goes at once. A store that is not there costs a copy, never a run.
 """
 
 from __future__ import annotations
@@ -15,12 +19,13 @@ import logging
 import os
 import re
 import socket
+import tempfile
 import threading
 from datetime import datetime, time, timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from fibsem.config import recent_experiment_paths
+from fibsem.config import peek_experiment, recent_experiment_paths
 from fibsem.copy_up import copy_up
 from fibsem.gateway.gateway import GatewayRefused, experiments_folder
 from fibsem.index import EXPERIMENT_FILE, files_named
@@ -34,6 +39,9 @@ log = logging.getLogger(__name__)
 COPIES_FILE = DISCOVERY_DIR / "gateway-copies.json"
 # When the nightly copy goes, by this PC's clock.
 NIGHTLY = time(2, 0)
+# In each experiment's folder in the store: which experiment on this PC it is
+# the copy of, so two of one name never share a folder.
+SOURCE_FILE = ".fibsem-source.json"
 
 
 def experiment_folders() -> List[Path]:
@@ -53,8 +61,43 @@ def _label() -> str:
     return re.sub(r"[^A-Za-z0-9_.-]+", "-", socket.gethostname()).strip("-.") or "pc"
 
 
+def _identity(folder: Path) -> str:
+    """What says which experiment *folder* holds: its id, or where it is on
+    this PC when it has none."""
+    try:
+        found = peek_experiment(str(folder / EXPERIMENT_FILE)).id
+    except Exception:  # noqa: BLE001 - an unreadable experiment is still copied
+        found = None
+    return str(found or folder)
+
+
+def _place(store: FolderStore, label: str, folder: Path) -> str:
+    """*folder*'s place in the store: under its own name, or under
+    ``name-2``, ``name-3`` when another experiment of that name is already
+    there. The place is kept by a note in it, so it stays the same when the
+    other experiment is later deleted on this PC."""
+    identity, n = _identity(folder), 1
+    while True:
+        place = f"{label}/{folder.name}" + (f"-{n}" if n > 1 else "")
+        note = f"{place}/{SOURCE_FILE}"
+        try:
+            owner = json.loads(store.read(note)).get("source")
+        except (OSError, ValueError, AttributeError):
+            owner = None
+        if owner == identity:
+            return place
+        if owner is None:
+            with tempfile.TemporaryDirectory() as scratch:
+                written = Path(scratch) / SOURCE_FILE
+                written.write_text(json.dumps({"source": identity}))
+                store.save(note, written)
+            return place
+        n += 1
+
+
 class Copies:
-    """The shared folder, the last copy and the next one."""
+    """The data store, whether this PC copies to it, the last copy and the
+    next one."""
 
     def __init__(
         self,
@@ -74,6 +117,7 @@ class Copies:
         self._stop = threading.Event()
         kept = self._read()
         self._folder: Optional[str] = kept.get("folder") or None
+        self._sync = kept.get("sync") is True
         self._last: Optional[Dict[str, Any]] = kept.get("last") or None
         # No copy for the night already passed when the gateway starts.
         self._next = self._after(self._now())
@@ -95,7 +139,8 @@ class Copies:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         partial = self._path.with_name(self._path.name + ".partial")
         with open(partial, "w") as f:
-            json.dump({"folder": self._folder, "last": self._last}, f, indent=2)
+            kept = {"folder": self._folder, "sync": self._sync, "last": self._last}
+            json.dump(kept, f, indent=2)
         os.replace(partial, self._path)
 
     @staticmethod
@@ -107,22 +152,26 @@ class Copies:
 
     def state(self) -> Dict[str, Any]:
         with self._lock:
-            folder, last = self._folder, self._last
+            folder, last, sync = self._folder, self._last, self._sync
             copying = self._thread is not None and self._thread.is_alive()
             upcoming = self._next
         return {
             "folder": folder,
+            "sync": sync,
             "available": bool(folder) and FolderStore(Path(folder)).available(),
             "copying": copying,
             "last": last,
-            "next": upcoming.isoformat(timespec="minutes") if folder else None,
+            "next": upcoming.isoformat(timespec="minutes")
+            if folder and sync
+            else None,
         }
 
     # -- acting ------------------------------------------------------------------
 
     def set_folder(self, folder: Optional[str]) -> Dict[str, Any]:
-        """Name the shared folder, or none to turn the copy off. It must be
-        there now: a mistyped one would otherwise fail every night unseen."""
+        """Name the data store's folder, or none. It must be there now: a
+        mistyped one would otherwise fail every night unseen. Naming it
+        copies nothing; with none, sync goes off too."""
         folder = (folder or "").strip() or None
         if folder is not None:
             if not Path(folder).is_absolute():
@@ -133,6 +182,18 @@ class Copies:
                 )
         with self._lock:
             self._folder = folder
+            self._sync = self._sync and folder is not None
+            self._write()
+        return self.state()
+
+    def set_sync(self, sync: bool) -> Dict[str, Any]:
+        """Turn this PC's copy to the data store on or off."""
+        with self._lock:
+            if sync and self._folder is None:
+                raise GatewayRefused(409, "no_folder", "No data store is set.")
+            self._sync = bool(sync)
+            if sync:
+                self._next = self._after(self._now())
             self._write()
         return self.state()
 
@@ -147,7 +208,7 @@ class Copies:
         start while a workflow runs is tried again at the next poll."""
         now = self._now()
         with self._lock:
-            due = self._folder is not None and now >= self._next
+            due = self._folder is not None and self._sync and now >= self._next
         if not due or self._running():
             return
         with self._lock:
@@ -167,7 +228,11 @@ class Copies:
     def _start(self, who: str) -> None:
         with self._lock:
             if self._folder is None:
-                raise GatewayRefused(409, "no_folder", "No shared folder is set.")
+                raise GatewayRefused(409, "no_folder", "No data store is set.")
+            if not self._sync:
+                raise GatewayRefused(
+                    409, "sync_off", "This PC doesn't copy to the data store."
+                )
             if self._thread is not None and self._thread.is_alive():
                 raise GatewayRefused(409, "copying", "A copy is already going.")
             store = FolderStore(Path(self._folder))
@@ -184,16 +249,15 @@ class Copies:
     def _copy(self, store: FolderStore, who: str) -> None:
         started = self._now()
         total = {"experiments": 0, "sent": 0, "same": 0, "bytes": 0, "failed": 0}
-        complete, label, taken = True, self._label(), set()
+        complete, label, for_run = True, self._label(), False
+
+        def stop() -> bool:
+            # The nightly copy gives way to a run; a person's copy doesn't.
+            return self._stop.is_set() or (who == "nightly" and self._running())
+
         try:
             for folder in self._folders():
-                # Two folders of one name on this PC: the later is told apart.
-                name, n = folder.name, 1
-                while name in taken:
-                    n += 1
-                    name = f"{folder.name}-{n}"
-                taken.add(name)
-                done = copy_up(folder, store, f"{label}/{name}", self._stop.is_set)
+                done = copy_up(folder, store, _place(store, label, folder), stop)
                 total["experiments"] += 1
                 total["sent"] += done.sent
                 total["same"] += done.same
@@ -201,8 +265,19 @@ class Copies:
                 total["failed"] += len(done.failed)
                 complete = complete and done.complete
                 if done.stopped:
+                    for_run = not self._stop.is_set()
                     break
-            why = None if complete else "Some files were not copied."
+            why = (
+                None
+                if complete
+                else "Stopped for a run: it carries on when the run ends."
+                if for_run
+                else "Some files were not copied."
+            )
+            if for_run:
+                # Due again at once: the next poll with no run carries on.
+                with self._lock:
+                    self._next = self._now()
         except Exception as error:  # noqa: BLE001 - a copy never takes the gateway down
             log.exception("The copy to %s failed", store.root)
             complete, why = False, str(error)
