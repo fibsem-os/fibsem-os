@@ -33,6 +33,8 @@ from fibsem.util.system import DiskSpace, FreeSpaceLevel, disk_space
 from fibsem.utils import format_bytes
 from fibsem.workflows.experiments import default_experiment_directory
 
+logger = logging.getLogger(__name__)
+
 # What an experiment costs on disk, per lamella. Measured over four completed
 # lamellae in real experiments: 224, 256, 302 and 378 MB.
 # One of them breaks down as ~32 MB of reference images (20 of them, 1536x1024 uint8
@@ -385,9 +387,9 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
             self.protocol = AutoLamellaTaskProtocol.load(protocol_path_to_load)
             self.protocol_path = protocol_path_to_load
             self._update_protocol_display()
-            logging.info(f"Default protocol loaded from {protocol_path_to_load}")
+            logger.info(f"Default protocol loaded from {protocol_path_to_load}")
         except Exception as e:
-            logging.error(f"Failed to load default protocol: {e}")
+            logger.error(f"Failed to load default protocol: {e}")
             QtWidgets.QMessageBox.warning(
                 self,
                 "Protocol Load Error",
@@ -477,7 +479,7 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
                 self.protocol,
                 metadata=metadata if metadata else None,
             )
-            logging.info(
+            logger.info(
                 f"Experiment '{experiment_name}' created successfully at {self.experiment.path}"
             )
 
@@ -485,7 +487,7 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
             self.accept()
 
         except Exception as e:
-            logging.error(f"Failed to create experiment: {e}")
+            logger.error(f"Failed to create experiment: {e}")
             QtWidgets.QMessageBox.critical(
                 self, "Error", f"Failed to create experiment:\n\n{e}"
             )
@@ -514,13 +516,11 @@ def create_experiment_dialog(
     if result == QtWidgets.QDialog.DialogCode.Accepted:
         experiment = dialog.get_experiment()
         if experiment:
-            logging.info(f"Experiment created: {experiment.name}")
-            logging.info(f"Path: {experiment.path}")
-            logging.info(f"Protocol: {experiment.task_protocol.name}")
-            logging.info(
-                f"Number of tasks: {len(experiment.task_protocol.task_config)}"
-            )
+            logger.info(f"Experiment created: {experiment.name}")
+            logger.info(f"Path: {experiment.path}")
+            logger.info(f"Protocol: {experiment.task_protocol.name}")
+            logger.info(f"Number of tasks: {len(experiment.task_protocol.task_config)}")
         return experiment
     else:
-        logging.info("Experiment creation cancelled")
+        logger.info("Experiment creation cancelled")
         return None

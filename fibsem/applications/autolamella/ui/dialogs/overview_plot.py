@@ -38,6 +38,8 @@ from fibsem.ui.widgets.custom_widgets import (
     TitledPanel,
 )
 
+logger = logging.getLogger(__name__)
+
 # Stylesheet constants
 LINEEDIT_STYLESHEET = f"""
     QLineEdit {{
@@ -532,7 +534,7 @@ class OverviewImageWidget(QWidget):
             # Automatically generate preview when image is selected
             self._on_preview_clicked()
         except Exception as e:
-            logging.error(f"Error loading image: {e}")
+            logger.error(f"Error loading image: {e}")
             self.info_label.setText(f"Error loading image: {str(e)}")
             self.overview_image = None
 
@@ -600,7 +602,7 @@ class OverviewImageWidget(QWidget):
             )
 
         except Exception as e:
-            logging.error(f"Error generating preview: {e}")
+            logger.error(f"Error generating preview: {e}")
             import traceback
 
             traceback.print_exc()
@@ -647,11 +649,11 @@ class OverviewImageWidget(QWidget):
                 output_path, dpi=300, bbox_inches="tight", facecolor=LIGHT.background
             )
 
-            logging.info(f"Saved overview image to: {output_path}")
+            logger.info(f"Saved overview image to: {output_path}")
             self.info_label.setText(f"Saved to: {output_path}")
 
         except Exception as e:
-            logging.error(f"Error saving image: {e}")
+            logger.error(f"Error saving image: {e}")
             import traceback
 
             traceback.print_exc()

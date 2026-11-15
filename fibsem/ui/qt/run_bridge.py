@@ -25,6 +25,8 @@ if TYPE_CHECKING:
     from fibsem.workflows.runner import WorkflowRunner
     from fibsem.workflows.status import Hold, WorkflowStatusEvent
 
+logger = logging.getLogger(__name__)
+
 __all__ = ["RunRelay", "GuiExecutor"]
 
 
@@ -126,5 +128,5 @@ class GuiExecutor(QObject):
         try:
             self._before()
         except Exception:
-            logging.exception("writing what the GUI holds before an edit failed")
+            logger.exception("writing what the GUI holds before an edit failed")
         call()

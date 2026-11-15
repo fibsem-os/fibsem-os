@@ -26,6 +26,8 @@ from uuid import uuid4
 from fibsem.codec import NamedEnum
 from fibsem.workflows.status import TaskStatus
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class WorkItem:
@@ -227,7 +229,7 @@ class TaskQueue:
                 anchor_id = before if before is not None else after
                 anchor = self._find(anchor_id)  # type: ignore[arg-type]
                 if anchor is None or not anchor.is_pending:
-                    logging.warning(
+                    logger.warning(
                         f"Cannot add {task_name} for {item_name}: anchor "
                         f"{anchor_id} is missing or no longer pending."
                     )

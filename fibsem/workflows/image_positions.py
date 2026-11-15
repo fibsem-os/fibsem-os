@@ -31,6 +31,8 @@ from fibsem.image_format import read_metadata_dict
 from fibsem.structures.settings import FibsemStagePosition
 from fibsem.util.timestamps import to_datetime
 
+logger = logging.getLogger(__name__)
+
 # Far enough apart to be a different place. Images taken at a lamella's milling pose sit
 # within 0.12 um of it on real experiments; images taken before the position was set,
 # 60 um away. 5 um is the tolerance the fluorescence pose check already uses, and leaves
@@ -97,7 +99,7 @@ def read_image_position(path: str) -> ImagePosition:
         with tff.TiffFile(path) as tiff:
             state = (read_metadata_dict(tiff) or {}).get("microscope_state") or {}
     except Exception as e:  # noqa: BLE001 - no metadata is an answer: unknown
-        logging.debug(f"No readable metadata on {path}: {e}")
+        logger.debug(f"No readable metadata on {path}: {e}")
         return ImagePosition(filename, None, mtime)
 
     stage_position = None
@@ -105,7 +107,7 @@ def read_image_position(path: str) -> ImagePosition:
         if state.get("stage_position"):
             stage_position = FibsemStagePosition.from_dict(state["stage_position"])
     except Exception as e:  # noqa: BLE001
-        logging.debug(f"No readable stage position on {path}: {e}")
+        logger.debug(f"No readable stage position on {path}: {e}")
     # The file's mtime is the fallback, and a poor one: copying an experiment resets it.
     recorded = to_datetime(state.get("timestamp"))
     return ImagePosition(

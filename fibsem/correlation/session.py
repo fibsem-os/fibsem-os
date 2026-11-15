@@ -41,6 +41,8 @@ from fibsem.structures.image import FibsemImage, FibsemImageMetadata
 from fibsem.structures.settings import BeamType
 from fibsem.structures.system import CameraImageTransform
 
+logger = logging.getLogger(__name__)
+
 RUNNING = "Running…"
 
 
@@ -180,7 +182,7 @@ class CorrelationSession:
         )
         if surface and fm_surface:
             # Only one surface point is allowed — prefer the FM surface
-            logging.warning(
+            logger.warning(
                 "Both FIB and FM surface coordinates present — keeping the FM surface."
             )
             surface = []
@@ -225,7 +227,7 @@ class CorrelationSession:
         """
         scale = data.move_fm_z_to_step(self.fm_pixel_size_z)
         if scale != 1.0:
-            logging.info(
+            logger.info(
                 "FM z recorded at %.1f nm per plane; moved into the loaded "
                 "stack's planes (x%.4f)",
                 self.fm_pixel_size_z * scale * 1e9,
@@ -759,7 +761,7 @@ class CorrelationSession:
             # Never let this pass unseen: it is the only persistence path, so a
             # swallowed failure silently discards the whole session's work.
             #
-            logging.exception("Auto-save of correlation project failed")
+            logger.exception("Auto-save of correlation project failed")
             self.save_error = str(exc)
             return False
         self.save_error = None

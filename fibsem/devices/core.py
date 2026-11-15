@@ -59,6 +59,8 @@ from fibsem.structures.params import (
 )
 from fibsem.structures.settings import FibsemAxesPosition
 
+logger = logging.getLogger(__name__)
+
 IMAGING_CHANNEL = "imaging_channel"
 _SHARED = "shared"
 _UNSET = object()
@@ -386,7 +388,7 @@ class BoundParameter:
         if isinstance(self.limits, RangeLimit) and isinstance(value, (int, float)):
             clipped = self.limits.clamp(value)
             if clipped != value:
-                logging.warning(
+                logger.warning(
                     f"{self.device.name}.{self.name}: {value} is outside {self.limits}, "
                     f"set to {clipped}"
                 )
@@ -407,7 +409,7 @@ class BoundParameter:
         choices = _numeric_choices(self.choices)
         choice = min(choices, key=lambda c: abs(c - value))
         if not math.isclose(choice, value, rel_tol=1e-6):
-            logging.warning(
+            logger.warning(
                 f"{self.device.name}.{self.name}: {value} is not one of {choices}, "
                 f"set to the nearest, {choice}"
             )
@@ -420,7 +422,7 @@ class BoundParameter:
             if self.spec.nearest:
                 # what the hardware applied, which a driver may have adjusted again
                 value = self._read()
-        logging.debug(
+        logger.debug(
             {
                 "msg": "set",
                 "device": self.device.name,
@@ -650,7 +652,7 @@ class Session:
         try:
             self.record_signal.emit(kind, payload)
         except Exception:  # noqa: BLE001 - recording must not matter
-            logging.debug(f"could not record a {kind} event", exc_info=True)
+            logger.debug(f"could not record a {kind} event", exc_info=True)
 
     def stamp(self, image: Any) -> None:
         """Stamp who and which run onto an image, then the instrument's part."""

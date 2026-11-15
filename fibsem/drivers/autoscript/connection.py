@@ -20,6 +20,8 @@ from typing import Any, Optional, Tuple
 
 from fibsem.structures.settings import BeamType
 
+logger = logging.getLogger(__name__)
+
 
 class AutoScriptConnection:
     """One AutoScript client: the SDK's ``SdbMicroscopeClient`` and the channel lock.
@@ -56,7 +58,7 @@ class AutoScriptConnection:
         """Point the active view and device at ``channel``'s beam."""
         self.sdk.imaging.set_active_view(channel.value)
         self.sdk.imaging.set_active_device(channel.value)
-        logging.debug(f"Set active channel to {channel.name}")
+        logger.debug(f"Set active channel to {channel.name}")
 
     def find_stage(self) -> None:
         """Find the stage, the compustage first, and read it in its default
@@ -102,7 +104,7 @@ class AutoScriptConnection:
         finally:
             stage.set_default_coordinate_system(self.default_stage_coordinate_system)
         offset = (specimen.x - raw.x, specimen.y - raw.y)
-        logging.info(
+        logger.info(
             f"Compucentric rotation offset (specimen - raw): "
             f"x={offset[0] * 1e6:.2f} um, y={offset[1] * 1e6:.2f} um."
         )

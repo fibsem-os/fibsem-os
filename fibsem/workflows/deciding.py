@@ -31,11 +31,13 @@ from fibsem.workflows.proposals import (
 )
 from fibsem.workflows.status import TaskStatus
 
+logger = logging.getLogger(__name__)
+
 
 def _log_failure(outcome) -> None:
     error = outcome.exception()
     if error is not None:
-        logging.error("a subscriber to a proposal signal raised", exc_info=error)
+        logger.error("a subscriber to a proposal signal raised", exc_info=error)
 
 
 class ProposalDecisions:
@@ -285,7 +287,7 @@ class ProposalDecisions:
                         applied=False, error_type="invalid_value", reason=str(e)
                     )
                 except Exception as e:
-                    logging.exception(
+                    logger.exception(
                         f"{item.name}: could not plan the decision on {task_name}"
                     )
                     return DecisionResult(
@@ -333,7 +335,7 @@ class ProposalDecisions:
                 if apply_values is not None:
                     result.synced_tasks.extend(apply_values.apply())
             except Exception as e:
-                logging.exception(
+                logger.exception(
                     f"{item.name}: applying the decision on {task_name} failed; "
                     "undoing it."
                 )
@@ -345,7 +347,7 @@ class ProposalDecisions:
                             state.status = status
                             state.status_message = message
                 except Exception:
-                    logging.exception(
+                    logger.exception(
                         f"{item.name}: could not undo the decision on {task_name}"
                     )
                 return DecisionResult(
@@ -363,7 +365,7 @@ class ProposalDecisions:
             try:
                 self.save()
             except Exception as e:
-                logging.exception(
+                logger.exception(
                     f"{item.name}: the decision on {task_name} landed but the "
                     "experiment could not be saved"
                 )
@@ -373,7 +375,7 @@ class ProposalDecisions:
         try:
             self.decided.emit(item_id, task_name)
         except Exception:
-            logging.exception(f"a subscriber to decided raised for {task_name}")
+            logger.exception(f"a subscriber to decided raised for {task_name}")
         return result
 
     def _decide_on_experiment(
@@ -423,7 +425,7 @@ class ProposalDecisions:
         try:
             self.decided.emit("", "")
         except Exception:
-            logging.exception(f"a subscriber to decided raised for the {what}")
+            logger.exception(f"a subscriber to decided raised for the {what}")
         return result
 
     def suggest(
@@ -561,7 +563,7 @@ class ProposalDecisions:
         try:
             self.save()
         except Exception as e:
-            logging.exception(f"could not save {what}")
+            logger.exception(f"could not save {what}")
             result.save_error = str(e) or type(e).__name__
         return result
 
@@ -603,7 +605,7 @@ class ProposalDecisions:
         try:
             self._notify(self.asked, item_id or "", task_name)
         except Exception:
-            logging.exception(f"a subscriber to asked raised for {task_name}")
+            logger.exception(f"a subscriber to asked raised for {task_name}")
         return True
 
     def record_unasked(
@@ -647,7 +649,7 @@ class ProposalDecisions:
         try:
             self._notify(self.decided, item_id, task_name)
         except Exception:
-            logging.exception(f"a subscriber to decided raised for {task_name}")
+            logger.exception(f"a subscriber to decided raised for {task_name}")
         return True
 
     def fill_in_decision(
@@ -680,7 +682,7 @@ class ProposalDecisions:
         try:
             self._notify(self.decided, item_id, task_name)
         except Exception:
-            logging.exception(f"a subscriber to decided raised for {task_name}")
+            logger.exception(f"a subscriber to decided raised for {task_name}")
         return True
 
     def withdraw_what_was_asked(self, reason: str) -> int:
@@ -771,7 +773,7 @@ class ProposalDecisions:
         try:
             self._notify(self.decided, item_id, task_name)
         except Exception:
-            logging.exception(f"a subscriber to decided raised for {task_name}")
+            logger.exception(f"a subscriber to decided raised for {task_name}")
         return DecisionResult(applied=True)
 
     def withdraw_experiment_proposal(
@@ -802,7 +804,7 @@ class ProposalDecisions:
         try:
             self._notify(self.decided, "", "")
         except Exception:
-            logging.exception("a subscriber to decided raised for a withdrawal")
+            logger.exception("a subscriber to decided raised for a withdrawal")
         return result
 
     def pending_proposals(
