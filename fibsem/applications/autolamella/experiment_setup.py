@@ -22,6 +22,8 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.config import load_user_preferences
 from fibsem.workflows import protocol_files
 
+logger = logging.getLogger(__name__)
+
 
 def default_protocol_path() -> str:
     """The protocol a new experiment starts with: the preference when the file
@@ -30,7 +32,7 @@ def default_protocol_path() -> str:
     if preferred and os.path.isfile(preferred):
         return str(preferred)
     if preferred:
-        logging.warning(
+        logger.warning(
             f"Preference default_protocol_path '{preferred}' does not exist; using default."
         )
     return str(cfg.TASK_PROTOCOL_PATH)

@@ -26,6 +26,8 @@ from fibsem import config as cfg
 from fibsem.fm.structures import ChannelSettings, FluorescenceConfiguration
 from fibsem.session_state import SessionState, session_state_for
 
+logger = logging.getLogger(__name__)
+
 MAX_RECENT_CHANNELS = 10
 
 WORKING = "fm.working"
@@ -55,7 +57,7 @@ def load_fm_configuration(state: SessionState) -> Optional[FluorescenceConfigura
     try:
         return FluorescenceConfiguration.from_dict(data)
     except Exception as e:
-        logging.warning(f"Failed to load FM working state: {e}")
+        logger.warning(f"Failed to load FM working state: {e}")
         return None
 
 
@@ -96,7 +98,7 @@ def load_recent_channels(state: SessionState) -> List[ChannelSettings]:
                 raise ValueError("no name")
             channels.append(ChannelSettings.from_dict(entry))
         except Exception as e:
-            logging.warning(f"Skipping malformed recent FM channel entry {entry}: {e}")
+            logger.warning(f"Skipping malformed recent FM channel entry {entry}: {e}")
     return channels
 
 
@@ -122,7 +124,7 @@ def record_recent_channels(
             return
         state.save_section(RECENT_CHANNELS, updated)
     except Exception as e:
-        logging.warning(f"Failed to record recent FM channels: {e}")
+        logger.warning(f"Failed to record recent FM channels: {e}")
 
 
 def remove_recent_channel(channel: ChannelSettings, state: SessionState) -> None:
@@ -135,4 +137,4 @@ def remove_recent_channel(channel: ChannelSettings, state: SessionState) -> None
             return
         state.save_section(RECENT_CHANNELS, [ch.to_dict() for ch in remaining])
     except Exception as e:
-        logging.warning(f"Failed to remove recent FM channel: {e}")
+        logger.warning(f"Failed to remove recent FM channel: {e}")

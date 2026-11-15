@@ -31,6 +31,8 @@ if TYPE_CHECKING:
     from fibsem.drivers.odemis.connection import OdemisConnection
     from fibsem.drivers.odemis.microscope import OdemisThermoMicroscope
 
+logger = logging.getLogger(__name__)
+
 
 class OdemisMilling(BeamMilling):
     """Odemis milling, on the AutoScript adapter's patterning."""
@@ -62,14 +64,14 @@ class OdemisMilling(BeamMilling):
         self.connection.set_channel(channel)
         odemis_channel = beam_type_to_odemis[channel]
         self._connection.set_default_patterning_beam_type(odemis_channel)
-        logging.info(f"Patterning beam type set to {channel} - {odemis_channel} .")
+        logger.info(f"Patterning beam type set to {channel} - {odemis_channel} .")
         self._connection.set_default_application_file(settings.application_file)
-        logging.info(f"Default application file set to {settings.application_file}.")
+        logger.info(f"Default application file set to {settings.application_file}.")
         self._set_patterning_mode(settings.patterning_mode)
 
     def _set_patterning_mode(self, mode: str) -> None:
         self._connection.set_patterning_mode(mode)
-        logging.debug({"msg": "set_patterning_mode", "mode": mode})
+        logger.debug({"msg": "set_patterning_mode", "mode": mode})
 
     def _warn_dropped_pattern_settings(self, pattern: FibsemPatternSettings) -> None:
         """Warn about the settings the Delmic adapter ignores (xtadapter 1.16.0).
@@ -84,7 +86,7 @@ class OdemisMilling(BeamMilling):
             if getattr(pattern, name, None)
         ]
         if dropped:
-            logging.warning(
+            logger.warning(
                 f"{type(self.parent).__name__} cannot apply {', '.join(dropped)} to "
                 f"{type(pattern).__name__}: the Delmic AutoScript adapter "
                 "ignores them, and the pattern is drawn without."
@@ -110,7 +112,7 @@ class OdemisMilling(BeamMilling):
             create = self._connection.create_regular_cross_section
             application_file = "Si-multipass"
         pinfo = self._create(create, pdict, application_file)
-        logging.debug(
+        logger.debug(
             {
                 "msg": "draw_rectangle",
                 "pattern_settings": pattern.to_dict(),
@@ -120,7 +122,7 @@ class OdemisMilling(BeamMilling):
 
     def _draw_line(self, pattern: FibsemLineSettings) -> None:
         pinfo = self._create(self._connection.create_line, pattern.to_dict(), "Si")
-        logging.debug(
+        logger.debug(
             {"msg": "draw_line", "pattern_settings": pattern.to_dict(), "pinfo": pinfo}
         )
 
@@ -136,7 +138,7 @@ class OdemisMilling(BeamMilling):
         pdict["center_x"] = pattern.centre_x
         pdict["center_y"] = pattern.centre_y
         pinfo = self._create(self._connection.create_circle, pdict, "Si")
-        logging.debug(
+        logger.debug(
             {
                 "msg": "draw_circle",
                 "pattern_settings": pattern.to_dict(),

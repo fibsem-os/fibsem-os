@@ -57,6 +57,8 @@ from fibsem.ui.widgets.spot_burn_coordinates_widget import SpotBurnCoordinatesWi
 from fibsem.ui.widgets.workflow.add_task_dialog import AddTaskDialog
 from fibsem.workflows.workflow_edits import add_task, remove_task
 
+logger = logging.getLogger(__name__)
+
 # Frame used by the spot-burn coordinate dialog when the task's stored reference
 # imaging is unusable (missing/zero). Matches ImageSettings' own defaults.
 _FALLBACK_RESOLUTION = (1536, 1024)
@@ -632,7 +634,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         self._initialise_widgets()
         self.task_list_widget.select(task_name)
         self.workflow_config_changed.emit(self.experiment.task_protocol.workflow_config)
-        logging.info(f"Added new task: {task_name} ({task_type})")
+        logger.info(f"Added new task: {task_name} ({task_type})")
 
     def _on_remove_task_clicked(self):
         """Remove the selected task with confirmation dialog."""
@@ -680,7 +682,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
                     self.experiment.task_protocol.workflow_config
                 )
 
-                logging.info(f"Removed task: {selected_task_name}")
+                logger.info(f"Removed task: {selected_task_name}")
 
     def _on_global_edit_clicked(self):
         """Show dialog for globally editing reference imaging and milling FoV."""
@@ -782,7 +784,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         for field, value in dialog.values().items():
             if getattr(protocol, field, None) != value:
                 setattr(protocol, field, value)
-                logging.info(f"Updated protocol {field}: {value}")
+                logger.info(f"Updated protocol {field}: {value}")
         self._save_experiment()
         self.protocol_header.update_from_protocol(protocol)
 
@@ -856,6 +858,6 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
                 f"Successfully synced task configuration '{selected_task_name}' to {updated_count} lamella.",
             )
 
-            logging.info(
+            logger.info(
                 f"Synced task configuration '{selected_task_name}' to {updated_count} lamella"
             )

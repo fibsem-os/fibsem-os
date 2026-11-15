@@ -29,7 +29,7 @@ from fibsem.applications.autolamella.workflows.tasks.rough import (
 )
 from fibsem.server import AuthConfig, build_server
 from fibsem.structures.settings import MicroscopeState
-from fibsem.workflows.event_recording import EventRecorder
+from fibsem.workflows.events.recording import EventRecorder
 from tests.fixtures.connecting import connect_and_wait
 from tests.fixtures.main_window import close_window
 

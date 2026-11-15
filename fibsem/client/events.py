@@ -10,6 +10,8 @@ import logging
 import threading
 from typing import Any, Callable, Dict, Mapping, Optional
 
+logger = logging.getLogger(__name__)
+
 HEARTBEAT = 5.0  # seconds between pings; a server silent for as long again is gone
 OPEN_TIMEOUT = 5.0
 
@@ -62,7 +64,7 @@ class EventStream:
                 delay = 0.5  # it was up: retry quickly next time
             except Exception as error:  # refused, dropped or timed out: all the same
                 if self.connected or first:
-                    logging.warning(f"events from {self.url}: {error}")
+                    logger.warning(f"events from {self.url}: {error}")
             finally:
                 first = False
                 if self.connected:

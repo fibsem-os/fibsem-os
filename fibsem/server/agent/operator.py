@@ -3,7 +3,7 @@
 The web page (or the operator's own script) messages the agent, sets its level,
 stops it, allows or denies an agent asking to connect, and approves or rejects
 its request. Each route calls the
-:class:`~fibsem.ai.agent.session.AgentSession` function the window's control
+:class:`~fibsem.ai.agent.session.AgentControl` function the window's control
 calls, so both record the same thing. Behind the operator token only
 (``require_operator``): the agent's token is refused, so the agent can't
 approve its own request or raise its own level.
@@ -25,7 +25,7 @@ from fibsem.ai.agent.levels import (
     AgentLevel,
     chip_text,
 )
-from fibsem.ai.agent.session import MESSAGE_LIMIT, AgentSession
+from fibsem.ai.agent.session import MESSAGE_LIMIT, AgentControl
 from fibsem.codec import encode
 from fibsem.imaging.marks import plane_shown
 from fibsem.server import files
@@ -66,7 +66,7 @@ def _text(value: str, key: str, required: bool = True) -> str:
     return value.strip()
 
 
-def build_operator_router(agent: AgentSession) -> APIRouter:
+def build_operator_router(agent: AgentControl) -> APIRouter:
     """The operator's side of the agent, under ``/app/agent``."""
     router = APIRouter(prefix="/app/agent", dependencies=[Depends(require_operator())])
 

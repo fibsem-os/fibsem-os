@@ -1,0 +1,5 @@
+# Bulk mechanical changes, hidden from `git blame`.
+# Use locally: git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# Module loggers instead of the root logger (#2576)
+16b19c1092e15c0fd5b967825f28bfd200f15697

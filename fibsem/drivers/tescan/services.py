@@ -61,6 +61,8 @@ if TYPE_CHECKING:
     from fibsem.drivers.tescan.microscope import TescanMicroscope
     from fibsem.milling.base import FibsemMillingStage
 
+logger = logging.getLogger(__name__)
+
 
 # A current token inside a free-form TESCAN preset name, e.g. "30 keV; 100 pA" or
 # "30 keV; 2nA; my cool preset". Only prefixed units (pA/nA/uA/µA): a bare "A" in an
@@ -226,7 +228,7 @@ class TescanMilling(Milling):
             scanning_path = pattern.scan_direction
         else:
             scanning_path = "Flyback"
-            logging.warning(
+            logger.warning(
                 f"Scan direction {pattern.scan_direction} not supported. Using Flyback instead."
             )
         self.connection.sdk.DrawBeam.ScanningPath = scanning_path
@@ -296,10 +298,10 @@ class TescanMilling(Milling):
                 thread_connection.DrawBeam.GetStatus()[0]
                 == sdk.DBStatus.ProjectLoadedExpositionInProgress
             ):
-                logging.info("Milling is in progress, stopping now...")
+                logger.info("Milling is in progress, stopping now...")
                 thread_connection.DrawBeam.Stop()
         except Exception as e:
-            logging.error(f"Error in stop_milling: {e}")
+            logger.error(f"Error in stop_milling: {e}")
         finally:
             del thread_connection
 
@@ -317,7 +319,7 @@ class TescanMilling(Milling):
             with self.connection.lock:
                 return self.connection.sdk.DrawBeam.EstimateTime()
         except Exception as e:
-            logging.error(f"Error in estimating milling time: {e}")
+            logger.error(f"Error in estimating milling time: {e}")
             return 0
 
     def _before_run(self) -> None:
@@ -359,7 +361,7 @@ class TescanMilling(Milling):
             with self.connection.lock:
                 self.connection.sdk.DrawBeam.UnloadLayer()
         except Exception as e:
-            logging.debug(f"Error unloading layer: {e}")
+            logger.debug(f"Error unloading layer: {e}")
 
     def _save(self, beam: Beam) -> None:
         super()._save(beam)
@@ -375,7 +377,7 @@ class TescanMilling(Milling):
         try:
             super()._write_back(beam, name, value)
         except Exception as e:
-            logging.warning(f"Error restoring {name} {value!r} after milling: {e}")
+            logger.warning(f"Error restoring {name} {value!r} after milling: {e}")
 
 
 def bind_tescan_milling(microscope: TescanMicroscope) -> Optional[TescanMilling]:
@@ -440,10 +442,10 @@ class TescanStageMovement(StageMovement):
         # (+z is down). The stage device takes fibsem's frame, at the current tilt.
         stage_position = FibsemStagePosition(x=-dx, y=-y_move, z=z_move, r=0, t=0)
         stage_position = self.stage.native_delta(stage_position, self._position().t)
-        logging.info(f"coincident move from SEM: {stage_position}")
+        logger.info(f"coincident move from SEM: {stage_position}")
         self._move_stage(stage_position, relative=True)
 
-        logging.debug(
+        logger.debug(
             {
                 "msg": "move_coincident_from_sem",
                 "dx": dx,
@@ -496,7 +498,7 @@ class TescanSpotBurn(SpotBurn):
         if settings.milling_current is None:
             settings = dataclasses.replace(settings, milling_current=0.0)
         else:
-            logging.info(
+            logger.info(
                 f"Spot burn milling_current is ignored on TESCAN; using preset "
                 f"{SPOT_BURN_PRESET!r}. (requested: {settings.milling_current})"
             )
@@ -562,7 +564,7 @@ class TescanSpotBurn(SpotBurn):
             centre = self._spot_burn_point_to_metres(
                 point, hfw=hfw, resolution=resolution
             )
-            logging.info(
+            logger.info(
                 f"spot burn point: {point} -> ({centre.x:.3e}, {centre.y:.3e}) m, "
                 f"exposure time: {exposure_time}s"
             )
@@ -595,7 +597,7 @@ class TescanSpotBurn(SpotBurn):
                     stop_event=AnyStopEvent(self._stop_requested, *_events(stop_event))
                 )
         except OperationCancelledError:
-            logging.info("Spot burn cancelled.")
+            logger.info("Spot burn cancelled.")
             return SpotBurnStatus.CANCELLED
         return SpotBurnStatus.FINISHED
 
@@ -604,7 +606,7 @@ class TescanSpotBurn(SpotBurn):
         try:
             self.parent.milling.restore()
         except Exception:
-            logging.exception("Failed to restore the ion beam after the spot burn")
+            logger.exception("Failed to restore the ion beam after the spot burn")
 
 
 def _events(stop_event: Any) -> tuple:

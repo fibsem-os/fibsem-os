@@ -102,6 +102,8 @@ from fibsem.ui.widgets.progress_widget import (
     ProgressUpdate,
 )
 
+logger = logging.getLogger(__name__)
+
 TEXT_MUTED = tokens.TEXT_MUTED_COLOR
 PROGRESS_FONT_PX = 10
 
@@ -328,7 +330,7 @@ class FMOverviewWidget(OverviewWidgetBase):
             if config is not None and config.channel_settings:
                 return list(config.channel_settings)
         except Exception as e:
-            logging.debug(f"Could not load the saved FM configuration: {e}")
+            logger.debug(f"Could not load the saved FM configuration: {e}")
         fm = self.microscope.fm
         return [fm.default_channel() if fm is not None else ChannelSettings()]
 
@@ -639,7 +641,7 @@ class FMOverviewWidget(OverviewWidgetBase):
                 width * pixel_size_x, height * pixel_size_y
             )
         except Exception as e:
-            logging.debug(f"Could not read the camera field of view: {e}")
+            logger.debug(f"Could not read the camera field of view: {e}")
 
     def _on_channels_changed(self, channels: List[ChannelSettings]) -> None:
         self.settings_widget.set_channel_settings(channels)
@@ -704,7 +706,7 @@ class FMOverviewWidget(OverviewWidgetBase):
             here = frame.offset(position)
             there = frame.offset(self._target)
         except Exception as e:
-            logging.debug(f"Could not measure the target offset: {e}")
+            logger.debug(f"Could not measure the target offset: {e}")
             return None
         return (there[0] - here[0], there[1] - here[1])
 
@@ -732,7 +734,7 @@ class FMOverviewWidget(OverviewWidgetBase):
         # the microscope's own UI. See `_projection` for why keeping it is safe.
         projection = self._projection()
         if projection is None:
-            logging.debug("Could not read the camera geometry for the tile grid")
+            logger.debug("Could not read the camera geometry for the tile grid")
             self.tile_grid_overlay.clear()
             return
         height, width = projection.shape
@@ -993,7 +995,7 @@ class FMOverviewWidget(OverviewWidgetBase):
         try:
             image = FluorescenceImage.load(path)
         except Exception as e:
-            logging.error(f"Could not load an overview from {path}: {e}")
+            logger.error(f"Could not load an overview from {path}: {e}")
             notification_service.show_toast(
                 f"Could not load that overview.\n{e}", "error"
             )
@@ -1005,7 +1007,7 @@ class FMOverviewWidget(OverviewWidgetBase):
         # have been told to distrust. An overview saved before geometry was recorded
         # is this case.
         if FMStageProjection.from_image(image) is None:
-            logging.warning(
+            logger.warning(
                 f"Overview {path} has no recorded geometry; placing at the origin."
             )
             notification_service.show_toast(
@@ -1016,7 +1018,7 @@ class FMOverviewWidget(OverviewWidgetBase):
 
         self.set_image(image)
         record = self._record_for(image)
-        logging.info(f"Loaded overview {record.label} from {path}")
+        logger.info(f"Loaded overview {record.label} from {path}")
         return record
 
     def _prompt_for_overview(self) -> None:
@@ -1090,7 +1092,7 @@ class FMOverviewWidget(OverviewWidgetBase):
             # in y, which is a mosaic that disagrees with the grid that planned it.
             return projection.to_plane(position, self._posed(origin))
         except Exception as e:
-            logging.debug(f"Could not place the image in stage space: {e}")
+            logger.debug(f"Could not place the image in stage space: {e}")
             return (0.0, 0.0)
 
     def _offset_from_origin(self, position: FibsemStagePosition) -> Tuple[float, float]:
@@ -1106,7 +1108,7 @@ class FMOverviewWidget(OverviewWidgetBase):
         try:
             return frame.offset(position)
         except Exception as e:
-            logging.debug(f"Could not place {position} in the canvas frame: {e}")
+            logger.debug(f"Could not place {position} in the canvas frame: {e}")
             return (0.0, 0.0)
 
     def add_settings_section(
@@ -1468,7 +1470,7 @@ class FMOverviewWidget(OverviewWidgetBase):
         try:
             point = frame.to_canvas(position)
         except Exception as e:
-            logging.debug(f"Could not mark the current stage position: {e}")
+            logger.debug(f"Could not mark the current stage position: {e}")
             self.current_position_overlay.set_points([])
             return
         # Unlabelled on purpose: the crosshair sits on top of the data, and a caption
@@ -1577,7 +1579,7 @@ class FMOverviewWidget(OverviewWidgetBase):
         try:
             position, state = self.fm.objective.position, self.fm.objective.state
         except Exception as e:
-            logging.debug(f"No objective position for the info bar: {e}")
+            logger.debug(f"No objective position for the info bar: {e}")
             self._objective_info = None
             self._refresh_stage_info()
             return
@@ -1596,7 +1598,7 @@ class FMOverviewWidget(OverviewWidgetBase):
         try:
             return self.fm.objective.state
         except Exception as e:
-            logging.debug(f"Could not read the objective state: {e}")
+            logger.debug(f"Could not read the objective state: {e}")
             return None
 
     def _refresh_objective_start_options(self) -> None:
@@ -1610,7 +1612,7 @@ class FMOverviewWidget(OverviewWidgetBase):
                 self.fm.objective.position, self.fm.objective.focus_position
             )
         except Exception as e:
-            logging.debug(f"No objective positions for the start options: {e}")
+            logger.debug(f"No objective positions for the start options: {e}")
 
     def _current_stage_position(self) -> Optional[FibsemStagePosition]:
         """Where the stage is, polling the microscope only when nothing has said yet.
@@ -1648,7 +1650,7 @@ class FMOverviewWidget(OverviewWidgetBase):
             try:
                 return frame.offset(centre)
             except Exception as e:
-                logging.debug(f"Could not place the planned grid: {e}")
+                logger.debug(f"Could not place the planned grid: {e}")
         return (0.0, 0.0)
 
     def _sync_position_fov(self) -> None:
@@ -1686,7 +1688,7 @@ class FMOverviewWidget(OverviewWidgetBase):
             try:
                 point = frame.to_canvas(position)
             except Exception as e:
-                logging.debug(f"Cannot mark {position.name!r}: {e}")
+                logger.debug(f"Cannot mark {position.name!r}: {e}")
                 continue
             name = position.name or ""
             if name and name == self.session.selected:
@@ -1742,7 +1744,7 @@ class FMOverviewWidget(OverviewWidgetBase):
             QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
-            logging.info("Move to FM device cancelled by user")
+            logger.info("Move to FM device cancelled by user")
             return
 
         self.status.setText("Moving to the FM…")
@@ -1753,9 +1755,9 @@ class FMOverviewWidget(OverviewWidgetBase):
         """Runs off the GUI thread. Only signals may cross back."""
         try:
             self.microscope.move_to_device(device)
-            logging.info(f"Moved to the {device} device")
+            logger.info(f"Moved to the {device} device")
         except Exception as e:
-            logging.error(f"Failed to move to the {device} device: {e}")
+            logger.error(f"Failed to move to the {device} device: {e}")
         # Not followed by a refresh: the move raises `stage.position.changed`, which
         # arrives at `_on_stage_moved` and re-derives everything the pose feeds.
 
@@ -1916,7 +1918,7 @@ class FMOverviewWidget(OverviewWidgetBase):
         try:
             target = frame.to_stage(x, y)
         except Exception as e:
-            logging.debug(f"Could not resolve the clicked position: {e}")
+            logger.debug(f"Could not resolve the clicked position: {e}")
             return None
 
         if not self._within_click_height(target):
@@ -1961,7 +1963,7 @@ class FMOverviewWidget(OverviewWidgetBase):
         try:
             self._target = frame.to_stage(x, y)
         except Exception as e:
-            logging.debug(f"Could not resolve the dragged grid position: {e}")
+            logger.debug(f"Could not resolve the dragged grid position: {e}")
             return
         self.tile_grid_panel.set_centre_enabled(True)
         self._refresh_tile_grid()
@@ -1988,7 +1990,7 @@ class FMOverviewWidget(OverviewWidgetBase):
         try:
             self._set_cursor_readout(self._describe(frame.to_stage(x, y)))
         except Exception as e:
-            logging.debug(f"Could not resolve the cursor position: {e}")
+            logger.debug(f"Could not resolve the cursor position: {e}")
             self._set_cursor_readout("")
 
     def _set_cursor_readout(self, text: str) -> None:
@@ -2117,7 +2119,7 @@ class FMOverviewWidget(OverviewWidgetBase):
     def acquire(self) -> None:
         """Confirm, then run the overview on a worker thread."""
         if self.is_acquiring:
-            logging.warning("An overview acquisition is already running.")
+            logger.warning("An overview acquisition is already running.")
             return
         # A run plans a grid and drives the stage from the camera geometry, so it starts
         # from a freshly read one rather than whatever the last drawing kept. The natural
@@ -2128,7 +2130,7 @@ class FMOverviewWidget(OverviewWidgetBase):
         # to that one.
         if self.fm.is_acquiring:
             reason = self.fm.acquiring_reason or "another acquisition"
-            logging.warning(f"Cannot acquire an overview: the FM is in use ({reason}).")
+            logger.warning(f"Cannot acquire an overview: the FM is in use ({reason}).")
             notification_service.show_toast(
                 f"The fluorescence microscope is in use ({reason}). "
                 f"Wait for it to finish before acquiring an overview.",
@@ -2143,7 +2145,7 @@ class FMOverviewWidget(OverviewWidgetBase):
                 self._where_the_stage_is(),
                 self._where_the_stage_needs_to_be(),
             )
-            logging.warning(
+            logger.warning(
                 f"Cannot acquire an overview: the stage is at {where}, and an overview "
                 f"needs to be at {needed}."
             )
@@ -2170,7 +2172,7 @@ class FMOverviewWidget(OverviewWidgetBase):
                 f"The objective is {state.value}, so an overview cannot be acquired. "
                 f"Insert it and try again."
             )
-            logging.warning(message)
+            logger.warning(message)
             notification_service.show_toast(message, "warning")
             self.status.setText(f"Objective is {state.value}.")
             return
@@ -2184,7 +2186,7 @@ class FMOverviewWidget(OverviewWidgetBase):
                 "has been saved. Set one with 'Set Focus Position', or start from the "
                 "current position instead."
             )
-            logging.warning(message)
+            logger.warning(message)
             notification_service.show_toast(message, "warning")
             self.status.setText("No focus position saved.")
             return
@@ -2217,7 +2219,7 @@ class FMOverviewWidget(OverviewWidgetBase):
             parent=self,
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
-            logging.info("Overview acquisition cancelled before starting")
+            logger.info("Overview acquisition cancelled before starting")
             return
 
         self._cancelling = False
@@ -2294,7 +2296,7 @@ class FMOverviewWidget(OverviewWidgetBase):
                 limits,
             )
         except Exception as e:
-            logging.debug(f"Could not check the grid against the stage limits: {e}")
+            logger.debug(f"Could not check the grid against the stage limits: {e}")
             return []
 
     def _camera_resolution(self) -> Optional[tuple]:
@@ -2302,7 +2304,7 @@ class FMOverviewWidget(OverviewWidgetBase):
         try:
             return tuple(self.fm.camera.resolution)
         except Exception as e:
-            logging.debug(f"Could not read the camera resolution: {e}")
+            logger.debug(f"Could not read the camera resolution: {e}")
             return None
 
     def _acquire_worker(self) -> None:
@@ -2316,9 +2318,9 @@ class FMOverviewWidget(OverviewWidgetBase):
         try:
             answer = self.microscope.imaging.fm_acquire_overview(**self._run_settings)
             if answer["status"] == "cancelled":
-                logging.info("Overview acquisition cancelled")
+                logger.info("Overview acquisition cancelled")
         except Exception as e:
-            logging.error(f"Overview acquisition failed: {e}", exc_info=True)
+            logger.error(f"Overview acquisition failed: {e}", exc_info=True)
             self._run_failed.emit(str(e))
 
     def _on_run_failed(self, error: str) -> None:
@@ -2567,7 +2569,7 @@ class FMOverviewWidget(OverviewWidgetBase):
                 ]
             )
         except Exception as e:
-            logging.debug(f"Could not display the overview preview: {e}")
+            logger.debug(f"Could not display the overview preview: {e}")
 
     def _describe_save(self) -> Tuple[str, str]:
         """Status suffix and tooltip for whether the overview reached disk.

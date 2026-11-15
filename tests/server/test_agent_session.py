@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from fibsem.ai.agent.levels import AgentLevel
+from fibsem.instrument_id import instrument_id
 from fibsem.server import AuthConfig
 from fibsem.server.agent.session import (
     SESSION_BUDGET,
@@ -209,3 +210,42 @@ def test_a_report_the_harness_writes_reads_and_unset_fields_stay_out(server):
     assert body == {"session_id": "s1", "tokens": {"input": 3}}
     session = client.post("/app/agent/session", json=body).json()["session"]
     assert session["tokens"] == {"input": 3} and "goal" not in session
+
+
+def test_the_session_names_the_instrument_and_the_open_experiment(server):
+    from types import SimpleNamespace
+
+    auth, client, recorded = server
+    microscope = SimpleNamespace(
+        system=SimpleNamespace(info=SimpleNamespace(serial_number="SN-1")),
+        experiment=SimpleNamespace(id="exp-1"),
+    )
+    client.app.state.served = SimpleNamespace(current=microscope)
+    session = client.post("/app/agent/session", json={"session_id": "s1"}).json()
+    assert session["session"]["instrument_serial"] == "SN-1"
+    assert session["session"]["instrument_id"] == instrument_id()
+    assert session["session"]["experiment_id"] == "exp-1"
+    assert recorded[0][1]["experiment_id"] == "exp-1"
+
+    microscope.experiment = None
+    microscope.system.info.serial_number = "Unknown"
+    session = client.post("/app/agent/session", json={"turns": 1}).json()["session"]
+    assert "experiment_id" not in session and "instrument_serial" not in session
+    # The id is this PC's, whatever the microscope reports.
+    assert session["instrument_id"] == instrument_id()
+
+
+def test_an_instrument_id_is_made_once_and_kept(tmp_path):
+    path = tmp_path / "state" / "instrument.json"
+    made = instrument_id(path)
+    assert made and instrument_id(path) == made
+    path.write_text("not json")
+    # An unreadable file is left alone, and no id is made up for one run.
+    assert instrument_id(path) is None
+    assert path.read_text() == "not json"
+
+
+def test_an_agent_cannot_report_the_ids_itself(server):
+    _, client, _ = server
+    body = {"session_id": "s1", "experiment_id": "made-up"}
+    assert client.post("/app/agent/session", json=body).status_code == 422

@@ -30,6 +30,8 @@ from fibsem.structures.settings import BeamType, FibsemStagePosition
 from fibsem.structures.system import BEAMS_STAGE_DEVICE, DEVICE_AXES, DeviceCalibration
 from fibsem.util.timestamps import now, now_iso
 
+logger = logging.getLogger(__name__)
+
 # How far the FM's pose may differ from FIB's, in rotation and in tilt, and still be
 # calibrated by re-posing at the beams; more is a configuration error. Degrees.
 MAX_FM_POSE_DIFFERENCE = 15.0
@@ -229,7 +231,7 @@ class SemToFmCalibration:
         try:
             frame = alignment.check_coincidence(path=os.path.join(self.folder, name))
         except Exception as e:  # noqa: BLE001 - a label, never a gate
-            logging.warning(f"Coincidence not measured: {e}")
+            logger.warning(f"Coincidence not measured: {e}")
             return {"error": str(e)}
         keep = ("dy", "dz", "dx", "score", "warnings", "sem_path", "fib_path")
         return {key: frame.metadata[key] for key in keep if key in frame.metadata}
@@ -367,7 +369,7 @@ class SemToFmCalibration:
             )
         stage.device_calibration = calibration
         self._correction_before = tuple(stage.rotation_centre_correction)
-        logging.info(
+        logger.info(
             f"Saved the SEM to FM calibration: travel {calibration.translation()}"
             + ("." if calibration.checked else ", from one site, not cross-checked.")
         )

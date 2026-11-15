@@ -89,6 +89,7 @@ def test_status_and_summaries_reflect_a_real_experiment(experiment):
 
     status = _plain(ctx.status())
     assert status["experiment"]["num_items"] == 2
+    assert status["experiment"]["id"] == experiment.id
     assert status["workflow"]["running"] is False
 
     summary = _plain(ctx.experiment_summary())

@@ -46,6 +46,8 @@ from psygnal import EmitLoopError
 
 from fibsem.structures.params import field_specs
 
+logger = logging.getLogger(__name__)
+
 __all__ = ["PatchError", "apply_patch", "check_patch"]
 
 
@@ -134,7 +136,7 @@ def _resolve(root: Any, path: str, value: Any, none_type: Optional[type] = None)
             except EmitLoopError:
                 # The value is set; a listener (a view) failed on the change.
                 # That is the view's fault, not a reason to fail the edit.
-                logging.exception("a listener failed on the change to %r", path)
+                logger.exception("a listener failed on the change to %r", path)
 
     return setter, path, old, new
 

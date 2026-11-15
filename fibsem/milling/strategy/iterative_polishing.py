@@ -48,6 +48,8 @@ from fibsem.structures.image import FibsemImage
 from fibsem.structures.params import Display, param
 from fibsem.structures.settings import BeamType, ImageSettings, Point
 
+logger = logging.getLogger(__name__)
+
 FACES = ("top", "bottom", "both")
 PASS_FILE = "pass.json"
 
@@ -183,7 +185,7 @@ class IterativePolishingStrategy(MillingStrategy[IterativePolishingConfig]):
                 "take an SEM image instead"
             )
         folder = _pass_folder(stage)
-        logging.info(f"{self.name}: {stage.name} ({config.face}) into {folder}")
+        logger.info(f"{self.name}: {stage.name} ({config.face}) into {folder}")
 
         StandardMillingStrategy().run(microscope, stage, stop_event)
         raise_if_cancelled(stop_event)
@@ -407,7 +409,7 @@ def _baseline(path: Optional[str]) -> Optional[List[Optional[float]]]:
         with open(path) as f:
             targets = json.load(f).get("targets") or []
     except (OSError, ValueError) as exc:
-        logging.warning(f"The baseline {path} could not be read: {exc}")
+        logger.warning(f"The baseline {path} could not be read: {exc}")
         return None
     return [
         t.get("ratio") if t.get("ratio") is not None else t.get("signal")

@@ -28,6 +28,8 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 from fibsem.server.discovery import DISCOVERY_DIR
 
+logger = logging.getLogger(__name__)
+
 __all__ = [
     "AGENT",
     "CODE_TTL_S",
@@ -107,7 +109,7 @@ class PairedTokens:
         try:
             self._raw = self._read()
         except OSError:
-            logging.warning("Paired computers file %s unreadable", self._path)
+            logger.warning("Paired computers file %s unreadable", self._path)
             self._raw = None
         self._computers: Dict[str, PairedComputer] = self._parse(self._raw)
 
@@ -143,7 +145,7 @@ class PairedTokens:
                 for row in rows
             }
         except (ValueError, TypeError, KeyError, AttributeError):
-            logging.warning(
+            logger.warning(
                 "Paired computers file %s unreadable; none paired", self._path
             )
             return {}
@@ -290,7 +292,7 @@ class Pairing:
             try:
                 callback(state)
             except Exception:  # noqa: BLE001 - a listener never blocks pairing
-                logging.exception("Pairing listener failed")
+                logger.exception("Pairing listener failed")
 
     def _live(self) -> bool:
         if self._code is not None and self._clock() >= self._expires:
@@ -384,7 +386,7 @@ class Pairing:
                 grants = self._grants
                 died = False
         if died:
-            logging.warning("Pairing closed after %d wrong codes", MAX_TRIES)
+            logger.warning("Pairing closed after %d wrong codes", MAX_TRIES)
             self._changed()
             raise PairingRefused(
                 "pairing_closed",
@@ -393,6 +395,6 @@ class Pairing:
             )
         browser = str(browser or "")[:64]
         paired = self.tokens.add(name, role, browser, grants)
-        logging.info("Paired %s as %s", paired[0].name, role)
+        logger.info("Paired %s as %s", paired[0].name, role)
         self._changed()
         return paired

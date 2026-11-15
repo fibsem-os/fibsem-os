@@ -56,6 +56,8 @@ import yaml
 from fibsem import config as cfg
 from fibsem.codec import encode
 
+logger = logging.getLogger(__name__)
+
 SESSION_STATE_VERSION: int = 1
 
 # Next to the other state the application writes, not beside the configuration
@@ -142,12 +144,12 @@ class SessionState:
             with open(self.path) as f:
                 data = yaml.safe_load(f)
         except Exception as e:
-            logging.warning(f"Session state {self.path} could not be read: {e}")
+            logger.warning(f"Session state {self.path} could not be read: {e}")
             return None
         if data is None:
             return {}
         if not isinstance(data, dict):
-            logging.warning(f"Session state {self.path} is not a mapping; ignoring it.")
+            logger.warning(f"Session state {self.path} is not a mapping; ignoring it.")
             return None
         return data
 
@@ -181,7 +183,7 @@ class SessionState:
             try:
                 migrated = migrate()
             except Exception as e:
-                logging.warning(f"Could not import session state '{name}': {e}")
+                logger.warning(f"Could not import session state '{name}': {e}")
                 migrated = None
             if migrated is not None:
                 self.save_section(name, migrated)
@@ -207,7 +209,7 @@ class SessionState:
             try:
                 self._replace(data)
             except Exception as e:
-                logging.warning(
+                logger.warning(
                     f"Could not save session state '{name}' to {self.path}: {e}"
                 )
                 return False
@@ -241,9 +243,9 @@ class SessionState:
         kept = self.path.with_name(f"{self.path.name}.unreadable-{stamp}")
         try:
             os.replace(self.path, kept)
-            logging.warning(f"Unreadable session state moved aside to {kept}")
+            logger.warning(f"Unreadable session state moved aside to {kept}")
         except OSError as e:
-            logging.warning(f"Could not move unreadable {self.path} aside: {e}")
+            logger.warning(f"Could not move unreadable {self.path} aside: {e}")
 
 
 def session_state_for(microscope, writable: bool = False) -> SessionState:

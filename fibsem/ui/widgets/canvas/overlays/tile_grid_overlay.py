@@ -371,7 +371,7 @@ class TileGridOverlay(QObject, CanvasOverlay):
         try:
             return bool(self._reserved(x, y))
         except Exception as e:
-            logging.debug(f"Could not ask whether a point is reserved: {e}")
+            logger.debug(f"Could not ask whether a point is reserved: {e}")
             return False
 
     @property

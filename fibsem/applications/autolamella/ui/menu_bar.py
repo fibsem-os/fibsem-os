@@ -31,6 +31,8 @@ if TYPE_CHECKING:
     from fibsem.ui.widgets.microscope_panel import MicroscopePanel
     from fibsem.workflows.session import AppSession
 
+logger = logging.getLogger(__name__)
+
 
 def set_menu_icon(action: QAction, key: str) -> None:
     """Give a menu action an icon that actually renders.
@@ -660,7 +662,7 @@ class MainMenuBar(QObject):
         self._show_toast(f"Shortcut created: {path}", "info")
 
     def _show_shortcut_error(self, exc: Exception) -> None:
-        logging.error(f"Failed to create desktop shortcut: {exc}")
+        logger.error(f"Failed to create desktop shortcut: {exc}")
         QMessageBox.warning(
             self._host,
             "Create Desktop Shortcut",
@@ -691,10 +693,10 @@ class MainMenuBar(QObject):
         if view in (BeamType.ELECTRON, BeamType.ION):
             image_widget = self._panel().image_widget
             if image_widget is None:
-                logging.info("F2 acquire: no image widget (microscope not connected)")
+                logger.info("F2 acquire: no image widget (microscope not connected)")
                 return
             if getattr(image_widget, "is_acquiring", False):
-                logging.info("F2 acquire: acquisition already in progress")
+                logger.info("F2 acquire: acquisition already in progress")
                 return
             if view is BeamType.ELECTRON:
                 image_widget.acquire_sem_image()
@@ -703,13 +705,13 @@ class MainMenuBar(QObject):
         elif view == "fm":
             fm_widget = self._panel().fm_control_widget
             if fm_widget is None:
-                logging.info("F2 acquire: no fluorescence widget")
+                logger.info("F2 acquire: no fluorescence widget")
                 return
             # `is_acquisition_active`, not `is_acquiring` — the latter does not exist on
             # this widget, so a getattr default of False would make the guard inert and
             # let F2 start a second FM acquisition mid-run.
             if fm_widget.is_acquisition_active:
-                logging.info("F2 acquire: fluorescence acquisition already in progress")
+                logger.info("F2 acquire: fluorescence acquisition already in progress")
                 return
             fm_widget.acquire_image()
 
@@ -727,7 +729,7 @@ class MainMenuBar(QObject):
         """F6: toggle live acquisition on the selected SEM/FIB beam."""
         image_widget = self._selected_em_image_widget()
         if image_widget is None:
-            logging.info("F6 live: only SEM/FIB support live acquisition")
+            logger.info("F6 live: only SEM/FIB support live acquisition")
             return
         image_widget.toggle_live_acquisition()
 
@@ -735,7 +737,7 @@ class MainMenuBar(QObject):
         """F9: auto-contrast the selected SEM/FIB beam."""
         image_widget = self._selected_em_image_widget()
         if image_widget is None:
-            logging.info("F9 autocontrast: only SEM/FIB supported")
+            logger.info("F9 autocontrast: only SEM/FIB supported")
             return
         image_widget.run_autocontrast()
 
@@ -743,7 +745,7 @@ class MainMenuBar(QObject):
         """F11: auto-focus the selected SEM/FIB beam."""
         image_widget = self._selected_em_image_widget()
         if image_widget is None:
-            logging.info("F11 autofocus: only SEM/FIB supported")
+            logger.info("F11 autofocus: only SEM/FIB supported")
             return
         image_widget.run_autofocus()
 

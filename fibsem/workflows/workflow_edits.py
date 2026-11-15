@@ -14,6 +14,8 @@ from typing import Any, Callable, Dict, List, Optional
 
 from fibsem.workflows.attention import Attention
 
+logger = logging.getLogger(__name__)
+
 WORKFLOW_CHANGED = "workflow_changed"
 
 Record = Callable[[str, Dict[str, Any]], None]
@@ -27,7 +29,7 @@ def save_workflow_change(experiment, change: Dict[str, Any], record: Record) -> 
         experiment.save(save_protocol=True)
     except Exception:
         saved = False
-        logging.exception(
+        logger.exception(
             "save after a workflow change failed; the change is applied in "
             "memory but not yet on disk"
         )

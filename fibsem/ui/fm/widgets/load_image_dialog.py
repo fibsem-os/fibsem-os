@@ -30,6 +30,8 @@ from fibsem.ui.stylesheets import (
     SECONDARY_BUTTON_STYLESHEET,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class LoadImageDialog(QDialog):
     """Dialog for loading FluorescenceImage from OME-TIFF files."""
@@ -190,7 +192,7 @@ class LoadImageDialog(QDialog):
                     self.progress_bar.setValue(i)
 
                     # Load the image using FluorescenceImage.load()
-                    logging.info(f"Loading fluorescence image from: {file_path}")
+                    logger.info(f"Loading fluorescence image from: {file_path}")
                     image = FluorescenceImage.load(file_path)
                     self.loaded_images.append(image)
 
@@ -201,7 +203,7 @@ class LoadImageDialog(QDialog):
                 except Exception as e:
                     error_msg = f"Failed to load {Path(file_path).name}: {str(e)}"
                     failed_loads.append(error_msg)
-                    logging.error(error_msg)
+                    logger.error(error_msg)
 
             # Complete progress bar
             self.progress_bar.setValue(len(valid_file_paths))
@@ -221,7 +223,7 @@ class LoadImageDialog(QDialog):
                     )
 
                 QMessageBox.information(self, "Load Complete", success_msg)
-                logging.info(f"Successfully loaded {successful_loads} images")
+                logger.info(f"Successfully loaded {successful_loads} images")
                 self.accept()
             else:
                 error_msg = "Failed to load any images:\\n\\n" + "\\n".join(
@@ -236,6 +238,6 @@ class LoadImageDialog(QDialog):
             self.browse_button.setEnabled(True)
 
             error_msg = f"Unexpected error during loading: {str(e)}"
-            logging.error(error_msg)
+            logger.error(error_msg)
 
             QMessageBox.critical(self, "Load Error", error_msg)

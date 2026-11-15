@@ -38,6 +38,8 @@ from fibsem.workflows.task_configs import (
     task_config_at,
 )
 
+logger = logging.getLogger(__name__)
+
 # The item-document fields an agent may patch: what a lamella IS — geometry,
 # verdict, notes. Everything else on the object (poses, ids, paths, history)
 # is either derived, hardware-adjacent, an *outcome* rather than an input
@@ -128,7 +130,7 @@ def touch_agent_patch(
             tasks = list((patch or {}).get("task_names") or lamella.task_config)
         edits.touch_task_configs([lamella], tasks)
     except Exception:  # noqa: BLE001 - recording must not matter
-        logging.debug("could not note what an agent patch changes", exc_info=True)
+        logger.debug("could not note what an agent patch changes", exc_info=True)
 
 
 def _refused(error_type: str, **why: Any) -> dict:
@@ -238,7 +240,7 @@ def edit_item_fields(lamella, patch: dict, version: str) -> dict:
         try:
             synced_tasks = list(lamella.sync_tasks_to_poi())
         except Exception:
-            logging.exception("pattern sync after POI patch failed")
+            logger.exception("pattern sync after POI patch failed")
     if "alignment_area" in fields:
         from fibsem.applications.autolamella.workflows.tasks.fiducial import (
             follow_alignment_area,
@@ -247,8 +249,8 @@ def edit_item_fields(lamella, patch: dict, version: str) -> dict:
         try:
             synced_tasks += follow_alignment_area(lamella)
         except Exception:
-            logging.exception("fiducial sync after alignment area patch failed")
-    logging.info(
+            logger.exception("fiducial sync after alignment area patch failed")
+    logger.info(
         f"item patch applied: {lamella.name}: "
         + ", ".join(f"{p}: {old!r} -> {new!r}" for p, old, new in changes)
         + (f" (patterns synced: {', '.join(synced_tasks)})" if synced_tasks else "")
@@ -307,7 +309,7 @@ def apply_correlation(
     try:
         record("correlation", correlation_record(result, lamella, run_folder, root))
     except Exception:  # noqa: BLE001 - recording must not matter
-        logging.debug("could not record the correlation", exc_info=True)
+        logger.debug("could not record the correlation", exc_info=True)
     return move_poi(result.poi[0].px_m)
 
 
@@ -353,7 +355,7 @@ def reorder_milling_stages(
         }
     by_name = {s.name: s for s in stages}
     milling[milling_key].stages = [by_name[n] for n in order]
-    logging.info(
+    logger.info(
         f"agent reordered stages ({level}): "
         f"{item_name or 'protocol'} / {task_name} / {milling_key}: "
         f"{names} -> {order}"

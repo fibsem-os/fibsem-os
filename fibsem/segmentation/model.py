@@ -10,6 +10,8 @@ import torch.nn.functional as F
 
 from fibsem.segmentation.utils import decode_segmap, download_checkpoint
 
+logger = logging.getLogger(__name__)
+
 # NOTE: these models contain numeric training bugs that were fixed in later versions. For reproducibility, we need to re-implement the bug for these models...
 # please contact (pat) if these models arent working as expected.
 __DEPRECIATED_CHECKPOINTS__ = [
@@ -127,7 +129,7 @@ class SegmentationModel:
 
         assert img_t.ndim == 4, f"Expected 4 dims, got {img_t.ndim}"
 
-        logging.debug(
+        logger.debug(
             {
                 "msg": "pre_process",
                 "shape": img_t.shape,
@@ -196,13 +198,11 @@ def load_model(
 
         for onnx_model in [SegmentationModelWindowONNX, SegmentationModelONNX]:
             try:
-                logging.debug(f"Trying to load {onnx_model}")
+                logger.debug(f"Trying to load {onnx_model}")
                 model = onnx_model(checkpoint=checkpoint)
                 break
             except Exception as e:
-                logging.debug(
-                    f"Failed to load {type(onnx_model)} for {checkpoint}: {e}"
-                )
+                logger.debug(f"Failed to load {type(onnx_model)} for {checkpoint}: {e}")
 
     else:
         model = SegmentationModel(

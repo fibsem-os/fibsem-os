@@ -46,6 +46,8 @@ from fibsem.correlation import solver
 from fibsem.correlation.config import MIN_FIDUCIAL_PAIRS
 from fibsem.correlation.geometry import NominalTransform
 
+logger = logging.getLogger(__name__)
+
 __all__ = [
     "FitEvidence",
     "PairDiagnostic",
@@ -263,7 +265,7 @@ def _hull_distance(fib: np.ndarray, point: np.ndarray) -> float:
         if Delaunay(fib).find_simplex(point[None])[0] >= 0:
             return 0.0
     except Exception as exc:  # collinear or too few points
-        logging.debug(f"hull test fell back to nearest fiducial: {exc}")
+        logger.debug(f"hull test fell back to nearest fiducial: {exc}")
     return float(np.min(np.linalg.norm(fib - point, axis=1)))
 
 
@@ -450,5 +452,5 @@ def verdict_tier(diagnostics: Optional[dict]) -> Optional[str]:
     try:
         return verdict(FitEvidence.from_dict(diagnostics)).tier
     except Exception:  # noqa: BLE001 - the tier is a detail of the record
-        logging.debug("could not read the fit verdict", exc_info=True)
+        logger.debug("could not read the fit verdict", exc_info=True)
         return None
