@@ -79,7 +79,10 @@ Cell bodies are opaque: they hide the film, holes and bars under them.
 - **Rips**: a seeded fraction of squares (`rip_fraction`) has the film torn away. Each rip
   is its own tear (size, orientation, where it starts, how ragged), a square beside a
   ripped one rips more readily, and a bright curled edge rings each rip.
-- **Ice** (`ice_density`): flat bright plates with an irregular outline.
+- **Ice** (`ice_density`, `ice_size`): hexagonal plates lying on the ice, each a slab 1 to 3 um
+  thick with a hard edge. A plate's top is brighter than the ice round it and its edge catches
+  the beam, so it shows in the SEM and the FIB at a grid square's field of view; it charges a
+  little in the SEM, and milling cuts through it as through any ice.
 - **Frost** (`frost_density`): patches of small bright grains.
 - **Spheres** (`sphere_density`, `sphere_size`): dark round balls standing on the film.
 - **Cracks** (`crack_density`): hairline cracks in the film, a dark wandering line (some

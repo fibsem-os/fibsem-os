@@ -62,7 +62,9 @@ BAR_RISE = 1.9  # how far the ice stands up over a bar
 ICE_OVER_CELL = 0.8  # the ice left over the top of a cell
 ICE_BLANKET = 3.0  # the ice lies over a cell as a dome this smooth
 ICE_CLOSE = 0.35  # and follows each cell's own shape this closely
-PLATE = 0.4  # an ice plate's thickness
+PLATE = (1.0, 3.0)  # um; an ice plate's thickness, each its own
+PLATE_EDGE = 0.25  # um; over which a plate's side comes down
+PLATE_TOP = (0.22, 0.1)  # how much brighter a plate's flat top is
 CELL_MAX = 5.5  # the tallest a cell stands
 ROUND_EDGE = 1.5  # where a standing cell's rounded top meets the film, in its own r^2
 MOUND = (2.0, 4.0)  # um; how high an adherent cell stands at its middle
@@ -308,7 +310,10 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
             inclusions.extend(_inclusions(scene, f))
         r2 = _radius2(f, X[box] - fx, Y[box] - fy)
         if f.kind == "ice":
-            plate[box] = np.maximum(plate[box], np.exp(-0.5 * r2**f.sharpness))
+            # a slab with a hard edge, standing on the ice
+            tall = PLATE[0] + (PLATE[1] - PLATE[0]) * f.wobble_phase / (2 * np.pi)
+            side = np.clip((1 - np.sqrt(r2)) * sigma / PLATE_EDGE, 0, 1)
+            plate[box] = np.maximum(plate[box], (tall * side).astype(f32))
         elif f.part == "body" and scene.cell_type == "rpe":
             # an epithelial cell: a smooth dome, the ice over it a little wider
             rr = np.sqrt(r2) / RPE_RADIUS
@@ -366,7 +371,7 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
         _gauss(in_cell.astype(f32), (2 * ICE_CLOSE / sy, 2 * ICE_CLOSE / sx))
     )
     rise = np.where(lift > 0, lift, np.maximum(blanket, close)).astype(f32)
-    ice = ice + rise + PLATE * plate
+    ice = ice + rise + plate
     # a crack in the film is a groove in thin ice, open along its middle
     thin = np.exp(-np.clip(ice, 0, None) / 1.5)
     ice = ice - CRACK * crack * thin
@@ -480,6 +485,7 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
         ).astype(f32),
         "bar_weight": weight,
         # thin ice across a hole in the film, with no cell on it
+        "plate": np.clip(plate / PLATE[0], 0, 1),
         "hole": (holes & ~in_cell) * np.exp(-np.clip(ice, 0, None) / 2.0).astype(f32),
     }
 
@@ -857,6 +863,7 @@ def trace(scene: "SampleScene", frame: ViewFrame, u, w, pix) -> dict:
         "surface": surface,
         "bar": at(col["bar_weight"]),
         "hole": at(col["hole"]),
+        "plate": at(col["plate"]),
         "bead": at(col["bead"]),
         "cell_under": at(col["cell_under"]),
         "opening": opening,
@@ -905,6 +912,8 @@ def canvas(scene: "SampleScene", beam: str, frame: ViewFrame, u, w, pix):
     shade[under] *= (1 - HOLE_UNDER[which] * hit["hole"])[under]
     # so does a cell: the ice over it is thin, and it charges a little
     shade[under] *= (1 + CELL_UNDER[which] * hit["cell_under"])[under]
+    # an ice plate's top is clean crystal: brighter than the sheet it lies on
+    shade[under] *= (1 + PLATE_TOP[which] * hit["plate"])[under]
     # a cut face or a wall shows what it was cut from, darker further down
     depth = np.clip(hit["surface"] - z_hit, 0, None)
     inside = mat_in * (0.75 + 0.35 * hit["lean"]) * np.exp(-depth / 7.0)
