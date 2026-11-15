@@ -12,6 +12,8 @@ from fibsem.detection.detection import DetectedFeatures
 from fibsem.structures.settings import BeamType, Point
 from fibsem.ui.widgets.canvas.canvas_state import MaskSpec, PointsSpec
 
+logger = logging.getLogger(__name__)
+
 
 class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
     def __init__(
@@ -237,7 +239,7 @@ class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
                 feature.px, self.det.image.data, self.det.pixelsize
             )
 
-        logging.debug(
+        logger.debug(
             {"msg": "get_detected_features", "detected_features": self.det.to_dict()}
         )
 

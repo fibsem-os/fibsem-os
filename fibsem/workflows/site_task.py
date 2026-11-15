@@ -50,6 +50,8 @@ if TYPE_CHECKING:
     from fibsem.fm.structures import FluorescenceImage
     from fibsem.microscope import FibsemMicroscope
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class SiteTaskConfig(TaskConfig, ABC):
@@ -219,7 +221,7 @@ class SiteTask(BaseTask):
         return get_task_supervision(self.task_name, manager.experiment)
 
     def pre_task(self) -> None:
-        logging.info(
+        logger.info(
             f"Running {self.task_name}, {self.task_type} ({self.task_id}) "
             f"for {self.item_type} {self.item.name} ({self.item.id})"
         )
@@ -250,7 +252,7 @@ class SiteTask(BaseTask):
 
     def log_task_config(self) -> None:
         """Log the task configuration to the log file. This can be used for debugging or reporting."""
-        logging.debug(
+        logger.debug(
             {
                 "msg": "task_config",
                 "timestamp": now_iso(),
@@ -542,7 +544,7 @@ class SiteTask(BaseTask):
             self.log_status_message("RETRACT_OBJECTIVE", "Retracting Objective...")
             self.microscope.fm.objective.retract()
         except Exception as e:
-            logging.warning(
+            logger.warning(
                 f"Failed to retract the objective after {self.task_name}: {e}",
                 exc_info=True,
             )

@@ -59,6 +59,8 @@ from fibsem.workflows.queue import QUEUE_ACTIONS
 from fibsem.workflows.runner import GRIDS, ITEMS, QueueEdit, RunRequest
 from fibsem.workflows.workflow_edits import set_supervision
 
+logger = logging.getLogger(__name__)
+
 
 class WorkflowTab(QWidget):
     def __init__(
@@ -337,7 +339,7 @@ class WorkflowTab(QWidget):
                 if not microscope.is_on(beam):
                     off.append(beam)
             except Exception as e:  # noqa: BLE001 - unknown is not "off"
-                logging.warning(
+                logger.warning(
                     f"Could not read whether the {beam.name} beam is on: {e}"
                 )
         return off
@@ -786,7 +788,7 @@ class WorkflowTab(QWidget):
         elif action in QUEUE_ACTIONS:
             edit = runner.edit(item.item_name, item.task_name, action, actor=OPERATOR)
         else:
-            logging.warning(f"Unknown queue action from the timeline: {action}")
+            logger.warning(f"Unknown queue action from the timeline: {action}")
             return
         self._show_queue_message(self._queue_action_message(action, item, edit))
 

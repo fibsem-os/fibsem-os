@@ -35,6 +35,8 @@ from fibsem.correlation.history import (
 from fibsem.correlation.structures import CorrelationResult
 from fibsem.util.timestamps import to_datetime
 
+logger = logging.getLogger(__name__)
+
 __all__ = [
     "PriorTransform",
     "experiment_runs",
@@ -128,7 +130,7 @@ def prior_from_runs(
                 translation=translation,
             )
         except Exception as exc:  # a prior is an aid; never block on one
-            logging.debug(f"prior from {label} unusable: {exc}")
+            logger.debug(f"prior from {label} unusable: {exc}")
             continue
         if transform is not None:
             return PriorTransform(transform=transform, source=label)
@@ -170,7 +172,7 @@ def placement_offset_from_runs(
         fib_px = getattr(result.input_data, "fib_image_pixel_size", None)
         rms_um = result.rms_error * fib_px * 1e6 if fib_px else None
         if rms_um is None or rms_um > max_rms_um:
-            logging.debug(f"placement offset from {label} skipped: rms {rms_um} um")
+            logger.debug(f"placement offset from {label} skipped: rms {rms_um} um")
             continue
         # `now` and the result's time: aware datetimes, or POSIX
         current = to_datetime(now if now is not None else time.time())

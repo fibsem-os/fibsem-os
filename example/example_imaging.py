@@ -5,6 +5,8 @@ import matplotlib.pyplot as plt
 from fibsem import acquire, utils
 from fibsem.structures.settings import BeamType
 
+logger = logging.getLogger(__name__)
+
 """
 This script will take an image with the electron beam, an image with the ion beam, and an image with both beams. 
 The images are then displayed in a matplotlib figure.
@@ -24,8 +26,8 @@ def main():
     )
 
     # info about ImageSettings
-    logging.info("\nAcquiring Images Example:")
-    logging.info(f"The current image settings are: \n{settings.image}")
+    logger.info("\nAcquiring Images Example:")
+    logger.info(f"The current image settings are: \n{settings.image}")
 
     # take an image with the electron beam
     settings.image.beam_type = BeamType.ELECTRON

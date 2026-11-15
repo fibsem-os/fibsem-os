@@ -20,6 +20,8 @@ from typing import Any, Callable, Dict, Iterable, Optional, Tuple
 
 from fibsem.acting import acting, current_actor
 
+logger = logging.getLogger(__name__)
+
 EDIT = "edit"
 
 
@@ -90,7 +92,7 @@ class PendingEdits:
                 )
             self._touched()
         except Exception:  # noqa: BLE001 - recording must not matter
-            logging.debug(f"could not note an edit to {target}", exc_info=True)
+            logger.debug(f"could not note an edit to {target}", exc_info=True)
 
     def touch_task_configs(
         self, lamellae: Iterable[Any], tasks: Iterable[str], via: Optional[str] = None
@@ -116,7 +118,7 @@ class PendingEdits:
                 for key in getattr(config, "milling", None) or {}
             ]
         except Exception:  # noqa: BLE001 - recording must not matter
-            logging.debug("could not list the patterns an edit may move", exc_info=True)
+            logger.debug("could not list the patterns an edit may move", exc_info=True)
             return
         for task, key in keys:
             self.touch(
@@ -154,7 +156,7 @@ class PendingEdits:
                         },
                     )
             except Exception:  # noqa: BLE001 - recording must not matter
-                logging.debug(
+                logger.debug(
                     f"could not record an edit to {edit.target}", exc_info=True
                 )
 

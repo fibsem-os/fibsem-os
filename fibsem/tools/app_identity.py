@@ -14,6 +14,8 @@ import ctypes.util
 import logging
 import sys
 
+logger = logging.getLogger(__name__)
+
 
 def set_app_identity(name: str, windows_app_id: str) -> None:
     """Show this process as ``name`` with its own taskbar identity.
@@ -34,7 +36,7 @@ def _set_windows_app_id(app_id: str) -> None:
     try:
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
     except (AttributeError, OSError) as e:
-        logging.warning("Could not set the Windows taskbar app id: %s", e)
+        logger.warning("Could not set the Windows taskbar app id: %s", e)
 
 
 def bring_to_front() -> None:
@@ -52,7 +54,7 @@ def bring_to_front() -> None:
         app = send(b"NSApplication", b"sharedApplication")
         send(app, b"activateIgnoringOtherApps:", ctypes.c_bool(True))
     except (AttributeError, OSError, TypeError) as e:
-        logging.warning("Could not bring the app to the front: %s", e)
+        logger.warning("Could not bring the app to the front: %s", e)
 
 
 def _objc_sender(framework: str):
@@ -102,4 +104,4 @@ def _set_macos_bundle_name(name: str) -> None:
             raise OSError("the main bundle has no info dictionary")
         send(info, b"setObject:forKey:", ns_string(name), ns_string("CFBundleName"))
     except (AttributeError, OSError, TypeError) as e:
-        logging.warning("Could not set the macOS application name: %s", e)
+        logger.warning("Could not set the macOS application name: %s", e)

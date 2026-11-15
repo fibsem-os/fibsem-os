@@ -35,6 +35,8 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, List, Optional
 
+logger = logging.getLogger(__name__)
+
 # Module-level names a script may declare. Anything else is ignored.
 FLAG_WRITES = "writes"
 FLAG_BACKGROUND = "background"
@@ -103,7 +105,7 @@ def load_script(path: Path) -> DiscoveredScript:
         module = _load_module(path)
     except Exception:
         script.error = traceback.format_exc(limit=3).strip().splitlines()[-1]
-        logging.warning("Failed to load script %s: %s", path, script.error)
+        logger.warning("Failed to load script %s: %s", path, script.error)
         return script
 
     entrypoint = getattr(module, ENTRYPOINT, None)
@@ -179,7 +181,7 @@ def run_script(script: DiscoveredScript, ctx: Any) -> ScriptResult:
             script=script, error=RuntimeError(script.error or "not runnable")
         )
 
-    logging.info(
+    logger.info(
         "Running script %s (%s) writes=%s microscope=%s",
         script.name,
         script.content_hash,
@@ -192,14 +194,14 @@ def run_script(script: DiscoveredScript, ctx: Any) -> ScriptResult:
     # attributable. Restored afterwards so a reused context is not left modified.
     original_log = getattr(ctx, "log", None)
     if callable(original_log):
-        ctx.log = lambda message, _name=script.name: logging.info(
+        ctx.log = lambda message, _name=script.name: logger.info(
             "[%s] %s", _name, message
         )
     try:
         result.value = script._module.run(ctx)  # type: ignore[union-attr]
     except BaseException as e:  # noqa: BLE001 - deliberately broad, see docstring
         result.error = e
-        logging.exception("Script %s failed", script.name)
+        logger.exception("Script %s failed", script.name)
         return result
     finally:
         if callable(original_log):

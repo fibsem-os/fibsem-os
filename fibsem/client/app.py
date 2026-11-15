@@ -17,6 +17,8 @@ from fibsem.codec import decode
 from fibsem.devices.wire import type_from_path
 from fibsem.server.responses import answer_class
 
+logger = logging.getLogger(__name__)
+
 _APP_TOOLS = {spec.name: spec for spec in CATALOG if spec.router == "app"}
 
 
@@ -137,7 +139,7 @@ def _answer_types(paths: Dict[str, str]) -> Dict[type, type]:
         try:
             base, own = type_from_path(base_path), type_from_path(own_path)
         except (ValueError, ImportError, AttributeError):
-            logging.debug("no answer class %s here", own_path, exc_info=True)
+            logger.debug("no answer class %s here", own_path, exc_info=True)
             continue
         if isinstance(own, type) and isinstance(base, type) and issubclass(own, base):
             found[base] = own

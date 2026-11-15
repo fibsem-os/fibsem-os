@@ -83,6 +83,8 @@ if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
     from fibsem.workflows.grid.protocol import GridExperiment
 
+logger = logging.getLogger(__name__)
+
 # The load step: a queue item ahead of each grid's tasks, so the plan shows where
 # the exchanges fall and the timeline shows how each one went, and the history
 # entry the exchange leaves on the grid. Not a task in the protocol: loading is
@@ -284,7 +286,7 @@ class GridTaskManager(BaseTaskManager):
             f"Skipping {item.task_name} on {grid.name}: it is no longer in the "
             "grid protocol."
         )
-        logging.info(msg)
+        logger.info(msg)
         self.queue.mark_done(item, TaskStatus.Skipped)
         self._emit_report(
             item=item,
@@ -335,7 +337,7 @@ class GridTaskManager(BaseTaskManager):
                 f"Skipping {item.task_name}: no grid named {item.item_name} "
                 "in the experiment."
             )
-            logging.warning(msg)
+            logger.warning(msg)
             self.queue.mark_done(item, TaskStatus.Skipped)
             self._emit_report(
                 item=item,
@@ -362,7 +364,7 @@ class GridTaskManager(BaseTaskManager):
                 f"Skipping {item.task_name} on {grid.name}: required "
                 f"{', '.join(missing)} did not complete."
             )
-            logging.info(msg)
+            logger.info(msg)
             self.queue.mark_done(item, TaskStatus.Skipped)
             self._emit_report(
                 item=item,
@@ -388,7 +390,7 @@ class GridTaskManager(BaseTaskManager):
         if not loaded:
             reason = self._not_loaded[grid.name]
             msg = f"Skipping {item.task_name} on {grid.name}: grid not loaded."
-            logging.info(f"{msg} {reason}")
+            logger.info(f"{msg} {reason}")
             self.queue.mark_done(item, TaskStatus.Skipped)
             self._emit_report(
                 item=item,
@@ -418,7 +420,7 @@ class GridTaskManager(BaseTaskManager):
         if self.report_at_end:
             self._report_at_end()
         for line in self._grid_summary_lines():
-            logging.info(line)
+            logger.info(line)
 
     def _unload_at_end(self) -> None:
         """Return the grid in the working slot to the magazine: the run's last
@@ -451,13 +453,13 @@ class GridTaskManager(BaseTaskManager):
             entry.status = TaskStatus.Failed
             entry.status_message = str(e)
             msg = f"Grid {occupant} could not be unloaded at the end of the run: {e}"
-            logging.warning(msg)
+            logger.warning(msg)
             self._notify(msg, "warning")
         else:
             entry.status = TaskStatus.Completed
             entry.status_message = "Returned to the magazine."
             msg = f"Grid {occupant} is unloaded."
-            logging.info(msg)
+            logger.info(msg)
         entry.end_timestamp = datetime.timestamp(datetime.now())
         if grid is not None:
             grid.task_history.append(entry)
@@ -487,11 +489,11 @@ class GridTaskManager(BaseTaskManager):
             path = self.experiment.write_grid_report(inventory)
         except Exception as e:  # noqa: BLE001 - the run is over; said, not raised
             msg = f"The grid screening report was not written: {e}"
-            logging.warning(msg, exc_info=True)
+            logger.warning(msg, exc_info=True)
             self._notify(msg, "warning")
             self._say(status_bar="")
             return
-        logging.info(f"Grid screening report written: {path}")
+        logger.info(f"Grid screening report written: {path}")
         self._notify(f"Grid screening report written: {path}", "info")
         self._say(status_bar="")
 
@@ -514,7 +516,7 @@ class GridTaskManager(BaseTaskManager):
                 "(removed from the protocol, or a task they require did not "
                 "complete)."
             )
-            logging.info(msg)
+            logger.info(msg)
             self.queue.mark_done(item, TaskStatus.Skipped)
             self._emit_report(
                 item=item,
@@ -552,7 +554,7 @@ class GridTaskManager(BaseTaskManager):
     def _cancel_load(self, item: WorkItem, grid: GridRecord, msg: str) -> None:
         """A Stop landed inside the exchange: the queue item ends Cancelled, not
         Failed, and the loop ends the run at its next check."""
-        logging.info(msg)
+        logger.info(msg)
         self.queue.mark_done(item, TaskStatus.Cancelled)
         self._emit_report(
             item=item,
@@ -592,7 +594,7 @@ class GridTaskManager(BaseTaskManager):
                 )
                 occupant = self._working_slot_occupant(stage)
                 if occupant is not None:
-                    logging.info(f"Unloading grid {occupant} for {grid.name}.")
+                    logger.info(f"Unloading grid {occupant} for {grid.name}.")
                     self._say(status_bar=f"Unloading grid {occupant}...")
                     stage.unload()
                     self._stop_exchange_if_asked(
@@ -601,7 +603,7 @@ class GridTaskManager(BaseTaskManager):
                         f"Stopped after unloading {occupant}; "
                         f"{grid.name} was not loaded.",
                     )
-                logging.info(f"Loading grid {grid.name}.")
+                logger.info(f"Loading grid {grid.name}.")
                 self._say(status_bar=f"Loading grid {grid.name}...")
             slot = stage.ensure_loaded(grid.name)
         except GridExchangeError as e:
@@ -611,7 +613,7 @@ class GridTaskManager(BaseTaskManager):
             entry.end_timestamp = timestamps.now()
             grid.task_history.append(entry)
             self.experiment.save()
-            logging.warning(
+            logger.warning(
                 f"Grid {grid.name} could not be loaded: {e} "
                 "Its remaining tasks in this run are skipped."
             )
@@ -622,7 +624,7 @@ class GridTaskManager(BaseTaskManager):
             entry.end_timestamp = timestamps.now()
             grid.task_history.append(entry)
             self.experiment.save()
-            logging.info(
+            logger.info(
                 f"Grid {grid.name} loaded into {slot.name} in {entry.duration:.1f} s."
             )
         return True

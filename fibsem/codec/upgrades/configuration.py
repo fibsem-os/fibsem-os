@@ -37,6 +37,8 @@ from fibsem.structures.system import (
     DeviceEntry,
 )
 
+logger = logging.getLogger(__name__)
+
 # What `calibration:` took from the stage block in version 1.
 CALIBRATION_KEYS = (
     "holders",
@@ -171,7 +173,7 @@ def _plasma_gas(entry: dict) -> None:
     if flag is True and entry.get("plasma_gas") is None:
         # The old flag without a gas: not a plasma column until the instrument names
         # its gas at connect (`FibsemMicroscope._read_plasma_source`).
-        logging.info(
+        logger.info(
             "The configuration says `plasma: true` but names no plasma gas; the "
             "gas is read from the instrument at connect."
         )

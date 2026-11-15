@@ -17,6 +17,8 @@ from fibsem import utils
 from fibsem.ui import notification_service, stylesheets
 from fibsem.ui.widgets.custom_widgets import ValueSpinBox
 
+logger = logging.getLogger(__name__)
+
 
 class FMPlacementForm(QWidget):
     """The FM's origin and pose; ``changed`` fires on every edit."""
@@ -96,7 +98,7 @@ class FMPlacementForm(QWidget):
         try:
             origin, pose = self.microscope.vendor_fm_placement()
         except Exception as e:
-            logging.error(f"Could not read the FM's place from {source}: {e}")
+            logger.error(f"Could not read the FM's place from {source}: {e}")
             notification_service.show_toast(
                 f"Could not read the FM's place from {source}: {e}", "error"
             )
@@ -132,7 +134,7 @@ class FMPlacementForm(QWidget):
         try:
             utils.write_fm_placement(path, origin, pose)
         except Exception as e:
-            logging.error(f"Could not save the FM's place: {e}")
+            logger.error(f"Could not save the FM's place: {e}")
             notification_service.show_toast(
                 f"Could not save the FM's place: {e}", "error"
             )
@@ -140,7 +142,7 @@ class FMPlacementForm(QWidget):
         pose_changed = pose != self._saved[1]
         self._saved = self.values()
         self.changed.emit()
-        logging.info(f"FM origin {origin} m and pose {pose} deg saved to {path}")
+        logger.info(f"FM origin {origin} m and pose {pose} deg saved to {path}")
         message = "FM origin and pose saved. Reconnect to use them."
         if pose_changed and self.microscope.system.stage.fm_calibrated():
             message += (

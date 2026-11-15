@@ -21,10 +21,12 @@ from fibsem.structures.settings import (
     Point,
 )
 
+logger = logging.getLogger(__name__)
+
 try:
     from fibsem.segmentation.utils import decode_segmap_v2
 except ImportError as e:
-    logging.debug(f"Could not import segmentation util / config {e}")
+    logger.debug(f"Could not import segmentation util / config {e}")
 
 if TYPE_CHECKING:
     from fibsem.segmentation.model import SegmentationModel
@@ -223,7 +225,7 @@ def detect_median_edge(mask: np.ndarray, edge: str, threshold: int = 250) -> Poi
             if edge == "bottom":
                 edge_px = Point(x=px, y=y_max)
         except Exception as e:
-            logging.warning(f"Error detecting edge: {e}")
+            logger.warning(f"Error detecting edge: {e}")
     return Point(x=int(edge_px.x), y=int(edge_px.y))
 
 
@@ -416,7 +418,7 @@ def detect_features(
         try:
             pixelsize = image.metadata.pixel_size.x
         except Exception as e:  # default (wrong value)
-            logging.debug(f"Error getting pixelsize: {e}, using default value of 25nm")
+            logger.debug(f"Error getting pixelsize: {e}, using default value of 25nm")
             pixelsize = 25e-9
 
     # model inference
@@ -463,9 +465,7 @@ def take_image_and_detect_features(
     from fibsem.segmentation.model import load_model
 
     if image_settings.reduced_area is not None:
-        logging.info(
-            "Reduced area is not compatible with model detection, disabling..."
-        )
+        logger.info("Reduced area is not compatible with model detection, disabling...")
         image_settings.reduced_area = None
 
     image_settings.filename = f"ml-{utils.current_timestamp(DATETIME_FILE_NANO)}"
@@ -478,12 +478,12 @@ def take_image_and_detect_features(
     model = load_model(checkpoint=checkpoint)
 
     if isinstance(point, FibsemStagePosition):
-        logging.debug(f"Reprojecting point {point} to image coordinates...")
+        logger.debug(f"Reprojecting point {point} to image coordinates...")
         points = tiled.reproject_stage_positions_onto_image(
             image=image, positions=[point], bound=True
         )
         point = points[0] if len(points) == 1 else None
-        logging.debug(f"Reprojected point: {point}")
+        logger.debug(f"Reprojected point: {point}")
 
     # detect features
     det = detect_features(
@@ -587,9 +587,9 @@ def move_based_on_detection(
     f1 = det.features[0]
     f2 = det.features[1]
 
-    logging.debug(f"move_x: {move_x}, move_y: {move_y}")
-    logging.debug(f"movement: x={dx:.2e}, y={dy:.2e}")
-    logging.debug(f"features: {f1}, {f2}, beam_type: {beam_type}")
+    logger.debug(f"move_x: {move_x}, move_y: {move_y}")
+    logger.debug(f"movement: x={dx:.2e}, y={dy:.2e}")
+    logger.debug(f"features: {f1}, {f2}, beam_type: {beam_type}")
 
     if _move_system is None:
         if isinstance(f1, _DETECTIONS_THAT_MOVE_MANIPULATOR):
@@ -686,7 +686,7 @@ def detect_multi_features(
         features.append(deepcopy(feature))
 
     if features == []:
-        logging.info(f"No features detected for {feature.name}")
+        logger.info(f"No features detected for {feature.name}")
         # set at centre of image
         feature.px = Point(x=image.shape[1] // 2, y=image.shape[0] // 2)
         features = [deepcopy(feature)]
