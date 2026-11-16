@@ -30,7 +30,7 @@ FLAT = math.radians(1.0)  # a pose this near no tilt is at the SEM orientation
 # A site is ready to mill when the SEM's and FIB's view centres meet within
 # this (m) at its saved pose, and its SEM image is sharp: the beam's spread
 # from being out of focus under this many pixels
-COINCIDENT = 1e-6
+COINCIDENT = 2e-6
 SHARP_PX = 2.0
 NEAR = 5e-6  # m, an image this near a site's x, y is of it
 SITE_HFW = 300e-6  # m, wider than this is not a look at one site
