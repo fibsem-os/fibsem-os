@@ -517,3 +517,54 @@ def test_the_command_line_refuses_a_folder_that_is_not_an_experiment(tmp_path, c
 
     assert stopped.value.code == 1
     assert "no experiment" in capsys.readouterr().out
+
+
+def _microscope(info):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(system=SimpleNamespace(info=info))
+
+
+def test_a_thermo_report_names_the_xt_and_both_autoscript_versions():
+    from fibsem.structures.system import SystemInfo
+
+    info = SystemInfo(
+        manufacturer="Thermo",
+        model="Aquilos 2",
+        hardware_version="32.1.1.21605",
+        software_version="4.9.0.902",
+        server_version="4.8.1.1234",
+    )
+
+    ctx = bug_report.collect_system_context(_microscope(info))
+
+    assert ctx["microscope_manufacturer"] == "ThermoFisher"
+    assert ctx["microscope_xt_version"] == "32.1.1.21605"
+    assert ctx["microscope_autoscript_client_version"] == "4.9.0.902"
+    assert ctx["microscope_autoscript_server_version"] == "4.8.1.1234"
+    assert "microscope_software_version" not in ctx
+
+
+def test_another_backend_reports_its_versions_under_plain_names():
+    from fibsem.structures.system import SystemInfo
+
+    info = SystemInfo(
+        manufacturer="Tescan", hardware_version="h1", software_version="s1"
+    )
+
+    ctx = bug_report.collect_system_context(_microscope(info))
+
+    assert ctx["microscope_hardware_version"] == "h1"
+    assert ctx["microscope_software_version"] == "s1"
+    assert not any("server" in key for key in ctx)
+
+
+def test_the_server_version_survives_a_round_trip_and_old_records_still_load():
+    from fibsem.structures.system import SystemInfo
+
+    info = SystemInfo(manufacturer="ThermoFisher", server_version="4.13.0.1")
+    assert SystemInfo.from_dict(info.to_dict()).server_version == "4.13.0.1"
+
+    old = info.to_dict()
+    old.pop("server_version", None)
+    assert SystemInfo.from_dict(old).server_version is None
