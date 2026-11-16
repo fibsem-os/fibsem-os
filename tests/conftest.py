@@ -235,6 +235,17 @@ def _isolate_cwd(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _restore_excepthooks(monkeypatch):
+    """Put sys.excepthook and threading.excepthook back after every test: a test
+    that runs a program's main() installs fibsem.diagnostics' hooks, which would
+    otherwise chain into every later test in the process."""
+    import threading
+
+    monkeypatch.setattr(sys, "excepthook", sys.excepthook)
+    monkeypatch.setattr(threading, "excepthook", threading.excepthook)
+
+
+@pytest.fixture(autouse=True)
 def _refuse_downloads(monkeypatch):
     """Refuse ``urllib.request.urlretrieve`` in every test: a test that fetches
     a file passes or fails with the network, and an offline microscope PC is the
