@@ -309,6 +309,40 @@ def test_contamination_is_a_clump_of_grains_on_the_ice():
     assert stack["particle"][1] > stack["ice"][1]
 
 
+def test_an_ice_plate_is_a_slab_standing_on_the_ice():
+    scene = SampleScene(cell_type="none", rip_fraction=0.0, ice_density=2.0)
+    plates = [f for f in scene.features if f.kind == "ice"]
+    lo, hi = sim_solid.PLATE
+    tall = []
+    for plate in plates[:12]:
+        x, y, r = plate.x * 1e6, plate.y * 1e6, plate.sigma * 1e6
+        on = _stack(scene, x, y)["ice"][1]
+        # the ice beside it: clear of the plate, though a bar or another
+        # plate may lie there, and a broken hole has no ice at all
+        beside = [
+            _stack(scene, x + 2.5 * r * c, y + 2.5 * r * s)["ice"][1]
+            for c, s in ((1, 0), (-1, 0), (0, 1), (0, -1))
+        ]
+        tall.append(on - float(np.median(beside)))
+    usual = [t for t in tall if 0.5 * lo < t < hi + 1.5]
+    assert len(usual) >= 0.6 * len(tall), tall
+    assert max(usual) - min(usual) > 0.2, "each plate its own thickness"
+
+
+@pytest.mark.parametrize("beam_type", [BeamType.ELECTRON, BeamType.ION])
+def test_ice_plates_show_in_both_beams(microscope, beam_type):
+    """A plate is brighter than the ice it lies on, so it shows at a field of
+    view that takes in a grid square."""
+
+    def bright(density):
+        _use(microscope, **{**PLAIN, "ice_density": density})
+        image = _image(microscope, beam_type)
+        return float((image > 1.1 * np.median(image)).mean())
+
+    none, some = bright(0.0), bright(6.0)
+    assert some > none + 0.04
+
+
 def test_a_milled_edge_has_a_bright_rim(microscope, monkeypatch):
     """The top next to a trench glows in the SEM; away from it, it doesn't."""
     _use(microscope, **PLAIN)
