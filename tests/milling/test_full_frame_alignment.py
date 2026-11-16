@@ -83,6 +83,37 @@ def test_the_read_back_current_decides_not_the_configured_one(
     assert not _is_full_frame(aligned_on[0])
 
 
+def test_at_exactly_the_setting_the_stage_aligns_on_the_full_frame(
+    tmp_path, microscope, aligned_on, monkeypatch
+):
+    stage = _stage(tmp_path, 80e-12, 80e-12)
+    monkeypatch.setattr(microscope, "get_beam_current", lambda beam_type: 80e-12)
+
+    setup_milling(microscope, stage)
+
+    assert _is_full_frame(aligned_on[0])
+
+
+def test_with_the_setting_off_no_full_frame_image_is_taken(
+    tmp_path, microscope, aligned_on, monkeypatch
+):
+    """Each reference image is a beam exposure: off means only the area's."""
+    from fibsem.milling import core
+
+    taken = []
+    real = core.get_stage_reference_image
+
+    def reference(microscope, milling_stage, full_frame=False):
+        taken.append(full_frame)
+        return real(microscope, milling_stage, full_frame=full_frame)
+
+    monkeypatch.setattr(core, "get_stage_reference_image", reference)
+
+    setup_milling(microscope, _stage(tmp_path, 60e-12, 0.0))
+
+    assert taken == [False]
+
+
 def test_the_task_takes_the_full_frame_reference_only_when_it_is_on(
     tmp_path, microscope
 ):
