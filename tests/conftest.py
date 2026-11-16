@@ -432,7 +432,13 @@ def pytest_unconfigure(config):
         return
     # Deleted, not closed: closing runs each window's closeEvent, and a widget a
     # test left half-built has nothing to close.
+    #
+    # Only the widgets with no parent. A menu or popup with a parent is a top-level
+    # window too, but its parent deletes it; queuing it as well left a deferred
+    # delete aimed at a widget already gone, and with thousands of leaked widgets
+    # that segfaulted here now and then.
     for widget in app.topLevelWidgets():
-        widget.deleteLater()
+        if widget.parent() is None:
+            widget.deleteLater()
     QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     app.shutdown()
