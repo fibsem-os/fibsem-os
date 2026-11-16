@@ -172,8 +172,11 @@ def task_text(case: Case, inputs: Iterable[str]) -> str:
             lines += ["", notes]
     if case.data.get("sim_run"):
         last = (
-            "The microscope is a simulator: work it as the task says. Once "
-            "the answer is written you are done; say so and stop."
+            "The microscope is a simulator: work it as the task says. Nobody "
+            "is at it to answer you: this task is your go, so don't wait for "
+            "an operator to agree to a plan or a playbook; if another playbook "
+            "fits better, set it yourself. Once the answer is written you are "
+            "done; say so and stop."
         )
     else:
         last = "Look and read only. Once the answer is written you are done; say so and stop."
