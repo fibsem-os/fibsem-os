@@ -203,6 +203,39 @@ def _cut_range(scene, region, x, y, top=None):
 
 
 # --------------------------------------------------------------------- render
+def content(frame: ViewFrame, pixel_size: float, resolution: Tuple[int, int]):
+    """The content columns `u` and rows `w` (um) a view of `resolution` at
+    `pixel_size` (m) is drawn over, and `to_view(a, order, cval)`, which lays
+    something drawn over them out as the view's pixels: as it is, or turned
+    where the scan is rotated (`order` 0 keeps its values, 1 blends them)."""
+    width, height = int(resolution[0]), int(resolution[1])
+    pix = pixel_size * UM
+    ax, ay = frame.anchor
+    cos_t, sin_t = np.cos(frame.theta), np.sin(frame.theta)
+    # the view's pixels in the unrotated content frame
+    vx = (np.arange(width) - width / 2) * pix
+    vy = (np.arange(height) - height / 2) * pix
+    rotated = not np.isclose(np.sin(frame.theta), 0) or np.cos(frame.theta) < 0
+    if not rotated:
+        return vx - ax, vy - ay, lambda a, order=1, cval=0.0: a
+    corners_x = np.array([vx[0], vx[-1], vx[0], vx[-1]])
+    corners_y = np.array([vy[0], vy[0], vy[-1], vy[-1]])
+    cu = corners_x * cos_t + corners_y * sin_t - ax
+    cw = -corners_x * sin_t + corners_y * cos_t - ay
+    u = np.arange(cu.min() - pix, cu.max() + 2 * pix, pix)
+    w = np.arange(cw.min() - pix, cw.max() + 2 * pix, pix)
+    gx, gy = np.meshgrid(vx, vy)
+    at = [
+        (-gx * sin_t + gy * cos_t - ay - w[0]) / pix,
+        (gx * cos_t + gy * sin_t - ax - u[0]) / pix,
+    ]
+
+    def to_view(a, order=1, cval=0.0):
+        return ndi.map_coordinates(a, at, order=order, cval=cval)
+
+    return u, w, to_view
+
+
 def render(
     scene: "SampleScene",
     beam: str,
@@ -218,40 +251,12 @@ def render(
     `charge` is how strongly the (SEM) beam charges it. `canvas(scene, beam,
     frame, u, w, pix)` draws the view over content columns u and rows w (um)
     and returns it with the charge it takes up."""
-    width, height = int(resolution[0]), int(resolution[1])
     pix = pixel_size * UM
-    ax, ay = frame.anchor
-    cos_t, sin_t = np.cos(frame.theta), np.sin(frame.theta)
-    # the view's pixels in the unrotated content frame
-    vx = (np.arange(width) - width / 2) * pix
-    vy = (np.arange(height) - height / 2) * pix
-    rotated = not np.isclose(np.sin(frame.theta), 0) or np.cos(frame.theta) < 0
-    if rotated:
-        corners_x = np.array([vx[0], vx[-1], vx[0], vx[-1]])
-        corners_y = np.array([vy[0], vy[0], vy[-1], vy[-1]])
-        cu = corners_x * cos_t + corners_y * sin_t - ax
-        cw = -corners_x * sin_t + corners_y * cos_t - ay
-        u = np.arange(cu.min() - pix, cu.max() + 2 * pix, pix)
-        w = np.arange(cw.min() - pix, cw.max() + 2 * pix, pix)
-    else:
-        u, w = vx - ax, vy - ay
+    u, w, to_view = content(frame, pixel_size, resolution)
     canvas, q = canvas(scene, beam, frame, u, w, pix)
-    if rotated:
-        gx, gy = np.meshgrid(vx, vy)
-        cu = gx * cos_t + gy * sin_t - ax
-        cw = -gx * sin_t + gy * cos_t - ay
-        img = ndi.map_coordinates(
-            canvas,
-            [(cw - w[0]) / pix, (cu - u[0]) / pix],
-            order=1,
-            cval=OUTSIDE,
-        )
-        if charge > 0:
-            q = ndi.map_coordinates(
-                q, [(cw - w[0]) / pix, (cu - u[0]) / pix], order=1, cval=0.0
-            )
-    else:
-        img = canvas
+    img = to_view(canvas, 1, OUTSIDE)
+    if charge > 0:
+        q = to_view(q, 1, 0.0)
     if optics is not None:
         # the beam's focus, stigmation, current and dwell (see sim_optics)
         optics = (optics, 0 if beam == "SEM" else 1, pix)

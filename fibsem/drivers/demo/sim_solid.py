@@ -864,6 +864,9 @@ def trace(scene: "SampleScene", frame: ViewFrame, u, w, pix) -> dict:
         "bar": at(col["bar_weight"]),
         "hole": at(col["hole"]),
         "plate": at(col["plate"]),
+        # which cell lies under each pixel's point (-1 none), and its top
+        "cell_id": at(col["cell_id"]),
+        "cell_top": at(col["cell"][1]),
         "bead": at(col["bead"]),
         "cell_under": at(col["cell_under"]),
         "opening": opening,
