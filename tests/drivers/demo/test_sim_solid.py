@@ -808,3 +808,108 @@ def test_a_trench_wall_in_a_waffle_is_a_dark_face_not_a_bright_top(microscope):
     column = image[rows.min() : rows.max() + 1, 246:266].mean(axis=1)
     assert column.max() < 0.6 * top
     assert column[:5].mean() != pytest.approx(column[-5:].mean(), abs=5.0)
+
+
+def _afloat(scene) -> dict:
+    """The stacks over the 60 um about the middle of a waffle's centre square."""
+    line = np.arange(-30.0, 30.0, 0.25)
+    return sim_solid.columns(scene, line, line, (0.25, 0.25))
+
+
+def test_yeast_in_a_waffle_float_over_one_another_inside_the_slab():
+    scene = SampleScene(**{**WAFFLE, "cell_type": "yeast"})
+    col = _afloat(scene)
+    film, ice = sim_solid.film_top(scene), col["ice"][1]
+    cells = [col[k] for k in sim_solid.CELLS]
+    there = np.array([hi > sim_solid.NONE / 2 for _, hi in cells])
+    assert there.sum(axis=0).max() >= 2  # one cell over another
+    for (lo, hi), here in zip(cells, there):
+        if not here.any():
+            continue
+        assert lo[here].min() > film and (ice - hi)[here].min() > 0.5
+    # each layer lies wholly over the one below it
+    tops = [hi[here].max() for (_, hi), here in zip(cells, there) if here.any()]
+    floors = [lo[here].min() for (lo, _), here in zip(cells, there) if here.any()]
+    assert len(tops) >= 3
+    assert all(top < floor for top, floor in zip(tops, floors[1:]))
+    # a nucleus is inside its cell
+    for cell, nucleus in zip(sim_solid.CELLS, sim_solid.NUCLEI):
+        n_lo, n_hi = col[nucleus]
+        inside = n_hi > n_lo
+        assert (n_lo[inside] > col[cell][0][inside]).all()
+        assert (n_hi[inside] < col[cell][1][inside]).all()
+
+
+def test_no_cell_of_a_waffle_is_in_a_bar():
+    scene = SampleScene(**{**WAFFLE, "cell_type": "yeast"})
+    line = np.arange(-120.0, 120.0, 0.5)
+    col = sim_solid.columns(scene, line, line, (0.5, 0.5))
+    bars = col["bar"][1] > sim_solid.NONE / 2
+    cells = np.any([col[k][1] > sim_solid.NONE / 2 for k in sim_solid.CELLS], axis=0)
+    assert cells.mean() > 0.05 and not (cells & bars).any()
+
+
+def test_rpe_cells_in_a_waffle_are_round_and_one_deep():
+    scene = SampleScene(**{**WAFFLE, "cell_type": "rpe"})
+    bodies = [f for f in scene.features if f.kind == "cell" and f.part == "body"]
+    assert len(bodies) > 20 and {f.layer for f in bodies} == {0}
+    for f in bodies:
+        assert 15e-6 * 0.85 <= f.height <= 20e-6
+        assert f.base > 0 and f.base + f.height < scene.slab_thickness
+    with pytest.raises(ValueError, match="a waffle holds"):
+        SampleScene(**{**WAFFLE, "cell_type": "neuron"})
+
+
+def test_a_trench_wall_in_a_waffle_shows_the_cells_it_cut(microscope, monkeypatch):
+    _face(microscope, "FIB")
+    _use(microscope, **{**WAFFLE, "cell_type": "yeast"})
+    microscope.draw_pattern(
+        FibsemRectangleSettings(
+            width=60e-6, height=50e-6, depth=30e-6, centre_x=0.0, centre_y=0.0
+        )
+    )
+    microscope.run_milling()
+    _face(microscope, "MILLING")
+    _, hit = _trace(microscope, monkeypatch, BeamType.ION, 100e-6)
+    wall = hit["material"][hit["kind"] >= 2]
+    for material in (sim_solid.ICE, sim_solid.CELL, sim_solid.NUCLEUS):
+        assert (wall == material).sum() > 20, material
+    # and whose cell each is: more than one cell shows on the wall
+    cut = (hit["kind"] >= 2) & (hit["material"] == sim_solid.CELL)
+    assert len(np.unique(hit["cell_id"][cut])) >= 3
+
+
+def test_a_target_in_a_waffle_is_inside_its_cell_and_gone_with_it(microscope):
+    """An FM target's height is in its own cell, up in the slab; a trench
+    through the cell takes the target and the cell's glow with it."""
+    _face(microscope, "FIB")
+    scene = _use(
+        microscope, fm_no_target_chance=0.0, **{**WAFFLE, "cell_type": "yeast"}
+    )
+    bodies = {f.cell_id: f for f in scene.features if f.part == "body"}
+    targets = scene.fm_targets()
+    assert targets
+    for target in targets:
+        f = bodies[target["cell_id"]]
+        assert f.base < target["midpoint"][2] < f.base + f.height
+    target = min(targets, key=lambda t: np.hypot(*t["midpoint"][:2]))
+    x, y, z = target["midpoint"]
+    view = sim_solid.Plan(
+        scene, x * 1e6 + np.arange(-8, 8, 0.25), y * 1e6 + np.arange(-8, 8, 0.25)
+    )
+    before, _ = sim_solid.cell_depth(view)
+    assert before[32, 32] > 1.0 and not scene.milled_through(x, y, z)
+    for f in scene.features:
+        f.x -= x
+        f.y -= y
+    object.__setattr__(scene, "_solid_cache", None)
+    microscope.draw_pattern(
+        FibsemRectangleSettings(
+            width=6e-6, height=6e-6, depth=30e-6, centre_x=0.0, centre_y=0.0
+        )
+    )
+    microscope.run_milling()
+    near = np.arange(-8, 8, 0.25)
+    after, _ = sim_solid.cell_depth(sim_solid.Plan(scene, near, near))
+    assert after[32, 32] == 0.0
+    assert scene._milled_away(0.0, 0.0, z)

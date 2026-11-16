@@ -44,13 +44,21 @@ VOID, ICE, CELL, NUCLEUS, FILM, BAR, PARTICLE, COAT = 0, 1, 2, 3, 4, 5, 6, 7
 DROPLET, VESICLE = 8, 9  # what lies in a cell's cytoplasm
 # the pieces of a stack, in the order a point is tested: the first that holds
 # it is what the point is made of
-SLOTS = ("coat", "particle", "nucleus", "organelle", "cell", "ice", "film", "bar")
+# cells suspended in a waffle's slab lie over one another: a column holds one
+# cell (with its nucleus and what is in it) in each of this many layers
+LAYERS = 4
+_LAYER = ("",) + tuple(str(n) for n in range(2, LAYERS + 1))
+NUCLEI = tuple("nucleus" + n for n in _LAYER)
+ORGANELLES = tuple("organelle" + n for n in _LAYER)
+CELLS = tuple("cell" + n for n in _LAYER)
+SLOTS = ("coat", "particle") + NUCLEI + ORGANELLES + CELLS + ("ice", "film", "bar")
 MATERIAL = {
     "coat": COAT,
     "particle": PARTICLE,
-    "nucleus": NUCLEUS,
-    "organelle": DROPLET,  # or a vesicle: see the stack's "organelle_is"
-    "cell": CELL,
+    **{k: NUCLEUS for k in NUCLEI},
+    # or a vesicle: see the stack's "organelle_is"
+    **{k: DROPLET for k in ORGANELLES},
+    **{k: CELL for k in CELLS},
     "ice": ICE,
     "film": FILM,
     "bar": BAR,
@@ -139,6 +147,7 @@ BRIDGE = 0.6  # how far a coat reaches out over nothing, in its own thickness
 SAG = 0.25  # um it drops per um out
 CRACK_AT = 0.3  # um; the lamella thickness the damage shapes are sized for
 GROOVE = 0.08  # um; how deep curtaining grooves a cut
+VESICLE_CELL = 12.0  # um; the radius of a cell that holds its full count of vesicles
 WALL = 1.5  # a top is met through its side this many samples down its slope, at most
 CACHE_SIZE = 2  # views kept (one per beam)
 
@@ -284,8 +293,9 @@ def _inclusions(scene: "SampleScene", f: "SceneFeature") -> list:
     """What lies in a cell's cytoplasm, as balls (x, y, z of the centre,
     radius um, material): its lipid droplets, the ones the FM labels, and a
     scatter of vesicles. Seeded by the cell: some have many, some almost none."""
+    film = film_top(scene)
     out = [
-        (px * UM, py * UM, FILM_TOP + h * UM, r * UM, DROPLET)
+        (px * UM, py * UM, film + h * UM, r * UM, DROPLET, f.layer)
         for px, py, h, r in scene._fm_cell_points(f, "droplets")
     ]
     rng = np.random.default_rng(
@@ -294,13 +304,23 @@ def _inclusions(scene: "SampleScene", f: "SceneFeature") -> list:
     n = int(rng.integers(300, 5000) * rng.random() ** 1.5)
     tall = max(float(f.height or 0.0) * UM, 1.5)
     reach = 0.9 * f.sigma * UM
+    if scene.preparation == "waffle":
+        # a small round cell holds fewer than a spread one
+        n = int(n * min(1.0, (f.sigma * UM / VESICLE_CELL) ** 2))
     r = reach * np.sqrt(rng.uniform(0, 1, n))
     t = rng.uniform(0, 2 * np.pi, n)
-    z = FILM_TOP + rng.uniform(0.3, 0.8 * tall, n)
+    z = film + f.base * UM + rng.uniform(0.1 * tall, 0.9 * tall, n)
     size = rng.uniform(0.12, 0.4, n)
     fx, fy = f.x * UM, f.y * UM
     out.extend(
-        (fx + r[k] * np.cos(t[k]), fy + r[k] * np.sin(t[k]), z[k], size[k], VESICLE)
+        (
+            fx + r[k] * np.cos(t[k]),
+            fy + r[k] * np.sin(t[k]),
+            z[k],
+            size[k],
+            VESICLE,
+            f.layer,
+        )
         for k in range(n)
     )
     return out
@@ -347,6 +367,13 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
     skirt = np.zeros(shape, dtype=bool)  # where an adherent cell is spread
     grains = []
     inclusions = []
+    # the cells suspended in a waffle's slab, a layer at a time
+    layers = range(LAYERS if waffle else 0)
+    s_lo = [np.full(shape, -NONE, dtype=f32) for _ in layers]
+    s_hi = [np.full(shape, NONE, dtype=f32) for _ in layers]
+    s_id = [np.full(shape, -1, dtype=np.int32) for _ in layers]
+    sn_lo = [np.full(shape, -NONE, dtype=f32) for _ in layers]
+    sn_hi = [np.full(shape, NONE, dtype=f32) for _ in layers]
     fine = max(sx, sy) <= ORGANELLE_STEP
     x_lo, x_hi, y_lo, y_hi = x.min(), x.max(), y.min(), y.max()
     for f in scene.features:
@@ -361,6 +388,23 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
             continue
         box = _box(f, x, y, reach)
         if box is None:
+            continue
+        if waffle and f.kind == "cell":
+            # a ball of a cell, or of its nucleus, afloat in the ice
+            r2 = _radius2(f, X[box] - fx, Y[box] - fy)
+            inside = r2 < 1
+            half = 0.5 * f.height * UM
+            mid = film + f.base * UM + half
+            t = (half * np.sqrt(np.clip(1 - r2, 0, None))).astype(f32)
+            if f.part == "nucleus":
+                lo, hi = sn_lo[f.layer], sn_hi[f.layer]
+            else:
+                lo, hi = s_lo[f.layer], s_hi[f.layer]
+                s_id[f.layer][box] = np.where(inside, f.cell_id, s_id[f.layer][box])
+                if fine:
+                    inclusions.extend(_inclusions(scene, f))
+            lo[box] = np.where(inside, np.minimum(lo[box], mid - t), lo[box])
+            hi[box] = np.where(inside, np.maximum(hi[box], mid + t), hi[box])
             continue
         if f.kind == "fiducial" or f.part in ("sphere", "frost"):
             r = sigma * (1.0 if f.part == "sphere" else 1.2)
@@ -447,10 +491,11 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
     n_hi = np.minimum(n_hi, cell - 0.15)
 
     # droplets and vesicles in the cytoplasm: each a ball, kept inside its cell
-    o_lo = np.full(shape, -NONE, dtype=f32)
-    o_hi = np.full(shape, NONE, dtype=f32)
-    o_is = np.full(shape, DROPLET, dtype=np.uint8)
-    for fx, fy, zc, r, what in inclusions:
+    kinds = max(len(layers), 1)
+    o_lo = [np.full(shape, -NONE, dtype=f32) for _ in range(kinds)]
+    o_hi = [np.full(shape, NONE, dtype=f32) for _ in range(kinds)]
+    o_is = [np.full(shape, DROPLET, dtype=np.uint8) for _ in range(kinds)]
+    for fx, fy, zc, r, what, layer in inclusions:
         if fx + r < x_lo or fx - r > x_hi or fy + r < y_lo or fy - r > y_hi:
             continue
         cols = np.nonzero(np.abs(x - fx) < r)[0]
@@ -460,10 +505,21 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
         box = (slice(rows[0], rows[-1] + 1), slice(cols[0], cols[-1] + 1))
         d2 = r * r - (X[box] - fx) ** 2 - (Y[box] - fy) ** 2
         t = np.sqrt(np.clip(d2, 0, None)).astype(f32)
-        inside = (d2 > 0) & (zc + t < cell[box] - 0.1) & (o_hi[box] < NONE / 2)
-        o_lo[box] = np.where(inside, np.maximum(zc - t, film + 0.02), o_lo[box])
-        o_hi[box] = np.where(inside, zc + t, o_hi[box])
-        o_is[box] = np.where(inside, what, o_is[box])
+        lo, hi, kind = o_lo[layer], o_hi[layer], o_is[layer]
+        if waffle:
+            floor, roof = s_lo[layer][box] + 0.1, s_hi[layer][box] - 0.1
+        else:
+            floor, roof = film + 0.02, cell[box] - 0.1
+        inside = (d2 > 0) & (zc + t < roof) & (hi[box] < NONE / 2)
+        if waffle:
+            inside &= zc - t > floor
+        lo[box] = np.where(inside, np.maximum(zc - t, floor), lo[box])
+        hi[box] = np.where(inside, zc + t, hi[box])
+        kind[box] = np.where(inside, what, kind[box])
+    for layer in layers:
+        # a nucleus lies inside its cell
+        sn_lo[layer] = np.maximum(sn_lo[layer], s_lo[layer] + 0.15)
+        sn_hi[layer] = np.minimum(sn_hi[layer], s_hi[layer] - 0.15)
 
     # particles rest on the ice: each grain a ball
     p_lo = np.full(shape, -NONE, dtype=f32)
@@ -489,7 +545,7 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
     p_hi = np.minimum(p_hi, Z_MAX - 0.5)
 
     # where the film is torn, or past the grid, there is nothing
-    for a in (ice, cell, n_hi, o_hi, p_hi):
+    for a in (ice, cell, n_hi, p_hi, *o_hi, *s_hi, *sn_hi):
         a[gone] = NONE
     surface = np.maximum(ice, p_hi)
     level = sim_view._smooth_top(
@@ -535,13 +591,28 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
             np.where(metal & ~gone, film - FILM_THICKNESS, NONE).astype(f32),
         )
         ice_from = film
+    # a layer with nothing in it: no piece, anywhere
+    empty = np.full(shape, NONE, dtype=f32)
+    pieces = {}
+    for n in range(LAYERS):
+        there = n < len(layers)
+        pieces[NUCLEI[n]] = (sn_lo[n], sn_hi[n]) if there else (0.0, empty)
+        pieces[CELLS[n]] = (s_lo[n], s_hi[n]) if there else (0.0, empty)
+        pieces[ORGANELLES[n]] = (o_lo[n], o_hi[n]) if n < kinds else (0.0, empty)
+        pieces[ORGANELLES[n] + "_is"] = o_is[min(n, kinds - 1)]
+    if waffle:
+        # the cell nearest the top of each column says whose it is
+        for n in layers:
+            cell_id = np.where(s_id[n] >= 0, s_id[n], cell_id)
+            cell = np.where(s_hi[n] > NONE / 2, s_hi[n], cell)
+        in_cell = cell > NONE / 2
+    else:
+        pieces["nucleus"] = (n_lo, n_hi)
+        pieces["cell"] = (film, cell)
     return {
         "coat": (under, coat),
         "particle": (p_lo, p_hi),
-        "nucleus": (n_lo, n_hi),
-        "organelle": (o_lo, o_hi),
-        "organelle_is": o_is,
-        "cell": (film, cell),
+        **pieces,
         "ice": (ice_from, ice),
         "film": (
             film - FILM_THICKNESS,
@@ -552,6 +623,8 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
         # what a pattern's depth is measured from: the top without its bumps
         "level": level.astype(f32),
         "cell_id": cell_id,
+        "cell_top": cell,
+        "cell_ids": s_id if waffle else [cell_id],
         "particle_id": p_id,
         "bead": bead,
         "rise": rise,  # how far the ice stands up over the cells
@@ -687,7 +760,7 @@ def _walk(col: dict, removed: list, z, shift, rows: slice, cols: slice):
         lo, hi = col[k]
         lo = lo if np.ndim(lo) == 0 else lo[:, cols]
         hi = hi[:, cols]
-        what = col["organelle_is"][:, cols] if k == "organelle" else MATERIAL[k]
+        what = col[k + "_is"][:, cols] if k in ORGANELLES else MATERIAL[k]
         pieces.append((float(np.min(lo)), float(np.max(hi)), lo, hi, what))
     level = np.zeros((height, width), dtype=np.uint8)
     for q, zq in enumerate(z):
@@ -933,11 +1006,19 @@ def trace(scene: "SampleScene", frame: ViewFrame, u, w, pix) -> dict:
         for k in SLOTS[::-1]:
             lo, hi = col[k]
             m = (at(lo) <= zf) & (zf < at(hi))
-            exact[m] = at(col["organelle_is"])[m] if k == "organelle" else MATERIAL[k]
+            exact[m] = at(col[k + "_is"])[m] if k in ORGANELLES else MATERIAL[k]
         swap = on_face & (exact > 0)
         hit_m = np.where(swap, exact, hit_m)
         z_hit = np.where(swap, zf, z_hit)
 
+    # whose cell each pixel's point lies in: where cells lie over one
+    # another, the one the beam met
+    cell_id = at(col["cell_id"])
+    if len(col["cell_ids"]) > 1:
+        for n, ids in enumerate(col["cell_ids"]):
+            lo, hi = col[CELLS[n]]
+            met = (at(lo) - dz <= z_hit) & (z_hit <= at(hi) + dz)
+            cell_id = np.where(met, at(ids), cell_id)
     return {
         "material": hit_m,
         "kind": kind,
@@ -948,8 +1029,8 @@ def trace(scene: "SampleScene", frame: ViewFrame, u, w, pix) -> dict:
         "hole": at(col["hole"]),
         "plate": at(col["plate"]),
         # which cell lies under each pixel's point (-1 none), and its top
-        "cell_id": at(col["cell_id"]),
-        "cell_top": at(col["cell"][1]),
+        "cell_id": cell_id,
+        "cell_top": at(col["cell_top"]),
         "bead": at(col["bead"]),
         "cell_under": at(col["cell_under"]),
         "opening": opening,
@@ -1493,42 +1574,64 @@ def _rows(a: np.ndarray, rows: float) -> np.ndarray:
     return out
 
 
-def cell_depth(view: Plan, levels: int = 12, lean: float = 0.0, dye=None) -> tuple:
+def layer_heights(view: Plan) -> list:
+    """The middle height (um) of the cells in each layer of a column's
+    cells, None for a layer with none in view."""
+    out = []
+    for n in range(len(view.col["cell_ids"])):
+        lo, top = view.col[CELLS[n]]
+        there = top > NONE / 2
+        lo = np.broadcast_to(np.asarray(lo, dtype=np.float32), top.shape)
+        out.append(
+            float(0.5 * (lo[there] + top[there]).mean()) if there.any() else None
+        )
+    return out
+
+
+def cell_depth(
+    view: Plan, levels: int = 12, lean: float = 0.0, dye=None, layer=None
+) -> tuple:
     """How much cell is left in each column after milling (um), and which
     cell it is: what a dye through the whole cell shows from above. The
-    nucleus keeps the dye out of part of it. With `dye` (how strongly each
-    column is dyed) the depth is weighted by it, and with `lean` (rows a
-    tilted line of sight crosses per um of height) it is what lies along
-    each such line."""
+    nucleus keeps the dye out of part of it. Cells that lie over one another
+    add up. With `dye` (how strongly each cell is dyed, given an array of
+    cell ids) the depth is weighted by it, and with `lean` (rows a tilted
+    line of sight crosses per um of height) it is what lies along each such
+    line. With `layer`, only the cells of that layer of a waffle's slab."""
     col = view.col
-    top = col["cell"][1]
-    there = top > NONE / 2
-    tall = np.where(there, top - FILM_TOP, 0.0).astype(np.float32)
-    if lean:
-        n_lo, n_hi = col["nucleus"]
+    shape = col["surface"].shape
+    depth = np.zeros(shape, dtype=np.float32)
+    for n, ids in enumerate(col["cell_ids"]):
+        if layer is not None and n != layer:
+            continue
+        lo, top = col[CELLS[n]]
+        there = top > NONE / 2
+        if not there.any():
+            continue
+        lo = np.broadcast_to(np.asarray(lo, dtype=np.float32), shape)
+        tall = np.where(there, top - lo, 0.0).astype(np.float32)
+        n_lo, n_hi = col[NUCLEI[n]]
         nucleus = np.where(n_hi > NONE / 2, np.clip(n_hi - n_lo, 0, None), 0.0)
-        share = np.clip(1 - 0.45 * nucleus / np.maximum(tall, 1e-6), 0, 1)
-        share = share * (1.0 if dye is None else dye)
-        n = 2 * levels
-        dz = float(tall.max()) / n if there.any() else 0.0
-        depth = np.zeros(tall.shape, dtype=np.float32)
-        for z in FILM_TOP + (np.arange(n) + 0.5) * dz:
-            here = there & (z < top)
-            if view.removed:
-                here &= ~view.gone(float(z))
-            depth += _rows(here * share, lean * z) * dz
-        return depth.astype(np.float32), col["cell_id"]
-    kept = np.ones(tall.shape, dtype=np.float32)
-    if view.removed:
-        gone = np.zeros(tall.shape, dtype=np.float32)
-        for t in (np.arange(levels) + 0.5) / levels:
-            gone += view.gone(FILM_TOP + t * tall)
-        kept = 1 - gone / levels
-    n_lo, n_hi = col["nucleus"]
-    nucleus = np.where(n_hi > NONE / 2, np.clip(n_hi - n_lo, 0, None), 0.0)
-    depth = np.clip(tall - 0.45 * nucleus, 0, None) * kept
-    if dye is not None:
-        depth = depth * dye
+        weight = 1.0 if dye is None else dye(ids)
+        if lean:
+            share = np.clip(1 - 0.45 * nucleus / np.maximum(tall, 1e-6), 0, 1)
+            share = share * weight
+            base, roof = float(lo[there].min()), float(top[there].max())
+            m = max(2 * levels, int(np.ceil((roof - base) / 0.5)))
+            dz = (roof - base) / m
+            for z in base + (np.arange(m) + 0.5) * dz:
+                here = there & (lo <= z) & (z < top)
+                if view.removed:
+                    here &= ~view.gone(float(z))
+                depth += _rows(here * share, lean * z) * dz
+            continue
+        kept = np.ones(shape, dtype=np.float32)
+        if view.removed:
+            gone = np.zeros(shape, dtype=np.float32)
+            for t in (np.arange(levels) + 0.5) / levels:
+                gone += view.gone(lo + t * tall)
+            kept = 1 - gone / levels
+        depth += np.clip(tall - 0.45 * nucleus, 0, None) * kept * weight
     return depth.astype(np.float32), col["cell_id"]
 
 
