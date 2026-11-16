@@ -26,6 +26,7 @@ installed odemis on the path (``add_odemis_path``).
 from __future__ import annotations
 
 import logging
+import math
 from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Tuple
 
 import numpy as np
@@ -667,9 +668,17 @@ class OdemisFMCamera(Camera):
             logger.warning(f"Gain fraction {value} outside [0, 1], clipping.")
             value = min(max(value, 0.0), 1.0)
         raw = value * self._max_gain()
+        # An enumerated gain (andorcam3's FloatEnumerated) refuses anything but its
+        # choices, and a channel's default fraction, 0, is often not one of them.
         choices = getattr(self._camera.gain, "choices", None)
         if choices:
-            raw = min(choices, key=lambda c: abs(c - raw))
+            choice = min(choices, key=lambda c: abs(c - raw))
+            if not math.isclose(choice, raw, rel_tol=1e-6, abs_tol=1e-12):
+                logger.warning(
+                    f"Camera gain {raw:g} (fraction {value:g}) is not one of "
+                    f"{sorted(choices)}, set to the nearest, {choice:g}"
+                )
+            raw = choice
         self._camera.gain.value = raw
 
     def metadata_gain(self) -> ParameterMetadata:

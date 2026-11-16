@@ -208,6 +208,130 @@ def test_programmatic_image_load_does_not_prompt(qapp, monkeypatch):
     assert w.data.fib_coordinates  # and it left them alone
 
 
+def _fm_stack(shape=(64, 64)):
+    """A small isotropic FM stack (nothing for auto-interpolation to do)."""
+    import numpy as np
+
+    from fibsem.fm.structures import (
+        EmissionFilter,
+        FluorescenceChannelMetadata,
+        FluorescenceImage,
+        FluorescenceImageMetadata,
+    )
+
+    h, w = shape
+    return FluorescenceImage(
+        data=np.zeros((1, 4, h, w), dtype=np.uint16),
+        metadata=FluorescenceImageMetadata(
+            acquisition_datetime="2026-09-21T00:00:00",
+            pixel_size_x=1e-7,
+            pixel_size_y=1e-7,
+            pixel_size_z=1e-7,
+            resolution=(w, h),
+            channels=[
+                FluorescenceChannelMetadata(
+                    name="GFP",
+                    color="#00FF00",
+                    excitation_wavelength=488,
+                    emission_filter=EmissionFilter.band("509 nm", 509),
+                    power=1.0,
+                    exposure_time=0.1,
+                )
+            ],
+        ),
+    )
+
+
+def _fm(x=5.0, y=6.0, point_type=PointType.FM):
+    return Coordinate(point=PointXYZ(x=x, y=y, z=1.0), point_type=point_type)
+
+
+def _load_fm_via_picker(w, monkeypatch, answer):
+    """Drive a user-initiated FM load, answering the confirm with `answer`;
+    returns the titles of the prompts shown."""
+    import fibsem.ui.correlation.widgets.correlation_tab_widget as ctw
+
+    asked = []
+    monkeypatch.setattr(ctw, "load_fm_stack", lambda p: _fm_stack())
+
+    def question(_parent, title, *a, **k):
+        asked.append(title)
+        return answer
+
+    monkeypatch.setattr(ctw.QMessageBox, "question", staticmethod(question))
+    w._images_tab._load_fm("/lam/stack.ome.tiff")
+    return asked
+
+
+def test_changing_the_fm_image_keeps_the_fib_fiducials(qapp, monkeypatch):
+    """FIB-1332: the FIB image did not change, so its fiducials (seeded spot
+    burns included) still mark what they did. Only the FM points and the result
+    go."""
+    from qtpy.QtWidgets import QMessageBox
+
+    w = _widget()
+    w.set_fib_image(
+        FibsemImage.generate_blank_image(resolution=(1536, 1024), hfw=80e-6)
+    )
+    w.set_fm_image(_fm_stack())
+    w.set_data(
+        CorrelationInputData(
+            fib_coordinates=[_fib(x=100.0), _fib(x=200.0)],
+            fm_coordinates=[_fm(x=10.0), _fm(x=20.0)],
+            poi_coordinates=[_fm(x=30.0, point_type=PointType.POI)],
+        )
+    )
+    _load_result(w, _result(w.data), adopt_inputs=False)
+
+    asked = _load_fm_via_picker(w, monkeypatch, QMessageBox.StandardButton.Ok)
+
+    assert asked == ["Change FM image?"]
+    assert [c.point.x for c in w.data.fib_coordinates] == [100.0, 200.0]
+    assert w.data.fm_coordinates == []
+    assert w.data.poi_coordinates == []
+    assert w.session.result is None
+
+
+def test_loading_the_first_fm_image_after_seeding_does_not_prompt(qapp, monkeypatch):
+    """Spot burns seed the FIB side only, so the first FM stack has no points
+    to clear: no prompt, and the fiducials stay."""
+    from qtpy.QtWidgets import QMessageBox
+
+    w = _widget()
+    w.set_fib_image(
+        FibsemImage.generate_blank_image(resolution=(1536, 1024), hfw=80e-6)
+    )
+    w.set_data(CorrelationInputData(fib_coordinates=[_fib(x=100.0)]))
+
+    asked = _load_fm_via_picker(w, monkeypatch, QMessageBox.StandardButton.Cancel)
+
+    assert asked == []
+    assert w.session.fm_image is not None
+    assert [c.point.x for c in w.data.fib_coordinates] == [100.0]
+
+
+def test_changing_the_fib_image_keeps_the_fm_points(qapp, monkeypatch):
+    from qtpy.QtWidgets import QMessageBox
+
+    w = _widget()
+    w.set_fib_image(
+        FibsemImage.generate_blank_image(resolution=(1536, 1024), hfw=80e-6)
+    )
+    w.set_data(
+        CorrelationInputData(
+            fib_coordinates=[_fib(x=100.0)],
+            fm_coordinates=[_fm(x=10.0)],
+            poi_coordinates=[_fm(x=30.0, point_type=PointType.POI)],
+        )
+    )
+
+    _load_via_picker(w, monkeypatch, QMessageBox.StandardButton.Ok)
+
+    assert w.data.fib_coordinates == []
+    assert [c.point.x for c in w.data.fm_coordinates] == [10.0]
+    assert [c.point.x for c in w.data.poi_coordinates] == [30.0]
+
+
 def test_image_combo_is_guarded_against_the_mouse_wheel(qapp):
     """Changing the image discards the coordinates, so a scroll passing over the
     combo must not be able to trigger it.
