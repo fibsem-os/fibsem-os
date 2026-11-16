@@ -128,3 +128,34 @@ def test_previewing_an_experiment_leaves_logging_alone(tmp_path, quiet_root_logg
     assert [
         getattr(h, "baseFilename", "") for h in logging.getLogger().handlers
     ] == before
+
+
+def test_adopting_an_experiment_logs_the_connected_microscopes_versions(
+    tmp_path, quiet_root_logger
+):
+    """A bug report's experiment log says which xT and AutoScript it ran against."""
+    from types import SimpleNamespace
+
+    from fibsem.structures.system import SystemInfo
+
+    info = SystemInfo(
+        manufacturer="ThermoFisher",
+        model="Aquilos 2",
+        serial_number="1234",
+        hardware_version="32.1.1.21605",
+        software_version="4.9.0.902",
+        server_version="4.8.1.1234",
+    )
+    session = AppSession()
+    session._microscope = SimpleNamespace(system=SimpleNamespace(info=info))
+    experiment = Experiment.create(path=tmp_path, name="exp")
+
+    session.adopt(experiment)
+    for handler in logging.getLogger().handlers:
+        handler.flush()
+
+    text = (Path(experiment.path) / "logfile.log").read_text(encoding="utf-8")
+    assert (
+        "ThermoFisher Aquilos 2, serial 1234; xT 32.1.1.21605, "
+        "AutoScript client 4.9.0.902, AutoScript server 4.8.1.1234"
+    ) in text

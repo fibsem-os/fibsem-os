@@ -97,6 +97,7 @@
     "name": "remote-microscope-configuration",
     "port": 8001,
     "serial_number": "Unknown",
+    "server_version": null,
     "software_version": "Unknown"
   },
   "protocol": {

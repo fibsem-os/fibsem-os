@@ -585,14 +585,14 @@ class ThermoMicroscope(FibsemMicroscope):
         self.system.info.serial_number = sdk.service.system.serial_number
         self.system.info.hardware_version = sdk.service.system.version
         self.system.info.software_version = sdk.service.autoscript.client.version
+        self.system.info.server_version = sdk.service.autoscript.server.version
         info = self.system.info
         logger.info(
-            f"Microscope client connected to model {info.model} with serial number {info.serial_number} and software version {info.software_version}."
+            f"Microscope client connected to model {info.model} with serial number {info.serial_number}: "
+            + ", ".join(
+                f"{name} {version}" for name, version in info.versions().items()
+            )
         )
-
-        # autoscript information
-        logger.info(f"Autoscript Client: {sdk.service.autoscript.client.version}")
-        logger.info(f"Autoscript Server: {sdk.service.autoscript.server.version}")
 
         self._build_beams()
         self._build_milling()
