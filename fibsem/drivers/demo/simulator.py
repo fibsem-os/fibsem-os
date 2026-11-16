@@ -1095,7 +1095,8 @@ def initial_demo_parts(system: SystemSettings) -> DemoParts:
         blanked=False,
         beam=BeamSettings(
             beam_type=BeamType.ELECTRON,
-            working_distance=4.0e-3,
+            # each column boots focused at its configured eucentric height
+            working_distance=system.electron.eucentric_height,
             beam_current=100e-12,
             voltage=2000,
             hfw=150e-6,
@@ -1119,7 +1120,7 @@ def initial_demo_parts(system: SystemSettings) -> DemoParts:
         blanked=False,
         beam=BeamSettings(
             beam_type=BeamType.ION,
-            working_distance=16.5e-3,
+            working_distance=system.ion.eucentric_height,
             beam_current=20e-12,
             voltage=30000,
             hfw=150e-6,
