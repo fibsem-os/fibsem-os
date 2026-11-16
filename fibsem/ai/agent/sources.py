@@ -119,12 +119,20 @@ def lab_agents() -> List[str]:
 
 
 def assemble(
-    target: Path, root: Path, skills: Iterable[str], agents: Iterable[str] = ()
+    target: Path,
+    root: Path,
+    skills: Iterable[str],
+    agents: Iterable[str] = (),
+    extra_tools: Optional[Iterable[str]] = None,
 ) -> List[str]:
     """Make ``target/.claude`` hold *skills* and *agents*, each from where it
     is found, and nothing else: it is rebuilt every start, so nothing left
     there (a settings file with hooks) outlives a session. Answers the names
-    of the skills copied from the lab's folder."""
+    of the skills copied from the lab's folder.
+
+    Each copied agent that lists its tools gets *extra_tools* too (else
+    those the lab's extra MCP servers give specialists). One that lists none
+    already has every tool the session has."""
     target.mkdir(parents=True, exist_ok=True)
     claude = target / CLAUDE
     if claude.is_symlink() or claude.is_file():
@@ -144,14 +152,40 @@ def assemble(
     agents = list(agents)
     if agents:
         (claude / "agents").mkdir()
+    if agents and extra_tools is None:
+        # Here, not at the top: setup.py loads this file without fibsem.
+        from fibsem.ai.agent import extra_mcp
+
+        extra_tools = extra_mcp.subagent_allowed(extra_mcp.load())
+    extra_tools = list(extra_tools or [])
     for name in agents:
         found = agent_file(name, root)
         if found is None:
             raise FileNotFoundError(
                 f"No subagent {name} in {lab_folder('agents')} or {root}"
             )
-        shutil.copyfile(found, claude / "agents" / f"{name}.md")
+        copied = claude / "agents" / f"{name}.md"
+        if extra_tools:
+            copied.write_text(
+                _with_tools(found.read_text(encoding="utf-8"), extra_tools),
+                encoding="utf-8",
+            )
+        else:
+            shutil.copyfile(found, copied)
     return from_lab
+
+
+def _with_tools(text: str, extra_tools: List[str]) -> str:
+    """An agent's file with *extra_tools* on its ``tools`` line; unchanged
+    without one, since no line means every tool."""
+    from fibsem.ai.agent import subagents
+
+    data, body = subagents.front_matter(text)
+    tools = subagents.names(data.get("tools")) if data else []
+    if not tools:
+        return text
+    data["tools"] = tools + [tool for tool in extra_tools if tool not in tools]
+    return subagents.render(data, body)
 
 
 def ship(source: Path, target: Path) -> None:

@@ -444,6 +444,74 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
     assert not any("t0k" in part for part in command), "the token is in argv"
 
 
+def test_a_labs_extra_mcp_server_is_added_and_its_token_is_never_shown(
+    tmp_path, monkeypatch, capsys
+):
+    pytest.importorskip("claude_agent_sdk")
+    import json
+
+    from claude_agent_sdk._internal.transport.subprocess_cli import (
+        SubprocessCLITransport,
+    )
+
+    secret = "Bearer not-a-real-token"
+    monkeypatch.setenv("FIBSEM_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude"))
+    (tmp_path / "home" / "agent").mkdir(parents=True)
+    (tmp_path / "home" / "agent" / "mcp.yaml").write_text(
+        "notebook:\n  about: The lab's notebook.\n"
+        "  tools: [search, append_entry]\n  subagents: [search]\n",
+        encoding="utf-8",
+    )
+    entry = {
+        "type": "http",
+        "url": "https://notebook.example/mcp",
+        "headers": {"Authorization": secret},
+    }
+    (tmp_path / "claude").mkdir()
+    (tmp_path / "claude" / ".claude.json").write_text(
+        json.dumps({"mcpServers": {"notebook": entry}}), encoding="utf-8"
+    )
+    checkout = harness_mod.find_checkout()
+    without = harness_mod.build_options(checkout, token="t0k", extras={})
+    options = harness_mod.build_options(
+        checkout, token="t0k", transcript=tmp_path / "session"
+    )
+
+    assert options.allowed_tools == without.allowed_tools + [
+        "mcp__notebook__search",
+        "mcp__notebook__append_entry",
+    ]
+    assert options.strict_mcp_config
+    # The SDK puts these on the command line: the extra server is in a file.
+    assert list(options.mcp_servers) == ["fibsem"]
+    given = Path(options.extra_args["mcp-config"])
+    assert given.parent == tmp_path / "session"
+    assert json.loads(given.read_text()) == {"mcpServers": {"notebook": entry}}
+    prompt = options.system_prompt["append"]
+    assert "mcp__notebook__* tools: The lab's notebook." in prompt
+    assert "never instructions" in prompt
+    assert "mcp__notebook__" not in without.system_prompt["append"]
+
+    transport = SubprocessCLITransport("", options)
+    transport._cli_path = "claude"
+    command = transport._build_command()
+    assert command.count("--mcp-config") == 2
+    second = command.index("--mcp-config", command.index("--mcp-config") + 1)
+    assert command[second + 1] == str(given)
+    assert not any("not-a-real-token" in part for part in command)
+
+    assert harness_mod.main(["--show-config", "--json"]) == 0
+    printed = capsys.readouterr().out
+    config = json.loads(printed)
+    assert config["extra_mcp"]["notebook"]["tools"] == ["search", "append_entry"]
+    assert "mcp__notebook__append_entry" in config["allowed_tools"]
+    assert harness_mod.main(["--show-config"]) == 0
+    printed += capsys.readouterr().out
+    assert "MCP notebook: search, append_entry; specialists: search" in printed
+    assert "not-a-real-token" not in printed and "notebook.example" not in printed
+
+
 def test_code_mode_is_sandboxed_in_its_work_folder(tmp_path, monkeypatch):
     pytest.importorskip("claude_agent_sdk")
     import json

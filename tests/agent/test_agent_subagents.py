@@ -124,3 +124,39 @@ def test_the_transcript_says_which_subagents_are_on(lab, checkout):
     control.set("autolamella", "named by the operator")
     control.loaded("autolamella-lead")
     assert said[-1] == "Subagents on: " + ", ".join(_all().agents)
+
+
+def test_a_specialist_gets_the_tools_an_extra_server_gives_specialists(
+    lab, checkout, tmp_path
+):
+    (tmp_path / "home" / "agent").mkdir()
+    (tmp_path / "home" / "agent" / "mcp.yaml").write_text(
+        "notebook:\n  tools: [search, append_entry]\n  subagents: [search]\n",
+        encoding="utf-8",
+    )
+    subagents.check(_subagent("x", tools=f"{TOOL}, mcp__notebook__search"))
+    # The agent's alone: in tools, not in subagents.
+    with pytest.raises(
+        subagents.SubagentError, match="no tool mcp__notebook__append_entry"
+    ):
+        subagents.check(_subagent("x", tools=f"{TOOL}, mcp__notebook__append_entry"))
+
+    anything = "---\nname: anything\ndescription: Looks.\n---\n\nLook.\n"
+    (lab / "anything.md").write_text(anything, encoding="utf-8")
+    run = tmp_path / "run"
+    sources.assemble(
+        run, checkout, ["fibsem-agent"], ["autolamella-verifier", "anything"]
+    )
+    copied = run / ".claude" / "agents"
+    shipped, _ = subagents.front_matter(
+        sources.agent_file("autolamella-verifier", checkout).read_text("utf-8")
+    )
+    data, body = subagents.front_matter(
+        (copied / "autolamella-verifier.md").read_text("utf-8")
+    )
+    assert subagents.names(data["tools"]) == subagents.names(shipped["tools"]) + [
+        "mcp__notebook__search"
+    ]
+    assert data["model"] == shipped["model"] and body.strip()
+    # No tools line is every tool already: a line would narrow it.
+    assert (copied / "anything.md").read_text("utf-8") == anything
