@@ -692,6 +692,7 @@ def _removed(scene: "SampleScene", X, Y, col: dict) -> list:
         hard = (grain[box] & hit[box]).any(axis=0)
         a = np.where(hit, a, 1.0)[box].astype(np.float32)
         b = np.where(hit, b, 0.0)[box].astype(np.float32)
+        inside = hit[box]
         floor = None if floor is None else (floor & hit)[box]
         outline = cut.polygon if cut is not None else region.points * UM
         edges = np.linalg.norm(np.roll(outline, -1, axis=0) - outline, axis=1)
@@ -700,6 +701,11 @@ def _removed(scene: "SampleScene", X, Y, col: dict) -> list:
                 "box": box,
                 "from": a,
                 "to": b,
+                # the heights each of its rows is cut between, and the tops
+                # of the columns it reaches: what a walk can skip by
+                "row_from": np.where(inside, a, np.inf).min(axis=1),
+                "row_to": np.where(inside, b, -np.inf).max(axis=1),
+                "tops": (float(surface[box].min()), float(surface[box].max())),
                 # a narrow cut lets few electrons back out
                 "opening": 0.3
                 if pieces is not None
@@ -741,15 +747,12 @@ def curtain(scene, x, shift: float = 0.0) -> np.ndarray:
     return np.clip((n - 0.5) * 3.2, -1.0, 1.0)
 
 
-def _part(a, sl):
-    return a if np.ndim(a) == 0 else a[sl]
-
-
 def _walk(col: dict, removed: list, z, shift, rows: slice, cols: slice):
     """What each pixel's beam meets first: the level and the material, over
     image rows `rows` and columns `cols`. Row r of the image at level q shows
     sample row r + shift[q]; the highest level with something solid there is
-    the first the beam meets."""
+    the first the beam meets. The levels are walked from the top down, and
+    only over the part of the image whose beams have met nothing yet."""
     height, width = rows.stop - rows.start, cols.stop - cols.start
     hit_q = np.full((height, width), -1, dtype=np.int16)
     hit_m = np.zeros((height, width), dtype=np.uint8)
@@ -763,42 +766,65 @@ def _walk(col: dict, removed: list, z, shift, rows: slice, cols: slice):
         what = col[k + "_is"][:, cols] if k in ORGANELLES else MATERIAL[k]
         pieces.append((float(np.min(lo)), float(np.max(hi)), lo, hi, what))
     level = np.zeros((height, width), dtype=np.uint8)
-    for q, zq in enumerate(z):
-        sl = slice(shift[q] + rows.start, shift[q] + rows.stop)
-        level[:] = VOID
-        any_piece = False
-        for low, high, lo, hi, what in pieces:
-            if zq < low or zq >= high:
-                continue
-            m = (_part(lo, sl) <= zq) & (zq < hi[sl])
-            np.copyto(level, what if np.ndim(what) == 0 else what[sl], where=m)
-            any_piece = True
-        if not any_piece:
+    done = np.zeros((height, width), dtype=bool)
+    # the rows and columns still open, within the window
+    r_lo, r_hi, c_lo, c_hi = 0, height, 0, width
+    walked = 0
+    for q in range(len(z) - 1, -1, -1):
+        zq = z[q]
+        here = [p for p in pieces if not (zq < p[0] or zq >= p[1])]
+        if not here:
             continue
-        if removed:
+        sl = slice(shift[q] + rows.start + r_lo, shift[q] + rows.start + r_hi)
+        cs = slice(c_lo, c_hi)
+        part = (slice(r_lo, r_hi), cs)
+        lev = level[part]
+        lev[:] = VOID
+        for _, _, lo, hi, what in here:
+            m = ((lo if np.ndim(lo) == 0 else lo[sl, cs]) <= zq) & (zq < hi[sl, cs])
+            np.copyto(lev, what if np.ndim(what) == 0 else what[sl, cs], where=m)
+        left = cols.start + c_lo
+        for cut in removed:
+            r, c = cut["box"]
+            r0, r1 = max(r.start, sl.start), min(r.stop, sl.stop)
+            c0, c1 = max(c.start, left), min(c.stop, cols.start + c_hi)
+            if r1 <= r0 or c1 <= c0:
+                continue
+            # only the rows this cut takes this level out of
+            span = slice(r0 - r.start, r1 - r.start)
+            reach = np.flatnonzero(
+                (cut["row_from"][span] <= zq + dz) & (zq <= cut["row_to"][span])
+            )
+            if not len(reach):
+                continue
+            r0, r1 = r0 + int(reach[0]), r0 + int(reach[-1]) + 1
+            mine = (slice(r0 - sl.start, r1 - sl.start), slice(c0 - left, c1 - left))
+            theirs = (
+                slice(r0 - r.start, r1 - r.start),
+                slice(c0 - c.start, c1 - c.start),
+            )
             # the top of a column is tested at its true height, so a cut
             # meets the surface along a smooth line
-            for cut in removed:
-                r, c = cut["box"]
-                r0, r1 = max(r.start, sl.start), min(r.stop, sl.stop)
-                c0, c1 = max(c.start, cols.start), min(c.stop, cols.stop)
-                if r1 <= r0 or c1 <= c0:
-                    continue
-                mine = (
-                    slice(r0 - sl.start, r1 - sl.start),
-                    slice(c0 - cols.start, c1 - cols.start),
-                )
-                theirs = (
-                    slice(r0 - r.start, r1 - r.start),
-                    slice(c0 - c.start, c1 - c.start),
-                )
+            zz = zq
+            if cut["tops"][0] - dz < zq < cut["tops"][1]:
                 top = surface[r0:r1, c0:c1]
                 zz = np.where((top > zq) & (top - zq < dz), top, zq)
-                gone = (cut["from"][theirs] <= zz) & (zz <= cut["to"][theirs])
-                level[mine][gone] = VOID
-        solid = level > 0
-        np.putmask(hit_q, solid, q)
-        np.copyto(hit_m, level, where=solid)
+            gone = (cut["from"][theirs] <= zz) & (zz <= cut["to"][theirs])
+            lev[mine][gone] = VOID
+        solid = (lev > 0) & ~done[part]
+        np.putmask(hit_q[part], solid, q)
+        np.copyto(hit_m[part], lev, where=solid)
+        done[part] |= solid
+        walked += 1
+        if walked % 8 == 0:
+            # close in on what is still open
+            still = ~done[part]
+            open_rows = np.flatnonzero(still.any(axis=1))
+            if not len(open_rows):
+                break
+            open_cols = np.flatnonzero(still.any(axis=0))
+            r_lo, r_hi = r_lo + int(open_rows[0]), r_lo + int(open_rows[-1]) + 1
+            c_lo, c_hi = c_lo + int(open_cols[0]), c_lo + int(open_cols[-1]) + 1
     return hit_q, hit_m
 
 
