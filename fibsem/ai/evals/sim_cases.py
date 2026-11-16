@@ -7,7 +7,7 @@ read from the scene, not marked by hand:
 
 - square_finding: every square's centre, the pitch and the bar angle
 - square_quality: each shown square's label, by the rules in ``RULES``
-- site_selection: the good squares; damaged squares are bad picks
+- site_selection: the good squares; damaged and thick squares are bad picks
 
 Sim cases carry ``tier: sim`` and are scored apart from the real cases.
 Squares whose label sits close to a rule's threshold are left out of the
@@ -70,6 +70,8 @@ RULES: Dict[str, Any] = {
 # outlines 0.9x and 1.1x their drawn size and the thresholds at these factors.
 MARGIN = (0.67, 1.5)
 LABEL_ORDER = ("damaged", "thick", "no_cells", "cell_near_bar", "good")
+# Squares a lamella must not go on: picking one is a costly mistake.
+BAD_SITE = ("damaged", "thick")
 
 # The scene options a seed draws, when the caller doesn't set them.
 VARIED = {
@@ -114,6 +116,14 @@ BRIEFS = {
         "of the cell on the full-size overview ({w} x {h} px), with a reason."
     ),
 }
+# The "-example" twin of a site case: the same overview and key, and one good
+# site the operator picked, as a run would start when they show the agent one.
+# The example is not scored: a pick on it neither counts nor counts against.
+EXAMPLE_BRIEF = (
+    " The operator has picked one good site as an example of what they want: "
+    "the cell at x {x:.0f}, y {y:.0f} px. Find others like it; the example "
+    "itself is not one of your picks."
+)
 
 
 @dataclass
@@ -558,7 +568,13 @@ def write_cases(
     }
     keyed = {"status": "keyed", "keyed_by": "simulator", "rules": dict(RULES)}
     good = [q for q in squares if q.label == "good" and q.certain]
-    bad = [q for q in squares if q.label == "damaged" and q.in_view]
+    # a torn square is bad however close its call; a thick one only when
+    # certain, so a square on the edge of the ice rule is left unkeyed
+    bad = [
+        q
+        for q in squares
+        if q.in_view and (q.label == "damaged" or (q.label == "thick" and q.certain))
+    ]
 
     cases = {
         site: {
@@ -615,6 +631,28 @@ def write_cases(
         },
     }
     shown = _pick_shown(squares, seed, most_labelled)
+    if good:
+        # the example: the good square nearest the overview's centre
+        example = min(
+            good,
+            key=lambda q: math.hypot(
+                q.point()["x_px"] - w / 2, q.point()["y_px"] - h / 2
+            ),
+        )
+        twin = dict(cases[site])
+        point = example.point()
+        twin.update(
+            id=f"{name}-sites-example",
+            inputs={"overview": f"../{name}/experiment/overview.tif"},
+            brief=twin["brief"]
+            + EXAMPLE_BRIEF.format(x=point["x_px"], y=point["y_px"]),
+            key={
+                **twin["key"],
+                "good": [q.point() for q in good if q is not example],
+                "example": point,
+            },
+        )
+        cases[out / "site-selection" / f"{name}-example"] = twin
     cases[out / "square-quality" / name] = {
         "id": f"{name}-labels",
         "task": "square_quality",
@@ -622,7 +660,7 @@ def write_cases(
         "brief": BRIEFS["square_quality"].format(w=w, h=h, view=view) + note,
         "squares": [q.point() for q in shown],
         "key": {**keyed, "labels": {str(q.number): q.label for q in shown}},
-        "scoring": {"min_accuracy": 0.8, "costly_if_called_good": ["damaged"]},
+        "scoring": {"min_accuracy": 0.8, "costly_if_called_good": list(BAD_SITE)},
     }
 
     written = []

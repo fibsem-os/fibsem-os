@@ -246,6 +246,16 @@ def test_site_selection(site_case):
     )  # only the first 10 count
 
 
+def test_a_pick_on_the_example_site_is_not_scored(site_case):
+    site_case.data["key"]["example"] = {"x_px": 2000, "y_px": 1000}
+    site_case.data["key"]["good"] = site_case.data["key"]["good"][:1]
+    picks = [{"x_px": 2010, "y_px": 1000}, {"x_px": 1000, "y_px": 1000}]
+    s = result(site_case, {"picks": picks})
+    # the example is left out: one good pick in one
+    assert s.result == "hit" and s.details["good_fraction"] == 1.0
+    assert s.details["example_picks"] == 1 and s.details["picks"] == 1
+
+
 def test_check_finds_problems(tmp_path, site_case, polish_case):
     assert check_case(site_case).ok
     (site_case.path / "experiment/overview.tif").unlink()

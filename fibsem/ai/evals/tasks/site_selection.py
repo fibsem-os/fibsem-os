@@ -28,6 +28,18 @@ def score_site_selection(
     radius = float(key.get("hit_radius_px", case.scoring.get("hit_radius_px", 100)))
     picks = picks[: int(case.scoring.get("max_picks", 10))]
     good, bad = key.get("good") or [], key.get("bad") or []
+    # a case that shows the agent an example site doesn't score a pick on it
+    example = key.get("example")
+    on_example = 0
+    if example:
+        kept = []
+        for pick in picks:
+            x, y = _point(pick)
+            if math.hypot(x - example["x_px"], y - example["y_px"]) <= radius:
+                on_example += 1
+            else:
+                kept.append(pick)
+        picks = kept
 
     def nearest(x, y, squares):
         best = None
@@ -61,6 +73,7 @@ def score_site_selection(
         "good_total": len(good),
         "bad_picks": len(bad_picks),
         "unkeyed_picks": unkeyed,
+        **({"example_picks": on_example} if example else {}),
         "costly": len(bad_picks),
         "per_pick": per_pick,
     }
