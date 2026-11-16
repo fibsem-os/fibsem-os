@@ -13,7 +13,10 @@ Positions come from the view's projection (see sim_view.ViewFrame): a point
 at height 0 lands where the stage's projection puts it.
 
 Internally in micrometres. z = 0 is the top of the ice on the open film, the
-plane the stage brings to the beams; the film lies ICE_THICKNESS under it.
+plane the stage brings to the beams; the film lies ICE_THICKNESS under it. A
+waffle (high-pressure frozen) is the other way up: its ice is a slab as thick
+as the scene says, its top still at z = 0, the bars standing in it from the
+film at its bottom.
 """
 
 from __future__ import annotations
@@ -73,7 +76,14 @@ NUCLEUS_BULGE = 2.0  # how far such a cell stands up over its nucleus
 CLUMP_REACH = 12.0  # how far a clump of grains can reach from its speck
 RPE_RADIUS = 1.1  # an epithelial cell's radius, in its feature's size
 NUCLEUS_RADIUS = 1.4  # and a nucleus's
-Z_MIN, Z_MAX = -5.0, 12.0  # the slab a view looks through
+Z_MIN, Z_MAX = -5.0, 12.0  # the slab a view looks through (see `z_min`)
+WAFFLE_BAR = 25.0  # um; how thick a waffle grid's bars are
+WAFFLE_SKIN = 0.6  # the least ice over a bar of a waffle
+WAFFLE_SAG = 0.25  # how far a waffle's ice dips in a square, off its bars
+# the lines a planchette hat's polish leaves in a waffle's top: (um across,
+# um deep) of each size, and how many times longer than wide they run
+SCRATCH = ((0.5, 0.05), (1.2, 0.09), (3.0, 0.14), (8.0, 0.2))
+SCRATCH_RUN = 80.0
 LEVEL = 0.25  # the tallest a level of that slab may be
 
 # secondary-electron yield, (SEM, FIB): the top of a thing, and its inside
@@ -129,10 +139,55 @@ BRIDGE = 0.6  # how far a coat reaches out over nothing, in its own thickness
 SAG = 0.25  # um it drops per um out
 CRACK_AT = 0.3  # um; the lamella thickness the damage shapes are sized for
 GROOVE = 0.08  # um; how deep curtaining grooves a cut
+WALL = 1.5  # a top is met through its side this many samples down its slope, at most
 CACHE_SIZE = 2  # views kept (one per beam)
 
 
 # ------------------------------------------------------------------- sample
+def film_top(scene: "SampleScene") -> float:
+    """The height of the top of the film: just under the ice of a plunge
+    frozen grid, at the bottom of a waffle's slab."""
+    if scene.preparation == "waffle":
+        return -scene.slab_thickness * UM
+    return FILM_TOP
+
+
+def z_min(scene: "SampleScene") -> float:
+    """The lowest height a view looks down to: under the film."""
+    return min(Z_MIN, film_top(scene) - 3.0)
+
+
+def _scratches(scene: "SampleScene", X, Y, finest: float) -> np.ndarray:
+    """How deep the hat's polishing lines groove a waffle's top (um): straight
+    parallel lines one way, a fainter set across them, each its own depth and
+    coming and going along its length; none finer than the sampling shows."""
+    strength = float(scene.hat_scratches)
+    out = np.zeros(X.shape, dtype=np.float32)
+    if strength <= 0:
+        return out
+    seed = int(scene.seed) + 7001
+    rng = np.random.default_rng(seed)
+    for n, share in enumerate((1.0, 0.4)):
+        a = rng.uniform(0, np.pi)
+        c, s = np.cos(a), np.sin(a)
+        across, along = X * c + Y * s, Y * c - X * s
+        for k, (scale, deep) in enumerate(SCRATCH):
+            if scale < 3 * finest:
+                continue
+            # one line to each strip `scale` wide, somewhere in it
+            i = np.floor(across / scale).astype(np.int64)
+            h = [sim_view._hash(i, i * 0 + m, seed + 31 * k + 7 * n) for m in range(3)]
+            half = scale * (0.08 + 0.14 * h[1])
+            d = np.abs(across - (i + 0.25 + 0.5 * h[0]) * scale)
+            line = np.clip(1 - d / half, 0, 1)
+            run = sim_view.value_noise(
+                along / (SCRATCH_RUN * scale) + 17.0 * h[0], i, 1.0, seed + 53 * k
+            )
+            here = np.clip(0.35 + 1.3 * run, 0, 1) * (0.4 + 0.6 * h[2])
+            out += (strength * share * deep) * line * here
+    return out
+
+
 def _box(f: "SceneFeature", x: np.ndarray, y: np.ndarray, reach: float):
     """The rows and columns of the grid within `reach` um of a feature."""
     cols = np.nonzero(np.abs(x - f.x * UM) < reach)[0]
@@ -259,18 +314,27 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
     sx, sy = step
     f32 = np.float32
     seed = int(scene.seed)
+    waffle = scene.preparation == "waffle"
+    film = film_top(scene)
     bars, holes, rips, rim, beyond = scene.film_masks(X / UM, Y / UM)
     metal = bars | rim
     # a broken hole has no ice across it; a whole one does
     gone = rips | beyond | (scene.broken_hole_mask(X / UM, Y / UM) & ~metal)
     holes = holes & ~gone
     crack = scene.crack_depth(X / UM, Y / UM) * ~metal
-    # the ice is one sheet: slow waves, and a broad uneven ridge over each bar
-    weight = _gauss(metal.astype(f32), (2.5 / sy, 2.5 / sx))
-    swell = np.clip(1 + fbm(X, Y, (90.0, 37.0), (0.35, 0.2), seed + 23), 0.3, 1.8)
-    ice = BAR_RISE * swell * weight + fbm(
-        X, Y, (210.0, 120.0, 65.0), (0.4, 0.28, 0.1), seed + 11
-    )
+    waves = fbm(X, Y, (210.0, 120.0, 65.0), (0.4, 0.28, 0.1), seed + 11)
+    if waffle:
+        # the ice is a slab pressed flat by the hat: it dips a little in each
+        # square, and carries the hat's polishing lines
+        bar_top = min(film + WAFFLE_BAR, -WAFFLE_SKIN)
+        weight = _gauss(metal.astype(f32), (4.0 / sy, 4.0 / sx))
+        ice = 0.5 * waves - WAFFLE_SAG * (1 - weight)
+        ice = ice - _scratches(scene, X, Y, max(sx, sy))
+    else:
+        # the ice is one sheet: slow waves, and a broad uneven ridge over each bar
+        weight = _gauss(metal.astype(f32), (2.5 / sy, 2.5 / sx))
+        swell = np.clip(1 + fbm(X, Y, (90.0, 37.0), (0.35, 0.2), seed + 23), 0.3, 1.8)
+        ice = BAR_RISE * swell * weight + waves
 
     shape = X.shape
     dome = np.zeros(shape, dtype=f32)  # how far the cells stand, by outline
@@ -353,7 +417,7 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
                 half = min(0.8 * sigma * min(f.eccentricity, 1.0), 2.0) * size
                 t = half * np.sqrt(np.clip(1 - r2, 0, None))
                 inside = r2 < 1
-                mid = FILM_TOP + rise + half
+                mid = film + rise + half
                 first = inside & (n_hi[box] < NONE / 2)
                 n_lo[box] = np.where(
                     inside,
@@ -397,7 +461,7 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
         d2 = r * r - (X[box] - fx) ** 2 - (Y[box] - fy) ** 2
         t = np.sqrt(np.clip(d2, 0, None)).astype(f32)
         inside = (d2 > 0) & (zc + t < cell[box] - 0.1) & (o_hi[box] < NONE / 2)
-        o_lo[box] = np.where(inside, np.maximum(zc - t, FILM_TOP + 0.02), o_lo[box])
+        o_lo[box] = np.where(inside, np.maximum(zc - t, film + 0.02), o_lo[box])
         o_hi[box] = np.where(inside, zc + t, o_hi[box])
         o_is[box] = np.where(inside, what, o_is[box])
 
@@ -455,22 +519,35 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
             over = coat[iy, ix] - SAG * far
             under = np.where(bridged, over - gis * (1 - 0.6 * reach), under)
             coat = np.where(bridged, over, coat).astype(f32)
+    if waffle:
+        # the bars stand on the film, in the slab; the ice starts on top of them
+        standing = metal & ~gone
+        # no line in the ice goes down to the metal
+        bar_top = np.minimum(bar_top, ice - 0.5 * WAFFLE_SKIN)
+        bar = (film, np.where(standing, bar_top, NONE).astype(f32))
+        ice_from = np.where(standing, bar_top, film).astype(f32)
+        # how much of a bar shows through the ice over it
+        weight = weight * np.exp(min(film + WAFFLE_BAR, 0.0) / BAR_DEPTH)
+    else:
+        # the bars hang under the film
+        bar = (
+            film - FILM_THICKNESS - BAR_THICKNESS,
+            np.where(metal & ~gone, film - FILM_THICKNESS, NONE).astype(f32),
+        )
+        ice_from = film
     return {
         "coat": (under, coat),
         "particle": (p_lo, p_hi),
         "nucleus": (n_lo, n_hi),
         "organelle": (o_lo, o_hi),
         "organelle_is": o_is,
-        "cell": (FILM_TOP, cell),
-        "ice": (FILM_TOP, ice),
+        "cell": (film, cell),
+        "ice": (ice_from, ice),
         "film": (
-            FILM_TOP - FILM_THICKNESS,
-            np.where(gone | holes, NONE, FILM_TOP).astype(f32),
+            film - FILM_THICKNESS,
+            np.where(gone | holes, NONE, film).astype(f32),
         ),
-        "bar": (
-            FILM_TOP - FILM_THICKNESS - BAR_THICKNESS,
-            np.where(metal & ~gone, FILM_TOP - FILM_THICKNESS, NONE).astype(f32),
-        ),
+        "bar": bar,
         "surface": np.maximum(surface, coat),
         # what a pattern's depth is measured from: the top without its bumps
         "level": level.astype(f32),
@@ -710,7 +787,8 @@ def trace(scene: "SampleScene", frame: ViewFrame, u, w, pix) -> dict:
     # up is then a whole number of rows nearer the beam.
     s_lo = (side * w).min()
     dz = min(pix / kabs, LEVEL) if kabs > 1e-6 else LEVEL
-    z = Z_MIN + (np.arange(int(np.ceil((Z_MAX - Z_MIN) / dz))) + 0.5) * dz
+    low = z_min(scene)
+    z = low + (np.arange(int(np.ceil((Z_MAX - low) / dz))) + 0.5) * dz
     shift = np.round((Z_MAX - z) * kabs / pix).astype(np.int64)
     dy = pix / fs
     Y = (s_lo - Z_MAX * kabs) / fs + np.arange(height + shift.max() + 1) * dy
@@ -839,8 +917,13 @@ def trace(scene: "SampleScene", frame: ViewFrame, u, w, pix) -> dict:
     kind[seen & ~above] = 1
     kind[seen & above & cut_above] = 2
     kind[seen & above & ~cut_above] = 3
-    # a sloping top is met through its side one level down: still a top
-    kind[(kind == 3) & np.isin(hit_m, (ICE, PARTICLE, COAT))] = 1
+    # a sloping top is met through its side one level down: still a top,
+    # unless it is met further under its own top than its slope takes it -
+    # the side of a slab
+    slope = (kind == 3) & np.isin(hit_m, (ICE, PARTICLE, COAT))
+    drop = 2 * dz + WALL * np.hypot(gx, gy) * max(pix, dy)
+    slope &= (hit_m == PARTICLE) | (top_of - zq < drop)
+    kind[slope] = 1
     z_hit = np.where(kind == 1, np.minimum(top_of, zq + dz), zq)
     # what a cut face is made of, read at its exact height
     on_face = (kind == 2) & np.isfinite(z_face)
@@ -948,7 +1031,7 @@ def canvas(scene: "SampleScene", beam: str, frame: ViewFrame, u, w, pix):
     if removed:
         shade[top] *= (1 + RIM[which] * _rim(hit, pix))[top]
     # hollows are darker: fewer electrons reach the detector from a pit
-    zs = np.maximum(np.where(kind > 0, z_hit, Z_MIN), FILM_TOP - 1.0)
+    zs = np.maximum(np.where(kind > 0, z_hit, z_min(scene)), film_top(scene) - 1.0)
     pit = ndi.uniform_filter(zs, max(3, int(4.0 / pix))) - zs
     shade *= np.clip(1 - 0.09 * np.clip(pit, 0, 4), 0.6, 1.0)
     # what charges in the SEM: what stands up off the film, less over a bar
@@ -1073,7 +1156,7 @@ def damage(
         ys = line(x) + ts
         height = slope * ts
         surface = columns(scene, np.array([x]), ys, (0.05, 0.05))["surface"][:, 0]
-        on = np.nonzero((height <= surface) & (height >= FILM_TOP))[0]
+        on = np.nonzero((height <= surface) & (height >= film_top(scene)))[0]
         if not len(on):
             return 0.0, 0.0
         front = on[np.argmax(height[on])]
@@ -1363,7 +1446,7 @@ def reflectance(scene: "SampleScene", view: Plan, lean: float = 0.0) -> np.ndarr
     out = out + 1.1 * edge * np.clip(0.6 + 0.9 * noise(1.2, 306), 0, 1.5)
     out[~solid] = 0.0
     out = out.astype(np.float32)
-    return _along(out, z, solid, lean, FILM_TOP) if lean else out
+    return _along(out, z, solid, lean, film_top(scene)) if lean else out
 
 
 SIDE = 0.6  # um; a line of sight that comes in this far under a top hit its side

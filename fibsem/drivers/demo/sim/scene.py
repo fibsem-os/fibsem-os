@@ -277,7 +277,7 @@ class MilledRegion:
     on the surface."""
 
     points: np.ndarray  # (N, 2) world coordinates, in order round the outline
-    depth: float = 1.0  # m, recorded only
+    depth: float = 1.0  # m; how far below the top the pattern cuts
     # m; width of the bright rim round the region. A trench has none; a spot
     # burn has one, the redeposition halo that makes the mark easy to find in
     # the reflection channel and the SEM.
@@ -345,6 +345,16 @@ class SampleScene:
 
     coincidence_offset: float = 10e-6  # m, initial height error at boot
     seed: int = 24
+    # how the grid was frozen: "plunge" (thin ice over cells on the film), or
+    # "waffle" (high-pressure frozen between two planchette hats: a slab of
+    # ice `slab_thickness` thick, flush with the bars standing in it or over
+    # them, the film at its bottom, its top smooth but for the lines of the
+    # hat's polish). A waffle's film is continuous and uncracked, and its
+    # slab is plain ice
+    preparation: str = "plunge"
+    slab_thickness: float = 25e-6  # m
+    # how strongly the hat's polishing lines show in a waffle's top (0 = none)
+    hat_scratches: float = 1.0
     # what grows on the film: "mammalian" (adherent, fried-egg: a wide flat
     # body with an off-centre nuclear mound and organelle speckle, sparse),
     # "yeast" (compact bright ovoids in clusters, some budding), "bacteria"
@@ -547,6 +557,19 @@ class SampleScene:
     _index: Optional[FeatureIndex] = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
+        if self.preparation not in ("plunge", "waffle"):
+            raise ValueError(
+                f"preparation must be 'plunge' or 'waffle', got {self.preparation!r}"
+            )
+        if self.preparation == "waffle":
+            if not 5e-6 <= self.slab_thickness <= 50e-6:
+                raise ValueError(
+                    "slab_thickness must be between 5 and 50 um, "
+                    f"got {self.slab_thickness * 1e6:g} um"
+                )
+            self.film = "continuous"
+            self.broken_hole_fraction = 0.0
+            self.crack_density = 0.0
         if self.features:
             return
         rng = np.random.default_rng(self.seed)
@@ -1757,6 +1780,8 @@ class SampleScene:
             raise ValueError(
                 f"cell_type must be one of {sorted(kinds)}, got {self.cell_type!r}"
             )
+        if self.preparation == "waffle":
+            return
         fields = (2 * half / 150e-6) ** 2  # how many 150 um fields the extent is
         next_id = 0
         for kind, fraction in kinds[self.cell_type]:
@@ -2113,6 +2138,9 @@ class SampleScene:
         "tilt_axis_offset",  # m
         "grids_from_holder",
         "seed",
+        "preparation",  # plunge | waffle
+        "slab_thickness",  # m
+        "hat_scratches",
         "cell_type",  # mammalian | yeast | bacteria | mixed
         "n_clusters",
         "cells_per_cluster",  # [min, max]
@@ -2909,9 +2937,9 @@ class SampleScene:
             len(xs_world[0, :: plan[1]]),
         ):
             # the solid sample: its cells stand taller, from the film up
-            film = sim_solid.FILM_TOP
+            film = sim_solid.film_top(self)
             gone = plan[0].fraction(
-                film + 0.05, film + 2 * top * um, lean=self._fm_lean(plan[1])
+                film + 0.05, max(film + 2 * top * um, 0.0), lean=self._fm_lean(plan[1])
             )
             return self._fm_full(gone, plan[1], ys_world.shape[0], xs_world.shape[1])
         xs, ys = np.broadcast_arrays(xs_world * um, ys_world * um)
@@ -3023,7 +3051,7 @@ class SampleScene:
         """The height (m) of the film in the focal frame: heights in the FM
         are given above the film, and the solid sample's film lies under its
         ice, below the plane the stage brings into focus."""
-        return sim_solid.FILM_TOP / sim_view.UM
+        return sim_solid.film_top(self) / sim_view.UM
 
     def _in_red_subset(self, cell_id: int) -> bool:
         """Whether a cell carries the subset dye: drawn from the seed and
