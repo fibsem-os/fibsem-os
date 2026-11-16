@@ -329,3 +329,28 @@ def test_a_scripted_run_of_a_live_case_end_to_end(tmp_path, monkeypatch):
     assert details["not_saved"] == 0 and details["good_sites"] >= 1
     assert details["steps"]["overview"] and details["steps"]["sites_imaged"] >= 1
     assert details["coincident"] >= 1
+
+
+def test_the_beams_meet_at_the_coincident_height_with_no_sideways_gap(tmp_path):
+    # a site is made coincident by a vertical move alone: at the key's
+    # height the beams' centres meet, and off it they part only up and down
+    from fibsem.ai.evals.live import sim_sites
+    from fibsem.structures.settings import BeamType, FibsemStagePosition
+
+    path = tmp_path / "microscope.yaml"
+    path.write_text(yaml.safe_dump(sim_sites.microscope_config(1), sort_keys=False))
+    microscope = sim_sites._session(path)
+    try:
+        key = sim_sites.optics_key(microscope)
+        gaps = []
+        for z in (key["coincident_z"], key["coincident_z"] + 5e-6):
+            stage = FibsemStagePosition(x=0, y=0, z=z, r=0, t=0)
+            microscope.move_stage_absolute(stage)
+            gaps.append(
+                sim_sites._centre(microscope, BeamType.ION)
+                - sim_sites._centre(microscope, BeamType.ELECTRON)
+            )
+    finally:
+        microscope.disconnect()
+    assert np.allclose(gaps[0], 0.0, atol=1e-8)
+    assert abs(gaps[1][0]) < 1e-8 and abs(gaps[1][1]) > 5e-6

@@ -48,6 +48,7 @@ REACH = (0.72e-3, 0.39e-3)
 # would be keyed thick for ice nobody can see (back once it draws them).
 SCENE = {"cell_type": "rpe", "film": "holey", "extent": 2.4e-3, "ice_density": 0.0}
 STEP = 0.5e-6  # m, the grid a cell's outline is measured on
+NO_BEAM_OFFSET = {"beam_offset": {}, "current_offset_scale": 0.0}
 
 BRIEF = (
     "Grid {grid} is loaded and the stage is at the SEM orientation. Find "
@@ -72,6 +73,11 @@ def microscope_config(seed: int, overrides: Optional[Dict[str, Any]] = None) -> 
     sample = {k: v for k, v in options.items() if k in SampleScene.CONFIG_KEYS}
     sim["sample"].update(sample)
     sim["sample"].update({"enabled": True, "grids_from_holder": False})
+    # the beams meet where the stage's height says: no fixed beam offset and
+    # no per-current one, so a site is made coincident by a vertical move
+    # alone, as the task asks (the offsets are for the beam-shift alignment
+    # work, not for site selection)
+    sim["sample"].update(NO_BEAM_OFFSET)
     sim["stage_error"] = {"enabled": False}
     return config
 
