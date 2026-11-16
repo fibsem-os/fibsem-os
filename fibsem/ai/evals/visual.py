@@ -23,7 +23,7 @@ from fibsem.ai.evals.cases import (
     find_cases,
     load_case,
 )
-from fibsem.ai.evals.runner import ANSWER, RESULT, run_answer
+from fibsem.ai.evals.runner import ANSWER, OUT_OF_BUDGET, RESULT, run_answer, run_scores
 from fibsem.ai.evals.scoring import (
     score_case,
     score_live,
@@ -377,13 +377,15 @@ def compare_table(outs: List[Path], cases_root: Optional[Path] = None) -> str:
             if case is None:
                 continue
             hits: Dict[Optional[str], List[bool]] = defaultdict(list)
-            for _, answer in pairs:
-                for score in score_case(case, answer or {}):
+            for result, answer in pairs:
+                for score in run_scores(case, answer, result):
                     hits[score.part].append(score.result == "hit")
             cost = sum(float(r.get("spent_usd") or 0) for r, _ in pairs) / len(pairs)
+            over = sum(r.get("status") == OUT_OF_BUDGET for r, _ in pairs)
+            spent = f", {over} out of budget" if over else ""
             for part, got in hits.items():
                 name = case_id + (f" ({part})" if part else "")
-                cells[name][n] = f"{sum(got)}/{len(got)} (${cost:.2f})"
+                cells[name][n] = f"{sum(got)}/{len(got)} (${cost:.2f}{spent})"
     names = [Path(out).name for out in outs]
     lines = [
         "| Case | " + " | ".join(names) + " |",

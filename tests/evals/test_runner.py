@@ -129,6 +129,22 @@ def test_run_stops_an_agent_that_never_answers(home, case, tmp_path, monkeypatch
     assert [s["result"] for s in result["scores"]] == ["invalid"]
 
 
+def test_a_run_that_spends_its_cap_is_out_of_budget_and_fails(
+    home, case, tmp_path, monkeypatch
+):
+    # Even with a right answer saved before the cap, the run fails.
+    monkeypatch.setenv("EVAL_FAKE_ANSWER", json.dumps(STOP_AT_P3))
+    monkeypatch.setenv("EVAL_FAKE_OVER_BUDGET", "1")
+    result = run_case(case, 1, config(tmp_path, timeout_s=20))
+    assert result["status"] == "out_of_budget"
+    assert result["agent_exit"] == 2
+    (score,) = result["scores"]
+    assert score["result"] == "miss"
+    assert score["details"]["out_of_budget"] is True
+    assert score["details"]["scored_as"] == "hit"
+    assert "0/1 ($1.00, 1 out of budget)" in visual.compare_table([tmp_path / "out"])
+
+
 def test_runs_beside_another_app_server_and_in_parallel(
     home, case, tmp_path, monkeypatch
 ):
