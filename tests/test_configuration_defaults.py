@@ -487,10 +487,16 @@ def test_capturing_takes_only_the_defaults(microscope):
     simulated working distance from 7 mm to 4 mm on capture.
     """
     before = copy.deepcopy(microscope.system.electron.beam)
-    live = microscope.get_microscope_state().electron_beam
-    assert live.working_distance != before.working_distance, "fixture is blind"
+    # the Demo boots at the eucentric height, so focus somewhere else first
+    focused = microscope.get_working_distance(BeamType.ELECTRON)
+    microscope.set_working_distance(focused + 1e-3, BeamType.ELECTRON)
+    try:
+        live = microscope.get_microscope_state().electron_beam
+        assert live.working_distance != before.working_distance, "fixture is blind"
 
-    microscope.capture_defaults()
+        microscope.capture_defaults()
+    finally:
+        microscope.set_working_distance(focused, BeamType.ELECTRON)
 
     after = microscope.system.electron.beam
     assert after.working_distance == before.working_distance
