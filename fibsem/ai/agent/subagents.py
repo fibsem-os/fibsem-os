@@ -14,6 +14,7 @@ lab's extra MCP servers (`extra_mcp`) add the tools their ``subagents`` name.
 """
 
 import re
+from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import yaml
@@ -130,3 +131,21 @@ def render(data: Dict[str, Any], prompt: str) -> str:
             front[key] = ", ".join(names(front[key]))
     text = yaml.safe_dump(front, sort_keys=False, allow_unicode=True, width=10_000)
     return f"---\n{text}---\n\n{prompt.strip()}\n"
+
+
+def add_tools(folder: Path, agents: Iterable[str], tools: Iterable[str]) -> None:
+    """Put *tools* on the ``tools`` line of each of *agents* copied into
+    ``folder/.claude/agents/``, after `sources.assemble` built it: only ever
+    a session folder's copies, never the shipped files. A file with no line
+    is left as it is, since no line means every tool."""
+    tools = list(tools)
+    if not tools:
+        return
+    for name in agents:
+        path = folder / sources.CLAUDE / "agents" / f"{name}.md"
+        data, body = front_matter(path.read_text(encoding="utf-8"))
+        listed = names(data.get("tools")) if data else []
+        more = [tool for tool in tools if tool not in listed]
+        if listed and more:
+            data["tools"] = listed + more
+            path.write_text(render(data, body), encoding="utf-8")

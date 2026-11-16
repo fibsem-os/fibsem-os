@@ -793,6 +793,56 @@ def test_each_session_has_a_folder_with_its_record_and_log(tmp_path, monkeypatch
     assert "Session:" in (folder / manager.LOG).read_text(encoding="utf-8")
 
 
+def test_a_specialist_copied_for_a_session_gets_the_extra_servers_tools(
+    tmp_path, monkeypatch
+):
+    """In run/ and in a work folder; the checkout's file stays as shipped."""
+    pytest.importorskip("claude_agent_sdk")
+    import json
+    import uuid
+
+    from fibsem.ai.agent import manager, sources, subagents
+
+    monkeypatch.setattr(harness_mod.Path, "home", lambda: tmp_path)
+    monkeypatch.delenv("FIBSEM_SERVER_TOKEN", raising=False)
+    monkeypatch.setenv("FIBSEM_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude"))
+    (tmp_path / "home" / "agent").mkdir(parents=True)
+    (tmp_path / "home" / "agent" / "mcp.yaml").write_text(
+        "notebook:\n  tools: [search]\n  subagents: [search]\n", encoding="utf-8"
+    )
+    (tmp_path / "claude").mkdir()
+    entry = {"type": "http", "url": "https://notebook.example/mcp"}
+    (tmp_path / "claude" / ".claude.json").write_text(
+        json.dumps({"mcpServers": {"notebook": entry}}), encoding="utf-8"
+    )
+    # No file tools: the session runs in its run/.
+    (tmp_path / "home" / "knowledge" / "playbooks").mkdir(parents=True)
+    (tmp_path / "home" / "knowledge" / "playbooks" / "plain.yaml").write_text(
+        "agents: [autolamella-verifier]\nsession:\n  mode: none\n", encoding="utf-8"
+    )
+    shipped = sources.agent_file("autolamella-verifier", harness_mod.find_checkout())
+    before = shipped.read_bytes()
+    handlers = list(harness_mod.log.handlers)
+    run_id = str(uuid.uuid4())
+    plain = ["--session-id", run_id, "--playbook", "plain"]
+    try:
+        for more in (plain, ["--files", str(tmp_path / "w")]):
+            code = harness_mod.main(
+                ["--url", "http://127.0.0.1:9", "--server-wait", "0"] + more
+            )
+            assert code == 1
+    finally:
+        for handler in harness_mod.log.handlers[len(handlers) :]:
+            handler.close()
+            harness_mod.log.removeHandler(handler)
+    for folder in (manager.find_folder(run_id) / manager.RUN, tmp_path / "w"):
+        copied = folder / ".claude" / "agents" / "autolamella-verifier.md"
+        data, _ = subagents.front_matter(copied.read_text(encoding="utf-8"))
+        assert subagents.names(data["tools"])[-1] == "mcp__notebook__search"
+    assert shipped.read_bytes() == before
+
+
 def test_a_session_id_is_a_new_session_and_a_uuid(capsys):
     with pytest.raises(SystemExit):
         harness_mod.main(["--session-id", str(__import__("uuid").uuid4()), "--resume"])

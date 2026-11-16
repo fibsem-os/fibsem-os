@@ -234,16 +234,12 @@ def env(work: Path) -> dict:
 
 
 def prepare(
-    work: Path,
-    checkout: Path,
-    skills: List[str],
-    agents: List[str] = (),
-    extra_tools: Optional[List[str]] = None,
+    work: Path, checkout: Path, skills: List[str], agents: List[str] = ()
 ) -> None:
     """Make ``work`` ready: the agent's skills and specialists copied in (the
     CLI reads them from its working folder; `sources.assemble`, the lab's
     winning over the checkout's) and the notebook."""
-    sources.assemble(work, checkout, skills, agents, extra_tools)
+    sources.assemble(work, checkout, skills, agents)
     notebook = work / NOTEBOOK
     notebook.mkdir(exist_ok=True)
     if not (notebook / INDEX).exists():

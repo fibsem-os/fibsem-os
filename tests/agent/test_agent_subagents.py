@@ -4,8 +4,8 @@ are on."""
 
 import pytest
 
+from fibsem.ai.agent import extra_mcp, playbooks, sources, subagents
 from fibsem.ai.agent import harness as harness_mod
-from fibsem.ai.agent import playbooks, sources, subagents
 
 TOOL = "mcp__fibsem__app_get_status"
 
@@ -143,14 +143,20 @@ def test_a_specialist_gets_the_tools_an_extra_server_gives_specialists(
 
     anything = "---\nname: anything\ndescription: Looks.\n---\n\nLook.\n"
     (lab / "anything.md").write_text(anything, encoding="utf-8")
+    original = sources.agent_file("autolamella-verifier", checkout)
+    before = original.read_bytes()
     run = tmp_path / "run"
-    sources.assemble(
-        run, checkout, ["fibsem-agent"], ["autolamella-verifier", "anything"]
-    )
+    agents = ["autolamella-verifier", "anything"]
+    sources.assemble(run, checkout, ["fibsem-agent"], agents)
     copied = run / ".claude" / "agents"
-    shipped, _ = subagents.front_matter(
-        sources.agent_file("autolamella-verifier", checkout).read_text("utf-8")
-    )
+    assembled = {p.name: p.read_bytes() for p in copied.iterdir()}
+    subagents.add_tools(run, agents, [])
+    assert {p.name: p.read_bytes() for p in copied.iterdir()} == assembled
+
+    subagents.add_tools(run, agents, extra_mcp.subagent_allowed(extra_mcp.load()))
+    # The session's copies only: the shipped file is as it was.
+    assert original.read_bytes() == before
+    shipped, _ = subagents.front_matter(before.decode("utf-8"))
     data, body = subagents.front_matter(
         (copied / "autolamella-verifier.md").read_text("utf-8")
     )

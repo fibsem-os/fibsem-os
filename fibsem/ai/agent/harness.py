@@ -2234,14 +2234,18 @@ def main(argv=None) -> int:
     _log_to(log_path)
     for line in status(args, checkout, log_path, work, session_id, code):
         log.info(line)
-    # The specialists' tools on the extra servers, added to their files.
+    # The specialists' tools on the extra servers go on their copies in the
+    # folder just assembled; with nothing assembled (run is the checkout),
+    # the files are the shipped ones and stay as they are.
     extra_tools = extra_mcp.subagent_allowed(extras)
     if work is not None:
-        code_mode.prepare(work, checkout, loaded.skills, loaded.agents, extra_tools)
+        code_mode.prepare(work, checkout, loaded.skills, loaded.agents)
+        subagents.add_tools(work, loaded.agents, extra_tools)
         for line in code_mode.details():
             log.debug(line)
     elif run != checkout:
-        sources.assemble(run, checkout, loaded.skills, loaded.agents, extra_tools)
+        sources.assemble(run, checkout, loaded.skills, loaded.agents)
+        subagents.add_tools(run, loaded.agents, extra_tools)
 
     alarm = Alarm(playbook.session.wake_max_min)
     control = PlaybookControl(
