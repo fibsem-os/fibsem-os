@@ -1,12 +1,11 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import (
     ClassVar,
     List,
 )
-
-import numpy as np
 
 from fibsem import constants
 from fibsem.milling.patterning.base import BasePattern
@@ -96,17 +95,17 @@ class FiducialPattern(BasePattern[FibsemRectangleSettings]):
             centre_y=self.point.y,
             scan_direction="TopToBottom",
             cross_section=cross_section,
-            rotation=rotation + np.deg2rad(90),
+            rotation=rotation + math.radians(90),
         )
         if self.asymmetric:
             left_pattern.height *= 0.5
-            left_pattern.centre_x -= left_pattern.height * 0.5 * np.cos(rotation)
-            left_pattern.centre_y += left_pattern.height * 0.5 * np.sin(rotation)
+            left_pattern.centre_x -= left_pattern.height * 0.5 * math.cos(rotation)
+            left_pattern.centre_y += left_pattern.height * 0.5 * math.sin(rotation)
 
         # a right-angle turn is the same rectangle with its dimensions swapped.
         # Saying it that way keeps the cross correct on backends whose scripting
         # API cannot rotate a shape at all.
-        if np.isclose(rotation % np.pi, 0):
+        if math.isclose(rotation % math.pi, 0, abs_tol=1e-8):
             right_pattern.width, right_pattern.height = height, width
             right_pattern.rotation = rotation
 

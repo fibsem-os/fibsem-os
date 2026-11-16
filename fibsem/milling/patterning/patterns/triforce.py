@@ -1,12 +1,11 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import (
     ClassVar,
     List,
 )
-
-import numpy as np
 
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.properties import (
@@ -52,13 +51,13 @@ class TriForcePattern(BasePattern[FibsemRectangleSettings]):
 def create_triangle_patterns(
     width: float, height: float, depth: float, angle: float = 30, point: Point = Point()
 ) -> List[FibsemRectangleSettings]:
-    h_offset = height / 2 * np.sin(np.deg2rad(angle))
+    h_offset = height / 2 * math.sin(math.radians(angle))
 
     left_pattern = FibsemRectangleSettings(
         width=width,
         height=height,
         depth=depth,
-        rotation=np.deg2rad(-angle),
+        rotation=math.radians(-angle),
         centre_x=point.x - h_offset,
         centre_y=point.y,
         scan_direction="LeftToRight",
@@ -68,7 +67,7 @@ def create_triangle_patterns(
         width=width,
         height=height,
         depth=depth,
-        rotation=np.deg2rad(angle),
+        rotation=math.radians(angle),
         centre_x=point.x + h_offset,
         centre_y=point.y,
         scan_direction="RightToLeft",
@@ -78,7 +77,7 @@ def create_triangle_patterns(
         width=width,
         height=height,
         depth=depth,
-        rotation=np.deg2rad(90),
+        rotation=math.radians(90),
         centre_x=point.x,
         centre_y=point.y - height / 2,
         scan_direction="BottomToTop",

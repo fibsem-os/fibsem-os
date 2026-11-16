@@ -500,9 +500,8 @@ class AutoscriptBeam(Beam):
         except Exception:  # noqa: BLE001 - an older SDK, or a column without it
             return False
 
-    def read_resolution(self) -> List[int]:
-        # a list
-        return list(Resolution.parse(self._beam.scanning.resolution.value))
+    def read_resolution(self) -> Tuple[int, int]:
+        return tuple(Resolution.parse(self._beam.scanning.resolution.value))
 
     def write_resolution(self, value: Tuple[int, int]) -> None:
         self._beam.scanning.resolution.value = str(Resolution(*value))

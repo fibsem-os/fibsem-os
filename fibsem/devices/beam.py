@@ -105,11 +105,13 @@ class Beam(Device):
     voltage = DeviceParameter(
         float, unit="V", display=Display("Beam Voltage", advanced=True)
     )
-    # the currents an instrument offers change with the gas and the voltage (AutoScript)
+    # the currents an instrument offers change with the gas and the voltage
+    # (AutoScript); the instrument sets one between them to the nearest itself
     current = DeviceParameter(
         float,
         unit="A",
         depends_on=("plasma_gas", "voltage"),
+        nearest="driver",
         display=Display("Beam Current"),
     )
     plasma_gas = DeviceParameter(str, display=Display("Plasma Gas"))

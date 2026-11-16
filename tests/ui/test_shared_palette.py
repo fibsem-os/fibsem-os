@@ -19,8 +19,6 @@ duplicate this test exists to catch.
 import re
 from pathlib import Path
 
-import pytest
-
 PACKAGE = Path(__file__).resolve().parents[2] / "fibsem"
 STYLESHEETS = PACKAGE / "ui" / "stylesheets.py"
 TOKENS = PACKAGE / "theme" / "tokens.py"
@@ -94,17 +92,18 @@ def test_the_palette_is_where_this_test_looks_for_it():
     assert len(shared) > 20
 
 
-@pytest.mark.parametrize("module", _modules(), ids=lambda p: p.name)
-def test_no_module_redeclares_a_shared_colour(module):
+def test_no_module_redeclares_a_shared_colour():
     shared = _shared_colours()
 
     offenders = [
-        f"{name} = {value!r} is already {' / '.join(shared[value.lower()])}"
+        f"{module.name}: {name} = {value!r} is already "
+        f"{' / '.join(shared[value.lower()])}"
+        for module in _modules()
         for name, value in _DECLARATION.findall(module.read_text(encoding="utf-8"))
         if value.lower() in shared
     ]
 
     assert offenders == [], (
-        f"{module.name} re-declares colours that stylesheets.py already defines. "
-        f"Import them instead: " + "; ".join(offenders)
+        "These re-declare colours that stylesheets.py already defines. "
+        "Import them instead: " + "; ".join(offenders)
     )
