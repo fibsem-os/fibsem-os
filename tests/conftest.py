@@ -417,33 +417,31 @@ def odemis_microscope_cls():
     sys.modules.update(saved)
 
 
+def pytest_sessionfinish(session, exitstatus):
+    session.config.stash[_EXIT_STATUS] = int(exitstatus)
+
+
+_EXIT_STATUS = pytest.StashKey[int]()
+
+
+@pytest.hookimpl(trylast=True)
 def pytest_unconfigure(config):
-    """On PySide, delete the widgets still alive and shut the QApplication down
-    before the interpreter exits. Left to interpreter exit, PySide tears Qt down in
-    an order that segfaults after every test has passed."""
+    """On PySide, end the process here rather than let Qt be torn down.
+
+    The Qt tests leak thousands of top-level widgets, and taking them down at the
+    end -- left to interpreter exit, or deleted here first -- segfaulted now and
+    then after every test had passed (a chunk of the second Qt runner did so in
+    CI on some runs and not others, never locally). Nothing after this hook needs
+    them, so the process exits with pytest's own status, with its output flushed
+    and nothing torn down. xdist workers still report back after this, so they
+    are left to exit normally.
+    """
     qtpy = sys.modules.get("qtpy")
     if qtpy is None or not getattr(qtpy, "PYSIDE6", False):
         return
-    from qtpy.QtCore import QEvent
-    from qtpy.QtWidgets import QApplication
-
-    app = QApplication.instance()
-    if app is None:
+    if hasattr(config, "workerinput") or _EXIT_STATUS not in config.stash:
         return
-    import shiboken6
-
-    # Deleted, not closed: closing runs each window's closeEvent, and a widget a
-    # test left half-built has nothing to close.
-    #
-    # One at a time, and only the live ones with no parent. Deleting one widget can
-    # delete another on the list (a popup goes with the widget that made it), and
-    # queuing them all at once then delivered deletes to widgets already gone; with
-    # thousands of leaked widgets that segfaulted here. A widget with a parent goes
-    # with its parent.
-    for widget in app.topLevelWidgets():
-        if not shiboken6.isValid(widget) or widget.parent() is not None:
-            continue
-        widget.deleteLater()
-        QApplication.sendPostedEvents(widget, QEvent.Type.DeferredDelete)
-    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
-    app.shutdown()
+    logging.shutdown()
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(config.stash[_EXIT_STATUS])
