@@ -87,7 +87,7 @@ def test_the_new_api_checks_the_same_way_remotely(served):
         == local[BeamType.ELECTRON].scan_rotation.limits.max
     )
     with pytest.raises(ValueError):
-        sem.current.set_value(12345.0)
+        sem.voltage.set_value(12345.0)
     with pytest.raises(TypeError):
         sem.hfw.set_value("wide")
 
@@ -97,7 +97,7 @@ def test_the_server_checks_values_itself(served):
     _, remote, _ = served
     sem = remote[BeamType.ELECTRON]
     with pytest.raises(ValueError):
-        sem.current.write_through(12345.0)
+        sem.voltage.write_through(12345.0)
 
 
 def test_errors_keep_their_meaning_across_the_wire(served):

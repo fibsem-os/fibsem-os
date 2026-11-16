@@ -109,14 +109,48 @@ def test_numeric_values_clip_to_limits_with_a_warning(beams, caplog):
 
 def test_invalid_choice_and_wrong_type_raise(beams):
     sem = beams[BeamType.ELECTRON]
-    before = sem.current.get_value()
+    before = sem.voltage.get_value()
     with pytest.raises(ValueError):
-        sem.current.set_value(1.234e-9)
+        sem.voltage.set_value(1234.0)
     with pytest.raises(TypeError):
         sem.current.set_value("1 nA")
     with pytest.raises(TypeError):
         sem.hfw.set_value(True)
-    assert sem.current.get_value() == before
+    assert sem.voltage.get_value() == before
+
+
+def _column(applied):
+    """A beam whose hardware sets a current to its nearest choice, as AutoScript's
+    does, recording what it was sent."""
+
+    class Column(Beam):
+        pass
+
+    choices = [1e-9, 3e-9, 32e-9, 64e-9]
+    column = Column(BeamType.ELECTRON)
+    column.bind(
+        "current",
+        read=lambda: min(choices, key=lambda c: abs(c - applied[-1])),
+        write=applied.append,
+        metadata=lambda: ParameterMetadata(choices=choices),
+    )
+    return column
+
+
+def test_a_current_between_the_choices_is_set_to_the_nearest(caplog):
+    applied = [1e-9]
+    column = _column(applied)
+    with caplog.at_level(logging.WARNING):
+        assert column.current.set_value(2.5e-9) == 3e-9
+    assert applied[-1] == 2.5e-9  # the instrument snaps it, as it would anyway
+    assert "set to the nearest, 3e-09" in caplog.text
+    assert column.current.get_value() == 3e-9
+
+
+def test_the_old_path_writes_a_current_as_given():
+    applied = [1e-9]
+    _column(applied).current.write_through(45e-9)
+    assert applied[-1] == 45e-9
 
 
 def test_a_choice_matches_within_float_noise(beams):
@@ -381,7 +415,7 @@ def test_value_property_is_shorthand_for_get_value_and_set_value(beams, caplog):
     assert sem.scan_rotation.value == pytest.approx(2 * math.pi)
     assert "outside" in caplog.text
     with pytest.raises(ValueError):
-        sem.current.value = 1.234e-9
+        sem.voltage.value = 1234.0
 
 
 def test_a_misnamed_implementation_is_an_error_not_an_absent_parameter():

@@ -265,7 +265,7 @@ class DemoBeam(Beam):
         self.sim_detector.brightness = value
 
     def read_resolution(self) -> tuple:
-        return self.sim_beam.resolution
+        return tuple(self.sim_beam.resolution)
 
     def write_resolution(self, value: tuple) -> None:
         self.sim_beam.resolution = value

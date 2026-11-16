@@ -233,10 +233,9 @@ class OdemisBeam(Beam):
         self._client.set_stigmator(value.x, value.y, self.channel)
         self._set_log("stigmation", value, "")
 
-    def read_resolution(self) -> List[int]:
-        # a list
+    def read_resolution(self) -> Tuple[int, int]:
         width, height = self._client.get_resolution(self.channel)
-        return [width, height]
+        return (int(width), int(height))
 
     def write_resolution(self, value: Tuple[int, int]) -> None:
         self._client.set_resolution(value, self.channel)
