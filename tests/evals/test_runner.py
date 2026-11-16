@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from fibsem.ai.evals import report, visual
+from fibsem.ai.evals import report, runner, visual
 from fibsem.ai.evals.__main__ import main
 from fibsem.ai.evals.cases import load_case
 from fibsem.ai.evals.runner import (
@@ -289,3 +289,21 @@ def test_the_square_finding_task_says_how_pitch_is_measured(tmp_path):
     data = {"id": "finding", "task": "square_finding", "brief": "Find squares."}
     (folder / "case.yaml").write_text(yaml.safe_dump(data))
     assert "along a grid bar" in task_text(load_case(folder), [])
+
+
+def test_a_live_run_ends_when_the_turn_ends_not_at_the_first_answer(tmp_path):
+    log = tmp_path / "agent.log"
+    assert not runner._turn_ended(log)
+    log.write_text("21:43 Wrote answer.json\n")
+    assert not runner._turn_ended(log)
+    log.write_text(
+        "21:44 Turn ended: error_max_turns, 41 steps, $1.93 so far.\n"
+        "21:45 Wrote answer.json\n"
+    )
+    assert not runner._turn_ended(log)
+    log.write_text(
+        "21:44 Turn ended: error_max_turns, 41 steps, $1.93 so far.\n"
+        "21:46 Wrote answer.json\n"
+        "21:47 Turn ended: success, 30 steps, $0.81 ($2.75 so far).\n"
+    )
+    assert runner._turn_ended(log)

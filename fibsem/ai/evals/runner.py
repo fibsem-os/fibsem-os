@@ -175,8 +175,8 @@ def task_text(case: Case, inputs: Iterable[str]) -> str:
             "The microscope is a simulator: work it as the task says. Nobody "
             "is at it to answer you: this task is your go, so don't wait for "
             "an operator to agree to a plan or a playbook; if another playbook "
-            "fits better, set it yourself. Once the answer is written you are "
-            "done; say so and stop."
+            "fits better, set it yourself. Write the answer once every site you "
+            "keep is saved; then you are done: say so and stop."
         )
     else:
         last = "Look and read only. Once the answer is written you are done; say so and stop."
@@ -254,6 +254,20 @@ def _wait_for(check: Callable[[], bool], timeout_s: float, proc=None) -> bool:
             return False
         time.sleep(0.5)
     return check()
+
+
+TURN_DONE = "Turn ended: success"
+
+
+def _turn_ended(log_path: Path) -> bool:
+    """Whether fibsem-agent's last turn ended on its own: a turn cut at its
+    step limit carries on, so only a turn that ended well counts."""
+    try:
+        lines = log_path.read_text(errors="replace").splitlines()
+    except OSError:
+        return False
+    ended = [line for line in lines if "Turn ended:" in line]
+    return bool(ended) and TURN_DONE in ended[-1]
 
 
 def _read_answer(path: Path) -> Optional[Dict[str, Any]]:
@@ -368,11 +382,17 @@ def run_case(case: Case, repeat: int, config: RunConfig) -> Dict[str, Any]:
             agent = subprocess.Popen(
                 command, env=agent_env, stdout=agent_log, stderr=subprocess.STDOUT
             )
-            answered = _wait_for(
-                lambda: _read_answer(work / ANSWER) is not None,
-                config.timeout_s,
-                agent,
-            )
+            log_path = folder / "agent.log"
+
+            def finished() -> bool:
+                # A live agent may write its answer as it goes, site by
+                # site: the run ends when the answer is there and its turn
+                # has ended, not at the first write.
+                if _read_answer(work / ANSWER) is None:
+                    return False
+                return not sim_run or agent.poll() is not None or _turn_ended(log_path)
+
+            answered = _wait_for(finished, config.timeout_s, agent)
             timed_out = not answered and agent.poll() is None
             session = manager.session_folder(session_id)
             if agent.poll() is None:
