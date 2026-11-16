@@ -34,8 +34,9 @@ from fibsem.ai.evals.sim_polishing import (
     _site_cell,
 )
 from fibsem.ai.evals.sim_polishing import scene_options as _polishing_options
-from fibsem.drivers.demo import sim_solid, sim_view
-from fibsem.drivers.demo.sim_scene import SampleScene
+from fibsem.drivers.demo.sim import solid as sim_solid
+from fibsem.drivers.demo.sim import view as sim_view
+from fibsem.drivers.demo.sim.scene import SampleScene
 from fibsem.structures.settings import (
     BeamType,
     FibsemRectangleSettings,

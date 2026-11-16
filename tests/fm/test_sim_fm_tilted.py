@@ -5,8 +5,8 @@ the plane is in focus along one line across the view."""
 import numpy as np
 import pytest
 
-from fibsem.drivers.demo import sim_solid
-from fibsem.drivers.demo.sim_scene import SampleScene
+from fibsem.drivers.demo.sim import solid as sim_solid
+from fibsem.drivers.demo.sim.scene import SampleScene
 
 TILT = np.deg2rad(23.0)
 

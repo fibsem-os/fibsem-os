@@ -19,7 +19,7 @@ from fibsem.alignment.coincidence import (
     REFUSAL_LATERAL_OFFSET,
     check_coincidence,
 )
-from fibsem.drivers.demo.sim_scene import SampleScene
+from fibsem.drivers.demo.sim.scene import SampleScene
 from fibsem.geometry.projection import BeamStageProjection
 from fibsem.structures.settings import BeamType, ImageSettings
 from tests.fixtures.sim_scenes import mammalian_scene
@@ -284,7 +284,7 @@ def test_the_fm_dyes_the_nucleus_and_the_cytoplasm_differently(microscope):
     """In the FM the DNA dye (365 excitation) lights the nucleus only; the
     cytoplasmic dye (450) lights the whole body - so the DAPI image is a
     subset of the GFP image, brightest where GFP is bright too."""
-    from fibsem.drivers.demo.sim_scene import fm_channel_weights
+    from fibsem.drivers.demo.sim.scene import fm_channel_weights
     from fibsem.geometry.projection import FMStageProjection
 
     scene = _scene(
@@ -615,7 +615,7 @@ def test_spot_burns_leave_marks_in_every_view(microscope):
     small pit with a bright rim where the beam was. It sits where the point
     was placed in the FIB view, and the SEM and the FM reflection channel see
     it too."""
-    from fibsem.drivers.demo.sim_scene import SPOT_BURN_DIAMETER
+    from fibsem.drivers.demo.sim.scene import SPOT_BURN_DIAMETER
     from fibsem.imaging.spot import SpotBurnSettings
     from fibsem.structures.settings import Point
 

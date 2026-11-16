@@ -29,8 +29,8 @@ from fibsem.ai.evals.sim_cases import (
     measure_square,
     scene_options,
 )
-from fibsem.drivers.demo.sim_optics import ANGLE
-from fibsem.drivers.demo.sim_scene import SampleScene
+from fibsem.drivers.demo.sim.optics import ANGLE
+from fibsem.drivers.demo.sim.scene import SampleScene
 from fibsem.geometry.projection import BeamStageProjection
 from fibsem.structures.settings import BeamType, FibsemStagePosition
 

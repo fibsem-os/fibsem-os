@@ -24,8 +24,8 @@ from typing import TYPE_CHECKING
 import numpy as np
 from scipy import ndimage as ndi
 
-from fibsem.drivers.demo import sim_view
-from fibsem.drivers.demo.sim_view import (
+from fibsem.drivers.demo.sim import view as sim_view
+from fibsem.drivers.demo.sim.view import (
     UM,
     ViewFrame,
     _gauss,
@@ -34,7 +34,7 @@ from fibsem.drivers.demo.sim_view import (
 )
 
 if TYPE_CHECKING:
-    from fibsem.drivers.demo.sim_scene import SampleScene, SceneFeature
+    from fibsem.drivers.demo.sim.scene import SampleScene, SceneFeature
 
 FLOOR_SMOOTH = 3.0  # um; a milled floor is flat over this scale
 VOID, ICE, CELL, NUCLEUS, FILM, BAR, PARTICLE, COAT = 0, 1, 2, 3, 4, 5, 6, 7

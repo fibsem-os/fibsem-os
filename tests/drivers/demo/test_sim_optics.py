@@ -10,8 +10,8 @@ import fibsem.config as cfg
 from fibsem import utils
 from fibsem.autofunctions.autofocus import AutoFocusSettings, run_auto_focus
 from fibsem.autofunctions.metrics import tenengrad_focus_measure
-from fibsem.drivers.demo import sim_optics
-from fibsem.drivers.demo.sim_optics import Optics
+from fibsem.drivers.demo.sim import optics as sim_optics
+from fibsem.drivers.demo.sim.optics import Optics
 from fibsem.structures.settings import BeamType, ImageSettings, Point
 
 CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml")
@@ -269,7 +269,7 @@ def test_a_longer_dwell_is_less_noise(microscope):
 
 
 def test_a_scene_built_in_code_is_drawn_sharp_unless_it_asks():
-    from fibsem.drivers.demo.sim_scene import SampleScene
+    from fibsem.drivers.demo.sim.scene import SampleScene
 
     assert SampleScene().beam_optics is False
     assert SampleScene.from_config({}).beam_optics is True

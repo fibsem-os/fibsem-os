@@ -28,7 +28,8 @@ from scipy import ndimage as ndi
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.drivers.demo import sim_solid, sim_view
+from fibsem.drivers.demo.sim import solid as sim_solid
+from fibsem.drivers.demo.sim import view as sim_view
 from fibsem.geometry.projection import BeamStageProjection
 from fibsem.structures.image import FibsemImage
 from fibsem.structures.settings import (

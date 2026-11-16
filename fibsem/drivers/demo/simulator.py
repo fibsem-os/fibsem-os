@@ -16,8 +16,8 @@ from skimage.transform import resize
 
 from fibsem._timing import sim_sleep
 from fibsem.devices.fm import mount_transform_from_name
-from fibsem.drivers.demo.sim_optics import Optics
-from fibsem.drivers.demo.sim_scene import fm_channel_weights
+from fibsem.drivers.demo.sim.optics import Optics
+from fibsem.drivers.demo.sim.scene import fm_channel_weights
 from fibsem.fm.microscope import (
     FluorescenceMicroscope,
 )
@@ -42,7 +42,7 @@ from fibsem.util.draw_numbers import draw_text
 
 if TYPE_CHECKING:
     from fibsem.drivers.demo.microscope import DemoMicroscope
-    from fibsem.drivers.demo.sim_scene import SampleScene
+    from fibsem.drivers.demo.sim.scene import SampleScene
 
 logger = logging.getLogger(__name__)
 
@@ -846,7 +846,7 @@ class DemoSimulator:
         older flat keys `coincidence_projection`, `coincidence_offset` and
         `tilt_axis_offset` are still honoured when there is no `sample` block.
         """
-        from fibsem.drivers.demo.sim_scene import SampleScene
+        from fibsem.drivers.demo.sim.scene import SampleScene
 
         self.sample_scene = None
         sim = self.microscope.system.sim

@@ -8,8 +8,8 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.drivers.demo.sim_faults import Faults, SimulatedFault
-from fibsem.drivers.demo.sim_scene import SampleScene
+from fibsem.drivers.demo.sim.faults import Faults, SimulatedFault
+from fibsem.drivers.demo.sim.scene import SampleScene
 from fibsem.structures.settings import (
     BeamType,
     FibsemRectangleSettings,

@@ -6,7 +6,7 @@ import pytest
 from scipy import ndimage as ndi
 
 from fibsem import utils
-from fibsem.drivers.demo.sim_scene import SampleScene
+from fibsem.drivers.demo.sim.scene import SampleScene
 from fibsem.fm.structures import ChannelSettings, EmissionFilter
 from fibsem.structures.settings import FibsemStagePosition
 from fibsem.structures.system import CameraImageTransform
