@@ -208,6 +208,8 @@ def test_a_site_is_scored_on_coincidence_and_the_focus_of_its_image(tmp_path):
     a, b = details["per_site"]
     assert a["coincident"] and a["sharp"] and a["blur_px"] < 0.5
     assert not b["coincident"] and b["coincidence_um"] == pytest.approx(13.0)
+    # seen in the FIB image, from 52 degrees
+    assert b["coincidence_fib_um"] == pytest.approx(8.0, abs=0.01)
     assert not b["sharp"]
     assert details["steps"] == {
         "overview": True,

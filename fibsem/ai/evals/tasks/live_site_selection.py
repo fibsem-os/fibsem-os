@@ -28,9 +28,12 @@ ON_CELL_SLACK = 1e-6
 BAD_SQUARES = ("damaged", "thick")
 FLAT = math.radians(1.0)  # a pose this near no tilt is at the SEM orientation
 # A site is ready to mill when the SEM's and FIB's view centres meet within
-# this (m) at its saved pose, and its SEM image is sharp: the beam's spread
-# from being out of focus under this many pixels
-COINCIDENT = 2e-6
+# this (m) as the FIB image shows it at its saved pose, and its SEM image is
+# sharp: the beam's spread from being out of focus under this many pixels.
+# The operator's limit is 5 um in a 50 um FIB image; the FIB looks at the film
+# from 52 degrees, so a gap on the sample shows shortened by FIB_VIEW.
+COINCIDENT = 5e-6
+FIB_VIEW = math.cos(math.radians(52.0))
 SHARP_PX = 2.0
 # Coincidence is made by moving the stage vertically; a beam left shifted
 # by more than this (m) at the end of the run fails every site's readiness
@@ -109,7 +112,8 @@ def prepared(
     z = float(at.get("z") or 0.0)
     off = optics["coincidence_per_z"] * abs(z - optics["coincident_z"])
     out["coincidence_um"] = round(off * 1e6, 2)
-    out["coincident"] = off <= COINCIDENT
+    out["coincidence_fib_um"] = round(off * FIB_VIEW * 1e6, 2)
+    out["coincident"] = off * FIB_VIEW <= COINCIDENT
     images = [
         image
         for image in (answer.get("record") or {}).get("images") or []
