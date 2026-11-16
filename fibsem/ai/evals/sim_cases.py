@@ -121,8 +121,9 @@ BRIEFS = {
 # The example is not scored: a pick on it neither counts nor counts against.
 EXAMPLE_BRIEF = (
     " The operator has picked one good site as an example of what they want: "
-    "the cell at x {x:.0f}, y {y:.0f} px. Find others like it; the example "
-    "itself is not one of your picks."
+    "the grid square centred at x {x:.0f}, y {y:.0f} px, with a cell in it "
+    "clear of the bars. Find others like it; the example itself is not one "
+    "of your picks."
 )
 
 
