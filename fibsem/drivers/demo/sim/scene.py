@@ -398,6 +398,9 @@ class SampleScene:
     extent: Optional[float] = None
     grid_pitch: float = 125e-6  # m, mesh pitch (~200 mesh)
     grid_bar_width: float = 35e-6  # m
+    # the mesh: "square", or "hexagonal" for a honeycomb of hexagons
+    # `grid_pitch` across their flats
+    grid_mesh: str = "square"
     grid_intensity: float = 90.0  # scales the bars' reflection leak into the FM
     # the support film in each square: "continuous", or "holey" - a
     # Quantifoil-style lattice of round holes (diameter, centre-to-centre
@@ -569,6 +572,10 @@ class SampleScene:
     _index: Optional[FeatureIndex] = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
+        if self.grid_mesh not in ("square", "hexagonal"):
+            raise ValueError(
+                f"grid_mesh is 'square' or 'hexagonal', got {self.grid_mesh!r}"
+            )
         if self.preparation not in ("plunge", "waffle"):
             raise ValueError(
                 f"preparation must be 'plunge' or 'waffle', got {self.preparation!r}"
@@ -1620,13 +1627,12 @@ class SampleScene:
         beyond = ~(inside_any | rim)
         return bars, holes, rips, rim, beyond
 
-    def _centre_mark(self, x_rot: np.ndarray, y_rot: np.ndarray) -> np.ndarray:
-        """The orientation mark at the bar crossing nearest the grid's
-        centre: a bigger square of metal with one corner rounded."""
+    def _centre_mark(self, dx: np.ndarray, dy: np.ndarray) -> np.ndarray:
+        """The orientation mark, from coordinates relative to the bar
+        crossing nearest the grid's centre it sits on: a bigger square of
+        metal with one corner rounded."""
         half = CENTRE_MARK_SIZE * self.grid_bar_width / 2
         corner = 0.6 * half  # radius of the rounded corner
-        dx = x_rot - self.grid_pitch / 2
-        dy = y_rot - self.grid_pitch / 2
         square = (np.abs(dx) <= half) & (np.abs(dy) <= half)
         cut = (dx > half - corner) & (dy > half - corner)
         rounded = np.hypot(dx - (half - corner), dy - (half - corner)) <= corner
@@ -1655,28 +1661,55 @@ class SampleScene:
         x_rot = xs * cos_r + ys * sin_r
         y_rot = -xs * sin_r + ys * cos_r
 
-        def _near_bar(w):
-            return np.abs((w % self.grid_pitch) - self.grid_pitch / 2) < (
-                self.grid_bar_width / 2
+        half_pitch = self.grid_pitch / 2
+        if self.grid_mesh == "hexagonal":
+            # a honeycomb: hexagons `grid_pitch` across their flats, one
+            # centred on the grid's centre. Each point belongs to the hexagon
+            # whose centre is nearest, found on the hexagons' own two axes
+            r = y_rot / (self.grid_pitch * np.sqrt(3) / 2)
+            q = x_rot / self.grid_pitch - r / 2
+            rq, rr, rs = np.round(q), np.round(r), np.round(-q - r)
+            dq, dr, ds = np.abs(rq - q), np.abs(rr - r), np.abs(rs + q + r)
+            rq = np.where((dq > dr) & (dq > ds), -rr - rs, rq)
+            rr = np.where((dr > ds) & ~((dq > dr) & (dq > ds)), -rq - rs, rr)
+            sq_i, sq_j = rq.astype(np.int64), rr.astype(np.int64)
+            # local coordinates within the hexagon, zero at its centre
+            lx = x_rot - self.grid_pitch * (rq + rr / 2)
+            ly = y_rot - self.grid_pitch * rr * np.sqrt(3) / 2
+            # how far out toward the nearest of its six sides
+            out = np.maximum(
+                np.abs(lx),
+                np.maximum(
+                    np.abs(lx / 2 + ly * np.sqrt(3) / 2),
+                    np.abs(lx / 2 - ly * np.sqrt(3) / 2),
+                ),
             )
+            bars = out > half_pitch - self.grid_bar_width / 2
+            # the mark sits where three hexagons meet
+            mark = (half_pitch, half_pitch / np.sqrt(3))
+        else:
 
-        bars = _near_bar(x_rot) | _near_bar(y_rot)
+            def _near_bar(w):
+                return np.abs((w % self.grid_pitch) - self.grid_pitch / 2) < (
+                    self.grid_bar_width / 2
+                )
+
+            bars = _near_bar(x_rot) | _near_bar(y_rot)
+            mark = (half_pitch, half_pitch)
+            # a per-square seeded draw, from the square's lattice index. The
+            # bars sit at half-pitch (the grid centre is a square's centre),
+            # so the square frame is the bar frame shifted by half a pitch
+            sq_i = np.floor((x_rot + half_pitch) / self.grid_pitch).astype(np.int64)
+            sq_j = np.floor((y_rot + half_pitch) / self.grid_pitch).astype(np.int64)
+            # local coordinates within the square, zero at its centre
+            lx = ((x_rot + half_pitch) % self.grid_pitch) - half_pitch
+            ly = ((y_rot + half_pitch) % self.grid_pitch) - half_pitch
         if self.centre_mark:
-            bars |= self._centre_mark(x_rot, y_rot)
+            bars |= self._centre_mark(x_rot - mark[0], y_rot - mark[1])
         radius = np.hypot(xs, ys)
         inside = radius <= grid.radius
         rim = (radius > grid.radius) & (radius <= grid.radius + self.grid_rim_width)
-
-        # a per-square seeded draw, from the square's lattice index. The
-        # bars sit at half-pitch (the grid centre is a square's centre), so
-        # the square frame is the bar frame shifted by half a pitch
-        half_pitch = self.grid_pitch / 2
-        sq_i = np.floor((x_rot + half_pitch) / self.grid_pitch).astype(np.int64)
-        sq_j = np.floor((y_rot + half_pitch) / self.grid_pitch).astype(np.int64)
         square_draw = _lattice_draw(sq_i, sq_j, grid.seed)
-        # local coordinates within the square, zero at its centre
-        lx = ((x_rot + half_pitch) % self.grid_pitch) - half_pitch
-        ly = ((y_rot + half_pitch) % self.grid_pitch) - half_pitch
 
         # the rip: each ripped square its own tear. Every quantity is a
         # seeded per-square draw, so a rip is the same from every view:
@@ -2290,6 +2323,7 @@ class SampleScene:
         "extent",  # m
         "grid_pitch",  # m
         "grid_bar_width",  # m
+        "grid_mesh",  # square | hexagonal
         "grid_intensity",
         "noise_sigma",
         "noise_fraction",

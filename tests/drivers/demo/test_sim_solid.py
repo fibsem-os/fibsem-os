@@ -913,3 +913,64 @@ def test_a_target_in_a_waffle_is_inside_its_cell_and_gone_with_it(microscope):
     after, _ = sim_solid.cell_depth(sim_solid.Plan(scene, near, near))
     assert after[32, 32] == 0.0
     assert scene._milled_away(0.0, 0.0, z)
+
+
+HEXAGONAL = {**PLAIN, "grid_mesh": "hexagonal", "grid_rotation": 0.0}
+
+
+def _bars(scene, half=300.0, step=0.5):
+    line = np.arange(-half, half + step / 2, step)
+    return line, scene.film_masks(line[None, :] * 1e-6, line[:, None] * 1e-6)[0]
+
+
+def test_a_hexagonal_mesh_is_a_honeycomb_about_the_grid_centre():
+    scene = SampleScene(**{**HEXAGONAL, "centre_mark": False})
+    line, bars = _bars(scene)
+    X, Y = np.meshgrid(line, line)
+    disc = np.hypot(X, Y) < 290.0
+    # a hexagon's centre is the grid's centre, and it is open
+    assert not bars[len(line) // 2, len(line) // 2]
+    # the open share is that of hexagons a bar's width smaller than the pitch
+    pitch, bar = scene.grid_pitch, scene.grid_bar_width
+    assert (~bars)[disc].mean() == pytest.approx((1 - bar / pitch) ** 2, abs=0.02)
+    # the same mesh a sixth of a turn round, and not a quarter
+    for turn, same in ((60.0, True), (90.0, False)):
+        c, s = np.cos(np.deg2rad(turn)), np.sin(np.deg2rad(turn))
+        turned = scene.film_masks((X * c - Y * s) * 1e-6, (X * s + Y * c) * 1e-6)[0]
+        assert bool((turned == bars)[disc].mean() > 0.995) is same
+    # six bars of the same width round the middle hexagon
+    along = np.flatnonzero(bars[len(line) // 2] & (line > 0) & (line < pitch * 1e6))
+    assert line[along[0]] == pytest.approx((pitch - bar) / 2 * 1e6, abs=0.6)
+    assert len(along) * 0.5 == pytest.approx(bar * 1e6, abs=1.0)
+
+
+def test_a_square_mesh_is_the_default_and_other_meshes_are_refused():
+    assert SampleScene(**PLAIN).grid_mesh == "square"
+    assert SampleScene.from_config({"grid_mesh": "hexagonal"}).grid_mesh == "hexagonal"
+    with pytest.raises(ValueError, match="grid_mesh"):
+        SampleScene(**{**PLAIN, "grid_mesh": "round"})
+
+
+def test_a_hexagonal_mesh_has_its_mark_its_rips_and_a_waffle_s_cells():
+    plain = SampleScene(**{**HEXAGONAL, "centre_mark": False})
+    marked = SampleScene(**HEXAGONAL)
+    line, bars = _bars(plain, half=120.0)
+    more = _bars(marked, half=120.0)[1] & ~bars
+    X, Y = np.meshgrid(line, line)
+    # the mark is metal added where three hexagons meet, next to the centre
+    assert more.any()
+    assert np.hypot(X[more].mean(), Y[more].mean()) == pytest.approx(
+        plain.grid_pitch * 1e6 / np.sqrt(3), abs=4.0
+    )
+    # a ripped hexagon is torn inside its bars
+    torn = SampleScene(**{**HEXAGONAL, "rip_fraction": 0.3})
+    big = np.arange(-400.0, 400.0, 2.0)
+    t_bars, _, rips, _, _ = torn.film_masks(big[None, :] * 1e-6, big[:, None] * 1e-6)
+    assert rips.any() and not (rips & t_bars).any()
+    # and a waffle's cells keep out of a honeycomb's bars
+    waffle = SampleScene(**{**HEXAGONAL, "preparation": "waffle", "cell_type": "yeast"})
+    near = np.arange(-120.0, 120.0, 0.5)
+    col = sim_solid.columns(waffle, near, near, (0.5, 0.5))
+    in_bar = col["bar"][1] > sim_solid.NONE / 2
+    cells = np.any([col[k][1] > sim_solid.NONE / 2 for k in sim_solid.CELLS], axis=0)
+    assert cells.mean() > 0.05 and not (cells & in_bar).any()
