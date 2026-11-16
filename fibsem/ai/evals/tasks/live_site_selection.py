@@ -32,6 +32,9 @@ FLAT = math.radians(1.0)  # a pose this near no tilt is at the SEM orientation
 # from being out of focus under this many pixels
 COINCIDENT = 2e-6
 SHARP_PX = 2.0
+# Coincidence is made by moving the stage vertically; a beam left shifted
+# by more than this (m) at the end of the run fails every site's readiness
+BEAM_SHIFT = 0.1e-6
 NEAR = 5e-6  # m, an image this near a site's x, y is of it
 SITE_HFW = 300e-6  # m, wider than this is not a look at one site
 
@@ -189,6 +192,12 @@ def score_live_site_selection(
         per_site.append(entry)
     counted = len(sites[:most])
     record = answer.get("record") or {}
+    shifted = beam_shifts(record)
+    if shifted:
+        for p in per_site:
+            if p.get("coincident"):
+                p["coincident"] = False
+                p["by_beam_shift"] = True
     scored = [p for p in per_site if "coincident" in p]
     said_good = [p for p in scored if p["verdict"] == "good"]
     # what a site called good must be left with to count as ready to mill:
@@ -220,6 +229,8 @@ def score_live_site_selection(
         "steps": steps,
         "per_site": per_site,
     }
+    if shifted:
+        details["beam_shift_um"] = shifted
     if scored:
         details.update(
             coincident=sum(1 for p in scored if p["coincident"]),
@@ -239,6 +250,19 @@ def score_live_site_selection(
         and not unready
     )
     return ("hit" if hit else "miss"), details
+
+
+def beam_shifts(record: Dict[str, Any]) -> Dict[str, float]:
+    """Each beam left shifted at the end of the run, by how far (um): the
+    run's record holds each beam's shift (x, y) in metres."""
+    out = {}
+    for beam, shift in (record.get("beam_shifts") or {}).items():
+        if not shift:
+            continue
+        size = math.hypot(float(shift[0]), float(shift[1]))
+        if size > BEAM_SHIFT:
+            out[beam] = round(size * 1e6, 2)
+    return out
 
 
 SQUARE_COLOURS = {

@@ -227,6 +227,25 @@ def test_a_site_is_scored_on_coincidence_and_the_focus_of_its_image(tmp_path):
     assert score_live_site_selection(strict, answer, key)[0] == "miss"
 
 
+def test_coincidence_made_with_a_beam_shift_is_not_ready(tmp_path):
+    # Coincidence is made by moving the stage vertically, never by shifting
+    # a beam: a beam left shifted fails every site's readiness.
+    case = _case(tmp_path)
+    key = {**KEY, "optics": OPTICS}
+    site = _item("A", 0.0, 0.0)
+    site["poses"]["MILLING"]["z"] = -10e-6
+    answer = {
+        "sites": [{"item": "A", "verdict": "good"}],
+        "record": {"items": [site], "beam_shifts": {"ion_beam": [0.0, 0.0]}},
+    }
+    assert score_live_site_selection(case, answer, key)[0] == "hit"
+    answer["record"]["beam_shifts"] = {"ion_beam": [3e-6, -4e-6]}
+    result, details = score_live_site_selection(case, answer, key)
+    assert result == "miss"
+    assert details["beam_shift_um"] == {"ion_beam": 5.0}
+    assert details["per_site"][0]["by_beam_shift"] is True
+
+
 def test_an_answer_without_sites_or_with_a_wrong_verdict_is_invalid(tmp_path):
     case = _case(tmp_path)
     with pytest.raises(InvalidAnswer):
