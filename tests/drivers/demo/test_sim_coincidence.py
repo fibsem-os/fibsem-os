@@ -99,6 +99,7 @@ def test_projection_defaults_off(microscope):
     assert microscope._connection.sample_scene is None
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("beam_type", [BeamType.ELECTRON, BeamType.ION])
 def test_click_centres_the_clicked_feature(microscope, beam_type):
     """The app's double-click math must land the clicked feature on the
@@ -127,6 +128,7 @@ def test_click_centres_the_clicked_feature(microscope, beam_type):
     assert error < 1e-6, f"clicked feature landed {error * 1e6:.2f} um off-centre"
 
 
+@pytest.mark.slow
 def test_z_move_displaces_fib_view_far_more_than_sem(microscope):
     """A stage-z move is the coincidence signal: large in the FIB view,
     small in the SEM view (only the sin(tilt) stage-axis leak)."""
@@ -150,6 +152,7 @@ def test_z_move_displaces_fib_view_far_more_than_sem(microscope):
     assert shifts[BeamType.ION] > 2 * shifts[BeamType.ELECTRON]
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("beam_type", [BeamType.ELECTRON, BeamType.ION])
 def test_stitched_overview_matches_single_wide_shot(microscope, beam_type, tmp_path):
     """A tiled overview and one wide-field shot are the same world through
@@ -261,6 +264,7 @@ def test_known_z_move_changes_measurement_by_that_amount(microscope):
     assert abs(m1.dz - m0.dz) == pytest.approx(dz_applied, abs=0.5e-6)
 
 
+@pytest.mark.slow
 def test_tilting_does_not_reset_the_world(microscope):
     """The workflow tilts between orientations constantly (select a site at
     the SEM orientation, tilt to the milling angle): the selected site must

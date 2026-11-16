@@ -346,6 +346,7 @@ def test_resume_is_refused_for_an_unknown_session_or_a_running_agent(make):
     agent = start(mgr, env)
     with pytest.raises(AgentRunning):
         mgr.resume("arctis-1", agent.session_id, [], env=env)
+    until(lambda: len(runs(agent)) == 1)
     mgr.end("arctis-1")
 
 

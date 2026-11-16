@@ -97,6 +97,7 @@ def test_the_listing_has_the_alignment_service(client):
     assert "measure_shift" in alignment["queries"]
 
 
+@pytest.mark.slow
 def test_check_coincidence_at_target_answers_an_overlay_and_saves_the_pair(
     client, experiment
 ):

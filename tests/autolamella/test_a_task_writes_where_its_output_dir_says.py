@@ -80,6 +80,7 @@ def _write_elsewhere(monkeypatch, folder: Path) -> None:
     monkeypatch.setattr(AutoLamellaTask, "output_dir", property(lambda _: str(folder)))
 
 
+@pytest.mark.slow
 def test_everything_a_task_writes_follows_the_output_folder(
     microscope, experiment, tmp_path, monkeypatch
 ):

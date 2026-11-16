@@ -105,6 +105,7 @@ def test_a_stopped_run_resumes_without_cutting_a_slice_twice(
     assert len(milled) == 6
 
 
+@pytest.mark.slow
 def test_a_failed_slice_stops_its_position_and_not_the_others(
     microscope, experiment, positions, milled
 ):

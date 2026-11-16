@@ -84,6 +84,7 @@ def test_a_fault_the_simulator_does_not_have_is_refused(entry):
         SampleScene.from_config({"faults": [entry]})
 
 
+@pytest.mark.slow
 def test_the_beam_turns_off_until_it_is_turned_on_again():
     microscope = _microscope({"kind": "beam_off", "at": 2})
     try:

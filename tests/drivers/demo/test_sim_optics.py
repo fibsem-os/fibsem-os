@@ -87,6 +87,7 @@ def test_autofocus_finds_the_focus(microscope):
     assert _detail(_image(microscope, beam_type)) > 0.97 * sharp
 
 
+@pytest.mark.slow
 def test_the_default_focus_sweep_finds_the_focus_of_a_noisy_surface():
     """The sweep's own score has to peak at focus on what the simulator
     draws by default: a noisy probe image of a surface with little in view.

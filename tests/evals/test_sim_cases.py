@@ -376,6 +376,7 @@ def test_an_fm_target_case_from_the_sim(tmp_path, seed, kind, usable):
     )
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize(
     "seed, through, intact",
     [
@@ -403,6 +404,7 @@ def test_a_rough_milling_case_from_the_sim(tmp_path, seed, through, intact):
         assert miss.result == "miss" and miss.costly >= 1
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("seed, lost", [(1, False), (3, True)])
 def test_a_coincidence_case_from_the_sim(tmp_path, seed, lost):
     folder = sim_coincidence.write_case(

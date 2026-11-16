@@ -115,6 +115,7 @@ def test_contamination_adds_fine_aperiodic_structure(microscope):
     ) == int(30.0 * (scene.extent / 100e-6) ** 2)
 
 
+@pytest.mark.slow
 def test_beam_shift_moves_the_content_the_way_the_alignment_expects(microscope):
     """The oracle is the alignment code itself: displace the stage, align by
     beam shift against the earlier reference, and the image must be back."""
@@ -161,6 +162,7 @@ def test_a_large_beam_offset_is_refused_as_lateral(microscope):
     assert m.dx == pytest.approx(-8e-6, abs=0.6e-6)
 
 
+@pytest.mark.slow
 def test_changing_beam_current_moves_the_beam_reproducibly(microscope):
     """Each ion current carries its own seeded offset: switching current
     shifts the FIB view, switching back restores it, and the beam-shift
@@ -197,6 +199,7 @@ def test_changing_beam_current_moves_the_beam_reproducibly(microscope):
     assert np.hypot(aligned[0] - at_low[0], aligned[1] - at_low[1]) < 2
 
 
+@pytest.mark.slow
 def test_scan_rotation_turns_the_content(microscope):
     """A quarter-turn of the scan puts a feature that sat to the right of
     centre above or below it, at the same distance."""
@@ -253,6 +256,7 @@ def test_cell_types_generate_their_parts(cell_type, parts):
     assert all(f.cell_id >= 0 for f in cells)
 
 
+@pytest.mark.slow
 def test_mammalian_is_the_default_and_unknown_types_are_rejected():
     assert SampleScene().cell_type == "rpe"
     with pytest.raises(ValueError):
@@ -448,6 +452,7 @@ def test_beyond_the_grid_is_rim_then_holder():
     assert beyond.tolist() == [[False, False, True]]
 
 
+@pytest.mark.slow
 def test_milled_patterns_persist_in_the_world(microscope):
     """A rectangle milled at the milling pose is a trench from then on: it
     sits where the pattern was drawn in the FIB view, it moves with the
@@ -572,6 +577,7 @@ def _fib_and_sem(microscope, hfw=150e-6):
     return fib.astype(np.float32), sem.astype(np.float32)
 
 
+@pytest.mark.slow
 def test_the_fib_sees_cells_as_outlined_not_inverted(microscope):
     """In the FIB a cell body is slightly darker than the film with a bright
     rim (the edge effect); in the SEM it is brighter than the film."""
@@ -602,6 +608,7 @@ def test_the_fib_sees_cells_as_outlined_not_inverted(microscope):
     assert np.percentile(fib[rim], 90) > fib[interior].mean() + 20
 
 
+@pytest.mark.slow
 def test_spot_burns_leave_marks_in_every_view(microscope):
     """A spot burn is a milled region like any other (FIB-954): the base
     run_spot_burn parks the beam and unblanks it, and the simulator cuts a

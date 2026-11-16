@@ -157,6 +157,7 @@ def _held(case):
     return _name(case) in HELD_FILTER
 
 
+@pytest.mark.slow
 def test_the_recording_covers_every_part_and_both_views(recording):
     assert len(recording) > 300
     assert {case["group"] for case in recording} == {*PARTS, "acquire", "live"}

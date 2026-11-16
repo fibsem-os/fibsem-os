@@ -107,6 +107,7 @@ def test_an_axis_that_does_not_move_keeps_its_jitter():
     assert error.actual(tilted).x == landed
 
 
+@pytest.mark.slow
 def test_the_layout_check_sees_the_scale_error_on_a_tiled_overview(
     microscope, tmp_path
 ):
