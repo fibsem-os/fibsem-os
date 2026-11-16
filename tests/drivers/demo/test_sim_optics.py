@@ -131,6 +131,13 @@ def test_the_default_focus_sweep_finds_the_focus_of_a_noisy_surface():
         )
         assert abs(result.working_distance - focus) <= 12e-6
         assert result.check()["verdict"] == "passed"
+
+        # The electron beam's own default has a wide pass first, so it also finds a
+        # focus that starts far off.
+        microscope.set_working_distance(focus + 300e-6, beam_type)
+        result = run_auto_focus(microscope, beam_type, hfw=80e-6)
+        assert abs(result.working_distance - focus) <= 12e-6
+        assert len(result.iterations) == 33
     finally:
         microscope.disconnect()
 

@@ -459,7 +459,8 @@ class Imaging(Service):
             f"{beam_type.name} has no autofocus of its own; running the focus sweep."
         )
         return self.focus_sweep(
-            beam_type=beam_type, settings=AutoFocusSettings(reduced_area=reduced_area)
+            beam_type=beam_type,
+            settings=AutoFocusSettings.for_beam(beam_type, reduced_area=reduced_area),
         )
 
     @command

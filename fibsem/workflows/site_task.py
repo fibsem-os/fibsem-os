@@ -310,15 +310,18 @@ class SiteTask(BaseTask):
             run_auto_focus,
         )
 
-        settings = AutoFocusSettings(
+        settings = AutoFocusSettings.for_beam(
+            beam_type,
             method="tenengrad",
-            passes=[
-                FocusSweepPass(search_range=1e-3, step_size=100e-6),
-                FocusSweepPass(search_range=100e-6, step_size=10e-6),
-            ],
             reduced_area=FibsemRectangle(0.25, 0.25, 0.5, 0.5),
             use_autocontrast=True,
         )
+        if beam_type is not BeamType.ELECTRON:
+            # The ion beam keeps its two wide passes, without the fine one.
+            settings.passes = [
+                FocusSweepPass(search_range=1e-3, step_size=100e-6),
+                FocusSweepPass(search_range=100e-6, step_size=10e-6),
+            ]
         # NOTE: config.imaging, not self.image_settings -- only two subclasses define
         # that attribute, and only partway through their own _run().
         # `is None` rather than `or`, so an explicit hfw=0 is not silently replaced.

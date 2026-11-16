@@ -8,7 +8,7 @@ import threading
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, List, Optional
+from typing import TYPE_CHECKING, Callable, List, Optional, Union
 
 import numpy as np
 
@@ -86,11 +86,26 @@ class FocusSweepPass(Configurable):
         return max(1, round(self.search_range / self.step_size))
 
 
-# default coarse/fine passes (FM scale); FIB-SEM callers pass explicit passes
+# default coarse/fine passes (FM scale: the objective's travel)
 def _default_passes() -> "list[FocusSweepPass]":
     return [
         FocusSweepPass(search_range=50e-6, step_size=5e-6),  # coarse
         FocusSweepPass(search_range=10e-6, step_size=1e-6),  # fine
+    ]
+
+
+def electron_passes() -> "list[FocusSweepPass]":
+    """The default passes for the electron beam's working distance.
+
+    The first finds a focus that is far off (half a millimetre either way), and the
+    last settles it to a micrometre, each ten times finer than the one before. The
+    ion beam does not take them: its sharpness changes too little with focus for the
+    wide pass to be trusted.
+    """
+    return [
+        FocusSweepPass(search_range=1e-3, step_size=100e-6),
+        FocusSweepPass(search_range=100e-6, step_size=10e-6),
+        FocusSweepPass(search_range=10e-6, step_size=1e-6),
     ]
 
 
@@ -115,7 +130,7 @@ class AutoFocusSettings(Configurable):
     )
     passes: Optional[List[FocusSweepPass]] = param(
         None,
-        doc="The sweeps, in order: each is centred on the best focus the one before it found (the first on the starting focus). Empty uses the default coarse and fine passes.",
+        doc="The sweeps, in order: each is centred on the best focus the one before it found (the first on the starting focus). Empty uses the default coarse and fine passes (the electron beam's own default is `AutoFocusSettings.for_beam`).",
     )
     probe_resolution: tuple = param(
         (768, 512),
@@ -155,6 +170,19 @@ class AutoFocusSettings(Configurable):
     def enabled(self) -> bool:
         """True if any pass is enabled (i.e. autofocus should run)."""
         return any(p.enabled for p in self.passes)
+
+    @classmethod
+    def for_beam(
+        cls, beam_type: "Union[BeamType, str]", **kwargs
+    ) -> "AutoFocusSettings":
+        """A beam's default settings: `electron_passes` for the electron beam (given
+        as the type or its name), unless passes are given. The ion beam keeps the
+        class's own default passes."""
+        if isinstance(beam_type, str):
+            beam_type = BeamType[beam_type]
+        if beam_type is BeamType.ELECTRON:
+            kwargs.setdefault("passes", electron_passes())
+        return cls(**kwargs)
 
     def to_dict(self) -> dict:
         return encode(self)
@@ -413,7 +441,7 @@ def run_auto_focus(
     if beam_type is None:
         beam_type = BeamType.ELECTRON
     if settings is None:
-        settings = AutoFocusSettings()
+        settings = AutoFocusSettings.for_beam(beam_type)
     started_at = now_iso()
     record = {
         "beam_type": beam_type.name,

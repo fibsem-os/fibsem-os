@@ -547,15 +547,18 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
             run_auto_focus,
         )
 
-        settings = AutoFocusSettings(
+        settings = AutoFocusSettings.for_beam(
+            beam_type,
             method="tenengrad",
-            passes=[
-                FocusSweepPass(search_range=1e-3, step_size=100e-6),
-                FocusSweepPass(search_range=100e-6, step_size=10e-6),
-            ],
             reduced_area=FibsemRectangle(0.25, 0.25, 0.5, 0.5),
             use_autocontrast=True,
         )
+        if beam_type is not BeamType.ELECTRON:
+            # The ion beam keeps its two wide passes, without the fine one.
+            settings.passes = [
+                FocusSweepPass(search_range=1e-3, step_size=100e-6),
+                FocusSweepPass(search_range=100e-6, step_size=10e-6),
+            ]
         run_auto_focus(
             self.microscope,
             beam_type=beam_type,

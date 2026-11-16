@@ -640,3 +640,17 @@ def test_run_auto_focus_puts_back_only_what_its_probe_images_changed():
         result.working_distance
     )
     assert detector_writes == []
+
+
+def test_only_the_electron_beam_s_default_sweep_starts_wide():
+    """The ion beam's sharpness changes too little with focus to trust a 1 mm pass."""
+    electron = AutoFocusSettings.for_beam(BeamType.ELECTRON)
+    assert [(p.search_range, p.step_size) for p in electron.passes] == [
+        (1e-3, 100e-6),
+        (100e-6, 10e-6),
+        (10e-6, 1e-6),
+    ]
+    ion = AutoFocusSettings.for_beam(BeamType.ION)
+    assert ion.to_dict() == AutoFocusSettings().to_dict()
+    given = [FocusSweepPass(search_range=20e-6, step_size=10e-6)]
+    assert AutoFocusSettings.for_beam(BeamType.ELECTRON, passes=given).passes == given

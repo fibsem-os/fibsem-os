@@ -224,8 +224,16 @@ def _beam_acquire_focus_stack(
     return {"what": wording.beam_name(image), "change": change}
 
 
+def _beam_passes(a: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The default sweep passes of the call's beam, as the dicts a call carries."""
+    from fibsem.autofunctions.autofocus import AutoFocusSettings
+
+    beam_type = str(a.get("beam_type") or "ELECTRON").upper()
+    return [vars(p) for p in AutoFocusSettings.for_beam(beam_type).passes]
+
+
 def _beam_auto_focus(a: Dict[str, Any], ctx: wording.ActionContext) -> Dict[str, Any]:
-    """The sweep's passes, as the operator reads them: "50 µm in 5 µm steps"."""
+    """The sweep's passes, as the operator reads them: "100 µm in 10 µm steps"."""
     if str(a.get("method") or "sweep").lower() == "instrument":
         return {
             "what": wording.beam_name(a),
@@ -234,9 +242,7 @@ def _beam_auto_focus(a: Dict[str, Any], ctx: wording.ActionContext) -> Dict[str,
     settings = a.get("settings") if isinstance(a.get("settings"), dict) else {}
     passes = settings.get("passes")
     if not isinstance(passes, list) or not passes:
-        from fibsem.autofunctions.autofocus import AutoFocusSettings
-
-        passes = [vars(p) for p in AutoFocusSettings().passes]
+        passes = _beam_passes(a)
     steps = [
         f"{wording.distance(p.get('search_range'))} in {wording.distance(p.get('step_size'))} steps"
         for p in passes
@@ -342,10 +348,14 @@ def _auto_focus_call(a: Dict[str, Any]) -> Tuple[Dict[str, Any], dict]:
         return {"command": "auto_focus"}, kwargs_body(**beam_kwargs(a))
     if method != "sweep":
         raise ValueError(f"method must be sweep or instrument, not {method!r}")
+    settings = a.get("settings")
+    if isinstance(settings, dict) and not settings.get("passes"):
+        # Settings that name no passes still get their beam's default ones.
+        settings = {**settings, "passes": _beam_passes(a)}
     sweep = beam_kwargs(
         a,
         hfw=a.get("hfw"),
-        settings=a.get("settings"),
+        settings=settings,
         path=a.get("path"),
         name=a.get("name"),
     )
@@ -543,7 +553,9 @@ TOOLS: Tuple[ToolSpec, ...] = (
             ),
             "settings": arg(
                 "AutoFocusSettings dict, for the sweep: passes [{search_range, "
-                "step_size}] in metres, method (tenengrad, laplacian, sobel or "
+                "step_size}] in metres (default for ELECTRON 1 mm in 100 µm "
+                "steps, then 100 µm in 10 µm, then 10 µm in 1 µm; for ION 50 µm "
+                "in 5 µm, then 10 µm in 1 µm), method (tenengrad, laplacian, sobel or "
                 "variance: how an image is scored), probe_resolution [w, h], "
                 "probe_dwell_time (s), reduced_area {left, top, width, height} "
                 "(0-1), use_autocontrast",
