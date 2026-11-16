@@ -2333,6 +2333,7 @@ export interface components {
             port: number | null;
             /** @default Unknown */
             serial_number: string;
+            server_version: string | null;
             /** @default Unknown */
             software_version: string;
         };
