@@ -283,6 +283,40 @@ two spots, its pool and its cilium's base and tip (or None). With `fm_red: cilia
 lists only the cells with a cilium, and the midpoint is the cilium's. The camera has hot
 pixels (`fm_hot_pixels`): the same pixels, as bright, in every frame.
 
+## Labelled images
+
+The simulator draws every SEM and FIB image from objects, so it knows what each pixel
+shows. `fibsem.drivers.demo.sim.labels` gives that as labels:
+
+```python
+from fibsem.drivers.demo.sim import labels
+
+image, found = labels.acquire(microscope, image_settings)
+found.classes   # uint8, the class of each pixel (labels.CLASSES)
+found.cells     # uint16, the number of the cell at each pixel, 0 where none
+found.boxes()   # a box for each cell, speck, ice plate, rip and fiducial
+```
+
+The classes are background, ice, grid bar, cell, film hole, broken hole or rip, crack,
+contamination, ice plate, fiducial, milled trench, cut face, cell cut face and coat. They
+follow the image through tilt, scan rotation, beam shift and milling.
+
+Run as a program it writes a dataset, one scene per seed:
+
+```
+python -m fibsem.drivers.demo.sim.labels --out labels --seeds 1 2 3
+```
+
+For each seed that is six images (SEM overviews at 300 and 120 um, FIB and SEM at the
+milling angle at 150 um, FIB and SEM of two trenches at 50 um; choose with `--views`),
+in `images/`, with `labels/` (class ids, as a paletted PNG), `instances/` (cell
+numbers), `overlays/` to look at, and one COCO `annotations.json` with a box and a mask
+for each cell and each patch of contamination, ice plate, rip and fiducial.
+
+Labels come from the objects, not from the image: something too faint to make out, a
+crack under thick ice for one, is labelled all the same. The fluorescence view has no
+labels yet.
+
 ## One world, three views
 
 ![SEM, FIB and FM of the same place](img/simulator/triplet.png)
