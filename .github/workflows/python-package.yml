@@ -107,6 +107,26 @@ jobs:
     - name: Test with pytest
       run: pytest tests/ -m slow -n auto --dist worksteal --timeout=300
 
+  random-order:
+    # The suite in a new random order each night, to find a test that passes only
+    # because of what an earlier one left behind, or only in the order it was
+    # written in. pytest-randomly prints its seed at the top of the log; rerun a
+    # failure in the same order with `pytest -p randomly --randomly-seed=<seed>`.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+    - uses: actions/setup-python@v7
+      with:
+        python-version: "3.11"
+        cache: 'pip'
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install ".[test]" pytest-randomly==5.0.0
+    - name: Test with pytest in a random order
+      run: pytest tests/ -n auto --dist worksteal --timeout=300 -m "not slow"
+
   ui-tests:
     # The one job that installs the [ui] extra, and the only place the Qt tests
     # are ever run: everything under tests/ui/, plus the files elsewhere under
