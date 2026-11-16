@@ -9,6 +9,7 @@ from fibsem.ai.evals.scoring import InvalidAnswer, _point
 from fibsem.ai.evals.tasks.base import EvalTask, Run
 from fibsem.ai.evals.visual import (
     KEY,
+    THEME,
     _colour,
     _figure,
     _input,
@@ -33,9 +34,13 @@ def score_site_selection(
     on_example = 0
     if example:
         kept = []
+        # its square's centre, and its cell when the key gives it
+        spots = [(example["x_px"], example["y_px"])]
+        if "cell_x_px" in example:
+            spots.append((example["cell_x_px"], example["cell_y_px"]))
         for pick in picks:
             x, y = _point(pick)
-            if math.hypot(x - example["x_px"], y - example["y_px"]) <= radius:
+            if any(math.hypot(x - sx, y - sy) <= radius for sx, sy in spots):
                 on_example += 1
             else:
                 kept.append(pick)
@@ -96,7 +101,9 @@ def draw_site_selection(case: Case, runs: List[Run]):
         )
     for square in case.key.get("bad") or []:
         ax.add_patch(
-            Circle((square["x_px"], square["y_px"]), radius, fill=False, color="red")
+            Circle(
+                (square["x_px"], square["y_px"]), radius, fill=False, color=THEME.bad
+            )
         )
     for n, (_, answer) in enumerate(runs):
         for i, pick in enumerate((answer or {}).get("picks") or []):

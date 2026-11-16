@@ -17,9 +17,10 @@ import numpy as np
 from fibsem.ai.evals.cases import Case
 from fibsem.ai.evals.scoring import InvalidAnswer
 from fibsem.ai.evals.tasks.base import EvalTask, Run, Sim
-from fibsem.ai.evals.visual import KEY, _colour, _figure, _legend
+from fibsem.ai.evals.visual import KEY, THEME, _colour, _figure, _legend
 from fibsem.geometry.saved_images import stage_projector
 from fibsem.structures.settings import FibsemStagePosition
+from fibsem.theme.tokens import SAVED_POSITION_COLOUR
 
 VERDICTS = ("good", "bad")
 # How far a site may be from a cell body's edge and still be on it (m): a
@@ -271,10 +272,10 @@ def beam_shifts(record: Dict[str, Any]) -> Dict[str, float]:
 
 SQUARE_COLOURS = {
     "good": KEY,
-    "cell_near_bar": "#e6a700",
-    "no_cells": "#999999",
-    "damaged": "#d62728",
-    "thick": "#1f77b4",
+    "cell_near_bar": THEME.warn,
+    "no_cells": THEME.text_muted,
+    "damaged": THEME.bad,
+    "thick": THEME.series[0],
 }
 
 
@@ -305,7 +306,7 @@ def _overview(answer: Any) -> Any:
 def _draw_overlays(case: Case, shown: List[Tuple[int, Dict[str, Any], Path]]):
     """One panel per repeat: its overview, the key's squares (by label) and
     good cells projected onto it, and its sites (o said good, x said bad;
-    cyan truly good, pink truly bad, yellow unsure)."""
+    cyan truly good, red truly bad, amber unsure)."""
     import tifffile
     from matplotlib.patches import Polygon
 
@@ -315,7 +316,7 @@ def _draw_overlays(case: Case, shown: List[Tuple[int, Dict[str, Any], Path]]):
     u, v = np.asarray(frame["u"], float), np.asarray(frame["v"], float)
     corners = [half * (a * u + b * v) for a, b in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
     labels = {tuple(q["index"]): q["label"] for q in key.get("squares") or []}
-    truth_colours = {"good": "#00e5ff", "bad": "#ff2d55"}
+    truth_colours = {"good": SAVED_POSITION_COLOUR, "bad": THEME.bad}
     fig, axes = _figure(12, 8 * len(shown), nrows=len(shown))
     for ax, (n, answer, path) in zip(np.atleast_1d(axes), shown):
         image = tifffile.imread(str(path))
@@ -339,7 +340,7 @@ def _draw_overlays(case: Case, shown: List[Tuple[int, Dict[str, Any], Path]]):
                     [px(centre + c) for c in corners],
                     closed=True,
                     fill=False,
-                    color=SQUARE_COLOURS.get(square["label"], "#999999"),
+                    color=SQUARE_COLOURS.get(square["label"], THEME.text_muted),
                     lw=1.4 if certain else 0.8,
                     ls="-" if certain else ":",
                 )
@@ -358,7 +359,7 @@ def _draw_overlays(case: Case, shown: List[Tuple[int, Dict[str, Any], Path]]):
             if where is None:
                 continue
             truth = site_truth(key, where["x"], where["y"])["truth"]
-            colour = truth_colours.get(truth, "#ffd60a")
+            colour = truth_colours.get(truth, THEME.warn)
             x, y = px((where["x"], where["y"]))
             good = str(site.get("verdict")) == "good"
             ax.plot(
@@ -378,7 +379,7 @@ def _draw_overlays(case: Case, shown: List[Tuple[int, Dict[str, Any], Path]]):
         ax.axis("off")
         ax.set_title(
             f"r{n + 1}: {path.name}. Sites: o said good, x said bad; "
-            "cyan truly good, pink truly bad, yellow unsure",
+            "cyan truly good, red truly bad, amber unsure",
             fontsize=9,
         )
     _square_legend(fig)
@@ -409,7 +410,7 @@ def _draw_map(case: Case, runs: List[Run]):
     u, v = np.asarray(frame["u"], float), np.asarray(frame["v"], float)
     corners = [half * (a * u + b * v) for a, b in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
     for square in key.get("squares") or []:
-        colour = SQUARE_COLOURS.get(square["label"], "#999999")
+        colour = SQUARE_COLOURS.get(square["label"], THEME.text_muted)
         centre = np.array([square["x"], square["y"]]) * 1e3
         ax.add_patch(
             Polygon(
@@ -432,7 +433,7 @@ def _draw_map(case: Case, runs: List[Run]):
             Circle(
                 (cell["x"] * 1e3, cell["y"] * 1e3),
                 cell["radius_um"] * 1e-3,
-                color=KEY if good else "#bbbbbb",
+                color=KEY if good else THEME.text_muted,
                 alpha=0.5,
             )
         )

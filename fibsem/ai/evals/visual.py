@@ -28,17 +28,22 @@ from fibsem.ai.evals.scoring import (
     score_case,
     score_live,
 )
+from fibsem.theme.plots import DARK, LIGHT, plot_theme
 
 log = logging.getLogger(__name__)
 
 PAGE = "report.html"
-KEY = "#2ca02c"
+# The figures are drawn in the app's look, the image canvas's: colours that
+# mean something come from THEME by name, never as literals.
+THEME = DARK
+KEY = THEME.good
+# The result words sit on the page, which is light.
 RESULT_COLOURS = {
-    "hit": "#2ca02c",
-    "miss": "#d62728",
-    "early": "#ff7f0e",
-    "late": "#ff7f0e",
-    "invalid": "#7f7f7f",
+    "hit": LIGHT.good,
+    "miss": LIGHT.bad,
+    "early": LIGHT.warn,
+    "late": LIGHT.warn,
+    "invalid": LIGHT.text_muted,
 }
 
 # One run: its result.json and its answer.json (None when it wrote none).
@@ -46,11 +51,10 @@ Run = Tuple[Dict[str, Any], Optional[Dict[str, Any]]]
 
 
 def _colour(n: int) -> str:
-    import matplotlib
-
-    # tab10 without its green, which is the key's.
-    picks = (0, 1, 3, 4, 5, 6, 8, 9)
-    return matplotlib.colormaps["tab10"](picks[n % len(picks)])
+    """Repeat *n*'s colour: the theme's series in order, without its green,
+    which is the key's."""
+    picks = [c for i, c in enumerate(THEME.series) if i != 2]
+    return picks[n % len(picks)]
 
 
 # --- images -----------------------------------------------------------------
@@ -206,13 +210,17 @@ def case_figures(case: Case, runs: List[Run]) -> List[Tuple[str, str]]:
             continue
         try:
             kw = {"key": key, "part": part} if part is not None else {}
-            fig = tasks.get(task).draw(case, runs, **kw)
+            # built and saved inside the theme: matplotlib reads its
+            # defaults when an artist is made
+            with plot_theme(THEME):
+                fig = tasks.get(task).draw(case, runs, **kw)
+                png = _png(fig) if fig is not None else None
         except Exception as e:  # a figure is a help, never a reason to fail
             log.warning("No figure for %s (%s): %s", case.id, caption, e)
             figures.append((f"{caption}: no figure ({e})", ""))
             continue
-        if fig is not None:
-            figures.append((caption, _png(fig)))
+        if png is not None:
+            figures.append((caption, png))
     return figures
 
 
@@ -318,7 +326,7 @@ img { max-width: 100%; }
 
 
 def _result_html(result: str) -> str:
-    colour = RESULT_COLOURS.get(result, "#000")
+    colour = RESULT_COLOURS.get(result, LIGHT.text)
     return f"<span class='result' style='color:{colour}'>{html.escape(result)}</span>"
 
 
@@ -497,7 +505,7 @@ def write_html(out: Path, cases_root: Optional[Path] = None) -> Path:
         )
         for folder, (result, answer) in items:
             results = ", ".join(
-                f"<span class='result' style='color:{RESULT_COLOURS.get(s['result'], '#000')}'>"
+                f"<span class='result' style='color:{RESULT_COLOURS.get(s['result'], LIGHT.text)}'>"
                 f"{html.escape((s.get('part') or '') + ' ' + s['result']).strip()}</span>"
                 for s in result.get("scores", [])
             )

@@ -256,6 +256,20 @@ def test_a_pick_on_the_example_site_is_not_scored(site_case):
     assert s.details["example_picks"] == 1 and s.details["picks"] == 1
 
 
+def test_a_pick_on_the_example_cell_is_not_scored_either(site_case):
+    # the brief points at the example's cell, off its square's centre
+    site_case.data["key"]["example"] = {
+        "x_px": 2000,
+        "y_px": 1000,
+        "cell_x_px": 1850,
+        "cell_y_px": 1100,
+    }
+    site_case.data["key"]["good"] = site_case.data["key"]["good"][:1]
+    picks = [{"x_px": 1855, "y_px": 1100}, {"x_px": 1000, "y_px": 1000}]
+    s = result(site_case, {"picks": picks})
+    assert s.details["example_picks"] == 1 and s.details["picks"] == 1
+
+
 def test_check_finds_problems(tmp_path, site_case, polish_case):
     assert check_case(site_case).ok
     (site_case.path / "experiment/overview.tif").unlink()

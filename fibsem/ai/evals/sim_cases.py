@@ -121,9 +121,8 @@ BRIEFS = {
 # The example is not scored: a pick on it neither counts nor counts against.
 EXAMPLE_BRIEF = (
     " The operator has picked one good site as an example of what they want: "
-    "the grid square centred at x {x:.0f}, y {y:.0f} px, with a cell in it "
-    "clear of the bars. Find others like it; the example itself is not one "
-    "of your picks."
+    "the cell at x {x:.0f}, y {y:.0f} px. Find others like it; the example "
+    "itself is not one of your picks."
 )
 
 
@@ -366,7 +365,7 @@ def measure_square(scene, grid, index: Tuple[int, int], step: float = 1e-6) -> D
         for f in near:
             if f.kind == "ice" or getattr(f, "part", "") == "frost":
                 ice |= _outline(f, xs, ys, scale)
-        cells, clear_cells = 0, 0
+        cells, clear_cells, clear_at = 0, 0, []
         for f in near:
             if f.kind != "cell" or f.part != "body":
                 continue
@@ -378,10 +377,13 @@ def measure_square(scene, grid, index: Tuple[int, int], step: float = 1e-6) -> D
             # wholly on the film and clear of every bar
             if not (body & ~clear).any() and body.any():
                 clear_cells += 1
+                clear_at.append((float(f.x), float(f.y)))
         out[name] = {
             "ice_fraction": float((ice & film).sum()) / area,
             "cells": cells,
             "clear_cells": clear_cells,
+            # where each clear cell is (world, m): an example points at one
+            "clear_cells_at": clear_at,
         }
     return out
 
@@ -642,11 +644,26 @@ def write_cases(
         )
         twin = dict(cases[site])
         point = example.point()
+        # the example points at its clear cell, as a pick does: the square's
+        # centre is often bare film, and "the cell at" bare film taught agents
+        # to pick empty squares
+        cell = min(
+            example.measures["mid"]["clear_cells_at"],
+            key=lambda at: math.hypot(
+                *np.subtract(overview.px(*at), (point["x_px"], point["y_px"]))
+            ),
+        )
+        cx, cy = overview.px(*cell)
+        point = {
+            **point,
+            "cell_x_px": round(float(cx), 1),
+            "cell_y_px": round(float(cy), 1),
+        }
         twin.update(
             id=f"{name}-sites-example",
             inputs={"overview": f"../{name}/experiment/overview.tif"},
             brief=twin["brief"]
-            + EXAMPLE_BRIEF.format(x=point["x_px"], y=point["y_px"]),
+            + EXAMPLE_BRIEF.format(x=point["cell_x_px"], y=point["cell_y_px"]),
             key={
                 **twin["key"],
                 "good": [q.point() for q in good if q is not example],
