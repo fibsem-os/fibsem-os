@@ -974,3 +974,91 @@ def test_a_hexagonal_mesh_has_its_mark_its_rips_and_a_waffle_s_cells():
     in_bar = col["bar"][1] > sim_solid.NONE / 2
     cells = np.any([col[k][1] > sim_solid.NONE / 2 for k in sim_solid.CELLS], axis=0)
     assert cells.mean() > 0.05 and not (cells & in_bar).any()
+
+
+WORMS = {
+    **WAFFLE,
+    "cell_type": "celegans",
+    "grid_pitch": 508e-6,
+    "grid_bar_width": 40e-6,
+    "grid_rotation": 0.0,
+}
+
+
+def _worms(scene) -> dict:
+    """Each worm's balls, head first."""
+    worms: dict = {}
+    for f in scene.features:
+        if f.kind == "cell" and f.part in ("segment", "body"):
+            worms.setdefault(f.cell_id, []).append(f)
+    return worms
+
+
+def test_worms_in_a_waffle_are_whole_and_clear_of_the_bars_and_each_other():
+    scene = SampleScene(**WORMS)
+    worms = _worms(scene)
+    assert len(worms) >= 8
+    lo, hi = scene.worm_length
+    for balls in worms.values():
+        assert [f.along for f in balls] == sorted(f.along for f in balls)
+        assert balls[0].along == 0.0 and balls[-1].along == 1.0
+        assert sum(f.part == "body" for f in balls) == 1
+        length = (len(balls) - 1) * sim_solid.WORM_STEP * 1e-6
+        assert lo - 2e-6 <= length <= hi
+        # widest in the middle, a narrow nose, a tail that runs out
+        middle = balls[len(balls) // 2].sigma
+        assert scene.worm_radius[0] <= middle <= scene.worm_radius[1]
+        assert balls[-1].sigma < balls[0].sigma < 0.6 * middle
+        for f in balls:
+            assert f.base > 0 and f.base + f.height < scene.slab_thickness
+    line = np.arange(-250.0, 250.0, 1.0)
+    col = sim_solid.columns(scene, line, line, (1.0, 1.0))
+    bars = col["bar"][1] > sim_solid.NONE / 2
+    body = col["cell"][1] > sim_solid.NONE / 2
+    assert bars.any() and body.mean() > 0.03 and not (body & bars).any()
+    # no two worms touch: each patch of body from above is one worm
+    patches, n = ndi.label(body)
+    for k in range(1, n + 1):
+        assert len(np.unique(col["cell_ids"][0][patches == k])) == 1
+
+
+def test_a_worm_cut_across_shows_its_gut_and_nuclei_inside_it():
+    scene = SampleScene(**WORMS)
+    balls = next(iter(_worms(scene).values()))
+    seen = set()
+    for f in balls[len(balls) // 4 : 3 * len(balls) // 4 : 4]:
+        x = f.x * 1e6 + np.arange(-8.0, 8.0, 0.1)
+        y = f.y * 1e6 + np.arange(-8.0, 8.0, 0.1)
+        col = sim_solid.columns(scene, x, y, (0.1, 0.1))
+        lo, hi = col["cell"]
+        whole = hi > sim_solid.NONE / 2
+        assert whole[80, 80]
+        for n, name in enumerate(sim_solid.ORGANELLES):
+            o_lo, o_hi = col[name]
+            there = o_hi > sim_solid.NONE / 2
+            assert not (there & ~whole).any()
+            assert (o_lo[there] > lo[there]).all() and (o_hi[there] < hi[there]).all()
+            seen |= set(np.unique(col[name + "_is"][there]).tolist())
+        # down the middle: the channel, inside the gut, inside the body
+        gut, channel = col[sim_solid.ORGANELLES[2]], col[sim_solid.ORGANELLES[1]]
+        assert lo[80, 80] < gut[0][80, 80] < channel[0][80, 80]
+        assert channel[1][80, 80] < gut[1][80, 80] < hi[80, 80]
+        for name in sim_solid.NUCLEI:
+            n_lo, n_hi = col[name]
+            there = n_hi > n_lo
+            assert (n_lo[there] > lo[there]).all() and (n_hi[there] < hi[there]).all()
+    assert {sim_solid.GUT, sim_solid.LUMEN, sim_solid.DROPLET} <= seen
+    nuclei = [f for f in scene.features if f.part == "nucleus"]
+    assert len(nuclei) > 100 * len(_worms(scene)) and {f.layer for f in nuclei} == {
+        0,
+        1,
+        2,
+        3,
+    }
+
+
+def test_few_worms_fit_a_fine_mesh_and_a_worm_is_only_for_a_waffle():
+    fine = SampleScene(**{**WAFFLE, "cell_type": "celegans"})
+    assert len(_worms(fine)) < len(_worms(SampleScene(**WORMS)))
+    with pytest.raises(ValueError, match="cell_type must be one of"):
+        SampleScene(**{**PLAIN, "cell_type": "celegans"})
