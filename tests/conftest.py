@@ -430,15 +430,20 @@ def pytest_unconfigure(config):
     app = QApplication.instance()
     if app is None:
         return
+    import shiboken6
+
     # Deleted, not closed: closing runs each window's closeEvent, and a widget a
     # test left half-built has nothing to close.
     #
-    # Only the widgets with no parent. A menu or popup with a parent is a top-level
-    # window too, but its parent deletes it; queuing it as well left a deferred
-    # delete aimed at a widget already gone, and with thousands of leaked widgets
-    # that segfaulted here now and then.
+    # One at a time, and only the live ones with no parent. Deleting one widget can
+    # delete another on the list (a popup goes with the widget that made it), and
+    # queuing them all at once then delivered deletes to widgets already gone; with
+    # thousands of leaked widgets that segfaulted here. A widget with a parent goes
+    # with its parent.
     for widget in app.topLevelWidgets():
-        if widget.parent() is None:
-            widget.deleteLater()
+        if not shiboken6.isValid(widget) or widget.parent() is not None:
+            continue
+        widget.deleteLater()
+        QApplication.sendPostedEvents(widget, QEvent.Type.DeferredDelete)
     QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     app.shutdown()
