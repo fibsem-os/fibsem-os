@@ -70,6 +70,7 @@ IN_CELL = (
     sim_solid.VESICLE,
     sim_solid.GUT,
     sim_solid.LUMEN,
+    sim_solid.YOLK,
 )
 
 

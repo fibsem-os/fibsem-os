@@ -164,6 +164,34 @@ On the default 200 mesh only the odd worm finds room to curl up in a square.
 Cells are grown over the middle 500 um of the grid (the scene's `extent`, if set, instead),
 since a whole grid of yeast is about half a million cells.
 
+## Carriers
+
+![Fly embryos in a carrier](img/simulator/carrier-embryos.jpg)
+
+`preparation: carrier` is a sample high-pressure frozen in a carrier's cavity, for images of
+bulk samples: a block of ice `slab_thickness` deep (50 to 300 um) with no grid in it, its top
+as flat and as scratched as a waffle's. What a waffle can hold a carrier can too, and with
+`cell_type: drosophila` it holds fly embryos:
+
+```yaml
+sim:
+  sample:
+    preparation: carrier
+    slab_thickness: 200.0e-6
+    cell_type: drosophila
+```
+
+The embryos (`embryo_length` by `embryo_width`) lie side by side about the middle of the
+carrier, the top of each a few microns under the top of the ice. An embryo is an egg with a
+rind of cytoplasm 12 um thick, one layer of nuclei in it all the way round, and yolk in the
+middle: granules packed together, the big ones a little lighter than the ground between them
+and the small ones darker. A trench into an embryo shows the rind and its nuclei on its wall
+and, where it goes deep enough, the yolk. The FM sees the embryos whole, though only the top
+of each: light does not go far into a block.
+
+A view of a carrier looks only a little under the deepest cut made so far, since the block
+is far deeper than anything is milled. Lift-out is not simulated.
+
 ## Charging and coating
 
 An uncoated grid charges in the SEM (`charging`, 0 turns it off): cells, ice plates and
@@ -475,19 +503,21 @@ are in degrees, ranges are two-element lists, lengths in metres.
 
 | key | default | what it does |
 | -- | -- | -- |
-| `preparation` | plunge | `plunge`, or `waffle` for a high-pressure frozen slab |
-| `slab_thickness` | 2.5e-05 | waffle: how thick the slab of ice is (m), 5 to 50 um |
+| `preparation` | plunge | `plunge`, `waffle` for a high-pressure frozen slab on a grid, or `carrier` for a block in a carrier |
+| `slab_thickness` | 2.5e-05 | how thick the ice is (m): 5 to 50 um in a waffle, 50 to 300 um in a carrier |
 | `hat_scratches` | 1.0 | waffle: how strongly the hat's polishing lines show in the top (0 = none) |
 | `slab_fill` | 0.15 | waffle: the share of the slab's volume that is cells |
 | `suspended_rpe_radius` | (7.5e-06, 1e-05) | waffle: the radius of a rounded RPE cell (m) |
 | `worm_length` | (0.00018, 0.00025) | waffle: how long a `celegans` worm is (m) |
 | `worm_radius` | (4.5e-06, 6e-06) | waffle: how thick it is at its middle, as a radius (m) |
+| `embryo_length` | (0.00048, 0.00052) | carrier: how long a `drosophila` embryo is (m) |
+| `embryo_width` | (0.00017, 0.00019) | carrier: how wide it is (m) |
 
 ### Cells
 
 | key | default | what it does |
 | -- | -- | -- |
-| `cell_type` | rpe | `rpe` (default), `mammalian`, `yeast`, `bacteria`, `mixed`, `none`; in a waffle `yeast`, `rpe`, `celegans`, `none` |
+| `cell_type` | rpe | `rpe` (default), `mammalian`, `yeast`, `bacteria`, `mixed`, `none`; in a waffle `yeast`, `rpe`, `celegans`, `none`; in a carrier those and `drosophila` |
 | `extent` | None | content is grown over +/- extent/2 about the grid centre, on the grid's disc (m); None fills the whole grid |
 | `mammalian_density` | 7 | mammalian: cells per 150 x 150 um |
 | `mammalian_radius` | [1.8e-05, 3e-05] | mammalian: body radius range (m) |
