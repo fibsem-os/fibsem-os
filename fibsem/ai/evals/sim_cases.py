@@ -18,6 +18,7 @@ import json
 import logging
 import math
 import os
+from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -36,6 +37,7 @@ from fibsem.drivers.demo.sim.scene import (
     surface_foreshortening,
 )
 from fibsem.geometry.projection import BeamStageProjection
+from fibsem.structures.image import FibsemImage
 from fibsem.structures.settings import BeamType, ImageSettings
 
 logger = logging.getLogger(__name__)
@@ -122,8 +124,28 @@ BRIEFS = {
 EXAMPLE_BRIEF = (
     " The operator has picked one good site as an example of what they want: "
     "the cell at x {x:.0f}, y {y:.0f} px. Find others like it; the example "
-    "itself is not one of your picks."
+    "itself is not one of your picks. A crop of the overview around it is "
+    "example.tif (x {x0}-{x1}, y {y0}-{y1} px of the overview)."
 )
+EXAMPLE_IMAGE = "example.tif"
+
+
+def crop_example(
+    image: FibsemImage, centre: Tuple[float, float], side: int
+) -> Tuple[FibsemImage, Tuple[int, int, int, int]]:
+    """A square crop of *image* about *centre* (px), *side* px across and
+    kept inside the image, with its metadata at the crop's size, and the
+    crop's x0, y0, x1, y1 on the image."""
+    h, w = image.data.shape[:2]
+    side = int(min(side, w, h))
+    x0 = int(np.clip(round(centre[0] - side / 2), 0, w - side))
+    y0 = int(np.clip(round(centre[1] - side / 2), 0, h - side))
+    data = np.array(image.data[y0 : y0 + side, x0 : x0 + side])
+    metadata = deepcopy(image.metadata)
+    if metadata is not None:
+        metadata.image_settings.resolution = (side, side)
+        metadata.image_settings.hfw = side * metadata.pixel_size.x
+    return FibsemImage(data=data, metadata=metadata), (x0, y0, x0 + side, y0 + side)
 
 
 @dataclass
@@ -654,16 +676,34 @@ def write_cases(
             ),
         )
         cx, cy = overview.px(*cell)
+        # and a picture of it: a crop about the square, a square and a half
+        # across, so the agent sees what "like it" means
+        crop, (x0, y0, x1, y1) = crop_example(
+            overview.image,
+            (point["x_px"], point["y_px"]),
+            round(1.5 * pitch_px),
+        )
+        example_dir = out / "site-selection" / f"{name}-example" / "experiment"
+        example_dir.mkdir(parents=True, exist_ok=True)
+        crop.save(str(example_dir / EXAMPLE_IMAGE))
         point = {
             **point,
             "cell_x_px": round(float(cx), 1),
             "cell_y_px": round(float(cy), 1),
+            "crop_px": [x0, y0, x1, y1],
         }
         twin.update(
             id=f"{name}-sites-example",
             inputs={"overview": f"../{name}/experiment/overview.tif"},
             brief=twin["brief"]
-            + EXAMPLE_BRIEF.format(x=point["cell_x_px"], y=point["cell_y_px"]),
+            + EXAMPLE_BRIEF.format(
+                x=point["cell_x_px"],
+                y=point["cell_y_px"],
+                x0=x0,
+                x1=x1,
+                y0=y0,
+                y1=y1,
+            ),
             key={
                 **twin["key"],
                 "good": [q.point() for q in good if q is not example],
