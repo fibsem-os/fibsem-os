@@ -445,20 +445,14 @@ def test_the_pins_command_moves(pinned):
     assert any(c["error"] for c in pinned.values())
 
 
-def _pinned_keys() -> List[str]:
-    try:
-        with open(PINS_PATH) as f:
-            return sorted(json.load(f))
-    except (OSError, ValueError):
-        return []
-
-
-@pytest.mark.parametrize("key", _pinned_keys())
-def test_a_move_commands_what_it_did(recorded, pinned, key):
-    actual, expected = recorded[key], pinned[key]
-    assert close_to_pin(actual, expected), (
-        f"{key}\nexpected: {json.dumps(expected, indent=1)}\n"
-        f"actual: {json.dumps(actual, indent=1)}"
+def test_every_move_commands_what_it_did(recorded, pinned):
+    changed = [
+        key for key in sorted(pinned) if not close_to_pin(recorded[key], pinned[key])
+    ]
+    assert not changed, (
+        f"{len(changed)} of {len(pinned)} pinned moves changed: {changed}\n"
+        f"first: {changed[0]}\nexpected: {json.dumps(pinned[changed[0]], indent=1)}\n"
+        f"actual: {json.dumps(recorded[changed[0]], indent=1)}"
     )
 
 

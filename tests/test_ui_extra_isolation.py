@@ -118,27 +118,29 @@ def test_the_scan_actually_found_modules():
     assert len(CORE_MODULES) > 100, f"only found {len(CORE_MODULES)} core modules"
 
 
-@pytest.mark.parametrize("rel", CORE_MODULES)
-def test_no_module_level_import_of_a_ui_only_dependency(rel):
-    if rel in KNOWN_VIOLATIONS:
-        pytest.skip("known violation, see KNOWN_VIOLATIONS")
-    offending, _ = _offenders(rel)
-    assert not offending, (
-        f"fibsem/{rel} imports {offending} at module level. Those live in the `ui` "
-        f"extra, which CI does not install -- defer the import into the function that "
-        f"needs it, as fibsem/imaging/tiling/plotting.py does."
+def test_no_module_level_import_of_a_ui_only_dependency():
+    offenders = {
+        f"fibsem/{rel}": _offenders(rel)[0]
+        for rel in CORE_MODULES
+        if rel not in KNOWN_VIOLATIONS and _offenders(rel)[0]
+    }
+    assert not offenders, (
+        f"Module-level imports from the `ui` extra, which CI does not install: "
+        f"{offenders}. Defer each import into the function that needs it, as "
+        f"fibsem/imaging/tiling/plotting.py does."
     )
 
 
-@pytest.mark.parametrize("rel", CORE_MODULES)
-def test_no_module_level_import_of_the_ui_package(rel):
-    if rel in KNOWN_VIOLATIONS:
-        pytest.skip("known violation, see KNOWN_VIOLATIONS")
-    _, offending = _offenders(rel)
-    assert not offending, (
-        f"fibsem/{rel} imports {offending} at module level. fibsem.ui pulls in Qt "
-        f"transitively, so importing it from a non-UI path costs the whole widget "
-        f"tree -- defer it, or invert the dependency so the UI calls this module."
+def test_no_module_level_import_of_the_ui_package():
+    offenders = {
+        f"fibsem/{rel}": _offenders(rel)[1]
+        for rel in CORE_MODULES
+        if rel not in KNOWN_VIOLATIONS and _offenders(rel)[1]
+    }
+    assert not offenders, (
+        f"Module-level imports of fibsem.ui from non-UI paths: {offenders}. "
+        f"fibsem.ui pulls in Qt transitively, so it costs the whole widget tree -- "
+        f"defer it, or invert the dependency so the UI calls this module."
     )
 
 
