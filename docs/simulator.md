@@ -90,6 +90,45 @@ Cell bodies are opaque: they hide the film, holes and bars under them.
 - **Contamination** (`contamination_density`): small bright specks over film and bars
   alike, the aperiodic content that breaks a mesh-pitch alias in real images.
 
+## Waffle grids
+
+![A waffle grid](img/simulator/waffle.jpg)
+
+`preparation: waffle` makes the grid a high-pressure frozen one (the Waffle Method) instead
+of a plunge frozen one. The ice is a slab `slab_thickness` thick (25 um by default, 5 to 50)
+that fills the squares, with the film at its bottom and the bars standing in it. At 25 um the
+slab is flush with the bars, which show faintly through a skin of ice; a thicker slab buries
+them. The top is flat but for the fine parallel lines the planchette hat's polish leaves
+(`hat_scratches`, 0 for none), and ice plates, frost and contamination lie on it as on any
+grid. A ripped square is one the slab is missing from.
+
+A view of a waffle looks down through the whole slab, so a trench milled square on to the
+grid shows its walls from the milling angle, and what is cleared from under the slab shows
+from both beams. A pattern cuts only as deep as it is set, so a trench goes through the slab
+only if its depth is more than the slab's thickness. A render of a waffle takes up to about
+twice as long as one of a plunge frozen grid.
+
+The film of a waffle is continuous and uncracked.
+
+### Cells in the slab
+
+![Yeast and RPE cells in a waffle](img/simulator/waffle-cells.jpg)
+
+The cells of a waffle float in the slab instead of lying on the film. `cell_type` is `yeast`,
+`rpe` or `none` (any other type is an error): yeast are round cells of `cell_size`, some with
+a bud, and RPE cells are rounded up as they are in suspension (`suspended_rpe_radius`, 15 to
+20 um across). They fill the squares, none in a bar, to `slab_fill` of the slab's volume, in
+as many layers one over another as the slab has room for (up to four): three of yeast and one
+of RPE in a 25 um slab. Each cell has a nucleus and its organelles, and the FM targets sit
+inside the cells as on a plunge frozen grid.
+
+From above a cell under the top does not show. A trench wall or a lamella's face shows the
+cells and nuclei it cut, and the FM sees every layer, each blurred by how far it is from the
+focus, so a stack through the slab brings one layer after another into focus.
+
+Cells are grown over the middle 500 um of the grid (the scene's `extent`, if set, instead),
+since a whole grid of yeast is about half a million cells.
+
 ## Charging and coating
 
 An uncoated grid charges in the SEM (`charging`, 0 turns it off): cells, ice plates and
@@ -395,6 +434,16 @@ are in degrees, ranges are two-element lists, lengths in metres.
 | `hole_pitch` | 4e-06 | holey film: hole pitch (m) |
 | `broken_hole_fraction` | 0.006 | holey film: fraction of holes broken into larger openings |
 | `fiducial` | False | a cross at each grid centre, a navigation landmark; absent on a real grid, so off by default |
+
+### Waffle
+
+| key | default | what it does |
+| -- | -- | -- |
+| `preparation` | plunge | `plunge`, or `waffle` for a high-pressure frozen slab |
+| `slab_thickness` | 2.5e-05 | waffle: how thick the slab of ice is (m), 5 to 50 um |
+| `hat_scratches` | 1.0 | waffle: how strongly the hat's polishing lines show in the top (0 = none) |
+| `slab_fill` | 0.15 | waffle: the share of the slab's volume that is cells |
+| `suspended_rpe_radius` | (7.5e-06, 1e-05) | waffle: the radius of a rounded RPE cell (m) |
 
 ### Cells
 

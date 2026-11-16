@@ -185,6 +185,9 @@ FIDUCIAL_ARM_LENGTH = 8e-6  # m, half-length of each fiducial cross arm
 FIDUCIAL_CLEARING = 34e-6  # m, no cell body centre nearer the cross than this
 FIDUCIAL_POINT_SPACING = 0.5e-6  # m
 # a cell's and a nucleus's radius, in the size of the feature that draws it
+WAFFLE_ROOF = 1.5e-6  # m; the ice left over the highest cell in a waffle
+WAFFLE_FLOOR = 0.3e-6  # m; and under the lowest
+WAFFLE_FILLED = 500e-6  # m; how wide a waffle's cells are grown about its centre
 RPE_RADIUS = sim_solid.RPE_RADIUS
 NUCLEUS_RADIUS = sim_solid.NUCLEUS_RADIUS
 
@@ -219,6 +222,10 @@ class SceneFeature:
     # m; a feature with height is a mound the beams see in relief: its
     # slopes shade toward the detector and brighten with steepness
     height: float = 0.0
+    # a cell suspended in a waffle's slab: how far above the film its bottom
+    # floats (m), and which layer of the slab it is in (see sim_solid.LAYERS)
+    base: float = 0.0
+    layer: int = 0
 
 
 @dataclass
@@ -277,7 +284,7 @@ class MilledRegion:
     on the surface."""
 
     points: np.ndarray  # (N, 2) world coordinates, in order round the outline
-    depth: float = 1.0  # m, recorded only
+    depth: float = 1.0  # m; how far below the top the pattern cuts
     # m; width of the bright rim round the region. A trench has none; a spot
     # burn has one, the redeposition halo that makes the mark easy to find in
     # the reflection channel and the SEM.
@@ -345,6 +352,21 @@ class SampleScene:
 
     coincidence_offset: float = 10e-6  # m, initial height error at boot
     seed: int = 24
+    # how the grid was frozen: "plunge" (thin ice over cells on the film), or
+    # "waffle" (high-pressure frozen between two planchette hats: a slab of
+    # ice `slab_thickness` thick, flush with the bars standing in it or over
+    # them, the film at its bottom, its top smooth but for the lines of the
+    # hat's polish). A waffle's film is continuous and uncracked
+    preparation: str = "plunge"
+    slab_thickness: float = 25e-6  # m
+    # what is afloat in a waffle's slab is `cell_type`: "yeast", "rpe" (round,
+    # as in suspension; their radius here) or "none". It takes up `slab_fill`
+    # of the slab's volume in the squares, over `extent` about the grid's
+    # centre (500 um when `extent` is None: a whole grid is too many cells)
+    slab_fill: float = 0.15
+    suspended_rpe_radius: Tuple[float, float] = (7.5e-6, 10e-6)  # m
+    # how strongly the hat's polishing lines show in a waffle's top (0 = none)
+    hat_scratches: float = 1.0
     # what grows on the film: "mammalian" (adherent, fried-egg: a wide flat
     # body with an off-centre nuclear mound and organelle speckle, sparse),
     # "yeast" (compact bright ovoids in clusters, some budding), "bacteria"
@@ -547,6 +569,19 @@ class SampleScene:
     _index: Optional[FeatureIndex] = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
+        if self.preparation not in ("plunge", "waffle"):
+            raise ValueError(
+                f"preparation must be 'plunge' or 'waffle', got {self.preparation!r}"
+            )
+        if self.preparation == "waffle":
+            if not 5e-6 <= self.slab_thickness <= 50e-6:
+                raise ValueError(
+                    "slab_thickness must be between 5 and 50 um, "
+                    f"got {self.slab_thickness * 1e6:g} um"
+                )
+            self.film = "continuous"
+            self.broken_hole_fraction = 0.0
+            self.crack_density = 0.0
         if self.features:
             return
         rng = np.random.default_rng(self.seed)
@@ -589,7 +624,10 @@ class SampleScene:
             rng = np.random.default_rng(grid.seed)
         half = grid.extent / 2
         start = len(self.features)
-        self._generate_cells(rng, half)
+        if self.preparation == "waffle":
+            self._generate_suspended(grid, half)
+        else:
+            self._generate_cells(rng, half)
         # fiducial-like cross at the grid centre: a dense line of small
         # blobs along each arm, so it goes through the same projection as
         # every other feature
@@ -769,7 +807,7 @@ class SampleScene:
             a = rng.uniform(0, 2 * np.pi)
             reach = float(rng.uniform(0.2, 0.5)) * f.sigma
             px, py = f.x + reach * np.cos(a), f.y + reach * np.sin(a)
-            z = float(rng.uniform(0.3e-6, 0.8 * tall))
+            z = f.base + float(rng.uniform(0.3e-6, 0.8 * tall))
             b = rng.uniform(0, 2 * np.pi)
             edge = 0.8 * pool_sigma
             mx, my = px + edge * np.cos(b), py + edge * np.sin(b)
@@ -1775,6 +1813,122 @@ class SampleScene:
                 n = int(round(self.bacteria_density * fields * fraction))
                 next_id = self._generate_bacteria(rng, half, n, next_id)
 
+    def _generate_suspended(self, grid: SceneGrid, half: float) -> None:
+        """The cells afloat in a waffle's slab: round yeast, or epithelial
+        cells rounded up as they are in suspension, each with a nucleus.
+        They fill the squares (none in a bar) to `slab_fill` of the slab's
+        volume, in as many layers as fit one over another, each cell at its
+        own height in its layer and clear of its neighbours."""
+        if self.cell_type == "none":
+            return
+        if self.cell_type not in ("yeast", "rpe"):
+            raise ValueError(
+                "a waffle holds cell_type 'yeast', 'rpe' or 'none', "
+                f"got {self.cell_type!r}"
+            )
+        yeast = self.cell_type == "yeast"
+        rng = np.random.default_rng([int(grid.seed) & 0x7FFFFFFF, 43])
+        r_lo, r_hi = self.cell_size if yeast else self.suspended_rpe_radius
+        room = self.slab_thickness - WAFFLE_ROOF - WAFFLE_FLOOR
+        if room < 2 * r_lo:
+            return
+        layers = int(np.clip(room // (2.3 * r_hi), 1, sim_solid.LAYERS))
+        band = room / layers
+        half = min(half, (self.extent or WAFFLE_FILLED) / 2)
+        mean = 0.5 * (r_lo + min(r_hi, band / 2))
+        open_share = (1 - self.grid_bar_width / self.grid_pitch) ** 2
+        want = self.slab_fill * (2 * half) ** 2 * open_share * band
+        want = int(want / (4 / 3 * np.pi * mean**3))
+        cell = 2.5 * r_hi  # the side of a square of the neighbour search
+        next_id = 0
+        for layer in range(layers):
+            taken: Dict[Tuple[int, int], List[Tuple[float, float, float]]] = {}
+            xs, ys = rng.uniform(-half, half, size=(2, 6 * want))
+            radius = rng.uniform(r_lo, r_hi, size=6 * want)
+            buds = yeast & (rng.uniform(size=6 * want) < 0.2)
+            turn = rng.uniform(0, 2 * np.pi, size=6 * want)
+            reach = np.where(buds, 1.9, 1.0) * radius
+            clear = np.ones(6 * want, dtype=bool)
+            # clear of the bars and the centre mark: the cell's middle and
+            # two rings of points about it
+            for ring in (0.0, 0.55, 1.08):
+                for t in np.arange(0, 2 * np.pi, np.pi / 4) if ring else (0.0,):
+                    dx, dy = ring * reach * np.cos(t), ring * reach * np.sin(t)
+                    clear &= ~self._grid_masks(grid, xs + dx, ys + dy)[0]
+            placed = 0
+            for k in np.flatnonzero(clear):
+                if placed >= want:
+                    break
+                x, y, r, out = float(xs[k]), float(ys[k]), float(radius[k]), reach[k]
+                i, j = int(x // cell), int(y // cell)
+                near = (
+                    q
+                    for a in (i - 1, i, i + 1)
+                    for b in (j - 1, j, j + 1)
+                    for q in taken.get((a, b), ())
+                )
+                if any(
+                    np.hypot(x - qx, y - qy) < out + qr + 0.2e-6 for qx, qy, qr in near
+                ):
+                    continue
+                taken.setdefault((i, j), []).append((x, y, float(out)))
+                placed += 1
+                tall = min(2 * r * float(rng.uniform(0.88, 1.0)), band - 0.2e-6)
+                base = WAFFLE_FLOOR + layer * band + float(rng.uniform(0, band - tall))
+                where = {"cell_id": next_id, "layer": layer}
+                self.features.append(
+                    SceneFeature(
+                        x=x,
+                        y=y,
+                        sigma=r,
+                        intensity=float(rng.uniform(60, 110)),
+                        sharpness=2.5,
+                        eccentricity=float(rng.uniform(0.9, 1.0)),
+                        angle=float(rng.uniform(0, np.pi)),
+                        wobble=0.0 if yeast else 0.04,
+                        wobble_phase=float(rng.uniform(0, 2 * np.pi)),
+                        opacity=1.0,
+                        height=tall,
+                        base=base,
+                        **where,
+                    )
+                )
+                size = r * (0.4 if yeast else float(rng.uniform(0.45, 0.58)))
+                off, t = (
+                    float(rng.uniform(0, 0.25)) * r,
+                    float(rng.uniform(0, 2 * np.pi)),
+                )
+                self.features.append(
+                    SceneFeature(
+                        x=x + off * np.cos(t),
+                        y=y + off * np.sin(t),
+                        sigma=size,
+                        intensity=8.0,
+                        sharpness=2.0,
+                        part="nucleus",
+                        height=1.8 * size * tall / (2 * r),
+                        base=base + 0.5 * tall - 0.9 * size * tall / (2 * r),
+                        **where,
+                    )
+                )
+                if buds[k]:  # a budding daughter, beside its mother
+                    small = 0.55 * r
+                    self.features.append(
+                        SceneFeature(
+                            x=x + 1.3 * r * np.cos(turn[k]),
+                            y=y + 1.3 * r * np.sin(turn[k]),
+                            sigma=small,
+                            intensity=70.0,
+                            sharpness=2.5,
+                            part="bud",
+                            opacity=1.0,
+                            height=1.9 * small,
+                            base=base + 0.5 * tall - 0.95 * small,
+                            **where,
+                        )
+                    )
+                next_id += 1
+
     def _generate_yeast(self, rng, half, fraction, next_id) -> int:
         """Clumps of small round cells packed against each other: each new
         cell touches one already placed, some with a budding daughter."""
@@ -2113,6 +2267,11 @@ class SampleScene:
         "tilt_axis_offset",  # m
         "grids_from_holder",
         "seed",
+        "preparation",  # plunge | waffle
+        "slab_thickness",  # m
+        "slab_fill",
+        "suspended_rpe_radius",  # [min, max] m
+        "hat_scratches",
         "cell_type",  # mammalian | yeast | bacteria | mixed
         "n_clusters",
         "cells_per_cluster",  # [min, max]
@@ -2209,6 +2368,7 @@ class SampleScene:
             "sphere_size",
             "damage_below",
             "rpe_radius",
+            "suspended_rpe_radius",
             "soma_radius",
             "neurite_length",
         ):
@@ -2461,7 +2621,8 @@ class SampleScene:
             # through, so from above a trench reaches as far as the SEM sees
             gone = self.milled_fraction(xs_world, ys_world)
             canvas *= 1.0 - gone
-        if dyed:
+        waffle = self.preparation == "waffle"
+        if dyed and not waffle:
             canvas += self._fm_glow(dyed, xs_world, ys_world, pixel_size)
         if bars > 0 and self.milled:
             # the leaked reflection is dark where the view passes through
@@ -2479,6 +2640,11 @@ class SampleScene:
         canvas[beyond] = 0.0
 
         canvas = self._fm_focus(canvas, defocus)
+        if dyed and waffle:
+            # cells through a slab: each layer in or out of focus by itself
+            glow = self._fm_glow(dyed, xs_world, ys_world, pixel_size, defocus or 0.0)
+            glow[rim | beyond] = 0.0
+            canvas += glow
 
         view = (ax, ay, cx, cy, pixel_size, fs, turn)
         if getattr(self, "fm_spots", None):
@@ -2540,24 +2706,49 @@ class SampleScene:
                 )
         return r
 
-    def _fm_glow(self, dyed: dict, xs_world, ys_world, pixel_size) -> np.ndarray:
+    def _fm_glow(
+        self, dyed: dict, xs_world, ys_world, pixel_size, defocus=None
+    ) -> np.ndarray:
         """The glow of cells dyed through: brightest where the cell is
         thickest, gone where it was milled away, with the haze a widefield
-        FM adds from above and below the focal plane."""
+        FM adds from above and below the focal plane. With `defocus` (m, the
+        height in focus) the cells of a waffle's slab are blurred a layer at
+        a time, each by how far it lies from that height."""
         plan, step = self._plan
-        cell_id = plan.col["cell_id"]
         ids = np.array(sorted(dyed), dtype=np.int64)
         level = np.array([dyed[i] for i in ids], dtype=np.float32)
-        at = np.clip(np.searchsorted(ids, cell_id), 0, len(ids) - 1)
-        dye = np.where(ids[at] == cell_id, level[at], 0.0)
-        depth, _ = sim_solid.cell_depth(plan, lean=self._fm_lean(step), dye=dye)
-        glow = depth / FM_CELL_DEPTH
+
+        def dye(cell_id):
+            at = np.clip(np.searchsorted(ids, cell_id), 0, len(ids) - 1)
+            return np.where(ids[at] == cell_id, level[at], 0.0)
+
         height, width = ys_world.shape[0], xs_world.shape[1]
-        glow = self._fm_full(glow.astype(np.float32), step, height, width)
-        sharp = _blur(glow, max(FM_PSF_SIGMA / pixel_size, 0.6))
-        haze = _blur(glow, min(FM_GLOW_HAZE / pixel_size, 60.0))
-        # a real cell is not evenly dyed: brighter and dimmer patches
         um = sim_view.UM
+
+        def seen(layer=None, away=0.0):
+            depth, _ = sim_solid.cell_depth(
+                plan, lean=self._fm_lean(step), dye=dye, layer=layer
+            )
+            glow = self._fm_full(
+                (depth / FM_CELL_DEPTH).astype(np.float32), step, height, width
+            )
+            blur = min(abs(away) * um * self.fm_blur_px_per_um, 40.0)
+            sharp = _blur(
+                glow, float(np.hypot(max(FM_PSF_SIGMA / pixel_size, 0.6), blur))
+            )
+            haze = _blur(glow, min(FM_GLOW_HAZE / pixel_size, 60.0))
+            return sharp, haze
+
+        if defocus is None:
+            sharp, haze = seen()
+        else:
+            sharp = np.zeros((height, width), dtype=np.float32)
+            haze = np.zeros((height, width), dtype=np.float32)
+            for layer, middle in enumerate(sim_solid.layer_heights(plan)):
+                if middle is not None:
+                    a, b = seen(layer, float(defocus) - middle / um)
+                    sharp, haze = sharp + a, haze + b
+        # a real cell is not evenly dyed: brighter and dimmer patches
         wx, wy = np.broadcast_arrays(xs_world * um, ys_world * um)
         patchy = 1 + 0.3 * sim_view.value_noise(wx, wy, 6.0, int(self.seed) + 71)
         return (0.3 * sharp + 0.7 * haze) * np.clip(patchy, 0.5, 1.5)
@@ -2777,6 +2968,7 @@ class SampleScene:
                 )
                 tubes.append(start + np.cumsum(step, axis=0))
             pts = np.concatenate(tubes)
+        pts[:, 2] += f.base
         cache[key] = pts
         return pts
 
@@ -2909,9 +3101,9 @@ class SampleScene:
             len(xs_world[0, :: plan[1]]),
         ):
             # the solid sample: its cells stand taller, from the film up
-            film = sim_solid.FILM_TOP
+            film = sim_solid.film_top(self)
             gone = plan[0].fraction(
-                film + 0.05, film + 2 * top * um, lean=self._fm_lean(plan[1])
+                film + 0.05, max(film + 2 * top * um, 0.0), lean=self._fm_lean(plan[1])
             )
             return self._fm_full(gone, plan[1], ys_world.shape[0], xs_world.shape[1])
         xs, ys = np.broadcast_arrays(xs_world * um, ys_world * um)
@@ -3023,7 +3215,7 @@ class SampleScene:
         """The height (m) of the film in the focal frame: heights in the FM
         are given above the film, and the solid sample's film lies under its
         ice, below the plane the stage brings into focus."""
-        return sim_solid.FILM_TOP / sim_view.UM
+        return sim_solid.film_top(self) / sim_view.UM
 
     def _in_red_subset(self, cell_id: int) -> bool:
         """Whether a cell carries the subset dye: drawn from the seed and
