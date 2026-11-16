@@ -73,7 +73,7 @@ fibsem/drivers/autoscript/manipulator_calibration.py 3
 fibsem/drivers/autoscript/microscope.py 10
 fibsem/drivers/demo/devices.py 7
 fibsem/drivers/demo/services.py 1
-fibsem/drivers/demo/sim_scene.py 2
+fibsem/drivers/demo/sim/scene.py 2
 fibsem/drivers/demo/simulator.py 5
 fibsem/drivers/odemis/devices.py 3
 fibsem/drivers/odemis/microscope.py 2

@@ -17,7 +17,7 @@ from fibsem.alignment.coincidence import (
     REASON_MAX_ITERATIONS,
     ensure_coincident,
 )
-from fibsem.drivers.demo import sim_solid
+from fibsem.drivers.demo.sim import solid as sim_solid
 from fibsem.structures.settings import BeamType
 from tests.fixtures.sim_scenes import mammalian_scene
 

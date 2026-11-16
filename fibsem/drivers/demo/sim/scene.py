@@ -42,7 +42,10 @@ from scipy.ndimage import gaussian_filter as ndi_gaussian
 from scipy.ndimage import zoom as ndi_zoom
 
 from fibsem.devices.fm import mount_transform_from_name
-from fibsem.drivers.demo import sim_faults, sim_optics, sim_solid, sim_view
+from fibsem.drivers.demo.sim import faults as sim_faults
+from fibsem.drivers.demo.sim import optics as sim_optics
+from fibsem.drivers.demo.sim import solid as sim_solid
+from fibsem.drivers.demo.sim import view as sim_view
 from fibsem.geometry.projection import (
     BeamStageProjection,
     FMStageProjection,

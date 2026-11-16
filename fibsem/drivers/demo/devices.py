@@ -55,7 +55,7 @@ from fibsem.devices.stage import (
     flip_stage_device_at_pose,
     flip_stage_poses,
 )
-from fibsem.drivers.demo.sim_faults import SimulatedFault
+from fibsem.drivers.demo.sim.faults import SimulatedFault
 from fibsem.drivers.demo.simulator import (
     BINNING_VALUES,
     EMISSION_WAVELENGTHS,

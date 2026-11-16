@@ -15,10 +15,10 @@ from typing import TYPE_CHECKING, Callable, Optional, Tuple
 import numpy as np
 from scipy import ndimage as ndi
 
-from fibsem.drivers.demo import sim_optics
+from fibsem.drivers.demo.sim import optics as sim_optics
 
 if TYPE_CHECKING:
-    from fibsem.drivers.demo.sim_scene import SampleScene
+    from fibsem.drivers.demo.sim.scene import SampleScene
 
 UM = 1e6
 VOID = -60.0  # um; the height of nothing (through the grid, or milled away)

@@ -28,8 +28,8 @@ import yaml
 from fibsem import config as cfg
 from fibsem import utils
 from fibsem.ai.evals.cases import FORMAT
-from fibsem.drivers.demo import sim_solid
-from fibsem.drivers.demo.sim_scene import (
+from fibsem.drivers.demo.sim import solid as sim_solid
+from fibsem.drivers.demo.sim.scene import (
     GIS_RATE,
     SPUTTER_RATE,
     SampleScene,
