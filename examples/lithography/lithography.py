@@ -23,7 +23,7 @@ def save_profile_to_bmp(arr: np.ndarray, fname: str = "profile.bmp"):
 
 def main():
 
-    PROTOCOL_PATH = os.path.join(BASE_PATH, "protocol_lithography.yaml")
+    PROTOCOL_PATH = os.path.join(BASE_PATH, "protocol.yaml")
     microscope, settings = utils.setup_session(protocol_path=PROTOCOL_PATH)
 
     # move to the milling angle

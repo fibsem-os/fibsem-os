@@ -11,7 +11,7 @@ from fibsem.structures.settings import BeamType, MicroscopeState
 
 logger = logging.getLogger(__name__)
 
-PROTOCOL_PATH = os.path.join(os.path.dirname(__file__), "protocol_autolamella.yaml")
+PROTOCOL_PATH = os.path.join(os.path.dirname(__file__), "protocol.yaml")
 
 
 @dataclass

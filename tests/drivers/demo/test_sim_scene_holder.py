@@ -255,6 +255,7 @@ def _sem_pose():
         probe.disconnect()
 
 
+@pytest.mark.slow
 def test_a_working_slot_off_the_grid_misses_it_and_a_captured_one_finds_it():
     """The reference is the grid at the origin with the built-in slot: the sim
     starts out of coincidence, so the cross is not dead centre even there. A

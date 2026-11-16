@@ -508,6 +508,7 @@ def test_a_holey_film_has_ice_across_its_holes_and_none_where_one_broke():
     assert col["hole"][hole].mean() > 5 * col["hole"][film].mean()
 
 
+@pytest.mark.slow
 def test_every_cell_type_stands_up_under_its_own_ice():
     for kind in ("yeast", "mammalian", "bacteria", "neuron", "rpe"):
         scene = SampleScene(**{**PLAIN, "cell_type": kind})
@@ -654,6 +655,7 @@ def test_the_record_says_what_was_milled_and_goes_to_json(microscope):
     assert points["under the floor"]["milled"] is False
 
 
+@pytest.mark.slow
 def test_the_record_lists_each_target_and_whether_it_is_gone(microscope):
     scene = _use(microscope, cell_type="rpe", seed=4)
     targets = scene.record()["targets"]

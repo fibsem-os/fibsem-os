@@ -1,6 +1,6 @@
 """Headless tests for the recent-channels quick-select menu in ChannelListWidget.
 
-Uses PyQt5 directly with the offscreen platform (no pytest-qt dependency).
+Uses Qt directly with the offscreen platform (no pytest-qt dependency).
 The real ``_on_add_channel`` opens a modal ``QMenu.exec()``; tests stub that
 to capture the menu, and exercise the row/selection/removal helpers directly.
 """

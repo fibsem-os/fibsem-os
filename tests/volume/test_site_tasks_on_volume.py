@@ -3,6 +3,8 @@ registry, run once on a position before its slices."""
 
 import os
 
+import pytest
+
 from fibsem.applications.volume.manager import VolumeTaskManager
 from fibsem.applications.volume.tasks import get_volume_tasks
 from fibsem.workflows.attention import Attention
@@ -23,6 +25,7 @@ def test_volume_offers_every_site_task():
     )
 
 
+@pytest.mark.slow
 def test_a_site_task_runs_once_before_the_slices(microscope, experiment):
     position = set_up_position(experiment, microscope, "aspen", iterations=2)
     experiment.add_task("ACQUIRE_REFERENCE_IMAGE", REFERENCE)

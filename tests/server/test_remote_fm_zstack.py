@@ -23,6 +23,7 @@ from fibsem.fm.structures import (
     ZStackOrder,
 )
 from fibsem.server.devices import DeviceServer
+from tests.waiting import wait_for
 
 CHANNELS = [
     ChannelSettings(name="green", excitation_wavelength=488, exposure_time=0.01),
@@ -118,11 +119,8 @@ def test_progress_arrives_for_every_frame(served):
 
     acquire_z_stack(fm, CHANNELS, ZPARAMS)
 
-    deadline = threading.Event()
-    for _ in range(50):  # events cross the websocket after the answer, at worst
-        if len(seen) >= 6:
-            break
-        deadline.wait(0.05)
+    # Events cross the websocket after the answer; on a loaded runner, well after.
+    wait_for(lambda: len(seen) >= 6)
     assert [(p.channel, p.channel_index, p.zlevel) for p in seen] == [
         ("green", 1, 1),
         ("green", 1, 2),

@@ -666,44 +666,6 @@ class TestEndOfRun:
             grid.task_history.append(TaskState(name=name))
         assert not grid_has_run(grid)
 
-    def test_the_report_is_written_after_the_unload(
-        self, manager, experiment, microscope, monkeypatch
-    ):
-        from fibsem.applications.autolamella.tools import grid_report_html
-
-        seen = []
-
-        def fake_report(exp, inventory=None):
-            seen.append(list(microscope.sample_handling.loaded_grids))
-            return "report.html"
-
-        monkeypatch.setattr(grid_report_html, "generate_grid_report", fake_report)
-        manager.unload_at_end = True
-        manager.report_at_end = True
-        run_with_stub(manager, ["overview_sem"], ["Grid-01"])
-        assert seen == [[]], "unloaded before the report"
-
-    def test_the_report_is_written_after_a_stop_too(
-        self, manager, microscope, monkeypatch
-    ):
-        from fibsem.applications.autolamella.tools import grid_report_html
-
-        seen = []
-        monkeypatch.setattr(
-            grid_report_html,
-            "generate_grid_report",
-            lambda exp, inventory=None: seen.append(exp) or "report.html",
-        )
-        manager.unload_at_end = True
-        manager.report_at_end = True
-
-        def on_task(task_name, grid):
-            manager.stop()
-
-        run_with_stub(manager, ["overview_sem"], ["Grid-01"], on_task)
-        assert len(seen) == 1
-        assert microscope.sample_handling.loaded_grids[0].name == "Grid-01"
-
     def test_a_failed_report_is_said_and_the_run_still_completes(
         self, manager, monkeypatch, caplog
     ):

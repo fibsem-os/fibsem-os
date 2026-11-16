@@ -1,4 +1,4 @@
-# The milling stages example/autolamella.py runs, by name.
+# The milling stages examples/autolamella_v1/autolamella_v1.py runs, by name.
 milling:
   microexpansion:
   - milling:

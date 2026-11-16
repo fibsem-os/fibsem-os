@@ -48,7 +48,7 @@ records it.
 
 `Experiment.load()` gives access to an experiment's lamellae, their history
 and the summary dataframes. [SCRIPTING.md](../../SCRIPTING.md) covers this
-in full; its example scripts under `examples/scripts/` are executed by the test
+in full; its example scripts under `examples/app_scripts/` are executed by the test
 suite.
 
 ### Inside the application
@@ -81,7 +81,7 @@ Microscope scripts run on a background thread, must not modify
 Stop to take effect. Nothing validates what a script does to the hardware.
 The [Running scripts from the GUI](../../SCRIPTING.md#running-scripts-from-the-gui)
 and [Microscope scripts](../../SCRIPTING.md#microscope-scripts) sections give
-the full contract; `examples/scripts/` contains three working examples.
+the full contract; `examples/app_scripts/` contains three working examples.
 
 ## Plugins
 

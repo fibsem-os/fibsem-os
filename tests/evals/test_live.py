@@ -275,10 +275,12 @@ def test_the_scripted_agent_calls_a_site_good_only_with_a_clear_cell_at_centre()
 
 # The whole run takes about 4.5 minutes alone on one core (5 with the textured
 # surface of #2577), so under a loaded `-n auto` run it passes the suite's 300 s
-# per-test timeout. Its own run is capped at 600 s (timeout_s below); this gives
-# pytest room past that, so a hang still fails.
+# per-test timeout. Windows runners are about half as fast again, and 600 s was
+# not enough there under load (nightly of 15 Nov 2026), so its own run is capped
+# at 1200 s (timeout_s below); this gives pytest room past that, so a hang still
+# fails.
 @pytest.mark.slow
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(1500)
 def test_a_scripted_run_of_a_live_case_end_to_end(tmp_path, monkeypatch):
     """The case's microscope on a real App Server, the scripted agent at it,
     and the run scored from what it saved."""
@@ -291,7 +293,7 @@ def test_a_scripted_run_of_a_live_case_end_to_end(tmp_path, monkeypatch):
     config = RunConfig(
         out=tmp_path / "runs",
         repeats=1,
-        timeout_s=600,
+        timeout_s=1200,
         knowledge=tmp_path / "no-knowledge",
         agent_command=live_runs.scripted_command(),
     )

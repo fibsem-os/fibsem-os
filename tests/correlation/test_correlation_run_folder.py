@@ -12,7 +12,7 @@ turned it into two real defects:
 * history counted opens rather than correlations, so a first correlation stopped
   being treated as one.
 
-Headless PyQt5, offscreen.
+Headless Qt, offscreen.
 """
 
 import os

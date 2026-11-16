@@ -8,7 +8,7 @@ so a click resolves to the position the marker was drawn from.
 
 The payload the placement reads is pinned in `tests/test_tiled_progress_payload.py`
 rather than here: it is a contract on shared acquisition code, and this module is gated
-on PyQt5, which CI does not install -- so a test of it living here would never run
+on Qt, which CI does not install -- so a test of it living here would never run
 where it matters.
 
 Run directly (no display needed):
@@ -26,7 +26,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import numpy as np
 import pytest
 
-# CI installs `.[test]`, not `.[ui]`, so PyQt5 is absent there. Without this the
+# CI installs `.[test]`, not `.[ui]`, so Qt is absent there. Without this the
 # module-level imports below turn a skip into a collection error.
 pytest.importorskip("qtpy.QtWidgets")
 
