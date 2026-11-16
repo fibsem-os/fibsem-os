@@ -384,14 +384,14 @@ def compare_table(outs: List[Path], cases_root: Optional[Path] = None) -> str:
             over = sum(r.get("status") == OUT_OF_BUDGET for r, _ in pairs)
             spent = f", {over} out of budget" if over else ""
             for part, got in hits.items():
-                name = case_id + (f" ({part})" if part else "")
+                name = f"{case_kind(case)}: {case_id}" + (f" ({part})" if part else "")
                 cells[name][n] = f"{sum(got)}/{len(got)} (${cost:.2f}{spent})"
     names = [Path(out).name for out in outs]
     lines = [
         "| Case | " + " | ".join(names) + " |",
         "|---" * (len(names) + 1) + "|",
     ]
-    for name in sorted(cells):
+    for name in sorted(cells, key=_row_order):
         row = [cells[name].get(n, "-") for n in range(len(outs))]
         lines.append(f"| {name} | " + " | ".join(row) + " |")
     lines += ["", "Ran with:"]
@@ -400,6 +400,23 @@ def compare_table(outs: List[Path], cases_root: Optional[Path] = None) -> str:
             f"- {name}: {ran_with(r for items in runs.values() for _, (r, _) in items)}"
         )
     return "\n".join(lines)
+
+
+KIND_ORDER = ("Real static", "Real live", "Sim static", "Sim live")
+
+
+def case_kind(case) -> str:
+    """Where the case's data comes from (real or sim) and how the agent
+    works on it (static images, or a live run on the simulator)."""
+    source = "Sim" if case.tier == "sim" else "Real"
+    mode = "live" if case.data.get("sim_run") else "static"
+    return f"{source} {mode}"
+
+
+def _row_order(name: str):
+    kind = name.split(":", 1)[0]
+    rank = KIND_ORDER.index(kind) if kind in KIND_ORDER else len(KIND_ORDER)
+    return (rank, name)
 
 
 def ran_with(results: Iterable[Dict[str, Any]]) -> str:
