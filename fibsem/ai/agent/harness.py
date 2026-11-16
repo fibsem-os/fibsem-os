@@ -351,6 +351,12 @@ INTERRUPTED = (
 )
 
 
+CARRY_ON = (
+    "WAKE your last turn reached its step limit before you finished: carry on "
+    "from where you were."
+)
+
+
 def is_urgent(line) -> bool:
     """Whether *line* cuts the agent's turn short (`URGENT`)."""
     return getattr(line, "kind", None) in URGENT
@@ -1144,10 +1150,13 @@ class Harness:
             self._code = 1
             return False
         if end.subtype == "error_max_turns":
+            # The limit is a checkpoint, not a stop: the next turn starts at
+            # once, with any lines that came in. Waiting for a line instead
+            # stalls a run nobody is watching.
             log.warning(
-                "The turn hit --max-turns before it finished; the next wake-up "
-                "starts a new one."
+                "The turn hit --max-turns before it finished; a new one starts."
             )
+            self._put(self._watcher, watch_mod.Wake(ALARM, CARRY_ON))
         elif end.subtype != "success":
             log.warning("The turn ended with %s.", end.subtype)
         await self._report()
