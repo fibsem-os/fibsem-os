@@ -332,6 +332,20 @@ def test_a_wake_up_rings_into_the_next_turn(session):
     running.stop()
 
 
+def test_a_turn_that_reaches_its_step_limit_carries_on_at_once(session):
+    # Nobody is watching: nothing else would start the next turn.
+    async def reply(prompt):
+        return TurnEnd("error_max_turns") if len(agent.prompts) == 1 else None
+
+    agent = ScriptedAgent(reply)
+    running = _harness(session, agent)
+    assert wait_for(lambda: len(agent.prompts) >= 2, timeout=20), (
+        "the run stalled after the step limit"
+    )
+    assert harness_mod.CARRY_ON in agent.prompts[1]
+    running.stop()
+
+
 def test_the_kickoff_reads_the_base_skill_then_the_task_skill_or_asks():
     first = kickoff()
     assert "Read the fibsem-agent and fibsem-microscope skills" in first

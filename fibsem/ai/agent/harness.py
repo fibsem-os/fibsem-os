@@ -350,6 +350,12 @@ INTERRUPTED = (
 )
 
 
+CARRY_ON = (
+    "WAKE your last turn reached its step limit before you finished: carry on "
+    "from where you were."
+)
+
+
 def is_urgent(line) -> bool:
     """Whether *line* cuts the agent's turn short (`URGENT`)."""
     return getattr(line, "kind", None) in URGENT
@@ -724,6 +730,10 @@ def _last_line(batch) -> bool:
     return bool(watch_mod.kinds(batch) & watch_mod.LAST_KINDS)
 
 
+# how long stopping the watch waits for a poll in flight (s)
+STOP_JOIN_S = 5.0
+
+
 class _WatchClient:
     """The watch's client: it refuses another request once stopped."""
 
@@ -771,6 +781,10 @@ class Watcher:
         """Ends the watch: closing its client ends a parked poll as well."""
         self._stopping.set()
         _close(self._client)
+        # wait for a poll in flight to come back, so its connection is closed
+        # with the client instead of left open after it
+        if self._thread.is_alive() and self._thread is not threading.current_thread():
+            self._thread.join(STOP_JOIN_S)
 
     def _out(self, line: str) -> None:
         if self._stopping.is_set():
@@ -1143,10 +1157,13 @@ class Harness:
             self._code = 1
             return False
         if end.subtype == "error_max_turns":
+            # The limit is a checkpoint, not a stop: the next turn starts at
+            # once, with any lines that came in. Waiting for a line instead
+            # stalls a run nobody is watching.
             log.warning(
-                "The turn hit --max-turns before it finished; the next wake-up "
-                "starts a new one."
+                "The turn hit --max-turns before it finished; a new one starts."
             )
+            self._put(self._watcher, watch_mod.Wake(ALARM, CARRY_ON))
         elif end.subtype != "success":
             log.warning("The turn ended with %s.", end.subtype)
         await self._report()

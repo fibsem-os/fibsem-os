@@ -2,6 +2,7 @@
 run up as the operator would before the agent starts, and recording what
 the run did once it ends, to score."""
 
+import logging
 import sys
 from pathlib import Path
 from typing import Any, Dict, List
@@ -9,6 +10,8 @@ from typing import Any, Dict, List
 from fibsem.ai.evals.cases import Case
 from fibsem.ai.evals.live.client import LiveClient
 from fibsem.image_format import read_metadata_dict
+
+log = logging.getLogger(__name__)
 
 # The run's record, beside its result: what the experiment holds at the end.
 RECORD = "record.json"
@@ -36,8 +39,9 @@ def set_up(case: Case, found_at: Path, home: Path) -> None:
 def record(found_at: Path, home: Path, experiment: Path) -> Dict[str, Any]:
     """What the run left in its experiment: each item's name, id and the
     stage position of each of its poses, and each SEM or FIB image saved."""
-    items = []
+    items, shifts = [], {}
     with LiveClient.as_operator(found_at, home) as operator:
+        shifts = beam_shifts(operator)
         listed = operator.call("item_list") or {}
         for row in listed.get("items") or []:
             name = row.get("item_name")
@@ -54,7 +58,24 @@ def record(found_at: Path, home: Path, experiment: Path) -> Dict[str, Any]:
         "items": items,
         "images": saved_images(experiment),
         "overviews": overviews(experiment),
+        "beam_shifts": shifts,
     }
+
+
+def beam_shifts(operator) -> Dict[str, Any]:
+    """Each beam's shift (x, y, m) as the run left it; none if the state
+    can't be read."""
+    try:
+        state = operator.call("microscope_get_state") or {}
+    except Exception:
+        log.warning("No microscope state for the record", exc_info=True)
+        return {}
+    out = {}
+    for beam in ("electron_beam", "ion_beam"):
+        shift = (state.get(beam) or {}).get("shift") or {}
+        if "x" in shift and "y" in shift:
+            out[beam] = [float(shift["x"]), float(shift["y"])]
+    return out
 
 
 def overviews(experiment: Path) -> List[str]:

@@ -8,7 +8,7 @@ from fibsem.ai.evals.cases import SITES, SQUARE_REASONS, Case, square_call
 from fibsem.ai.evals.review import _kept, _repeat
 from fibsem.ai.evals.scoring import InvalidAnswer
 from fibsem.ai.evals.tasks.base import EvalTask, Run
-from fibsem.ai.evals.visual import _figure, _input, _read_image, _show
+from fibsem.ai.evals.visual import THEME, _figure, _input, _read_image, _show
 
 
 def score_square_quality(
@@ -108,7 +108,7 @@ def draw_square_quality(case: Case, runs: List[Run]):
             + "\n"
             + " ".join(said),
             fontsize=7,
-            color="red" if wrong else "black",
+            color=THEME.bad if wrong else THEME.text_strong,
         )
     return fig
 

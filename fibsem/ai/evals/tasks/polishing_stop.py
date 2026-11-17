@@ -8,7 +8,7 @@ from fibsem.ai.evals.cases import Case, pass_names, stop_passes
 from fibsem.ai.evals.review import _kept, _repeat
 from fibsem.ai.evals.scoring import InvalidAnswer
 from fibsem.ai.evals.tasks.base import EvalTask, Run, Sim
-from fibsem.ai.evals.visual import KEY, _colour, _pass_strip, _stops
+from fibsem.ai.evals.visual import KEY, THEME, _colour, _pass_strip, _stops
 
 
 def score_polishing_stop(
@@ -60,7 +60,7 @@ def draw_polishing_stop(case: Case, runs: List[Run], key=None, part=None):
     med = [p.get("measured", {}).get("median_nm", np.nan) for p in passes]
     lo = [p.get("measured", {}).get("min_nm", np.nan) for p in passes]
     hi = [p.get("measured", {}).get("max_nm", np.nan) for p in passes]
-    ax.fill_between(xs, lo, hi, color="#cccccc", label="min-max")
+    ax.fill_between(xs, lo, hi, color=THEME.grid, label="min-max")
     ax.plot(xs, med, "k.-", label="median")
     wanted = [names.index(name) for name in stop_passes(key)]
     ax.axvspan(

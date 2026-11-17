@@ -50,9 +50,11 @@ def known_tools(extras: Optional[Dict[str, extra_mcp.Server]] = None) -> List[st
 def front_matter(text: str) -> Tuple[Optional[Dict[str, Any]], str]:
     """A file's front matter and the text after it; None without front
     matter. The CLI reads it a line at a time, so a value with a colon in it,
-    not quoted, still counts."""
+    not quoted, still counts. Windows line endings read as Unix ones: a
+    checkout on Windows writes the shipped files with them."""
+    unix = text.replace("\r\n", "\n")
     front, sep, body = (
-        text[4:].partition("\n---") if text.startswith("---\n") else ("", "", text)
+        unix[4:].partition("\n---") if unix.startswith("---\n") else ("", "", unix)
     )
     if not sep:
         return None, text
