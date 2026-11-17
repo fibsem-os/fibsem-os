@@ -1060,10 +1060,10 @@ class SampleScene:
         if strength <= 0 or not charge.any():
             return data
         size = max(data.shape) / 1024.0
-        reach = ndi_gaussian(charge, 25.0 * size)
+        reach = sim_view.gauss(charge, 25.0 * size)
         halo = np.clip(reach - charge, 0, None)
         k = np.clip(strength * charge, 0, 1)
-        blurred = ndi_gaussian(data, 2.0 * size)
+        blurred = sim_view.gauss(data, 2.0 * size)
         out = data + 0.6 * k * (blurred - data)
         out = out + 40.0 * strength * np.tanh(1.5 * charge) - 60.0 * strength * halo
         return out

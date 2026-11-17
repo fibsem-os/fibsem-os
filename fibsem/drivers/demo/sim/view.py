@@ -8,8 +8,12 @@ Internally in micrometres.
 
 from __future__ import annotations
 
+import os
+import threading
 from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from functools import partial
 from typing import TYPE_CHECKING, Callable, Optional, Tuple
 
 import numpy as np
@@ -76,6 +80,60 @@ def polygon_span(polygon: np.ndarray, u: np.ndarray) -> Tuple[np.ndarray, np.nda
 
 
 # --------------------------------------------------------------------- noise
+# what is worked out point by point over a view (the film's masks, a
+# surface's texture) is done a band of rows at a time, on this many threads
+WORKERS = min(4, os.cpu_count() or 1)
+BAND_LEAST = 150_000  # points; a smaller view is not worth splitting
+_pool: Optional[ThreadPoolExecutor] = None
+_in_band = threading.local()
+
+
+def by_rows(fn, *arrays):
+    """`fn(*arrays)` for 2D arrays with the same rows, where each point of
+    the answer comes from that point of the arrays alone: worked out a band
+    of rows at a time on several threads and put back together, which gives
+    what one call would. `fn` returns an array, or a tuple of them."""
+    global _pool
+    rows = arrays[0].shape[0]
+    bands = min(WORKERS, rows, arrays[0].size // BAND_LEAST)
+    if bands < 2 or getattr(_in_band, "on", False):
+        return fn(*arrays)
+    if _pool is None:
+        _pool = ThreadPoolExecutor(WORKERS, thread_name_prefix="sim-view")
+    edges = np.linspace(0, rows, bands + 1).astype(int)
+
+    def band(k):
+        _in_band.on = True
+        try:
+            return fn(*(a[edges[k] : edges[k + 1]] for a in arrays))
+        finally:
+            _in_band.on = False
+
+    parts = list(_pool.map(band, range(bands)))
+    if isinstance(parts[0], tuple):
+        return tuple(np.concatenate(p) for p in zip(*parts))
+    return np.concatenate(parts)
+
+
+def together(*jobs) -> list:
+    """What each of `jobs` (calls that do not depend on one another)
+    returns, worked out side by side."""
+    global _pool
+    if WORKERS < 2 or len(jobs) < 2 or getattr(_in_band, "on", False):
+        return [job() for job in jobs]
+    if _pool is None:
+        _pool = ThreadPoolExecutor(WORKERS, thread_name_prefix="sim-view")
+
+    def run(job):
+        _in_band.on = True
+        try:
+            return job()
+        finally:
+            _in_band.on = False
+
+    return list(_pool.map(run, jobs))
+
+
 def _hash(i, j, seed):
     h = (
         (i.astype(np.int64) * 73856093)
@@ -135,12 +193,33 @@ def fbm(x, y, scales, amps, seed, finest=0.0):
 
 
 # --------------------------------------------------------------------- blurs
+def gauss(a: np.ndarray, sigma: float, mode: str = "reflect") -> np.ndarray:
+    """`ndi.gaussian_filter` of a 2D array, to the last bit, with each axis
+    blurred a band at a time on several threads."""
+    bands = min(WORKERS, min(a.shape), a.size // BAND_LEAST)
+    if a.ndim != 2 or bands < 2 or getattr(_in_band, "on", False):
+        return ndi.gaussian_filter(a, sigma, mode=mode)
+    edges = np.linspace(0, a.shape[1], bands + 1).astype(int)
+    down = together(
+        *(
+            partial(ndi.gaussian_filter1d, a[:, lo:hi], sigma, axis=0, mode=mode)
+            for lo, hi in zip(edges[:-1], edges[1:])
+        )
+    )
+    return by_rows(
+        lambda b: ndi.gaussian_filter1d(b, sigma, axis=1, mode=mode),
+        np.concatenate(down, axis=1),
+    )
+
+
 def _gauss(a: np.ndarray, sigma) -> np.ndarray:
     """A gaussian blur (sigma in samples, per axis) that stays cheap when it
     is wide: an axis blurred by more than a few samples is block-averaged,
     blurred at sigma / step and scaled back, which a blur that wide cannot
     tell from the direct one."""
     a = np.asarray(a)
+    if a.dtype == np.float32 and not a.any():
+        return np.zeros_like(a)  # nothing to blur
     sig = np.broadcast_to(np.asarray(sigma, dtype=float), (a.ndim,))
     steps = tuple(int(min(16, s // 4)) if s >= 8 else 1 for s in sig)
     if all(st == 1 for st in steps):
@@ -162,8 +241,10 @@ def _gauss(a: np.ndarray, sigma) -> np.ndarray:
 def _smooth_top(h, sigma):
     """Smooth the solid top, leaving out the holes (VOID)."""
     solid = (h > VOID / 2).astype(np.float32)
-    num = _gauss(np.where(solid > 0, h, 0.0), sigma)
-    den = _gauss(solid, sigma)
+    num, den = together(
+        lambda: _gauss(np.where(solid > 0, h, 0.0), sigma),
+        lambda: _gauss(solid, sigma),
+    )
     return np.where(den > 1e-3, num / np.maximum(den, 1e-3), h)
 
 
@@ -249,11 +330,12 @@ def render(
 ) -> np.ndarray:
     """One beam's view of the scene as a uint8 image (height, width);
     `charge` is how strongly the (SEM) beam charges it. `canvas(scene, beam,
-    frame, u, w, pix)` draws the view over content columns u and rows w (um)
-    and returns it with the charge it takes up."""
+    frame, u, w, pix, charged)` draws the view over content columns u and
+    rows w (um) and returns it with the charge it takes up (None unless
+    `charged`)."""
     pix = pixel_size * UM
     u, w, to_view = content(frame, pixel_size, resolution)
-    canvas, q = canvas(scene, beam, frame, u, w, pix)
+    canvas, q = canvas(scene, beam, frame, u, w, pix, charge > 0)
     img = to_view(canvas, 1, OUTSIDE)
     if charge > 0:
         q = to_view(q, 1, 0.0)
@@ -271,7 +353,7 @@ def _finish(scene, img, rng, q=None, charge=0.0, optics=None):
     if optics is not None:
         img = sim_optics.blur(img, *optics)
         dose = optics[0].dose(optics[1])
-    img = ndi.gaussian_filter(img, 0.7)
+    img = gauss(img, 0.7)
     if q is not None and charge > 0:
         img = scene.charge_up(img * BRIGHTNESS, q, charge) / BRIGHTNESS
     if scene.noise_sigma > 0 or scene.noise_fraction > 0:
