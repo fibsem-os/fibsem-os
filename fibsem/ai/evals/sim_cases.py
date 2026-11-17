@@ -113,7 +113,7 @@ BRIEFS = {
     ),
     "site_selection": (
         "Pick up to 10 grid squares on this {view} of a cryo grid to "
-        "mill lamellae in, best first: intact film, no ice or contamination, "
+        "mill lamellae in, best first: intact film, no thick ice, "
         "and a cell clear of the grid bars. Answer each pick as the x, y px "
         "of the cell on the full-size overview ({w} x {h} px), with a reason."
     ),
