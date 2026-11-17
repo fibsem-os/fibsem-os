@@ -3583,6 +3583,8 @@ class SampleScene:
     def _milled_away(self, x: float, y: float, z: float) -> bool:
         """`milled_through`, from the sample round the point as it is now,
         whatever view was drawn last."""
+        if not self.milled:
+            return False  # nothing to build the sample round the point for
         um = sim_view.UM
         near = np.arange(-16, 17) * 0.25  # wide enough to level a floor
         here = sim_solid.Plan(self, x * um + near, y * um + near)
