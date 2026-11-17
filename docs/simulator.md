@@ -236,6 +236,11 @@ It is what a focus sweep has to go on where little else is in view: its default 
 a 10 um focus error is about half a pixel of blur. At 150 um and wider the same error
 is too small to see, and a sweep lands within a few tens of microns.
 
+The ion beam converges a quarter as fast, so its focus shows over hundreds of microns
+where the electron beam's shows over tens. A sweep finds it with passes that wide (a
+millimetre in 100 um steps, then 100 um in 10 um steps), at 80 um and at 150 um; the
+sweep's default passes, 50 um and 10 um wide, are too narrow to see any change in it.
+
 Voltage changes nothing, and the height of a cell or the depth of a trench is too
 little to change focus.
 
@@ -433,15 +438,26 @@ Run as a program it writes a dataset, one scene per seed:
 python -m fibsem.drivers.demo.sim.labels --out labels --seeds 1 2 3
 ```
 
-For each seed that is six images (SEM overviews at 300 and 120 um, FIB and SEM at the
-milling angle at 150 um, FIB and SEM of two trenches at 50 um; choose with `--views`),
-in `images/`, with `labels/` (class ids, as a paletted PNG), `instances/` (cell
-numbers), `overlays/` to look at, and one COCO `annotations.json` with a box and a mask
-for each cell and each patch of contamination, ice plate, rip and fiducial.
+For each seed that is eight images (SEM overviews at 300 and 120 um, FIB and SEM at the
+milling angle at 150 um, FIB and SEM at 50 um of two trenches cut either side of a cell,
+and the fluorescence camera in reflection and in GFP; choose with `--views`), in
+`images/`, with `labels/` (class ids, as a paletted PNG), `instances/` (cell numbers),
+`overlays/` to look at, and one COCO `annotations.json` with a box and a mask for each
+cell and each patch of contamination, ice plate, rip, fiducial and fluorescence target.
+
+The fluorescence view has labels too:
+
+```python
+image, found = labels.acquire_fm(microscope, channel_settings)
+```
+
+They are the same classes, seen as the camera sees the sample and the same whatever the
+channel, with one more: `fluorescence target`, a disc at each target that has not been
+milled away (`scene.fm_targets()`). The FM images of a dataset are 16-bit.
 
 Labels come from the objects, not from the image: something too faint to make out, a
-crack under thick ice for one, is labelled all the same. The fluorescence view has no
-labels yet.
+crack under thick ice or a target in a channel that does not show it, is labelled all
+the same.
 
 ## One world, three views
 

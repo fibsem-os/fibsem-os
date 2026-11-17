@@ -28,9 +28,11 @@ from scipy import ndimage as ndi
 
 import fibsem.config as cfg
 from fibsem import utils
+from fibsem.devices.fm import mount_transform_from_name
 from fibsem.drivers.demo.sim import solid as sim_solid
 from fibsem.drivers.demo.sim import view as sim_view
-from fibsem.geometry.projection import BeamStageProjection
+from fibsem.fm.structures import REFLECTION, ChannelSettings, EmissionFilter
+from fibsem.geometry.projection import BeamStageProjection, FMStageProjection
 from fibsem.structures.image import FibsemImage
 from fibsem.structures.settings import (
     BeamType,
@@ -55,13 +57,20 @@ CLASSES: Tuple[Tuple[int, str, Tuple[int, int, int]], ...] = (
     (11, "cut face", (190, 110, 240)),  # ice, film or bar a pattern exposed
     (12, "cell cut face", (20, 140, 60)),  # a cell a pattern cut through
     (13, "coat", (255, 130, 50)),  # the GIS or sputter coat, seen edge-on
+    (14, "fluorescence target", (255, 60, 160)),  # in the FM's labels only
 )
 ID = {name: number for number, name, _ in CLASSES}
 PALETTE = np.zeros((256, 3), dtype=np.uint8)
 for _number, _name, _colour in CLASSES:
     PALETTE[_number] = _colour
 # what gets a box of its own in the annotations, beside each cell
-BOXED = ("contamination", "ice plate", "broken hole or rip", "fiducial")
+BOXED = (
+    "contamination",
+    "ice plate",
+    "broken hole or rip",
+    "fiducial",
+    "fluorescence target",
+)
 MIN_AREA = 60  # px; a smaller patch gets no box
 IN_CELL = (
     sim_solid.CELL,
@@ -215,9 +224,107 @@ def acquire(microscope, settings: ImageSettings) -> Tuple[FibsemImage, Labels]:
     return microscope.acquire_image(image_settings=settings), found
 
 
+# ------------------------------------------------------- the fluorescence view
+FM_SIDE = 1024  # the most samples a side the FM's labels are traced over
+FM_TARGET = 0.6  # um; the radius a target is marked with (5 px at least)
+
+
+def fm_view(scene, stage_position, resolution, projection) -> Labels:
+    """The labels of the image `scene.render_fm` draws with the same
+    arguments, whatever the channel: the classes the beams' labels have, seen
+    as the FM sees the sample, and a disc at each fluorescence target that is
+    still there (`scene.fm_targets`). A target is marked whether or not the
+    channel shows it."""
+    width, height = int(resolution[0]), int(resolution[1])
+    frame = scene.fm_frame(stage_position, projection)
+    pixel_size = float(projection.pixel_size)
+    step = max(1, int(np.ceil(max(width, height) / FM_SIDE)))
+    u, w, _ = sim_view.content(frame, pixel_size, (width, height))
+    found = classify(
+        scene,
+        sim_solid.trace(scene, frame, u[::step], w[::step], pixel_size * UM * step),
+    )
+    classes, cells = found.classes, found.cells
+    if step > 1:
+        classes = classes.repeat(step, 0).repeat(step, 1)[:height, :width]
+        cells = cells.repeat(step, 0).repeat(step, 1)[:height, :width]
+    classes, cells = classes.copy(), cells.copy()
+    pix = pixel_size * UM
+    ax, ay = frame.anchor
+    radius = max(FM_TARGET / pix, 5.0)
+    rows, cols = np.mgrid[0:height, 0:width]
+    film = sim_solid.film_top(scene)
+    for target in scene.fm_targets():
+        x, y, z = target["midpoint"]
+        if scene._milled_away(x, y, z):
+            continue
+        col = width / 2 + (frame.turn * x * UM + ax) / pix
+        row = (
+            height / 2
+            + (frame.turn * y * UM * frame.fs + ay + frame.k * (z * UM + film)) / pix
+        )
+        if not (-radius < col < width + radius and -radius < row < height + radius):
+            continue
+        classes[np.hypot(cols - col, rows - row) <= radius] = ID["fluorescence target"]
+    return Labels(classes.astype(np.uint8), cells.astype(np.uint16))
+
+
+def fm_of(microscope) -> Labels:
+    """The labels of the image a Demo microscope's FM would take now, as the
+    image is displayed."""
+    connection = microscope._connection
+    scene = connection.sample_scene
+    if scene is None:
+        raise ValueError("labels need the sample scene: set sim.sample.enabled")
+    fm = microscope.fm
+    projection = FMStageProjection.from_microscope(microscope)
+    if fm is None or projection is None:
+        raise ValueError("this microscope has no fluorescence microscope")
+    width, height = (int(v) for v in fm.camera.resolution)
+    projection = FMStageProjection(
+        geometry=projection.geometry,
+        pixel_size=float(fm.camera.pixel_size[0]),
+        shape=(height, width),
+    )
+    scene.holder_slots = connection.scene_holder_slots()
+    found = fm_view(
+        scene, connection.scene_stage_position_at_fm(), (width, height), projection
+    )
+
+    def shown(a):
+        # the camera's frame, then the display's transforms (see render_fm_scene)
+        mount = fm.mount_transform
+        if scene.fm_camera_mount is not None:
+            mount = mount_transform_from_name(scene.fm_camera_mount)
+        a = fm._transform_array(fm._transform_array(a, fm._transform), mount)
+        return np.ascontiguousarray(fm._apply_image_transform(a))
+
+    return Labels(shown(found.classes), shown(found.cells))
+
+
+def acquire_fm(microscope, channel_settings=None) -> Tuple[object, Labels]:
+    """An FM image from a Demo microscope and its labels."""
+    found = fm_of(microscope)
+    return microscope.fm.acquire_image(channel_settings), found
+
+
 # ----------------------------------------------------------------- a dataset
-VIEWS = ("overview", "tilted", "lamella")
+VIEWS = ("overview", "tilted", "lamella", "fm")
 MILLING_ANGLE = 15.0  # deg
+FM_CHANNELS = (
+    ChannelSettings(
+        name="reflection",
+        excitation_wavelength=550,
+        emission_filter=REFLECTION,
+        color="gray",
+    ),
+    ChannelSettings(
+        name="GFP",
+        excitation_wavelength=488,
+        emission_filter=EmissionFilter.band("520 nm", 520),
+        color="green",
+    ),
+)
 
 
 def _session(seed: int, config_path: Optional[str], sample: Optional[dict]):
@@ -235,6 +342,33 @@ def _session(seed: int, config_path: Optional[str], sample: Optional[dict]):
     return microscope
 
 
+def centre_on_cell(microscope, hfw: float = 150e-6, within: float = 1e-6) -> bool:
+    """Move the stage so the cell nearest the centre of the FIB's view is at
+    its centre; False (and no move) when no cell is in view. The stage does
+    not land exactly where it is sent, so it is sent again, a few times,
+    until the cell is `within` metres of the centre."""
+    resolution = (768, 512)
+    pixel = hfw / resolution[0]
+    for _ in range(4):
+        found = of(microscope, BeamType.ION, hfw, resolution)
+        centres = [
+            ndi.center_of_mass(found.cells == number)
+            for number in np.unique(found.cells)
+            if number and (found.cells == number).sum() >= MIN_AREA
+        ]
+        if not centres:
+            return False
+        height, width = found.cells.shape
+        row, col = min(
+            centres, key=lambda c: np.hypot(c[0] - height / 2, c[1] - width / 2)
+        )
+        dx, dy = (col - width / 2) * pixel, -(row - height / 2) * pixel
+        if np.hypot(dx, dy) <= within:
+            break
+        microscope.stable_move(dx=dx, dy=dy, beam_type=BeamType.ION)
+    return True
+
+
 def _shots(kind: str, microscope) -> List[Tuple[BeamType, float]]:
     """Set the microscope up for a kind of view; the (beam, hfw) to take."""
     if kind == "overview":
@@ -242,7 +376,8 @@ def _shots(kind: str, microscope) -> List[Tuple[BeamType, float]]:
     microscope.move_to_milling_angle(MILLING_ANGLE)
     if kind == "tilted":
         return [(BeamType.ION, 150e-6), (BeamType.ELECTRON, 150e-6)]
-    # a lamella: a trench either side of the centre
+    # a lamella through a cell, where one is in view: a trench either side
+    centre_on_cell(microscope)
     for y in (4.5e-6, -4.5e-6):
         microscope.draw_pattern(
             FibsemRectangleSettings(
@@ -251,6 +386,33 @@ def _shots(kind: str, microscope) -> List[Tuple[BeamType, float]]:
         )
     microscope.run_milling()
     return [(BeamType.ION, 50e-6), (BeamType.ELECTRON, 50e-6)]
+
+
+def _taken(kind: str, microscope, resolution):
+    """The images of a kind of view with their labels, as
+    (beam, channel, hfw, image data, labels)."""
+    if kind == "fm":
+        fm = microscope.fm
+        if fm is None:
+            raise ValueError("the fm view needs a fluorescence microscope")
+        microscope.move_to_device("FM")
+        fm.objective.move_absolute(fm.objective.focus_position)
+        hfw = float(fm.camera.pixel_size[0]) * int(fm.camera.resolution[0])
+        for channel in FM_CHANNELS:
+            image, found = acquire_fm(microscope, channel)
+            yield "fm", channel.name.lower(), hfw, image.data, found
+        return
+    for beam_type, hfw in _shots(kind, microscope):
+        settings = ImageSettings(
+            resolution=tuple(resolution),
+            hfw=hfw,
+            dwell_time=1e-6,
+            save=False,
+            beam_type=beam_type,
+        )
+        image, found = acquire(microscope, settings)
+        beam = "sem" if beam_type is BeamType.ELECTRON else "fib"
+        yield beam, None, hfw, image.data, found
 
 
 def _rle(mask: np.ndarray) -> dict:
@@ -299,7 +461,9 @@ def generate(
     """Write a labelled dataset to the folder `out`: for each seed and each
     kind of view, the images with their class and cell labels, and one COCO
     `annotations.json` over them all (returned). `sample` is extra
-    `sim: sample:` keys for every scene."""
+    `sim: sample:` keys for every scene. The `fm` view is the fluorescence
+    camera's, in reflection and in GFP (16-bit images), and needs a
+    configuration with a fluorescence microscope."""
     unknown = set(views) - set(VIEWS)
     if unknown:
         raise ValueError(f"unknown views {sorted(unknown)}: choose from {VIEWS}")
@@ -317,18 +481,13 @@ def generate(
         for kind in views:
             microscope = _session(seed, config_path, sample)
             try:
-                for beam_type, hfw in _shots(kind, microscope):
-                    settings = ImageSettings(
-                        resolution=tuple(resolution),
-                        hfw=hfw,
-                        dwell_time=1e-6,
-                        save=False,
-                        beam_type=beam_type,
-                    )
-                    image, found = acquire(microscope, settings)
-                    beam = "sem" if beam_type is BeamType.ELECTRON else "fib"
+                for beam, channel, hfw, data, found in _taken(
+                    kind, microscope, resolution
+                ):
                     name = f"seed{int(seed):04d}-{kind}-{beam}-{round(hfw * UM)}um"
-                    _save(root, name, image.data, found, overlays)
+                    if channel:
+                        name += f"-{channel}"
+                    _save(root, name, data, found, overlays)
                     image_id = len(coco["images"]) + 1
                     coco["images"].append(
                         {
@@ -336,12 +495,13 @@ def generate(
                             "file_name": f"images/{name}.png",
                             "labels": f"labels/{name}.png",
                             "instances": f"instances/{name}.png",
-                            "width": int(image.data.shape[1]),
-                            "height": int(image.data.shape[0]),
+                            "width": int(data.shape[1]),
+                            "height": int(data.shape[0]),
                             "seed": int(seed),
                             "view": kind,
                             "beam": beam,
                             "hfw": hfw,
+                            **({"channel": channel} if channel else {}),
                         }
                     )
                     coco["annotations"].extend(
@@ -361,6 +521,10 @@ def _save(root: Path, name: str, image: np.ndarray, found: Labels, overlays: boo
     classes.save(root / "labels" / f"{name}.png")
     Image.fromarray(found.cells).save(root / "instances" / f"{name}.png")
     if overlays:
+        if image.dtype != np.uint8:
+            # a camera frame: its brightest thousandth is white in the overlay
+            top = max(float(np.percentile(image, 99.9)), 1.0)
+            image = np.clip(image / top * 255, 0, 255).astype(np.uint8)
         over = Image.fromarray(found.overlay(image))
         draw = ImageDraw.Draw(over)
         for item in found.boxes():
@@ -371,7 +535,7 @@ def _save(root: Path, name: str, image: np.ndarray, found: Labels, overlays: boo
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
     parser = argparse.ArgumentParser(
-        description="Write labelled SEM and FIB images from the simulator's sample."
+        description="Write labelled SEM, FIB and FM images from the simulator's sample."
     )
     parser.add_argument("--out", required=True, help="the folder to write to")
     parser.add_argument(

@@ -146,10 +146,10 @@ BRIGHTNESS = (118.0, 168.0)  # grey of plain flat ice
 # a top's fine texture: (um, share) of each size of roughness, how strongly it
 # shows (SEM, FIB), and the dark specks in it
 ROUGH = ((0.12, 0.35), (0.3, 0.3), (0.8, 0.2), (2.0, 0.15))
-GRAIN = (0.4, 0.25)
+GRAIN = (0.4, 0.65)
 SPECK_CELL = 0.7  # um; at most one speck in each square this wide
 SPECK_SHARE = 0.5  # of those squares that have one
-SPECK = (0.5, 0.35)  # how much darker a speck is
+SPECK = (0.5, 0.5)  # how much darker a speck is
 RIM = (1.5, 1.2)  # how bright the rim round a milled edge is
 RIM_WIDTH = 1.1  # um
 CURTAIN = 0.28  # how strongly curtaining streaks a cut face

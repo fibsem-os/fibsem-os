@@ -2846,6 +2846,41 @@ class SampleScene:
             self._optics_here(optics, stage_position, projection, frame),
         )
 
+    def _fm_anchor(self, stage_position, projection):
+        """Where the FM sees the world: the anchor on its image plane (m),
+        the foreshortening, the half-turn, and how far a height shifts a
+        point down the view."""
+        reference = self.reference_position
+        if self.tilt_axis_offset:
+            reference = self._non_eucentric_reference(stage_position, projection)
+        # the FM's projection has no half-turn flip: reflect the anchor as the
+        # beams' does, then turn the world about it (see _turn)
+        reference = BeamStageProjection._compucentric_corrected(
+            reference, stage_position, projection.geometry.rotation_centre
+        )
+        ax, ay = projection.to_plane(reference, stage_position)
+        fs = max(surface_foreshortening(projection, stage_position), MIN_FORESHORTENING)
+        turn = self._turn(stage_position)
+        # a tilted view: a height shifts a point down the view the way a
+        # stage raise does, and the plane is nearer the objective at one edge
+        lift = 0.0
+        if fs < 0.9995:
+            raised = replace(stage_position, z=(stage_position.z or 0.0) + 1e-6)
+            _, ay_up = projection.to_plane(reference, raised)
+            lift = float(np.copysign(np.sqrt(1 - fs * fs), ay_up - ay))
+        return ax, ay, fs, turn, lift
+
+    def fm_frame(self, stage_position, projection):
+        """How the FM sees the world, as the beams' views are described
+        (see `view_frame`): the FM's image is not rotated."""
+        if self.reference_position is None:
+            self.anchor(stage_position)
+        self.place_grids(projection)
+        ax, ay, fs, turn, lift = self._fm_anchor(stage_position, projection)
+        return sim_view.ViewFrame(
+            anchor=(ax * 1e6, ay * 1e6), theta=0.0, turn=turn, fs=float(fs), k=lift
+        )
+
     def render_fm(
         self,
         stage_position: FibsemStagePosition,
@@ -2883,24 +2918,7 @@ class SampleScene:
             self.anchor(stage_position)
         self.place_grids(projection)
 
-        reference = self.reference_position
-        if self.tilt_axis_offset:
-            reference = self._non_eucentric_reference(stage_position, projection)
-        # the FM's projection has no half-turn flip: reflect the anchor as the
-        # beams' does, then turn the world about it (see _turn)
-        reference = BeamStageProjection._compucentric_corrected(
-            reference, stage_position, projection.geometry.rotation_centre
-        )
-        ax, ay = projection.to_plane(reference, stage_position)
-        fs = max(surface_foreshortening(projection, stage_position), MIN_FORESHORTENING)
-        turn = self._turn(stage_position)
-        # a tilted view: a height shifts a point down the view the way a
-        # stage raise does, and the plane is nearer the objective at one edge
-        lift = 0.0
-        if fs < 0.9995:
-            raised = replace(stage_position, z=(stage_position.z or 0.0) + 1e-6)
-            _, ay_up = projection.to_plane(reference, raised)
-            lift = float(np.copysign(np.sqrt(1 - fs * fs), ay_up - ay))
+        ax, ay, fs, turn, lift = self._fm_anchor(stage_position, projection)
         self._fm_tilt = (float(fs), lift, pixel_size)
 
         bars, cells, red, fiducial = weights[:4]
