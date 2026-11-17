@@ -9,6 +9,7 @@ from scipy import ndimage as ndi
 
 import fibsem.config as cfg
 from fibsem import utils
+from fibsem.drivers.demo import simulator as sim_simulator
 from fibsem.drivers.demo.sim import solid as sim_solid
 from fibsem.drivers.demo.sim import view as sim_view
 from fibsem.drivers.demo.sim.scene import SampleScene
@@ -1212,3 +1213,23 @@ def test_a_milled_view_walked_in_part_is_what_a_whole_walk_gives(
     monkeypatch.setattr(sim_solid, "_seen", whole)
     for a, b in zip(part, _milled_views(microscope)):
         np.testing.assert_array_equal(a, b)
+
+
+def test_building_a_frame_counts_toward_its_dwell(microscope, monkeypatch):
+    """A frame takes its dwell over its pixels: the time spent building the
+    image comes off the wait, and a frame that took longer waits no more."""
+    waits = []
+    monkeypatch.setattr(sim_simulator, "sim_sleep", waits.append)
+    _use(microscope, **WAFFLE)
+    for dwell in (1e-4, 1e-9):
+        settings = ImageSettings(
+            resolution=(512, 342),
+            hfw=150e-6,
+            dwell_time=dwell,
+            save=False,
+            beam_type=BeamType.ION,
+        )
+        microscope.acquire_image(image_settings=settings)
+    slow, fast = waits
+    assert 0 < slow < 1e-4 * 512 * 342
+    assert fast < 0
