@@ -1,4 +1,4 @@
-"""The hub role: the instrument list, pairing with each instrument's gateway,
+"""The hub: the instrument list, pairing with each instrument's gateway,
 reading their health, and who may change the list."""
 
 import json
@@ -8,9 +8,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from fibsem.gateway.gateway import OFF, GatewayRefused, GatewayState, History
-from fibsem.gateway.hub import Hub, Instrument
 from fibsem.gateway.server import GatewayAuth, build_gateway_app
-from fibsem.gateway.tunnels import Tunnels, command
+from fibsem.hub.hub import Hub, Instrument
+from fibsem.hub.server import build_hub_app, hub_auth
+from fibsem.hub.tunnels import Tunnels, command
 from fibsem.server.pairing import HUB
 
 OPERATOR_TOKEN = "operator-token"
@@ -132,14 +133,14 @@ def hub(tmp_path, instruments, ssh):
     )
 
 
-def test_a_gateway_with_no_list_is_not_a_hub_and_reads_nothing(tmp_path):
+def test_a_hub_with_no_list_reads_nothing(tmp_path):
     def fetch(*args):
         raise AssertionError("nothing is read without a list")
 
     hub = Hub(tmp_path / "hub.yaml", tmp_path / "hub", fetch=fetch)
     hub.check()
     state = hub.state()
-    assert state.hub is False and state.instruments == []
+    assert state.instruments == []
 
 
 def test_the_list_is_kept_in_the_hubs_file(hub, tmp_path):
@@ -153,7 +154,6 @@ def test_the_list_is_kept_in_the_hubs_file(hub, tmp_path):
     # The same name again changes its address: one row.
     hub.add("Scope 2", "http://scope-2:8011")
     assert [i.url for i in hub.instruments()][1] == "http://scope-2:8011"
-    assert hub.state().hub is True
 
 
 @pytest.mark.parametrize(
@@ -247,43 +247,59 @@ def test_removing_an_instrument_drops_its_token(hub, instruments, tmp_path):
 
 @pytest.fixture
 def served(tmp_path, hub):
-    """The hub's own gateway, with its routes."""
-    auth = _auth(tmp_path)
-    client = TestClient(build_gateway_app(FakeGateway(), auth, hub=hub))
-    return client, auth
+    """The hub's own routes, with its own paired computers."""
+    token_file = tmp_path / "operator-token.json"
+    token_file.write_text(json.dumps({"token": OPERATOR_TOKEN}))
+    auth = hub_auth(token_file, tmp_path / "hub-paired.json")
+    stopped = []
+    client = TestClient(build_hub_app(hub, auth, lambda: stopped.append(True)))
+    return client, auth, stopped
 
 
-def test_the_operator_changes_the_list_and_a_paired_hub_only_reads_it(served):
-    client, auth = served
+def test_only_someone_signed_in_at_the_hub_reads_or_changes_the_list(served):
+    client, auth, stopped = served
     operator = {"Authorization": f"Bearer {OPERATOR_TOKEN}"}
     assert client.get("/hub").status_code == 401
-    assert client.get("/hub", headers=operator).json() == {
-        "hub": False,
-        "instruments": [],
-    }
+    assert client.post("/hub/instruments", json={}).status_code == 401
+    assert client.get("/hub", headers=operator).json() == {"instruments": []}
 
     body = {"name": "Scope 1", "url": URL}
     added = client.post("/hub/instruments", json=body, headers=operator)
-    assert added.status_code == 200 and added.json()["hub"] is True
+    assert added.status_code == 200
     assert added.json()["instruments"][0]["name"] == "Scope 1"
 
-    code = auth.pairing.open(role=HUB)
-    token = client.post("/pair", json={"code": code, "name": "other"}).json()["token"]
-    other = {"Authorization": f"Bearer {token}"}
-    assert client.get("/hub", headers=other).status_code == 200
-    refused = client.post("/hub/instruments", json=body, headers=other)
-    assert refused.status_code == 403
-    assert client.delete("/hub/instruments/Scope 1", headers=other).status_code == 403
+    # A browser on another computer signs in with a code from the hub.
+    code = auth.pairing.open()
+    token = client.post("/pair", json={"code": code, "name": "desk"}).json()["token"]
+    desk = {"Authorization": f"Bearer {token}"}
+    assert client.get("/hub", headers=desk).status_code == 200
 
     bad = client.post("/hub/instruments", json={"name": "x"}, headers=operator)
     assert bad.status_code == 422 and bad.json()["detail"]["error_type"] == "no_address"
     no_code = client.post("/hub/instruments/Scope 1/pair", json={}, headers=operator)
     assert no_code.status_code == 422
     gone = client.delete("/hub/instruments/Scope 1", headers=operator)
-    assert gone.json() == {"hub": False, "instruments": []}
+    assert gone.json() == {"instruments": []}
     assert (
         client.delete("/hub/instruments/Scope 1", headers=operator).status_code == 404
     )
+
+
+def test_a_hub_only_pairs_browsers_and_stops_for_the_operator(served):
+    client, auth, stopped = served
+    operator = {"Authorization": f"Bearer {OPERATOR_TOKEN}"}
+    # Nothing pairs with a hub as a hub or an agent: it is not a door.
+    refused = client.post("/pairing", json={"role": "hub"}, headers=operator)
+    assert refused.status_code == 422
+    assert client.post("/hub/quit").status_code == 401 and not stopped
+    assert client.post("/hub/quit", headers=operator).json() == {"stopping": True}
+    assert stopped == [True]
+
+
+def test_a_gateway_serves_no_hub_routes(tmp_path):
+    client = TestClient(build_gateway_app(FakeGateway(), _auth(tmp_path)))
+    operator = {"Authorization": f"Bearer {OPERATOR_TOKEN}"}
+    assert client.get("/hub", headers=operator).status_code == 404
 
 
 # -- tunnels ---------------------------------------------------------------

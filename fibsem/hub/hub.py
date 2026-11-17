@@ -1,8 +1,8 @@
-"""The hub role: a gateway that is given a list of instruments.
+"""The hub's list of instruments, and what it reads from each.
 
 Each instrument is another PC's gateway, named in ``~/.fibsem/hub.yaml`` with
 where ssh connects to it: the hub opens a tunnel to each and picks the ports
-(`fibsem.gateway.tunnels`). An instrument can instead give an address to use
+(`fibsem.hub.tunnels`). An instrument can instead give an address to use
 as it is. The hub pairs with each one as a hub (the
 code ``fibsem-gateway pair --hub`` shows there), keeps the token it answers,
 and reads each gateway's health in the background: whether it answers, what it
@@ -28,7 +28,7 @@ from urllib.parse import urlsplit
 import yaml
 
 from fibsem.gateway.gateway import GatewayRefused
-from fibsem.gateway.tunnels import Tunnel, TunnelDown, Tunnels, valid_destination
+from fibsem.hub.tunnels import Tunnel, TunnelDown, Tunnels, valid_destination
 from fibsem.server.discovery import DISCOVERY_DIR
 from fibsem.util.files import write_atomic
 
@@ -96,8 +96,6 @@ class InstrumentState:
 
 @dataclass
 class HubState:
-    hub: bool
-    """Whether this gateway has instruments: it is a hub when it does."""
     instruments: List[InstrumentState] = field(default_factory=list)
 
 
@@ -451,7 +449,7 @@ class Hub:
             )
             for i in instruments
         ]
-        return HubState(hub=bool(instruments), instruments=rows)
+        return HubState(instruments=rows)
 
     # -- the background read -----------------------------------------------------
 
