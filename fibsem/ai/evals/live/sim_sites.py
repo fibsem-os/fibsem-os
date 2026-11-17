@@ -182,6 +182,23 @@ def _to_stage(world_map: np.ndarray, x: float, y: float) -> Tuple[float, float]:
     return float(s[0]), float(s[1])
 
 
+def _nearest_crack(scene, x: float, y: float) -> Optional[float]:
+    """How far the nearest hairline crack's line is from world (x, y) (m);
+    None when the scene has none."""
+    best = None
+    if getattr(scene, "crack_density", 0) <= 0:
+        return None
+    for arm in getattr(scene, "cracks", None) or []:
+        a, b = arm[:-1, :2], arm[1:, :2]
+        ab = b - a
+        length2 = np.maximum((ab**2).sum(axis=1), 1e-30)
+        t = np.clip(((np.array([x, y]) - a) * ab).sum(axis=1) / length2, 0.0, 1.0)
+        nearest = a + ab * t[:, None]
+        d = float(np.hypot(nearest[:, 0] - x, nearest[:, 1] - y).min())
+        best = d if best is None else min(best, d)
+    return best
+
+
 def _cell(scene, grid, feature, world_map) -> Optional[Dict[str, Any]]:
     """A cell body's place, size and square in stage coordinates, and
     whether it is wholly on the film and clear of every bar."""
@@ -209,10 +226,14 @@ def _cell(scene, grid, feature, world_map) -> Optional[Dict[str, Any]]:
     radius = float(
         np.hypot(xs[body] - xs[body].mean(), ys[body] - ys[body].mean()).max()
     )
+    crack = _nearest_crack(scene, float(xs[body].mean()), float(ys[body].mean()))
     return {
         "x": round(cx, 9),
         "y": round(cy, 9),
         "radius_um": round(radius * 1e6, 2),
+        # how far the nearest hairline crack is from the cell's centre (um);
+        # None with no crack in the scene
+        "crack_um": None if crack is None else round(crack * 1e6, 2),
         "square": [i, j],
         "on_film": on_film >= RULES["cell_area"],
         "clear": clear,

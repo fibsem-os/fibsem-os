@@ -1060,10 +1060,10 @@ class SampleScene:
         if strength <= 0 or not charge.any():
             return data
         size = max(data.shape) / 1024.0
-        reach = ndi_gaussian(charge, 25.0 * size)
+        reach = sim_view.gauss(charge, 25.0 * size)
         halo = np.clip(reach - charge, 0, None)
         k = np.clip(strength * charge, 0, 1)
-        blurred = ndi_gaussian(data, 2.0 * size)
+        blurred = sim_view.gauss(data, 2.0 * size)
         out = data + 0.6 * k * (blurred - data)
         out = out + 40.0 * strength * np.tanh(1.5 * charge) - 60.0 * strength * halo
         return out
@@ -3583,6 +3583,8 @@ class SampleScene:
     def _milled_away(self, x: float, y: float, z: float) -> bool:
         """`milled_through`, from the sample round the point as it is now,
         whatever view was drawn last."""
+        if not self.milled:
+            return False  # nothing to build the sample round the point for
         um = sim_view.UM
         near = np.arange(-16, 17) * 0.25  # wide enough to level a floor
         here = sim_solid.Plan(self, x * um + near, y * um + near)

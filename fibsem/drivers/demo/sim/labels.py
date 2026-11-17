@@ -256,14 +256,14 @@ def fm_view(scene, stage_position, resolution, projection) -> Labels:
     film = sim_solid.film_top(scene)
     for target in scene.fm_targets():
         x, y, z = target["midpoint"]
-        if scene._milled_away(x, y, z):
-            continue
         col = width / 2 + (frame.turn * x * UM + ax) / pix
         row = (
             height / 2
             + (frame.turn * y * UM * frame.fs + ay + frame.k * (z * UM + film)) / pix
         )
         if not (-radius < col < width + radius and -radius < row < height + radius):
+            continue
+        if scene._milled_away(x, y, z):
             continue
         classes[np.hypot(cols - col, rows - row) <= radius] = ID["fluorescence target"]
     return Labels(classes.astype(np.uint8), cells.astype(np.uint16))

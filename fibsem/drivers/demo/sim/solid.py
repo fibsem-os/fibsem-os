@@ -22,6 +22,7 @@ film at its bottom.
 from __future__ import annotations
 
 from collections import OrderedDict
+from functools import partial
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -98,6 +99,7 @@ WAFFLE_SAG = 0.25  # how far a waffle's ice dips in a square, off its bars
 SCRATCH = ((0.5, 0.05), (1.2, 0.09), (3.0, 0.14), (8.0, 0.2))
 SCRATCH_RUN = 80.0
 LEVEL = 0.25  # the tallest a level of that slab may be
+NEAR = 1e-3  # um: closer than any two heights that matter are told apart
 
 # secondary-electron yield, (SEM, FIB): the top of a thing, and its inside
 # where a cut or a wall shows it
@@ -172,6 +174,7 @@ WORM_LUMEN = 0.2  # and its channel
 # the side of the cell that holds one, its least and greatest radius um, its
 # grey against the yolk's ground) - the big ones protein, the small ones lipid
 YOLK_GRAINS = ((3.4, 0.8, 1.55, 1.12), (1.5, 0.22, 0.6, 0.72))
+BALLS_AT_ONCE = 3_000_000  # points worked on at once to place a cell's balls
 CARRIER_UNDER = 6.0  # um; how far under the deepest cut a view of a carrier looks
 WALL = 1.5  # a top is met through its side this many samples down its slope, at most
 CACHE_SIZE = 2  # views kept (one per beam)
@@ -265,13 +268,44 @@ def _scratches(scene: "SampleScene", X, Y, finest: float) -> np.ndarray:
     return out
 
 
-def _box(f: "SceneFeature", x: np.ndarray, y: np.ndarray, reach: float):
-    """The rows and columns of the grid within `reach` um of a feature."""
-    cols = np.nonzero(np.abs(x - f.x * UM) < reach)[0]
-    rows = np.nonzero(np.abs(y - f.y * UM) < reach)[0]
-    if not len(cols) or not len(rows):
+class _Axis:
+    """One axis of a grid of points, to find the run of them within a reach
+    of a point: by its spacing where the axis is evenly spaced, so each of
+    the thousands of things in a view looks at a few points and not all."""
+
+    def __init__(self, v: np.ndarray):
+        self.v = v
+        n = len(v)
+        self.step = float(v[-1] - v[0]) / (n - 1) if n > 1 else 0.0
+        self.even = bool(
+            self.step != 0.0
+            and np.allclose(np.diff(v), self.step, rtol=0, atol=1e-6 * abs(self.step))
+        )
+
+    def within(self, centre: float, reach: float):
+        """The slice of the axis from its first point nearer than `reach`
+        to its last, None if there is none."""
+        v, first, last = self.v, 0, len(self.v) - 1
+        if self.even:
+            a = (centre - reach - float(v[0])) / self.step
+            b = (centre + reach - float(v[0])) / self.step
+            first = max(int(np.floor(min(a, b))) - 2, 0)
+            last = min(int(np.ceil(max(a, b))) + 2, last)
+            if first > last:
+                return None
+        near = np.nonzero(np.abs(v[first : last + 1] - centre) < reach)[0]
+        if not len(near):
+            return None
+        return slice(first + int(near[0]), first + int(near[-1]) + 1)
+
+
+def _box(ax: _Axis, ay: _Axis, fx: float, fy: float, reach: float):
+    """The rows and columns of the grid within `reach` um of a point."""
+    cols = ax.within(fx, reach)
+    rows = ay.within(fy, reach) if cols is not None else None
+    if rows is None:
         return None
-    return slice(rows[0], rows[-1] + 1), slice(cols[0], cols[-1] + 1)
+    return rows, cols
 
 
 def _radius2(f: "SceneFeature", dx: np.ndarray, dy: np.ndarray) -> np.ndarray:
@@ -357,12 +391,13 @@ def _lobes(f: "SceneFeature", seed: int) -> list:
     return lobes
 
 
-def _inclusions(scene: "SampleScene", f: "SceneFeature") -> list:
-    """What lies in a cell's cytoplasm, as balls (x, y, z of the centre,
-    radius um, material): its lipid droplets, the ones the FM labels, and a
-    scatter of vesicles. Seeded by the cell: some have many, some almost none."""
+def _inclusions(scene: "SampleScene", f: "SceneFeature") -> np.ndarray:
+    """What lies in a cell's cytoplasm, as balls, a row each (x, y, z of the
+    centre, radius um, material, layer): its lipid droplets, the ones the FM
+    labels, and a scatter of vesicles. Seeded by the cell: some have many,
+    some almost none."""
     film = film_top(scene)
-    out = [
+    drops = [
         (px * UM, py * UM, film + h * UM, r * UM, DROPLET, f.layer)
         for px, py, h, r in scene._fm_cell_points(f, "droplets")
     ]
@@ -379,19 +414,22 @@ def _inclusions(scene: "SampleScene", f: "SceneFeature") -> list:
     t = rng.uniform(0, 2 * np.pi, n)
     z = film + f.base * UM + rng.uniform(0.1 * tall, 0.9 * tall, n)
     size = rng.uniform(0.12, 0.4, n)
-    fx, fy = f.x * UM, f.y * UM
-    out.extend(
-        (
-            fx + r[k] * np.cos(t[k]),
-            fy + r[k] * np.sin(t[k]),
-            z[k],
-            size[k],
-            VESICLE,
-            f.layer,
-        )
-        for k in range(n)
+
+    def all_of(v):
+        return np.full(n, float(v))
+
+    vesicles = np.stack(
+        [
+            f.x * UM + r * np.cos(t),
+            f.y * UM + r * np.sin(t),
+            z,
+            size,
+            all_of(VESICLE),
+            all_of(f.layer),
+        ],
+        axis=1,
     )
-    return out
+    return np.concatenate([np.array(drops, dtype=float).reshape(-1, 6), vesicles])
 
 
 def worm_organs(along: float, radius: float, cell_id: int = 0) -> tuple:
@@ -462,6 +500,72 @@ def _worm_inclusions(scene: "SampleScene", f: "SceneFeature") -> tuple:
     return tubes, small
 
 
+def _place(balls: np.ndarray, ax: _Axis, ay: _Axis, pieces, room) -> None:
+    """Put the balls in a cell's cytoplasm into the columns' organelle
+    pieces (`pieces`: bottoms, tops and materials, each (layers, rows,
+    columns)), many at a time. Each ball is kept inside its cell: over
+    `room[0]` and under `room[1]`, which are heights or the cells' own
+    (layers, rows, columns), `room[2]` giving the cell layer of a ball's
+    layer. Where two balls share a column of a layer the first has it."""
+    o_lo, o_hi, o_is = pieces
+    floor, roof, own = room
+    _, height, width = o_lo.shape
+    x, y, zc, r = balls[:, 0], balls[:, 1], balls[:, 2], balls[:, 3]
+
+    def first(axis, at):
+        # the grid point before the first that can lie in each ball
+        a = (at - r - float(axis.v[0])) / axis.step
+        b = (at + r - float(axis.v[0])) / axis.step
+        return np.floor(np.minimum(a, b)).astype(np.int64) - 1
+
+    span = 2 * r / np.array([[abs(ax.step)], [abs(ay.step)]])
+    reach = np.ceil(span).astype(np.int64) + 4  # grid points a ball can span
+    near = (first(ax, x) < width) & (first(ax, x) + reach[0] >= 0)
+    near &= (first(ay, y) < height) & (first(ay, y) + reach[1] >= 0)
+    balls, reach = balls[near], reach[:, near]
+    if not len(balls):
+        return
+    # as many balls at once as keeps the work in a few million points
+    wide, tall = int(reach[0].max()), int(reach[1].max())
+    many = int(np.clip(BALLS_AT_ONCE // (wide * tall), 1, 50_000))
+    for start in range(0, len(balls), many):
+        x, y, zc, r, what, layer = balls[start : start + many].T
+        layer = layer.astype(np.int64)
+        cols = first(ax, x)[:, None] + np.arange(wide)
+        rows = first(ay, y)[:, None] + np.arange(tall)
+        in_c, in_r = (cols >= 0) & (cols < width), (rows >= 0) & (rows < height)
+        cols, rows = np.clip(cols, 0, width - 1), np.clip(rows, 0, height - 1)
+        d2 = (r * r)[:, None, None] - ((ax.v[cols] - x[:, None]) ** 2)[:, None, :]
+        d2 = d2 - ((ay.v[rows] - y[:, None]) ** 2)[:, :, None]
+        inside = (d2 > 0) & in_r[:, :, None] & in_c[:, None, :]
+        b, kr, kc = np.nonzero(inside)
+        i, j, n = rows[b, kr], cols[b, kc], layer[b]
+        t = np.sqrt(d2[b, kr, kc]).astype(np.float32)
+        top, bottom = zc[b] + t, zc[b] - t
+        if own is None:
+            keep = top < roof[i, j] - 0.1
+            under = floor
+        else:
+            cell = own(n)
+            under = floor[cell, i, j] + 0.1
+            keep = (top < roof[cell, i, j] - 0.1) & (bottom > under)
+            under = under[keep]
+        keep_at = np.flatnonzero(keep)
+        at = (n[keep_at] * height + i[keep_at]) * width + j[keep_at]
+        free = o_hi.reshape(-1)[at] < NONE / 2
+        keep_at, at = keep_at[free], at[free]
+        if own is not None:
+            under = under[free]
+        # the first ball to reach a column of a layer has it
+        at, k = np.unique(at, return_index=True)
+        keep_at = keep_at[k]
+        if own is not None:
+            under = under[k]
+        o_lo.reshape(-1)[at] = np.maximum(bottom[keep_at], under)
+        o_hi.reshape(-1)[at] = top[keep_at]
+        o_is.reshape(-1)[at] = what[b[keep_at]]
+
+
 def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
     """The stack of pieces at every point of a grid of world points, x (W,)
     and y (P,) in um; `step` is the sampling along (columns, rows). Each
@@ -477,12 +581,22 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
     embryo = waffle and scene.cell_type == "drosophila"
     one = worm or embryo
     film = film_top(scene)
-    bars, holes, rips, rim, beyond = scene.film_masks(X / UM, Y / UM)
+
+    def support(xs, ys):
+        """The film's masks, its broken holes and its cracks."""
+        xs, ys = xs / UM, ys / UM
+        return (
+            *scene.film_masks(xs, ys),
+            scene.broken_hole_mask(xs, ys),
+            scene.crack_depth(xs, ys),
+        )
+
+    bars, holes, rips, rim, beyond, broken, crack = sim_view.by_rows(support, X, Y)
     metal = bars | rim
     # a broken hole has no ice across it; a whole one does
-    gone = rips | beyond | (scene.broken_hole_mask(X / UM, Y / UM) & ~metal)
+    gone = rips | beyond | (broken & ~metal)
     holes = holes & ~gone
-    crack = scene.crack_depth(X / UM, Y / UM) * ~metal
+    crack = crack * ~metal
     waves = fbm(X, Y, (210.0, 120.0, 65.0), (0.4, 0.28, 0.1), seed + 11)
     if waffle:
         # the ice is a slab pressed flat by the hat: it dips a little in each
@@ -492,7 +606,8 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
         bar_top = min(film + stand, -WAFFLE_SKIN)
         weight = _gauss(metal.astype(f32), (4.0 / sy, 4.0 / sx))
         ice = 0.5 * waves - WAFFLE_SAG * (1 - weight)
-        ice = ice - _scratches(scene, X, Y, max(sx, sy))
+        finest = max(sx, sy)
+        ice = ice - sim_view.by_rows(lambda a, b: _scratches(scene, a, b, finest), X, Y)
     else:
         # the ice is one sheet: slow waves, and a broad uneven ridge over each bar
         weight = _gauss(metal.astype(f32), (2.5 / sy, 2.5 / sx))
@@ -515,18 +630,19 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
     lift = np.zeros(shape, dtype=f32)  # the ice over the smooth-domed cells
     skirt = np.zeros(shape, dtype=bool)  # where an adherent cell is spread
     grains = []
-    inclusions = []
+    inclusions = []  # arrays of balls, a row each
     tubes = []  # a worm's gut: balls that run together
     cores = []  # an embryo's yolk
     # the cells suspended in a waffle's slab, a layer at a time
     layers = range(LAYERS if waffle else 0)
-    s_lo = [np.full(shape, -NONE, dtype=f32) for _ in layers]
-    s_hi = [np.full(shape, NONE, dtype=f32) for _ in layers]
+    s_lo = list(np.full((len(layers), *shape), -NONE, dtype=f32))
+    s_hi = list(np.full((len(layers), *shape), NONE, dtype=f32))
     s_id = [np.full(shape, -1, dtype=np.int32) for _ in layers]
     sn_lo = [np.full(shape, -NONE, dtype=f32) for _ in layers]
     sn_hi = [np.full(shape, NONE, dtype=f32) for _ in layers]
     fine = max(sx, sy) <= ORGANELLE_STEP
     x_lo, x_hi, y_lo, y_hi = x.min(), x.max(), y.min(), y.max()
+    ax, ay = _Axis(x), _Axis(y)
     for f in scene.features:
         sigma = f.sigma * UM
         reach = (4.0 if f.sharpness < 2 else 2.2) * sigma * (1 + f.wobble) + 1.0
@@ -539,7 +655,7 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
             continue
         if fy + reach < y_lo or fy - reach > y_hi:
             continue
-        box = _box(f, x, y, reach)
+        box = _box(ax, ay, fx, fy, reach)
         if box is None:
             continue
         if waffle and f.kind == "cell":
@@ -560,12 +676,12 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
                 if fine and worm:
                     gut, small = _worm_inclusions(scene, f)
                     tubes.extend(gut)
-                    inclusions.extend(small)
+                    inclusions.append(np.array(small, dtype=float).reshape(-1, 6))
                     if f.part == "body":  # the droplets the FM labels
                         n = len(scene._fm_cell_points(f, "droplets"))
-                        inclusions.extend(_inclusions(scene, f)[:n])
+                        inclusions.append(_inclusions(scene, f)[:n])
                 elif fine and not embryo:
-                    inclusions.extend(_inclusions(scene, f))
+                    inclusions.append(_inclusions(scene, f))
             lo[box] = np.where(inside, np.minimum(lo[box], mid - t), lo[box])
             hi[box] = np.where(inside, np.maximum(hi[box], mid + t), hi[box])
             continue
@@ -578,7 +694,7 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
             grains.extend(_clump(f, seed))
             continue
         if f.part in ("body", "bud") and f.kind == "cell" and fine:
-            inclusions.extend(_inclusions(scene, f))
+            inclusions.append(_inclusions(scene, f))
         r2 = _radius2(f, X[box] - fx, Y[box] - fy)
         if f.kind == "ice":
             # a slab with a hard edge, standing on the ice
@@ -636,11 +752,13 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
     # a spread cell is thin, and stands up over its nucleus
     spread = in_cell & (skirt | (dome <= CELL_SPREAD + 0.01)) & (lift <= 0)
     dome = dome + NUCLEUS_BULGE * bulge * spread * np.clip(dome / CELL_SPREAD, 0, 1)
-    blanket = _gauss(dome, (ICE_BLANKET / sy, ICE_BLANKET / sx))
-    # the ice lies close over each cell, and in a broad swell over a group
-    close = _gauss(dome, (ICE_CLOSE / sy, ICE_CLOSE / sx)) + ICE_OVER_CELL * (
-        _gauss(in_cell.astype(f32), (2 * ICE_CLOSE / sy, 2 * ICE_CLOSE / sx))
+    blanket, close, over = sim_view.together(
+        lambda: _gauss(dome, (ICE_BLANKET / sy, ICE_BLANKET / sx)),
+        lambda: _gauss(dome, (ICE_CLOSE / sy, ICE_CLOSE / sx)),
+        lambda: _gauss(in_cell.astype(f32), (2 * ICE_CLOSE / sy, 2 * ICE_CLOSE / sx)),
     )
+    # the ice lies close over each cell, and in a broad swell over a group
+    close = close + ICE_OVER_CELL * over
     rise = np.where(lift > 0, lift, np.maximum(blanket, close)).astype(f32)
     if not waffle and more is not None:
         buried = np.maximum(rise - more, THICK_ICE_RELIEF * rise)
@@ -658,22 +776,30 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
 
     # droplets and vesicles in the cytoplasm: each a ball, kept inside its cell
     kinds = max(len(layers), 1)
-    o_lo = [np.full(shape, -NONE, dtype=f32) for _ in range(kinds)]
-    o_hi = [np.full(shape, NONE, dtype=f32) for _ in range(kinds)]
-    o_is = [np.full(shape, DROPLET, dtype=np.uint8) for _ in range(kinds)]
+    o_lo = list(np.full((kinds, *shape), -NONE, dtype=f32))
+    o_hi = list(np.full((kinds, *shape), NONE, dtype=f32))
+    o_is = list(np.full((kinds, *shape), DROPLET, dtype=np.uint8))
     for box, inside, lo, hi in cores:
         # under everything else in the embryo
         o_lo[-1][box] = np.where(inside, lo, o_lo[-1][box])
         o_hi[-1][box] = np.where(inside, hi, o_hi[-1][box])
         o_is[-1][box] = np.where(inside, YOLK, o_is[-1][box])
-    for n, (fx, fy, zc, r, what, layer) in enumerate(tubes + inclusions):
+    balls = np.concatenate(inclusions) if inclusions else np.zeros((0, 6))
+    if waffle:
+        own = (lambda layer: np.zeros_like(layer)) if one else (lambda layer: layer)
+        room = (s_lo[0].base, s_hi[0].base, own)
+    else:
+        room = (film + 0.02, cell, None)
+    if ax.even and ay.even and len(balls):
+        _place(balls, ax, ay, (o_lo[0].base, o_hi[0].base, o_is[0].base), room)
+        balls = balls[:0]
+    balls = [(*b[:4], int(b[4]), int(b[5])) for b in balls]
+    for n, (fx, fy, zc, r, what, layer) in enumerate(tubes + balls):
         if fx + r < x_lo or fx - r > x_hi or fy + r < y_lo or fy - r > y_hi:
             continue
-        cols = np.nonzero(np.abs(x - fx) < r)[0]
-        rows = np.nonzero(np.abs(y - fy) < r)[0]
-        if not len(cols) or not len(rows):
+        box = _box(ax, ay, fx, fy, r)
+        if box is None:
             continue
-        box = (slice(rows[0], rows[-1] + 1), slice(cols[0], cols[-1] + 1))
         d2 = r * r - (X[box] - fx) ** 2 - (Y[box] - fy) ** 2
         t = np.sqrt(np.clip(d2, 0, None)).astype(f32)
         lo, hi, kind = o_lo[layer], o_hi[layer], o_is[layer]
@@ -707,11 +833,10 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
     bead = np.zeros(shape, dtype=bool)
     for n, (fx, fy, r, lifted) in enumerate(grains):
         bright, lifted = lifted < 0, max(lifted, 0.0)
-        cols = np.nonzero(np.abs(x - fx) < r)[0]
-        rows = np.nonzero(np.abs(y - fy) < r)[0]
-        if not len(cols) or not len(rows):
+        box = _box(ax, ay, fx, fy, r)
+        if box is None:
             continue
-        box = (slice(rows[0], rows[-1] + 1), slice(cols[0], cols[-1] + 1))
+        rows, cols = (range(b.start, b.stop) for b in box)
         zc = float(ice[rows[len(rows) // 2], cols[len(cols) // 2]]) + 0.75 * r + lifted
         d2 = r * r - (X[box] - fx) ** 2 - (Y[box] - fy) ** 2
         inside = d2 > 0
@@ -926,6 +1051,16 @@ def curtain(scene, x, shift: float = 0.0) -> np.ndarray:
     return np.clip((n - 0.5) * 3.2, -1.0, 1.0)
 
 
+def _either_side(z: float):
+    """The float32 numbers nearest `z` at or under it and at or over it: a
+    float32 `a` has a <= z just when a <= the first, and a >= z just when
+    a >= the second, and comparing like with like is quicker."""
+    near = np.float32(z)
+    under = near if near <= z else np.nextafter(near, np.float32(-np.inf))
+    over = near if near >= z else np.nextafter(near, np.float32(np.inf))
+    return under, over
+
+
 def _walk(col: dict, removed: list, z, shift, rows: slice, cols: slice):
     """What each pixel's beam meets first: the level and the material, over
     image rows `rows` and columns `cols`. Row r of the image at level q shows
@@ -959,8 +1094,18 @@ def _walk(col: dict, removed: list, z, shift, rows: slice, cols: slice):
         part = (slice(r_lo, r_hi), cs)
         lev = level[part]
         lev[:] = VOID
+        # the level's height as the columns' own kind of number: the nearest
+        # at or under it and at or over it tell the same as the height does
+        z_lo, z_hi = _either_side(zq)
         for _, _, lo, hi, what in here:
-            m = ((lo if np.ndim(lo) == 0 else lo[sl, cs]) <= zq) & (zq < hi[sl, cs])
+            if hi.dtype != np.float32:
+                m = ((lo if np.ndim(lo) == 0 else lo[sl, cs]) <= zq) & (zq < hi[sl, cs])
+            elif np.ndim(lo) == 0:
+                m = hi[sl, cs] > z_lo if lo <= zq else np.zeros(lev.shape, dtype=bool)
+            elif lo.dtype == np.float32:
+                m = (lo[sl, cs] <= z_lo) & (hi[sl, cs] > z_lo)
+            else:
+                m = (lo[sl, cs] <= zq) & (hi[sl, cs] > z_lo)
             np.copyto(lev, what if np.ndim(what) == 0 else what[sl, cs], where=m)
         left = cols.start + c_lo
         for cut in removed:
@@ -988,7 +1133,10 @@ def _walk(col: dict, removed: list, z, shift, rows: slice, cols: slice):
             if cut["tops"][0] - dz < zq < cut["tops"][1]:
                 top = surface[r0:r1, c0:c1]
                 zz = np.where((top > zq) & (top - zq < dz), top, zq)
-            gone = (cut["from"][theirs] <= zz) & (zz <= cut["to"][theirs])
+            if np.ndim(zz) == 0 and cut["from"].dtype == np.float32:
+                gone = (cut["from"][theirs] <= z_lo) & (cut["to"][theirs] >= z_hi)
+            else:
+                gone = (cut["from"][theirs] <= zz) & (zz <= cut["to"][theirs])
             lev[mine][gone] = VOID
         solid = (lev > 0) & ~done[part]
         np.putmask(hit_q[part], solid, q)
@@ -1007,19 +1155,38 @@ def _walk(col: dict, removed: list, z, shift, rows: slice, cols: slice):
     return hit_q, hit_m
 
 
+def _walk_wide(col: dict, removed: list, z, shift, rows: slice, cols: slice):
+    """`_walk`, with a wide window walked a band of columns at a time on
+    several threads: a column's beams meet what they meet whatever its
+    neighbours do."""
+    size = (rows.stop - rows.start) * (cols.stop - cols.start)
+    bands = min(sim_view.WORKERS, cols.stop - cols.start, size // sim_view.BAND_LEAST)
+    if bands < 2:
+        return _walk(col, removed, z, shift, rows, cols)
+    edges = np.linspace(cols.start, cols.stop, bands + 1).astype(int)
+    parts = sim_view.together(
+        *(
+            partial(_walk, col, removed, z, shift, rows, slice(a, b))
+            for a, b in zip(edges[:-1], edges[1:])
+        )
+    )
+    return tuple(np.concatenate(p, axis=1) for p in zip(*parts))
+
+
 def _seen(col: dict, removed: list, z, shift, height: int):
     """The walk over a whole view. The sample as it was before any milling is
     walked once and kept with its columns; a milled frame walks again only
-    the part of the image the cuts can show in."""
+    the part of the image where a cut took away what the beam met."""
     width = col["surface"].shape[1]
     kept = col.get("walk")
     if kept is None or kept[0] != (height, len(z)):
-        whole = _walk(col, [], z, shift, slice(0, height), slice(0, width))
+        whole = _walk_wide(col, [], z, shift, slice(0, height), slice(0, width))
         kept = col["walk"] = ((height, len(z)), whole)
     hit_q, hit_m = kept[1]
     if not removed:
         return hit_q, hit_m
-    hit_q, hit_m = hit_q.copy(), hit_m.copy()
+    dz = z[1] - z[0]
+    todo = []
     for cut in removed:
         r, c = cut["box"]
         # sample row s shows in image row s - shift[q], for every level q
@@ -1028,11 +1195,28 @@ def _seen(col: dict, removed: list, z, shift, height: int):
         )
         if rows.stop <= rows.start:
             continue
-        cut["window"] = (rows, c)
+        # a beam that met something the cut left alone still meets it: only
+        # the pixels whose piece may be gone are walked again
+        q = hit_q[rows, c]
+        at = np.arange(rows.start, rows.stop)[:, None] + shift[np.maximum(q, 0)]
+        met = np.nonzero((q >= 0) & (at >= r.start) & (at < r.stop))
+        zq = z[q[met]]
+        there = (at[met] - r.start, met[1])
+        gone = (cut["from"][there] <= zq + dz + NEAR) & (zq - NEAR <= cut["to"][there])
+        if not gone.any():
+            continue
+        i, j = met[0][gone], met[1][gone]
+        todo.append(
+            (
+                slice(rows.start + int(i.min()), rows.start + int(i.max()) + 1),
+                slice(c.start + int(j.min()), c.start + int(j.max()) + 1),
+            )
+        )
+    if not todo:
+        return hit_q, hit_m
+    hit_q, hit_m = hit_q.copy(), hit_m.copy()
     # cuts that share columns are walked together, as one window
-    todo = sorted(
-        (cut["window"] for cut in removed if "window" in cut), key=lambda w: w[1].start
-    )
+    todo.sort(key=lambda w: w[1].start)
     merged = []
     for rows, c in todo:
         if merged and c.start <= merged[-1][1].stop:
@@ -1044,7 +1228,7 @@ def _seen(col: dict, removed: list, z, shift, height: int):
         else:
             merged.append((rows, c))
     for rows, c in merged:
-        q, m = _walk(col, removed, z, shift, rows, c)
+        q, m = _walk_wide(col, removed, z, shift, rows, c)
         hit_q[rows, c], hit_m[rows, c] = q, m
     return hit_q, hit_m
 
@@ -1105,8 +1289,12 @@ def trace(scene: "SampleScene", frame: ViewFrame, u, w, pix) -> dict:
     cols = np.broadcast_to(np.arange(width), (height, width))
     zq = z[q]
 
+    flat = i * width + cols
+
     def at(a):
-        return a if np.ndim(a) == 0 else a[i, cols]
+        if np.ndim(a) == 0:
+            return a
+        return sim_view.by_rows(partial(np.take, a), flat)
 
     surface = at(col["surface"])
     # what stood over the piece met, before milling: nothing (its top shows),
@@ -1249,10 +1437,10 @@ def trace(scene: "SampleScene", frame: ViewFrame, u, w, pix) -> dict:
     }
 
 
-def canvas(scene: "SampleScene", beam: str, frame: ViewFrame, u, w, pix):
+def canvas(scene: "SampleScene", beam: str, frame: ViewFrame, u, w, pix, charged=True):
     """The view over content columns `u` and rows `w` (um, rows increasing
-    down the image), shaded, and how much each pixel charges - what
-    sim_view.render lays out and finishes."""
+    down the image), shaded, and how much each pixel charges (None unless
+    `charged`) - what sim_view.render lays out and finishes."""
     which = 0 if beam == "SEM" else 1
     hit = trace(scene, frame, u, w, pix)
     hit_m, kind, z_hit = hit["material"], hit["kind"], hit["z"]
@@ -1279,7 +1467,10 @@ def canvas(scene: "SampleScene", beam: str, frame: ViewFrame, u, w, pix):
     mat_top = np.where(particle & hit["bead"], BEAD[which], mat_top)
     shade[top] = (mat_top * tilt)[top]
     if scene.surface_grain > 0:
-        shade[top] *= _grain(scene, hit, pix, which)[top]
+        grain = sim_view.by_rows(
+            lambda y: _grain(scene, {"x": hit["x"], "y": y}, pix, which), hit["y"]
+        )
+        shade[top] *= grain[top]
     # a bar under thin ice shows through
     bar = hit["bar"]
     under = top & np.isin(hit_m, (ICE, COAT))
@@ -1324,15 +1515,17 @@ def canvas(scene: "SampleScene", beam: str, frame: ViewFrame, u, w, pix):
     zs = np.maximum(np.where(kind > 0, z_hit, z_min(scene)), film_top(scene) - 1.0)
     pit = ndi.uniform_filter(zs, max(3, int(4.0 / pix))) - zs
     shade *= np.clip(1 - 0.09 * np.clip(pit, 0, 4), 0.6, 1.0)
+    shade *= BRIGHTNESS[which] / sim_view.BRIGHTNESS
+    if hit["flip"]:
+        shade = shade[::-1]
+    if not charged:
+        return shade, None
     # what charges in the SEM: what stands up off the film, less over a bar
     charge = np.clip((z_hit - 0.6) / 3.0, 0, 1) * top
     charge = (charge + 0.7 * (particle & top)) * (1 - 0.5 * bar)
-    charge = ndi.gaussian_filter(np.clip(charge, 0, 1).astype(np.float32), 1.0 / pix)
+    charge = sim_view.gauss(np.clip(charge, 0, 1).astype(np.float32), 1.0 / pix)
     charge[~top] = 0
-    shade *= BRIGHTNESS[which] / sim_view.BRIGHTNESS
-    if hit["flip"]:
-        shade, charge = shade[::-1], charge[::-1]
-    return shade, charge
+    return shade, charge[::-1] if hit["flip"] else charge
 
 
 def _grain(scene, hit: dict, pix: float, which: int) -> np.ndarray:
