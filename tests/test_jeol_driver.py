@@ -653,8 +653,53 @@ def test_milling_runs_to_the_end(connected):
     microscope.milling.run()
     assert fake.fib.process_state == "Exit"
     assert fake.fib.items == []  # cleared at the end
-    # milling never sets the beam's current: each item carries its beam mode
+
+
+def test_setup_sets_the_milling_beam_mode_and_finish_puts_it_back(connected):
+    # The initial alignment runs between the setup and the mill: its images must be
+    # at the milling current, not the imaging one.
+    microscope, fake = connected
+    imaging_mode = fake.fib.beam_mode
+    mode, current = jd.nearest_beam_current(1e-9, I)
+    assert mode != imaging_mode
+    _setup(microscope, current=1e-9)
+    assert fake.fib.beam_mode == mode
+    assert microscope.get_beam_current(I) == pytest.approx(current)
+    microscope.finish_milling()
+    assert fake.fib.beam_mode == imaging_mode
+
+
+def test_setup_at_the_imaging_current_leaves_the_beam_mode(connected):
+    microscope, fake = connected
+    imaging_current = jd.BEAM_CURRENTS[I][fake.fib.beam_mode - 1]
+    _setup(microscope, current=imaging_current)
     assert "setFibBeamMode" not in fake.calls()
+
+
+def test_the_initial_alignment_images_at_the_milling_current(connected, monkeypatch):
+    from fibsem import alignment
+    from fibsem.milling import FibsemMillingStage
+    from fibsem.milling.core import setup_milling
+    from fibsem.structures.image import FibsemImage
+
+    microscope, fake = connected
+    imaging_mode = fake.fib.beam_mode
+    mode, _ = jd.nearest_beam_current(1e-9, I)
+    seen = {}
+
+    def fake_alignment(**kwargs):
+        seen["mode"] = fake.fib.beam_mode
+
+    monkeypatch.setattr(alignment, "multi_step_alignment_v2", fake_alignment)
+    stage = FibsemMillingStage(
+        milling=FibsemMillingSettings(
+            milling_channel=I, milling_current=1e-9, hfw=128e-6
+        )
+    )
+    stage.alignment.enabled = True
+    stage.reference_image = object.__new__(FibsemImage)  # no reference to take
+    setup_milling(microscope, stage)
+    assert seen["mode"] == mode != imaging_mode
 
 
 def test_pause_resume_stop(connected):
