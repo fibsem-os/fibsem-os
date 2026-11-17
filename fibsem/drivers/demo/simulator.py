@@ -846,6 +846,7 @@ class DemoSimulator:
         older flat keys `coincidence_projection`, `coincidence_offset` and
         `tilt_axis_offset` are still honoured when there is no `sample` block.
         """
+        from fibsem.drivers.demo.sim import state as sim_state
         from fibsem.drivers.demo.sim.scene import SampleScene
 
         self.sample_scene = None
@@ -887,6 +888,8 @@ class DemoSimulator:
                 "it will anchor at the first acquisition instead.",
                 e,
             )
+        # a sample kept in a file carries on from where the last session left it
+        sim_state.attach(self.sample_scene)
         logger.info(
             "Simulator sample scene enabled (coincidence offset %.2f um, "
             "tilt axis offset %.1f um)",
