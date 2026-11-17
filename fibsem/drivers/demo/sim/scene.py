@@ -34,7 +34,7 @@ import math
 import zlib
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 from scipy.ndimage import binary_dilation as ndi_binary_dilation
@@ -254,6 +254,25 @@ class SceneGrid:
     radius: float  # m, the usable film area
     seed: int
     extent: float  # m, content is grown over +/- extent/2 about the centre
+    # what the grid is like (see GRID_QUALITY): its name, the ice over and
+    # above the usual sheet (um), the share of its squares torn (None is the
+    # scene's `rip_fraction`) and how many of the usual cells grew on it
+    quality: str = "good"
+    ice: float = 0.0
+    rips: Optional[float] = None
+    cells: float = 1.0
+
+
+# the kinds of grid a session meets: one worth milling, one whose ice buries
+# the cells, one with the film torn out of many squares, one with few cells
+# on it, and one with none
+GRID_QUALITY = {
+    "good": {},
+    "thick_ice": {"ice": 4.0},
+    "torn": {"rips": 0.4},
+    "sparse": {"cells": 0.15},
+    "empty": {"cells": 0.0},
+}
 
 
 def _lamella_gap(pass_corners, all_corners):
@@ -437,6 +456,10 @@ class SampleScene:
     broken_hole_fraction: float = 0.006
     # a seeded fraction of squares with the film torn away (a rip)
     rip_fraction: float = 0.03
+    # what each grid is like, from GRID_QUALITY: one name for every grid, a
+    # list for the holder's grids in slot order (repeated if it is short),
+    # or a mapping from a grid's name; a grid not named is "good"
+    grid_quality: Any = None
     # ice crystals: flat bright plates with a bright rim, per 100 x 100 um
     ice_density: float = 0.4
     ice_size: Tuple[float, float] = (6e-6, 16e-6)  # m, plate radius
@@ -642,15 +665,45 @@ class SampleScene:
 
     def _default_grid(self) -> SceneGrid:
         """The one grid at the world anchor: the scene as it always was."""
-        return SceneGrid(
-            name="default",
-            x=0.0,
-            y=0.0,
-            rotation=float(self.grid_rotation or 0.0),
-            radius=self.grid_radius,
-            seed=self.seed,
-            extent=self.extent or 2 * self.grid_radius,
+        return self._graded(
+            SceneGrid(
+                name="default",
+                x=0.0,
+                y=0.0,
+                rotation=float(self.grid_rotation or 0.0),
+                radius=self.grid_radius,
+                seed=self.seed,
+                extent=self.extent or 2 * self.grid_radius,
+            ),
+            0,
         )
+
+    def _graded(self, grid: SceneGrid, index: int) -> SceneGrid:
+        """`grid`, the `index`-th on the holder, as `grid_quality` says it is."""
+        wanted = self.grid_quality
+        if isinstance(wanted, dict):
+            wanted = wanted.get(grid.name)
+        elif isinstance(wanted, (list, tuple)):
+            wanted = wanted[index % len(wanted)] if wanted else None
+        name = str(wanted or "good")
+        if name not in GRID_QUALITY:
+            raise ValueError(
+                f"grid_quality must be from {sorted(GRID_QUALITY)}, got {name!r}"
+            )
+        return replace(grid, quality=name, **GRID_QUALITY[name])
+
+    def ice_over(self, xs_world: np.ndarray, ys_world: np.ndarray):
+        """The ice a thick grid carries over the usual sheet, at each world
+        point (um), or None when no grid in reach carries any."""
+        thick = [g for g in self.grids if g.ice > 0]
+        if not thick:
+            return None
+        xs_world, ys_world = np.broadcast_arrays(xs_world, ys_world)
+        extra = np.zeros(xs_world.shape, dtype=np.float32)
+        for grid in thick:
+            on = np.hypot(xs_world - grid.x, ys_world - grid.y) <= grid.radius
+            extra[on] = grid.ice
+        return extra if extra.any() else None
 
     def _populate(self, rng: Optional[np.random.Generator] = None) -> None:
         """Grow every grid's content from its own seed (`rng` for the first
@@ -672,7 +725,7 @@ class SampleScene:
         if self.preparation in sim_solid.SLABS:
             self._generate_suspended(grid, half)
         else:
-            self._generate_cells(rng, half)
+            self._generate_cells(rng, half, grid.cells)
         # fiducial-like cross at the grid centre: a dense line of small
         # blobs along each arm, so it goes through the same projection as
         # every other feature
@@ -1058,18 +1111,17 @@ class SampleScene:
                         -self.grid_rotation_range, self.grid_rotation_range
                     )
                 )
-                grids.append(
-                    SceneGrid(
-                        name=name,
-                        x=float(px),
-                        y=float(py) / fs,
-                        rotation=rotation,
-                        radius=float(radius),
-                        seed=seed,
-                        # a holder grid is populated edge to edge
-                        extent=2 * float(radius),
-                    )
+                grid = SceneGrid(
+                    name=name,
+                    x=float(px),
+                    y=float(py) / fs,
+                    rotation=rotation,
+                    radius=float(radius),
+                    seed=seed,
+                    # a holder grid is populated edge to edge
+                    extent=2 * float(radius),
                 )
+                grids.append(self._graded(grid, len(grids)))
         self.grids = grids
         self._populate()
         # trenches were cut in grids that are no longer where they were
@@ -1769,13 +1821,14 @@ class SampleScene:
         # orientation, where it starts (usually at a bar, running inward)
         # and how ragged its outline is. Rips cluster: a square beside a
         # ripped one rips more readily
-        torn = square_draw < self.rip_fraction
+        rip_fraction = self.rip_fraction
+        if grid.rips is not None and self.preparation != "carrier":
+            rip_fraction = grid.rips
+        torn = square_draw < rip_fraction
         beside_torn = np.zeros_like(torn)
         for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-            beside_torn |= (
-                _lattice_draw(sq_i + di, sq_j + dj, grid.seed) < self.rip_fraction
-            )
-        torn |= beside_torn & (square_draw < 3 * self.rip_fraction)
+            beside_torn |= _lattice_draw(sq_i + di, sq_j + dj, grid.seed) < rip_fraction
+        torn |= beside_torn & (square_draw < 3 * rip_fraction)
         torn &= ~bars
         rips = np.zeros_like(bars)
         if torn.any():
@@ -1866,7 +1919,9 @@ class SampleScene:
         self._broken_last = (key, out.copy())
         return out
 
-    def _generate_cells(self, rng: np.random.Generator, half: float) -> None:
+    def _generate_cells(
+        self, rng: np.random.Generator, half: float, share: float = 1.0
+    ) -> None:
         kinds = {
             "yeast": [("yeast", 1.0)],
             "mammalian": [("mammalian", 1.0)],
@@ -1883,6 +1938,7 @@ class SampleScene:
         fields = (2 * half / 150e-6) ** 2  # how many 150 um fields the extent is
         next_id = 0
         for kind, fraction in kinds[self.cell_type]:
+            fraction *= share  # a sparse grid grew fewer of them
             if kind == "yeast":
                 next_id = self._generate_yeast(rng, half, fraction, next_id)
             elif kind == "mammalian":
@@ -2683,6 +2739,7 @@ class SampleScene:
         "hole_pitch",  # m
         "broken_hole_fraction",
         "rip_fraction",  # of squares
+        "grid_quality",  # what each grid is like (see GRID_QUALITY)
         "ice_density",  # per 100 x 100 um
         "ice_size",  # [min, max] m
         "frost_density",  # frost patches per 100 x 100 um

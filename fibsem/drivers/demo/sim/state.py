@@ -33,6 +33,7 @@ SAME_SAMPLE = (
     "grid_mesh",
     "grid_pitch",
     "extent",
+    "grid_quality",
 )
 
 

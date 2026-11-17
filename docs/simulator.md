@@ -478,6 +478,28 @@ and shows the holder between them. A grid's content is seeded from its name, so
 exchanging grids between slots moves their cells with them. Off (the default), or with no
 such slot, there is one grid centred on the position the stage was at when it connected.
 
+Grids need not be alike. `grid_quality` says what each one is like:
+
+```yaml
+sim:
+  sample:
+    grids_from_holder: true
+    grid_quality: [good, thick_ice, torn, sparse]
+```
+
+| quality | what the grid is like |
+| -- | -- |
+| `good` | as the other keys describe it (the default) |
+| `thick_ice` | 4 um more ice: the bars and the cells are buried and barely show |
+| `torn` | the film is torn out of about four squares in ten |
+| `sparse` | about one cell in seven of the usual number |
+| `empty` | no cells |
+
+A list goes to the holder's grids in slot order, and is repeated if it is short. A
+mapping names the grids (`{Grid-01: torn}`), and a grid it leaves out is good. One name
+alone is every grid, the single default grid included. So a session can screen four
+grids and find one worth milling.
+
 To set a two-grid shuttle up on the Demo: calibrate the two slots with the holder
 calibration wizard (Microscope tab, Sample Holder panel) at two stage positions a few
 millimetres apart, put a grid in each slot, and set `grids_from_holder: true` in the
@@ -574,6 +596,7 @@ are in degrees, ranges are two-element lists, lengths in metres.
 | key | default | what it does |
 | -- | -- | -- |
 | `rip_fraction` | 0.03 | fraction of squares with the film torn; neighbours rip more readily |
+| `grid_quality` | null | what each grid is like: a name, a list in slot order or a mapping by grid name, see "Grids at the holder's slots" |
 | `ice_density` | 0.4 | ice crystals per 100 x 100 um |
 | `ice_size` | [6e-06, 1.6e-05] | ice plate radius range (m) |
 | `contamination_density` | 15 | specks per 100 x 100 um, on film and bars alike |
