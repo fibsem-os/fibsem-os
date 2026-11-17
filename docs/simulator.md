@@ -236,6 +236,11 @@ It is what a focus sweep has to go on where little else is in view: its default 
 a 10 um focus error is about half a pixel of blur. At 150 um and wider the same error
 is too small to see, and a sweep lands within a few tens of microns.
 
+The ion beam converges a quarter as fast, so its focus shows over hundreds of microns
+where the electron beam's shows over tens. A sweep finds it with passes that wide (a
+millimetre in 100 um steps, then 100 um in 10 um steps), at 80 um and at 150 um; the
+sweep's default passes, 50 um and 10 um wide, are too narrow to see any change in it.
+
 Voltage changes nothing, and the height of a cell or the depth of a trench is too
 little to change focus.
 
@@ -331,6 +336,30 @@ imaging wore away (`exposures`), and for
 each fluorescence target whether it was milled away. Pass it points of your own,
 `scene.record({"name": (x, y, z)})` (world metres, z above the film), to ask the same of
 them.
+
+## Keeping the sample
+
+A session's milling is gone at the next connect, because the grid is grown again from its
+seed. `state_file` keeps it:
+
+```yaml
+sim:
+  sample:
+    enabled: true
+    seed: 2
+    state_file: ~/fibsem-sim/sample-2.json
+```
+
+Every change to the sample is written to the file as it happens: a milling pass, a spot
+burn, the wear of ion imaging, a GIS or sputter coat, and the faults that have fired. A
+session that connects with the same sample reads the file and carries on, so a workflow
+can stop and resume, and a run can start from a site that is already rough milled. The
+stage, the beams and the detectors start as they always do; only the sample comes back.
+
+The file belongs to one sample. With a different `seed`, cell type, film, mesh or
+preparation the session starts on a fresh sample and replaces the file at its first
+change. Delete the file to start the same sample again.
+
 ## The fluorescence view
 
 ![Fluorescence channels](img/simulator/fluorescence.png)
@@ -409,15 +438,26 @@ Run as a program it writes a dataset, one scene per seed:
 python -m fibsem.drivers.demo.sim.labels --out labels --seeds 1 2 3
 ```
 
-For each seed that is six images (SEM overviews at 300 and 120 um, FIB and SEM at the
-milling angle at 150 um, FIB and SEM of two trenches at 50 um; choose with `--views`),
-in `images/`, with `labels/` (class ids, as a paletted PNG), `instances/` (cell
-numbers), `overlays/` to look at, and one COCO `annotations.json` with a box and a mask
-for each cell and each patch of contamination, ice plate, rip and fiducial.
+For each seed that is eight images (SEM overviews at 300 and 120 um, FIB and SEM at the
+milling angle at 150 um, FIB and SEM at 50 um of two trenches cut either side of a cell,
+and the fluorescence camera in reflection and in GFP; choose with `--views`), in
+`images/`, with `labels/` (class ids, as a paletted PNG), `instances/` (cell numbers),
+`overlays/` to look at, and one COCO `annotations.json` with a box and a mask for each
+cell and each patch of contamination, ice plate, rip, fiducial and fluorescence target.
+
+The fluorescence view has labels too:
+
+```python
+image, found = labels.acquire_fm(microscope, channel_settings)
+```
+
+They are the same classes, seen as the camera sees the sample and the same whatever the
+channel, with one more: `fluorescence target`, a disc at each target that has not been
+milled away (`scene.fm_targets()`). The FM images of a dataset are 16-bit.
 
 Labels come from the objects, not from the image: something too faint to make out, a
-crack under thick ice for one, is labelled all the same. The fluorescence view has no
-labels yet.
+crack under thick ice or a target in a channel that does not show it, is labelled all
+the same.
 
 ## One world, three views
 
@@ -437,6 +477,28 @@ calibrated position and a loaded grid, centred where the slot's stage position f
 and shows the holder between them. A grid's content is seeded from its name, so
 exchanging grids between slots moves their cells with them. Off (the default), or with no
 such slot, there is one grid centred on the position the stage was at when it connected.
+
+Grids need not be alike. `grid_quality` says what each one is like:
+
+```yaml
+sim:
+  sample:
+    grids_from_holder: true
+    grid_quality: [good, thick_ice, torn, sparse]
+```
+
+| quality | what the grid is like |
+| -- | -- |
+| `good` | as the other keys describe it (the default) |
+| `thick_ice` | 4 um more ice: the bars and the cells are buried and barely show |
+| `torn` | the film is torn out of about four squares in ten |
+| `sparse` | about one cell in seven of the usual number |
+| `empty` | no cells |
+
+A list goes to the holder's grids in slot order, and is repeated if it is short. A
+mapping names the grids (`{Grid-01: torn}`), and a grid it leaves out is good. One name
+alone is every grid, the single default grid included. So a session can screen four
+grids and find one worth milling.
 
 To set a two-grid shuttle up on the Demo: calibrate the two slots with the holder
 calibration wizard (Microscope tab, Sample Holder panel) at two stage positions a few
@@ -534,6 +596,7 @@ are in degrees, ranges are two-element lists, lengths in metres.
 | key | default | what it does |
 | -- | -- | -- |
 | `rip_fraction` | 0.03 | fraction of squares with the film torn; neighbours rip more readily |
+| `grid_quality` | null | what each grid is like: a name, a list in slot order or a mapping by grid name, see "Grids at the holder's slots" |
 | `ice_density` | 0.4 | ice crystals per 100 x 100 um |
 | `ice_size` | [6e-06, 1.6e-05] | ice plate radius range (m) |
 | `contamination_density` | 15 | specks per 100 x 100 um, on film and bars alike |
@@ -587,6 +650,7 @@ are in degrees, ranges are two-element lists, lengths in metres.
 | key | default | what it does |
 | -- | -- | -- |
 | `seed` | 24 | the draw everything grows from; same seed, same scene |
+| `state_file` | unset | a file the sample's state is kept in between sessions, see "Keeping the sample" |
 <!-- sample-keys:end -->
 
 ## Cost and limits
@@ -599,7 +663,8 @@ are in degrees, ranges are two-element lists, lengths in metres.
   measurements, cells bias it by about a micron, and the holey film's 4 um lattice can
   alias it. Its simulator tests measure on a scene without cells.
 - The scene is generated fresh from its seed on every connect. The same seed gives the
-  same grid; milled trenches do not survive a reconnect.
+  same grid; milled trenches survive a reconnect only with `state_file` set (see
+  "Keeping the sample").
 
 The figures on this page are rendered with `fiducial: true` (a landmark for the eye;
 off by default) by

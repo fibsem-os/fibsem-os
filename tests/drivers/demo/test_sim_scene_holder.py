@@ -278,3 +278,103 @@ def test_a_working_slot_off_the_grid_misses_it_and_a_captured_one_finds_it():
     found = _fiducials(captured)
     assert _close(found["SEM"], reference["SEM"])
     assert _close(found["FIB"], reference["FIB"])
+
+
+# ---------------------------------------------------------------------------
+# Grids of different quality in one session
+# ---------------------------------------------------------------------------
+
+
+def _graded(grid_quality, cell_type="rpe"):
+    microscope, _ = utils.setup_session(
+        manufacturer="Demo", config_path=TFS_SHUTTLE_CONFIG
+    )
+    microscope.system.sim["coincidence_projection"] = True
+    microscope.system.sim["sample"] = {
+        "enabled": True,
+        "seed": 4,
+        "cell_type": cell_type,
+        "film": "holey",
+        "rip_fraction": 0.03,
+        "grids_from_holder": True,
+        "grid_quality": grid_quality,
+    }
+    microscope._connection.setup_sample_scene()
+    return microscope
+
+
+def _torn_share(scene, grid) -> float:
+    """The share of a grid's film (off its bars) that is torn away."""
+    r = np.linspace(-0.6 * grid.radius, 0.6 * grid.radius, 300)
+    bars, _, rips, _, _ = scene.film_masks(grid.x + r[None, :], grid.y + r[:, None])
+    return float(rips[~bars].mean())
+
+
+def test_each_holder_grid_has_its_own_quality():
+    microscope = _graded(["good", "thick_ice", "torn", "sparse"])
+    try:
+        _calibrate(microscope, [(-SLOT_X, "A"), (SLOT_X, "B")])
+        microscope.acquire_image(_settings())
+        scene = microscope._connection.sample_scene
+        first, second = scene.grids
+        assert (first.quality, second.quality) == ("good", "thick_ice")
+        # thick ice lies over the whole of its grid and none of the other
+        assert scene.ice_over(np.array([first.x]), np.array([first.y])) is None
+        assert scene.ice_over(np.array([second.x]), np.array([second.y]))[0] > 1.0
+    finally:
+        microscope.disconnect()
+
+
+def test_a_grid_is_named_to_be_torn_or_sparse():
+    microscope = _graded({"A": "torn", "B": "sparse"})
+    try:
+        _calibrate(microscope, [(-SLOT_X, "A"), (SLOT_X, "B")])
+        microscope.acquire_image(_settings())
+        scene = microscope._connection.sample_scene
+        by_name = {g.name: g for g in scene.grids}
+        assert _torn_share(scene, by_name["A"]) > 3 * _torn_share(scene, by_name["B"])
+
+        def cells(grid):
+            return len(
+                {
+                    f.cell_id
+                    for f in scene.features
+                    if f.kind == "cell"
+                    and np.hypot(f.x - grid.x, f.y - grid.y) < grid.radius
+                }
+            )
+
+        assert cells(by_name["B"]) < 0.4 * cells(by_name["A"])
+    finally:
+        microscope.disconnect()
+
+
+def test_thick_ice_hides_the_grid_from_the_electron_beam():
+    def contrast(quality):
+        microscope, _ = utils.setup_session(
+            manufacturer="Demo", config_path=TFS_SHUTTLE_CONFIG
+        )
+        microscope.system.sim["sample"] = {
+            "enabled": True,
+            "seed": 4,
+            "cell_type": "none",
+            "noise_sigma": 0.0,
+            "noise_fraction": 0.0,
+            "contamination_density": 0.0,
+            "ice_density": 0.0,
+            "grid_quality": quality,
+        }
+        microscope._connection.setup_sample_scene()
+        try:
+            frame = microscope.acquire_image(_settings(hfw=400e-6)).data
+        finally:
+            microscope.disconnect()
+        low, high = np.percentile(frame, [10, 90])
+        return float(high - low)
+
+    assert contrast("thick_ice") < 0.5 * contrast("good")
+
+
+def test_an_unknown_grid_quality_is_refused():
+    with pytest.raises(ValueError, match="grid_quality"):
+        _graded("lumpy")

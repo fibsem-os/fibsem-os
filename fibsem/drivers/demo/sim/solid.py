@@ -75,6 +75,7 @@ ICE_THICKNESS = 2.0  # on the open film
 FILM_TOP = -ICE_THICKNESS
 BAR_RISE = 1.9  # how far the ice stands up over a bar
 ICE_OVER_CELL = 0.8  # the ice left over the top of a cell
+THICK_ICE_RELIEF = 0.2  # how much of a bar or a cell shows in thick ice's surface
 ICE_BLANKET = 3.0  # the ice lies over a cell as a dome this smooth
 ICE_CLOSE = 0.35  # and follows each cell's own shape this closely
 PLATE = (1.0, 3.0)  # um; an ice plate's thickness, each its own
@@ -146,10 +147,10 @@ BRIGHTNESS = (118.0, 168.0)  # grey of plain flat ice
 # a top's fine texture: (um, share) of each size of roughness, how strongly it
 # shows (SEM, FIB), and the dark specks in it
 ROUGH = ((0.12, 0.35), (0.3, 0.3), (0.8, 0.2), (2.0, 0.15))
-GRAIN = (0.4, 0.25)
+GRAIN = (0.4, 0.65)
 SPECK_CELL = 0.7  # um; at most one speck in each square this wide
 SPECK_SHARE = 0.5  # of those squares that have one
-SPECK = (0.5, 0.35)  # how much darker a speck is
+SPECK = (0.5, 0.5)  # how much darker a speck is
 RIM = (1.5, 1.2)  # how bright the rim round a milled edge is
 RIM_WIDTH = 1.1  # um
 CURTAIN = 0.28  # how strongly curtaining streaks a cut face
@@ -496,7 +497,13 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
         # the ice is one sheet: slow waves, and a broad uneven ridge over each bar
         weight = _gauss(metal.astype(f32), (2.5 / sy, 2.5 / sx))
         swell = np.clip(1 + fbm(X, Y, (90.0, 37.0), (0.35, 0.2), seed + 23), 0.3, 1.8)
-        ice = BAR_RISE * swell * weight + waves
+        ridge = BAR_RISE * swell * weight
+        # a grid with thick ice: the bars and the cells are under it, and
+        # show in its surface only faintly
+        more = scene.ice_over(X / UM, Y / UM)
+        if more is not None:
+            ridge = np.where(more > 0, THICK_ICE_RELIEF * ridge, ridge) + more
+        ice = ridge + waves
 
     shape = X.shape
     dome = np.zeros(shape, dtype=f32)  # how far the cells stand, by outline
@@ -635,6 +642,9 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
         _gauss(in_cell.astype(f32), (2 * ICE_CLOSE / sy, 2 * ICE_CLOSE / sx))
     )
     rise = np.where(lift > 0, lift, np.maximum(blanket, close)).astype(f32)
+    if not waffle and more is not None:
+        buried = np.maximum(rise - more, THICK_ICE_RELIEF * rise)
+        rise = np.where(more > 0, buried, rise).astype(f32)
     ice = ice + rise + plate
     # a crack in the film is a groove in thin ice, open along its middle
     thin = np.exp(-np.clip(ice, 0, None) / 1.5)

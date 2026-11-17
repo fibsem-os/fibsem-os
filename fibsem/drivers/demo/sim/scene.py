@@ -34,7 +34,7 @@ import math
 import zlib
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 from scipy.ndimage import binary_dilation as ndi_binary_dilation
@@ -254,6 +254,25 @@ class SceneGrid:
     radius: float  # m, the usable film area
     seed: int
     extent: float  # m, content is grown over +/- extent/2 about the centre
+    # what the grid is like (see GRID_QUALITY): its name, the ice over and
+    # above the usual sheet (um), the share of its squares torn (None is the
+    # scene's `rip_fraction`) and how many of the usual cells grew on it
+    quality: str = "good"
+    ice: float = 0.0
+    rips: Optional[float] = None
+    cells: float = 1.0
+
+
+# the kinds of grid a session meets: one worth milling, one whose ice buries
+# the cells, one with the film torn out of many squares, one with few cells
+# on it, and one with none
+GRID_QUALITY = {
+    "good": {},
+    "thick_ice": {"ice": 4.0},
+    "torn": {"rips": 0.4},
+    "sparse": {"cells": 0.15},
+    "empty": {"cells": 0.0},
+}
 
 
 def _lamella_gap(pass_corners, all_corners):
@@ -437,6 +456,10 @@ class SampleScene:
     broken_hole_fraction: float = 0.006
     # a seeded fraction of squares with the film torn away (a rip)
     rip_fraction: float = 0.03
+    # what each grid is like, from GRID_QUALITY: one name for every grid, a
+    # list for the holder's grids in slot order (repeated if it is short),
+    # or a mapping from a grid's name; a grid not named is "good"
+    grid_quality: Any = None
     # ice crystals: flat bright plates with a bright rim, per 100 x 100 um
     ice_density: float = 0.4
     ice_size: Tuple[float, float] = (6e-6, 16e-6)  # m, plate radius
@@ -550,6 +573,17 @@ class SampleScene:
     # frames, dose (nC/um^2) and the depth worn away (m); see `expose`
     exposures: Dict[tuple, dict] = field(default_factory=dict, repr=False)
     _cuts: List[np.ndarray] = field(default_factory=list, repr=False)
+    # a file the sample's state is kept in, so a later session with the same
+    # sample carries on from it (see `fibsem.drivers.demo.sim.state`); None
+    # starts fresh at every connect. `on_change` is called after each change to
+    # the sample, `on_grids_placed` after the holder's grids are laid out
+    state_file: Optional[str] = None
+    on_change: Optional[Callable[[], None]] = field(
+        default=None, repr=False, compare=False
+    )
+    on_grids_placed: Optional[Callable[[], None]] = field(
+        default=None, repr=False, compare=False
+    )
     # the grids on the holder. With no calibrated, occupied slot handed in
     # (`holder_slots`, set by the simulator from its sample holder before
     # each acquisition) there is one grid, centred on the world anchor -
@@ -631,15 +665,45 @@ class SampleScene:
 
     def _default_grid(self) -> SceneGrid:
         """The one grid at the world anchor: the scene as it always was."""
-        return SceneGrid(
-            name="default",
-            x=0.0,
-            y=0.0,
-            rotation=float(self.grid_rotation or 0.0),
-            radius=self.grid_radius,
-            seed=self.seed,
-            extent=self.extent or 2 * self.grid_radius,
+        return self._graded(
+            SceneGrid(
+                name="default",
+                x=0.0,
+                y=0.0,
+                rotation=float(self.grid_rotation or 0.0),
+                radius=self.grid_radius,
+                seed=self.seed,
+                extent=self.extent or 2 * self.grid_radius,
+            ),
+            0,
         )
+
+    def _graded(self, grid: SceneGrid, index: int) -> SceneGrid:
+        """`grid`, the `index`-th on the holder, as `grid_quality` says it is."""
+        wanted = self.grid_quality
+        if isinstance(wanted, dict):
+            wanted = wanted.get(grid.name)
+        elif isinstance(wanted, (list, tuple)):
+            wanted = wanted[index % len(wanted)] if wanted else None
+        name = str(wanted or "good")
+        if name not in GRID_QUALITY:
+            raise ValueError(
+                f"grid_quality must be from {sorted(GRID_QUALITY)}, got {name!r}"
+            )
+        return replace(grid, quality=name, **GRID_QUALITY[name])
+
+    def ice_over(self, xs_world: np.ndarray, ys_world: np.ndarray):
+        """The ice a thick grid carries over the usual sheet, at each world
+        point (um), or None when no grid in reach carries any."""
+        thick = [g for g in self.grids if g.ice > 0]
+        if not thick:
+            return None
+        xs_world, ys_world = np.broadcast_arrays(xs_world, ys_world)
+        extra = np.zeros(xs_world.shape, dtype=np.float32)
+        for grid in thick:
+            on = np.hypot(xs_world - grid.x, ys_world - grid.y) <= grid.radius
+            extra[on] = grid.ice
+        return extra if extra.any() else None
 
     def _populate(self, rng: Optional[np.random.Generator] = None) -> None:
         """Grow every grid's content from its own seed (`rng` for the first
@@ -661,7 +725,7 @@ class SampleScene:
         if self.preparation in sim_solid.SLABS:
             self._generate_suspended(grid, half)
         else:
-            self._generate_cells(rng, half)
+            self._generate_cells(rng, half, grid.cells)
         # fiducial-like cross at the grid centre: a dense line of small
         # blobs along each arm, so it goes through the same projection as
         # every other feature
@@ -952,9 +1016,15 @@ class SampleScene:
             depth[idx] = np.maximum(depth[idx], inside.astype(np.float32))
         return depth
 
+    def _changed(self) -> None:
+        """The sample was changed: tell whoever keeps it (`on_change`)."""
+        if self.on_change is not None:
+            self.on_change()
+
     def deposit(self, seconds: float) -> None:
         """A GIS deposition with the valve open *seconds*: a thicker coat."""
         self.gis_thickness += GIS_RATE * max(float(seconds), 0.0)
+        self._changed()
         logger.debug(
             {"msg": "sample_scene_deposited", "gis_thickness": self.gis_thickness}
         )
@@ -962,6 +1032,7 @@ class SampleScene:
     def sputter(self, seconds: float) -> None:
         """A sputter coat of *seconds*: a thin metal layer."""
         self.sputter_thickness += SPUTTER_RATE * max(float(seconds), 0.0)
+        self._changed()
         logger.debug(
             {
                 "msg": "sample_scene_sputtered",
@@ -1040,24 +1111,25 @@ class SampleScene:
                         -self.grid_rotation_range, self.grid_rotation_range
                     )
                 )
-                grids.append(
-                    SceneGrid(
-                        name=name,
-                        x=float(px),
-                        y=float(py) / fs,
-                        rotation=rotation,
-                        radius=float(radius),
-                        seed=seed,
-                        # a holder grid is populated edge to edge
-                        extent=2 * float(radius),
-                    )
+                grid = SceneGrid(
+                    name=name,
+                    x=float(px),
+                    y=float(py) / fs,
+                    rotation=rotation,
+                    radius=float(radius),
+                    seed=seed,
+                    # a holder grid is populated edge to edge
+                    extent=2 * float(radius),
                 )
+                grids.append(self._graded(grid, len(grids)))
         self.grids = grids
         self._populate()
         # trenches were cut in grids that are no longer where they were
         self.milled = []
         self.mill_passes, self._cuts, self.damage_started = [], [], None
         self.exposures = {}
+        if self.on_grids_placed is not None:
+            self.on_grids_placed()
         logger.debug(
             {
                 "msg": "sample_scene_grids_placed",
@@ -1277,6 +1349,7 @@ class SampleScene:
             points = np.array([world(x, y) for x, y in corners])
             regions.append(MilledRegion(points=points, beam_cut=cut(corners)))
         self.milled.extend(regions)
+        self._changed()
         logger.debug(
             {
                 "msg": "sample_scene_milled",
@@ -1345,6 +1418,7 @@ class SampleScene:
             self.milled = [r for r in self.milled if r is not seen["region"]]
             self.milled.append(region)
             seen["depth"], seen["region"] = depth, region
+            self._changed()
         return seen
 
     @staticmethod
@@ -1534,6 +1608,7 @@ class SampleScene:
                 pts = pts + (0.0, self._along_beam_to_surface(pts.mean(axis=0), frame))
             regions.append(MilledRegion(points=pts, depth=diameter, halo=halo))
         self.milled.extend(regions)
+        self._changed()
         logger.debug(
             {
                 "msg": "sample_scene_burned",
@@ -1746,13 +1821,14 @@ class SampleScene:
         # orientation, where it starts (usually at a bar, running inward)
         # and how ragged its outline is. Rips cluster: a square beside a
         # ripped one rips more readily
-        torn = square_draw < self.rip_fraction
+        rip_fraction = self.rip_fraction
+        if grid.rips is not None and self.preparation != "carrier":
+            rip_fraction = grid.rips
+        torn = square_draw < rip_fraction
         beside_torn = np.zeros_like(torn)
         for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-            beside_torn |= (
-                _lattice_draw(sq_i + di, sq_j + dj, grid.seed) < self.rip_fraction
-            )
-        torn |= beside_torn & (square_draw < 3 * self.rip_fraction)
+            beside_torn |= _lattice_draw(sq_i + di, sq_j + dj, grid.seed) < rip_fraction
+        torn |= beside_torn & (square_draw < 3 * rip_fraction)
         torn &= ~bars
         rips = np.zeros_like(bars)
         if torn.any():
@@ -1843,7 +1919,9 @@ class SampleScene:
         self._broken_last = (key, out.copy())
         return out
 
-    def _generate_cells(self, rng: np.random.Generator, half: float) -> None:
+    def _generate_cells(
+        self, rng: np.random.Generator, half: float, share: float = 1.0
+    ) -> None:
         kinds = {
             "yeast": [("yeast", 1.0)],
             "mammalian": [("mammalian", 1.0)],
@@ -1860,6 +1938,7 @@ class SampleScene:
         fields = (2 * half / 150e-6) ** 2  # how many 150 um fields the extent is
         next_id = 0
         for kind, fraction in kinds[self.cell_type]:
+            fraction *= share  # a sparse grid grew fewer of them
             if kind == "yeast":
                 next_id = self._generate_yeast(rng, half, fraction, next_id)
             elif kind == "mammalian":
@@ -2660,6 +2739,7 @@ class SampleScene:
         "hole_pitch",  # m
         "broken_hole_fraction",
         "rip_fraction",  # of squares
+        "grid_quality",  # what each grid is like (see GRID_QUALITY)
         "ice_density",  # per 100 x 100 um
         "ice_size",  # [min, max] m
         "frost_density",  # frost patches per 100 x 100 um
@@ -2688,6 +2768,7 @@ class SampleScene:
         "gis_thickness",  # m, a GIS coat the grid comes in with
         "sputter_thickness",  # m, a sputter coat the grid comes in with
         "centre_mark",  # the orientation square at the grid's centre
+        "state_file",  # where the sample's state is kept between sessions
     )
 
     @classmethod
@@ -2822,6 +2903,41 @@ class SampleScene:
             self._optics_here(optics, stage_position, projection, frame),
         )
 
+    def _fm_anchor(self, stage_position, projection):
+        """Where the FM sees the world: the anchor on its image plane (m),
+        the foreshortening, the half-turn, and how far a height shifts a
+        point down the view."""
+        reference = self.reference_position
+        if self.tilt_axis_offset:
+            reference = self._non_eucentric_reference(stage_position, projection)
+        # the FM's projection has no half-turn flip: reflect the anchor as the
+        # beams' does, then turn the world about it (see _turn)
+        reference = BeamStageProjection._compucentric_corrected(
+            reference, stage_position, projection.geometry.rotation_centre
+        )
+        ax, ay = projection.to_plane(reference, stage_position)
+        fs = max(surface_foreshortening(projection, stage_position), MIN_FORESHORTENING)
+        turn = self._turn(stage_position)
+        # a tilted view: a height shifts a point down the view the way a
+        # stage raise does, and the plane is nearer the objective at one edge
+        lift = 0.0
+        if fs < 0.9995:
+            raised = replace(stage_position, z=(stage_position.z or 0.0) + 1e-6)
+            _, ay_up = projection.to_plane(reference, raised)
+            lift = float(np.copysign(np.sqrt(1 - fs * fs), ay_up - ay))
+        return ax, ay, fs, turn, lift
+
+    def fm_frame(self, stage_position, projection):
+        """How the FM sees the world, as the beams' views are described
+        (see `view_frame`): the FM's image is not rotated."""
+        if self.reference_position is None:
+            self.anchor(stage_position)
+        self.place_grids(projection)
+        ax, ay, fs, turn, lift = self._fm_anchor(stage_position, projection)
+        return sim_view.ViewFrame(
+            anchor=(ax * 1e6, ay * 1e6), theta=0.0, turn=turn, fs=float(fs), k=lift
+        )
+
     def render_fm(
         self,
         stage_position: FibsemStagePosition,
@@ -2859,24 +2975,7 @@ class SampleScene:
             self.anchor(stage_position)
         self.place_grids(projection)
 
-        reference = self.reference_position
-        if self.tilt_axis_offset:
-            reference = self._non_eucentric_reference(stage_position, projection)
-        # the FM's projection has no half-turn flip: reflect the anchor as the
-        # beams' does, then turn the world about it (see _turn)
-        reference = BeamStageProjection._compucentric_corrected(
-            reference, stage_position, projection.geometry.rotation_centre
-        )
-        ax, ay = projection.to_plane(reference, stage_position)
-        fs = max(surface_foreshortening(projection, stage_position), MIN_FORESHORTENING)
-        turn = self._turn(stage_position)
-        # a tilted view: a height shifts a point down the view the way a
-        # stage raise does, and the plane is nearer the objective at one edge
-        lift = 0.0
-        if fs < 0.9995:
-            raised = replace(stage_position, z=(stage_position.z or 0.0) + 1e-6)
-            _, ay_up = projection.to_plane(reference, raised)
-            lift = float(np.copysign(np.sqrt(1 - fs * fs), ay_up - ay))
+        ax, ay, fs, turn, lift = self._fm_anchor(stage_position, projection)
         self._fm_tilt = (float(fs), lift, pixel_size)
 
         bars, cells, red, fiducial = weights[:4]

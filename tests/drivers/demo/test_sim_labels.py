@@ -171,3 +171,73 @@ def test_labels_need_the_sample_scene():
                 labels.of(microscope, BeamType.ELECTRON, 150e-6, RESOLUTION)
     finally:
         microscope.disconnect()
+
+
+# ---------------------------------------------------------------------------
+# The fluorescence view
+# ---------------------------------------------------------------------------
+
+
+def _fm_scene(microscope):
+    from fibsem.geometry.projection import FMStageProjection
+
+    projection = FMStageProjection.from_microscope(microscope)
+    projection = FMStageProjection(
+        geometry=projection.geometry, pixel_size=2e-7, shape=(512, 512)
+    )
+    scene = microscope._connection.sample_scene
+    return scene, microscope._connection.scene_stage_position_at_fm(), projection
+
+
+def test_the_fm_labels_agree_with_the_fm_image():
+    microscope = _microscope(seed=2, cell_type="rpe")
+    try:
+        scene, position, projection = _fm_scene(microscope)
+        found = labels.fm_view(scene, position, (512, 512), projection)
+        green = scene.render_fm(
+            position,
+            (512, 512),
+            projection,
+            weights=(0.0, 1.0, 0.0, 0.0),
+            rng=np.random.default_rng(0),
+        ).astype(float)
+        reflection = scene.render_fm(
+            position,
+            (512, 512),
+            projection,
+            weights=(1.0, 0.0, 0.0, 0.0),
+            rng=np.random.default_rng(0),
+        ).astype(float)
+    finally:
+        microscope.disconnect()
+    assert found.classes.shape == green.shape == (512, 512)
+    cell = found.classes == labels.ID["cell"]
+    ice = found.classes == labels.ID["ice"]
+    bar = found.classes == labels.ID["grid bar"]
+    assert cell.sum() > 500 and ice.sum() > 500 and bar.sum() > 500
+    # the cells are what glows, and the bars are what reflects
+    assert np.median(green[cell]) > 1.1 * np.median(green[ice])
+    assert np.median(reflection[bar]) > 1.2 * np.median(reflection[ice])
+    # a target in view is marked, on its cell, where the label is brightest
+    target = found.classes == labels.ID["fluorescence target"]
+    assert target.any()
+    assert green[target].max() > np.percentile(green[cell], 99)
+    assert any(item["class"] == "fluorescence target" for item in found.boxes())
+
+
+def test_an_fm_image_comes_with_its_labels():
+    microscope = _microscope(seed=2, cell_type="rpe")
+    try:
+        image, found = labels.acquire_fm(microscope)
+    finally:
+        microscope.disconnect()
+    assert found.classes.shape == found.cells.shape == image.data.shape
+    assert (found.classes == labels.ID["grid bar"]).any()
+
+
+def test_the_dataset_lamella_is_cut_through_a_cell(microscope):
+    microscope.move_to_milling_angle(labels.MILLING_ANGLE)
+    assert labels.centre_on_cell(microscope)
+    found = labels.of(microscope, BeamType.ION, 50e-6, RESOLUTION)
+    height, width = found.cells.shape
+    assert found.cells[height // 2, width // 2] > 0
