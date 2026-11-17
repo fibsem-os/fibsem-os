@@ -2768,8 +2768,21 @@ class SampleScene:
         "gis_thickness",  # m, a GIS coat the grid comes in with
         "sputter_thickness",  # m, a sputter coat the grid comes in with
         "centre_mark",  # the orientation square at the grid's centre
+        "red_fraction",  # of cells carrying the subset dye
+        "fm_blur_px_per_um",  # FM defocus blur
         "state_file",  # where the sample's state is kept between sessions
     )
+
+    @classmethod
+    def config_defaults(cls) -> dict:
+        """The keys a `sim: sample:` block starts with that a scene built
+        directly does not: the effects a configured simulator has on."""
+        return {
+            "beam_optics": True,
+            "imaging_damage": 1.0,
+            "surface_grain": 1.0,
+            "damage_current": DAMAGE_CURRENT,
+        }
 
     @classmethod
     def from_config(cls, config: dict) -> "SampleScene":
@@ -2779,10 +2792,8 @@ class SampleScene:
         if unknown:
             raise ValueError(f"Unknown sim.sample keys: {sorted(unknown)}")
         kwargs = {k: v for k, v in config.items() if k in cls.CONFIG_KEYS}
-        kwargs.setdefault("beam_optics", True)
-        kwargs.setdefault("imaging_damage", 1.0)
-        kwargs.setdefault("surface_grain", 1.0)
-        kwargs.setdefault("damage_current", DAMAGE_CURRENT)
+        for key, value in cls.config_defaults().items():
+            kwargs.setdefault(key, value)
         if kwargs.get("fm_camera_mount") is not None:
             mount_transform_from_name(kwargs["fm_camera_mount"])  # or it raises
         sim_faults.Faults(kwargs.get("faults"))  # or it raises

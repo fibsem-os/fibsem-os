@@ -43,46 +43,96 @@ RES = (1536, 1024)
 DESCRIPTIONS = {
     "coincidence_offset": "height error at boot (m): what the coincidence alignment corrects",
     "tilt_axis_offset": "how far the surface sits above the tilt axis (m); 0 is eucentric",
-    "grids_from_holder": "grids at the holder's calibrated, occupied slots (opt-in)",
-    "seed": "the draw everything grows from; same seed, same scene",
-    "cell_type": "`mammalian` (default), `yeast`, `bacteria`, `mixed`, `none`",
-    "n_clusters": "yeast: clusters over the extent",
-    "cells_per_cluster": "yeast: cells per cluster (inclusive range)",
-    "cell_size": "yeast: sigma range per cell (m)",
-    "cluster_spread": "yeast: how far cells scatter round a cluster (m)",
-    "mammalian_density": "mammalian: cells per 150 x 150 um",
-    "mammalian_radius": "mammalian: body radius range (m)",
-    "nucleus_radius": "mammalian: nucleus radius range (m)",
-    "bacteria_density": "bacteria: rods per 150 x 150 um",
-    "bacteria_length": "bacteria: rod length range (m)",
-    "extent": "content is grown over +/- extent/2 about the grid centre (m)",
+    "beam_offset": "per-beam misalignment `{electron: [dx, dy], ion: [dx, dy]}` (m): a persistent lateral offset",
+    "current_offset_scale": "sigma (m) of a seeded per-(beam, current) offset; 0 is off",
+    "beam_optics": "working distance, stigmation and current show in the image (see Beam settings)",
+    "focus_fuzz": "how far a beam's focus is from its eucentric height, at most (m)",
+    "scan_rotation_at_start": "the scan rotation each beam boots at, `{electron: deg, ion: deg}`",
+    "fm_camera_mount": "the mount transform the FM camera really has; unset is as configured",
+    "imaging_damage": "how fast FIB imaging wears the sample away (1 is ice, 0 is never)",
+    "surface_grain": "how strongly a surface's fine texture shows (0 is smooth; see Beam settings)",
+    "faults": 'things that go wrong and when, see "Things going wrong"',
     "grid_pitch": "mesh pitch (m); 125 um is a 200 mesh",
     "grid_bar_width": "bar width (m)",
+    "grid_mesh": "`square`, or `hexagonal` for a honeycomb of hexagons `grid_pitch` across their flats",
     "grid_intensity": "how much reflected light from the bars leaks into a fluorescence channel",
-    "film": "`continuous` (default) or `holey` (a Quantifoil-style lattice)",
+    "grid_radius": "usable film radius (m); past it the rim, then the holder",
+    "grid_rim_width": "the metal rim's width (m)",
+    "grid_rotation": "the grid's rotation (deg); random within the range when unset",
+    "grid_rotation_range": "the random rotation's range (deg)",
+    "film": "`holey` (default, a Quantifoil-style lattice) or `continuous`",
     "hole_diameter": "holey film: hole diameter (m)",
     "hole_pitch": "holey film: hole pitch (m)",
     "broken_hole_fraction": "holey film: fraction of holes broken into larger openings",
+    "centre_mark": "the orientation mark at the grid's centre: a bigger square of metal with one corner rounded",
+    "fiducial": "a cross at each grid centre, a navigation landmark; absent on a real grid, so off by default",
+    "preparation": "`plunge`, `waffle` for a high-pressure frozen slab on a grid, or `carrier` for a block in a carrier",
+    "slab_thickness": "how thick the ice is (m): 5 to 50 um in a waffle, 50 to 300 um in a carrier",
+    "hat_scratches": "waffle: how strongly the hat's polishing lines show in the top (0 = none)",
+    "slab_fill": "waffle: the share of the slab's volume that is cells",
+    "suspended_rpe_radius": "waffle: the radius of a rounded RPE cell (m)",
+    "worm_length": "waffle: how long a `celegans` worm is (m)",
+    "worm_radius": "waffle: how thick it is at its middle, as a radius (m)",
+    "embryo_length": "carrier: how long a `drosophila` embryo is (m)",
+    "embryo_width": "carrier: how wide it is (m)",
+    "cell_type": "`rpe` (default), `mammalian`, `neuron`, `yeast`, `bacteria`, `mixed`, `none`; in a waffle `yeast`, `rpe`, `celegans`, `none`; in a carrier those and `drosophila`",
+    "extent": "content is grown over +/- extent/2 about the grid centre, on the grid's disc (m); unset fills the whole grid",
+    "rpe_density": "rpe: cells per 150 x 150 um",
+    "rpe_radius": "rpe: cell radius range (m)",
+    "mammalian_density": "mammalian: cells per 150 x 150 um",
+    "mammalian_radius": "mammalian: body radius range (m)",
+    "nucleus_radius": "mammalian: nucleus radius range (m)",
+    "n_clusters": "yeast: clusters per 800 x 800 um",
+    "cells_per_cluster": "yeast: cells per cluster (inclusive range)",
+    "cell_size": "yeast: sigma range per cell (m)",
+    "cluster_spread": "yeast: how far cells scatter round a cluster (m)",
+    "bacteria_density": "bacteria: rods per 150 x 150 um",
+    "bacteria_length": "bacteria: rod length range (m)",
+    "neuron_density": "neuron: somas per 150 x 150 um",
+    "soma_radius": "neuron: soma radius range (m)",
+    "neurite_length": "neuron: how long its processes are (m)",
     "rip_fraction": "fraction of squares with the film torn; neighbours rip more readily",
+    "grid_quality": 'what each grid is like: a name, a list in slot order or a mapping by grid name, see "Grids at the holder\'s slots"',
     "ice_density": "ice crystals per 100 x 100 um",
     "ice_size": "ice plate radius range (m)",
-    "fiducial": "a cross at each grid centre, a navigation landmark; absent on a real grid, so off by default",
-    "grid_radius": "usable film radius (m); past it the rim, then the holder",
-    "grid_rim_width": "the metal rim's width (m)",
-    "noise_sigma": "gaussian noise on the final image",
-    "noise_fraction": "blend of full-range uniform noise (0-1)",
-    "grid_rotation": "the grid's rotation (deg); random within the range when unset",
-    "grid_rotation_range": "the random rotation's range (deg)",
     "contamination_density": "specks per 100 x 100 um, on film and bars alike",
     "contamination_size": "speck sigma range (m)",
-    "beam_offset": "per-beam misalignment `{electron: [dx, dy], ion: [dx, dy]}` (m): a persistent lateral offset",
-    "current_offset_scale": "sigma (m) of a seeded per-(beam, current) offset; 0 is off",
+    "frost_density": "frost patches per 100 x 100 um",
+    "sphere_density": "dark spheres per 100 x 100 um",
+    "sphere_size": "sphere radius range (m)",
+    "crack_density": "hairline cracks in the film per 100 x 100 um",
+    "mill_drift": "sigma of each milling pass's drift (m)",
+    "mill_overcut": "how far past its edges a pattern may cut (m)",
+    "mill_kerf": "a higher current cuts wider",
+    "mill_taper": "degrees the trench walls lean in going down",
+    "curtaining": "strength of the stripes down a cut face (0 = none)",
+    "damage_below": "the seeded thickness below which damage can start (m)",
+    "damage_chance": "chance per pass below it that damage starts",
+    "damage_current": "the milling current `damage_below` is given at (A); 0 and the current makes no difference",
+    "charging": "SEM charging strength on an uncoated grid (0 = never)",
+    "gis_thickness": "GIS coat the grid starts with (m)",
+    "sputter_thickness": "sputter coat the grid starts with (m)",
+    "noise_sigma": "gaussian noise on the final image",
+    "noise_fraction": "blend of full-range uniform noise (0-1)",
     "red_fraction": "fraction of cells carrying the subset (mCherry-like) dye",
     "fm_blur_px_per_um": "FM defocus blur, pixels per micron the objective is off focus",
+    "fm_target_fraction": "cells with a centrin pool and a centriole pair",
+    "fm_no_target_chance": "chance a grid carries no pair at all",
+    "fm_axial_range": "how far from its height an FM spot stays sharp (m)",
+    "fm_hot_pixels": "fraction of FM camera pixels that are hot",
+    "fm_green": "green label: cytoplasm, centrin or lipid_droplets",
+    "fm_red": "red label: subset or cilia",
+    "fm_far_red": "far-red label: none, membrane or mitochondria",
+    "fm_cilium_fraction": "of the target cells, those with a primary cilium",
+    "grids_from_holder": "grids at the holder's calibrated, occupied slots (opt-in)",
+    "seed": "the draw everything grows from; same seed, same scene",
+    "state_file": 'a file the sample\'s state is kept in between sessions, see "Keeping the sample"',
 }
 
 
 def _fmt(value):
+    if isinstance(value, bool):
+        return "true" if value else "false"  # as it is written in the yaml
     if isinstance(value, float):
         if value == 0:
             return "0"
@@ -99,13 +149,33 @@ def _fmt(value):
 
 
 GROUPS = (
-    ("Stage and coincidence", ("coincidence_offset", "tilt_axis_offset")),
-    ("Beams", ("beam_offset", "current_offset_scale")),
+    (
+        "Stage and coincidence",
+        (
+            "coincidence_offset",
+            "tilt_axis_offset",
+        ),
+    ),
+    (
+        "Beams",
+        (
+            "beam_offset",
+            "current_offset_scale",
+            "beam_optics",
+            "focus_fuzz",
+            "scan_rotation_at_start",
+            "fm_camera_mount",
+            "imaging_damage",
+            "surface_grain",
+            "faults",
+        ),
+    ),
     (
         "Grid and film",
         (
             "grid_pitch",
             "grid_bar_width",
+            "grid_mesh",
             "grid_intensity",
             "grid_radius",
             "grid_rim_width",
@@ -115,7 +185,22 @@ GROUPS = (
             "hole_diameter",
             "hole_pitch",
             "broken_hole_fraction",
+            "centre_mark",
             "fiducial",
+        ),
+    ),
+    (
+        "Waffle",
+        (
+            "preparation",
+            "slab_thickness",
+            "hat_scratches",
+            "slab_fill",
+            "suspended_rpe_radius",
+            "worm_length",
+            "worm_radius",
+            "embryo_length",
+            "embryo_width",
         ),
     ),
     (
@@ -123,6 +208,8 @@ GROUPS = (
         (
             "cell_type",
             "extent",
+            "rpe_density",
+            "rpe_radius",
             "mammalian_density",
             "mammalian_radius",
             "nucleus_radius",
@@ -132,22 +219,67 @@ GROUPS = (
             "cluster_spread",
             "bacteria_density",
             "bacteria_length",
+            "neuron_density",
+            "soma_radius",
+            "neurite_length",
         ),
     ),
     (
         "Rips, ice and contamination",
         (
             "rip_fraction",
+            "grid_quality",
             "ice_density",
             "ice_size",
             "contamination_density",
             "contamination_size",
+            "frost_density",
+            "sphere_density",
+            "sphere_size",
+            "crack_density",
+            "mill_drift",
+            "mill_overcut",
+            "mill_kerf",
+            "mill_taper",
+            "curtaining",
+            "damage_below",
+            "damage_chance",
+            "damage_current",
+            "charging",
+            "gis_thickness",
+            "sputter_thickness",
         ),
     ),
-    ("Noise", ("noise_sigma", "noise_fraction")),
-    ("Fluorescence", ("red_fraction", "fm_blur_px_per_um")),
+    (
+        "Noise",
+        (
+            "noise_sigma",
+            "noise_fraction",
+        ),
+    ),
+    (
+        "Fluorescence",
+        (
+            "red_fraction",
+            "fm_blur_px_per_um",
+            "fm_target_fraction",
+            "fm_no_target_chance",
+            "fm_axial_range",
+            "fm_hot_pixels",
+            "fm_green",
+            "fm_red",
+            "fm_far_red",
+            "fm_cilium_fraction",
+        ),
+    ),
     ("Holder", ("grids_from_holder",)),
-    ("Reproducibility", ("seed",)),
+    (
+        "Reproducibility",
+        (
+            "seed",
+            "state_file",
+        ),
+    ),
 )
 
 
@@ -155,6 +287,7 @@ def key_table() -> str:
     """The keys by group, a table each; a key in no group lands in `Other`
     so nothing added to the scene goes undocumented."""
     defaults = {f.name: f for f in dataclasses.fields(SampleScene)}
+    configured = SampleScene.config_defaults()
     grouped = {k for _, keys in GROUPS for k in keys}
     groups = list(GROUPS)
     other = tuple(k for k in SampleScene.CONFIG_KEYS if k not in grouped)
@@ -172,6 +305,8 @@ def key_table() -> str:
                 if field.default is not dataclasses.MISSING
                 else field.default_factory()
             )
+            # a configured scene starts with some effects on (see from_config)
+            value = configured.get(key, value)
             if key in ("grid_rotation", "grid_rotation_range") and value is not None:
                 value = float(np.rad2deg(value))
             out.append(f"| `{key}` | {_fmt(value)} | {DESCRIPTIONS.get(key, '')} |")
