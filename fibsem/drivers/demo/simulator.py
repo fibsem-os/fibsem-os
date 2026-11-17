@@ -6,6 +6,7 @@ import logging
 import os
 import random
 import threading
+import time
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from itertools import cycle
@@ -281,6 +282,13 @@ _DETECTOR_GAIN = 6.0
 _DETECTOR_OFFSET = 1.5
 
 
+def frame_sleep(seconds: float, started: float) -> None:
+    """Wait out a beam frame that takes `seconds` and began at `started`
+    (`time.perf_counter`): building its image is part of that time, so only
+    what is left of it is slept, and nothing once the build took longer."""
+    sim_sleep(seconds - (time.perf_counter() - started))
+
+
 def detector_response(
     data: np.ndarray, brightness: Optional[float], contrast: Optional[float]
 ) -> np.ndarray:
@@ -459,22 +467,7 @@ class DemoSimulator:
             beam_type=effective_beam_type
         )
 
-        # One lock over the channel and the frame, as `ThermoMicroscope.acquire_image`
-        # holds it over `set_channel` + `grab_frame`: the grab reads the
-        # active view's buffer, so a channel that is not still ours when the frame lands
-        # returns whoever took it in between. Deliberately just that pair --
-        # `_threading_lock` is shared by every caller on this microscope.
-        with self.lock:
-            self.set_channel(effective_beam_type)
-            # The frame. On hardware this is the one `grab_frame` RPC; here the sleep is
-            # the only part of it with any duration, so it is the window an unguarded FM
-            # read would land in.
-            sim_sleep(
-                effective_image_settings.dwell_time
-                * effective_image_settings.resolution[0]
-                * effective_image_settings.resolution[1]
-            )  # simulate acquisition time
-            self._warn_if_channel_moved(effective_beam_type, "acquire_image")
+        started = time.perf_counter()
 
         # construct image (random noise)
         image = FibsemImage.generate_blank_image(
@@ -568,6 +561,25 @@ class DemoSimulator:
             brightness=self.microscope.get_detector_brightness(effective_beam_type),
             contrast=self.microscope.get_detector_contrast(effective_beam_type),
         )
+
+        # One lock over the channel and the frame, as `ThermoMicroscope.acquire_image`
+        # holds it over `set_channel` + `grab_frame`: the grab reads the
+        # active view's buffer, so a channel that is not still ours when the frame lands
+        # returns whoever took it in between. Deliberately just that pair --
+        # `_threading_lock` is shared by every caller on this microscope.
+        with self.lock:
+            self.set_channel(effective_beam_type)
+            # The frame. On hardware this is the one `grab_frame` RPC; here the sleep is
+            # the only part of it that waits, so it is the window an unguarded FM read
+            # would land in. A frame takes its dwell over its pixels, and building the
+            # image is part of that time: only what is left of it is slept.
+            frame_sleep(
+                effective_image_settings.dwell_time
+                * effective_image_settings.resolution[0]
+                * effective_image_settings.resolution[1],
+                started,
+            )
+            self._warn_if_channel_moved(effective_beam_type, "acquire_image")
 
         # add additional metadata
         image.metadata.image_settings = copy.deepcopy(effective_image_settings)

@@ -9,7 +9,9 @@ from scipy import ndimage as ndi
 
 import fibsem.config as cfg
 from fibsem import utils
+from fibsem.drivers.demo import simulator as sim_simulator
 from fibsem.drivers.demo.sim import solid as sim_solid
+from fibsem.drivers.demo.sim import view as sim_view
 from fibsem.drivers.demo.sim.scene import SampleScene
 from fibsem.structures.settings import (
     BeamType,
@@ -1160,3 +1162,74 @@ def test_yolk_is_granules_lighter_and_darker_than_its_ground():
         x[::7, ::3], np.full(x[::7, ::3].shape, 3.0), z[::7, ::3], 7
     )
     assert np.array_equal(again, grey[::7, ::3])
+
+
+def _milled_views(microscope) -> list:
+    """Both beams' images of a fresh waffle of yeast with a trench in it."""
+    _face(microscope, "FIB")
+    _use(microscope, preparation="waffle", cell_type="yeast")
+    microscope.draw_pattern(
+        FibsemRectangleSettings(
+            width=20e-6, height=12e-6, depth=8e-6, centre_x=0.0, centre_y=0.0
+        )
+    )
+    microscope.run_milling()
+    _face(microscope, "MILLING")
+    return [_image(microscope, beam, hfw=80e-6) for beam in BeamType]
+
+
+def test_a_view_worked_out_on_threads_is_the_one_a_single_thread_gives(
+    microscope, monkeypatch
+):
+    """The columns, the walk and the blurs are split over threads once a
+    view is big enough: to the last grey level what one thread makes."""
+    monkeypatch.setattr(sim_view, "WORKERS", 1)
+    alone = _milled_views(microscope)
+    monkeypatch.setattr(sim_view, "WORKERS", 4)
+    monkeypatch.setattr(sim_view, "BAND_LEAST", 2000)
+    shared = _milled_views(microscope)
+    for a, b in zip(alone, shared):
+        assert a.std() > 1.0
+        np.testing.assert_array_equal(a, b)
+    data = np.random.default_rng(3).random((90, 130)).astype(np.float32)
+    for sigma in (0.7, 6.0):
+        np.testing.assert_array_equal(
+            sim_view.gauss(data, sigma), ndi.gaussian_filter(data, sigma)
+        )
+
+
+def test_a_milled_view_walked_in_part_is_what_a_whole_walk_gives(
+    microscope, monkeypatch
+):
+    """A milled frame walks again only where a cut took away what the beam
+    met; walking the whole view with the cuts gives the same image."""
+    part = _milled_views(microscope)
+
+    def whole(col, removed, z, shift, height):
+        width = col["surface"].shape[1]
+        rows, cols = slice(0, height), slice(0, width)
+        return sim_solid._walk(col, removed, z, shift, rows, cols)
+
+    monkeypatch.setattr(sim_solid, "_seen", whole)
+    for a, b in zip(part, _milled_views(microscope)):
+        np.testing.assert_array_equal(a, b)
+
+
+def test_building_a_frame_counts_toward_its_dwell(microscope, monkeypatch):
+    """A frame takes its dwell over its pixels: the time spent building the
+    image comes off the wait, and a frame that took longer waits no more."""
+    waits = []
+    monkeypatch.setattr(sim_simulator, "sim_sleep", waits.append)
+    _use(microscope, **WAFFLE)
+    for dwell in (1e-4, 1e-9):
+        settings = ImageSettings(
+            resolution=(512, 342),
+            hfw=150e-6,
+            dwell_time=dwell,
+            save=False,
+            beam_type=BeamType.ION,
+        )
+        microscope.acquire_image(image_settings=settings)
+    slow, fast = waits
+    assert 0 < slow < 1e-4 * 512 * 342
+    assert fast < 0
