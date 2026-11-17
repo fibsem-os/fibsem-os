@@ -26,6 +26,9 @@ VERDICTS = ("good", "bad")
 # How far a site may be from a cell body's edge and still be on it (m): a
 # lamella is milled through the cell, and a site is saved at its centre.
 ON_CELL_SLACK = 1e-6
+# A hairline crack this close to a cell's centre makes the site bad: it runs
+# through the lamella or its trenches, and the film may tear while milling (um)
+CRACK_NEAR_UM = 20.0
 BAD_SQUARES = ("damaged", "thick")
 FLAT = math.radians(1.0)  # a pose this near no tilt is at the SEM orientation
 # A site is ready to mill when the SEM's and FIB's view centres meet within
@@ -92,6 +95,10 @@ def site_truth(key: Dict[str, Any], x: float, y: float) -> Dict[str, Any]:
             truth = {**out, "truth": "bad", "why": "the cell is mostly off the film"}
         elif not c["clear"]:
             truth = {**out, "truth": "bad", "why": "the cell is too near a bar"}
+        elif c.get("crack_um") is not None and c["crack_um"] <= CRACK_NEAR_UM:
+            # the film may tear while milling; the agent sees the crack at a
+            # site's field of view (an overview doesn't)
+            truth = {**out, "truth": "bad", "why": "a crack in the film by the cell"}
         else:
             truth = {**out, "truth": "good", "why": "a cell clear of the bars"}
     if not square.get("certain", True):

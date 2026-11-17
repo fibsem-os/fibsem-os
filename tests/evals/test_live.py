@@ -3,6 +3,7 @@ image rules, the runner's part, and one scripted run end to end (slow)."""
 
 import json
 import math
+from copy import deepcopy
 
 import numpy as np
 import pytest
@@ -109,6 +110,25 @@ def test_a_site_is_good_only_on_a_clear_cell_in_a_clean_square():
     unsure = site_truth(KEY, 2 * PITCH, 0.0)
     assert unsure["truth"] == "unsure" and unsure["was"] == "good"
     assert site_truth(KEY, 5 * PITCH, 0.0)["truth"] == "unkeyed"
+
+
+def test_a_cell_with_a_crack_by_it_is_a_bad_site():
+    near, far = deepcopy(KEY), deepcopy(KEY)
+    near["cells"][0]["crack_um"] = 12.0
+    far["cells"][0]["crack_um"] = 35.0
+    assert site_truth(near, 2e-6, 1e-6)["why"] == "a crack in the film by the cell"
+    assert site_truth(far, 2e-6, 1e-6)["truth"] == "good"
+
+
+def test_the_key_says_how_far_each_cell_is_from_a_crack():
+    from types import SimpleNamespace
+
+    from fibsem.ai.evals.live import sim_sites
+
+    arm = np.array([[0.0, -50e-6, 0.5e-6], [0.0, 50e-6, 0.5e-6]])
+    scene = SimpleNamespace(crack_density=0.3, cracks=[arm])
+    assert sim_sites._nearest_crack(scene, 15e-6, 0.0) == pytest.approx(15e-6)
+    assert sim_sites._nearest_crack(SimpleNamespace(crack_density=0.0), 0, 0) is None
 
 
 def test_sites_are_scored_where_the_run_saved_them(tmp_path):
