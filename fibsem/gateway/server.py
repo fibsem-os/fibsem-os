@@ -43,7 +43,7 @@ from fibsem.gateway.gateway import (
 from fibsem.gateway.host import HostMicroscope
 from fibsem.gateway.hub import Hub, HubState
 from fibsem.gateway.hub_agents import HubAgents
-from fibsem.gateway.role import read_role, save_role
+from fibsem.gateway.role import page, read_role, save_role
 from fibsem.server.auth import _bearer_token, _matches
 from fibsem.server.bodies import refuse_invalid_requests
 from fibsem.server.operator_token import load_operator_token
@@ -171,7 +171,7 @@ def build_gateway_app(
 
     @app.get("/")
     def root():
-        return RedirectResponse("/ui/gateway")
+        return RedirectResponse(f"/ui/{page(role_file)}")
 
     @app.get("/health")
     def health():

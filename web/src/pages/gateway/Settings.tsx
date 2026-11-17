@@ -401,6 +401,7 @@ function Playbooks() {
 }
 
 type Ask = "stop" | "restart" | null;
+type Role = "microscope" | "hub";
 
 /** The gateway's version, and stopping or restarting it. Stopping ends the
  * app and any run, and nothing remote starts the gateway again. */
@@ -428,6 +429,19 @@ function GatewayCard({
       onQuit(answer.restart);
     },
   });
+  const client = useQueryClient();
+  const role = useQuery({
+    queryKey: ["gateway/role"],
+    queryFn: () => api<{ role: Role }>("/gateway/role"),
+  });
+  const setRole = useMutation({
+    mutationFn: (to: Role) =>
+      api<{ role: Role }>("/gateway/role", {
+        method: "PUT",
+        body: JSON.stringify({ role: to }),
+      }),
+    onSuccess: (answer) => client.setQueryData(["gateway/role"], answer),
+  });
   const stops = running
     ? `This stops ${running} and any agent run.`
     : "Nothing is running.";
@@ -443,6 +457,41 @@ function GatewayCard({
           </span>
         )}
       </Row>
+      <Row label="Role">
+        <span className="flex items-center gap-2">
+          <select
+            value={role.data?.role ?? "microscope"}
+            disabled={!role.data || setRole.isPending}
+            onChange={(event) => setRole.mutate(event.target.value as Role)}
+            aria-label="Role"
+            className={cn(FIELD, "w-full sm:w-72")}
+          >
+            <option value="microscope">Microscope PC</option>
+            <option value="hub">Hub</option>
+          </select>
+          <HoverCard
+            trigger={
+              <button
+                aria-label="About the role"
+                className="flex cursor-pointer border-0 bg-transparent p-1 text-muted-foreground hover:text-foreground"
+              >
+                <Info size={15} />
+              </button>
+            }
+          >
+            <p className="m-0 text-[13px]">
+              A microscope PC's gateway runs the app and the agent on this PC.
+              A hub runs agents for one or more microscope PCs from another
+              computer, and has the Lab Hub page.
+            </p>
+          </HoverCard>
+        </span>
+      </Row>
+      {setRole.error && (
+        <p className="m-0 text-[13px] text-destructive">
+          {(setRole.error as Error).message}
+        </p>
+      )}
       <div className="flex justify-end gap-2.5 pt-2">
         <Button onClick={() => setAsk("restart")}>Restart</Button>
         <Button variant="danger" onClick={() => setAsk("stop")}>

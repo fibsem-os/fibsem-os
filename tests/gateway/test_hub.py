@@ -194,6 +194,9 @@ def test_only_the_operator_sets_the_role(tmp_path, hub):
     assert refused.status_code == 403
     set_ = client.put("/gateway/role", json={"role": "hub"}, headers=operator)
     assert set_.json() == {"role": "hub"} and role.read_role(path) == "hub"
+    # A hub opens on the Lab Hub page.
+    opened = client.get("/", follow_redirects=False)
+    assert opened.headers["location"] == "/ui/hub"
     bad = client.put("/gateway/role", json={"role": "both"}, headers=operator)
     assert bad.status_code == 422
 

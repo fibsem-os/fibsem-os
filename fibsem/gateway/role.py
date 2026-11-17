@@ -19,7 +19,7 @@ from typing import Optional
 from fibsem.gateway.gateway import GatewayRefused
 from fibsem.server.discovery import DISCOVERY_DIR
 
-__all__ = ["HUB", "MICROSCOPE", "ROLE_FILE", "is_hub", "read_role", "save_role"]
+__all__ = ["HUB", "MICROSCOPE", "ROLE_FILE", "is_hub", "page", "read_role", "save_role"]
 
 log = logging.getLogger(__name__)
 
@@ -59,3 +59,8 @@ def save_role(role: str, path: Optional[Path] = None) -> str:
 
 def is_hub() -> bool:
     return read_role() == HUB
+
+
+def page(path: Optional[Path] = None) -> str:
+    """The page this gateway opens on: the Lab Hub on a hub, else its own."""
+    return "hub" if read_role(path) == HUB else "gateway"

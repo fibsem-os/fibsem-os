@@ -34,8 +34,12 @@ export function HubPage() {
     document.title = "Lab Hub";
   }, []);
   const instruments = hub.data?.instruments ?? [];
+  // A hub for one microscope has no list to pick from: Overview is that one.
+  const only = instruments.length === 1 ? instruments[0] : undefined;
   const one =
-    tab === "overview" ? instruments.find((i) => i.name === opened) : undefined;
+    tab === "overview"
+      ? (instruments.find((i) => i.name === opened) ?? only)
+      : undefined;
   const go = (to: Tab) => {
     setTab(to);
     setOpened(null);
@@ -84,16 +88,20 @@ export function HubPage() {
             {one ? (
               <>
                 <h1 className="m-0 flex items-baseline gap-2 text-[17px] font-semibold">
-                  <button
-                    type="button"
-                    onClick={() => setOpened(null)}
-                    className="cursor-pointer border-0 bg-transparent p-0 text-[17px] font-normal text-muted-foreground hover:text-foreground"
-                  >
-                    Overview
-                  </button>
-                  <span className="text-[15px] font-normal text-muted-foreground/60">
-                    /
-                  </span>
+                  {!only && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setOpened(null)}
+                        className="cursor-pointer border-0 bg-transparent p-0 text-[17px] font-normal text-muted-foreground hover:text-foreground"
+                      >
+                        Overview
+                      </button>
+                      <span className="text-[15px] font-normal text-muted-foreground/60">
+                        /
+                      </span>
+                    </>
+                  )}
                   {one.name}
                 </h1>
                 <span className="text-[12.5px] text-muted-foreground">
@@ -124,12 +132,26 @@ export function HubPage() {
               {(hub.error as Error).message}
             </p>
           )}
+          {hub.data && !hub.data.hub && (
+            <p className="m-0 text-[13px] text-muted-foreground">
+              This gateway is a microscope PC's, not a hub. To make it a hub,
+              set its role in{" "}
+              <a
+                href={`/ui/gateway#token=${getToken() ?? ""}`}
+                className="text-foreground underline"
+              >
+                the gateway's Settings
+              </a>
+              .
+            </p>
+          )}
           {hub.data && tab === "overview" && one && (
             <InstrumentView key={one.name} instrument={one} />
           )}
           {hub.data &&
             tab === "overview" &&
             !one &&
+            hub.data.hub &&
             (instruments.length ? (
               <Overview instruments={instruments} open={open} />
             ) : (
