@@ -90,6 +90,15 @@ Cell bodies are opaque: they hide the film, holes and bars under them.
 - **Contamination** (`contamination_density`): small bright specks over film and bars
   alike, the aperiodic content that breaks a mesh-pitch alias in real images.
 
+## Hexagonal mesh
+
+![A hexagonal mesh, plunge frozen and as a waffle](img/simulator/hexagonal-mesh.jpg)
+
+`grid_mesh: hexagonal` makes the bars a honeycomb: hexagons `grid_pitch` across their flats,
+one centred on the grid's centre, with the orientation mark where three of them meet. Rips,
+cells and a waffle's slab follow the hexagons as they do the squares of the default
+`square` mesh.
+
 ## Waffle grids
 
 ![A waffle grid](img/simulator/waffle.jpg)
@@ -424,6 +433,7 @@ are in degrees, ranges are two-element lists, lengths in metres.
 | -- | -- | -- |
 | `grid_pitch` | 0.000125 | mesh pitch (m); 125 um is a 200 mesh |
 | `grid_bar_width` | 3.5e-05 | bar width (m) |
+| `grid_mesh` | square | `square`, or `hexagonal` for a honeycomb of hexagons `grid_pitch` across their flats |
 | `grid_intensity` | 90 | how much reflected light from the bars leaks into a fluorescence channel |
 | `grid_radius` | 0.0014 | usable film radius (m); past it the rim, then the holder |
 | `grid_rim_width` | 0.00015 | the metal rim's width (m) |

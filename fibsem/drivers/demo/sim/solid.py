@@ -185,13 +185,26 @@ def _scratches(scene: "SampleScene", X, Y, finest: float) -> np.ndarray:
                 continue
             # one line to each strip `scale` wide, somewhere in it
             i = np.floor(across / scale).astype(np.int64)
-            h = [sim_view._hash(i, i * 0 + m, seed + 31 * k + 7 * n) for m in range(3)]
+            # a strip's draws are the same all along it: drawn once per strip
+            first = int(i.min())
+            strips = np.arange(first, int(i.max()) + 1)
+            h = [
+                sim_view._hash(strips, strips * 0 + m, seed + 31 * k + 7 * n)[i - first]
+                for m in range(3)
+            ]
             half = scale * (0.08 + 0.14 * h[1])
             d = np.abs(across - (i + 0.25 + 0.5 * h[0]) * scale)
             line = np.clip(1 - d / half, 0, 1)
-            run = sim_view.value_noise(
-                along / (SCRATCH_RUN * scale) + 17.0 * h[0], i, 1.0, seed + 53 * k
-            )
+            # value noise along the strip: sim_view.value_noise on a whole
+            # number of a row, which leaves only the two draws of that row
+            u = along / (SCRATCH_RUN * scale) + 17.0 * h[0]
+            j = np.floor(u)
+            f = u - j
+            f = f * f * (3 - 2 * f)
+            j = j.astype(np.int64)
+            lo = sim_view._hash(j, i, seed + 53 * k)
+            hi = sim_view._hash(j + 1, i, seed + 53 * k)
+            run = (2 * (lo * (1 - f) + hi * f) - 1).astype(np.float32)
             here = np.clip(0.35 + 1.3 * run, 0, 1) * (0.4 + 0.6 * h[2])
             out += (strength * share * deep) * line * here
     return out
