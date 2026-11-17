@@ -62,6 +62,15 @@ def agent(argv):
         ],
     }
     answer = os.environ.get("EVAL_FAKE_ANSWER")
+    if os.environ.get("EVAL_FAKE_OVER_BUDGET"):
+        # Saves part of an answer, then spends its cap as fibsem-agent says.
+        if answer is not None:
+            (args.files / "answer.json").write_text(answer)
+        record["runs"] = [
+            {"spent_usd": 1.0, "turns": 9, "reason": "its budget is spent"}
+        ]
+        (folder / "session.json").write_text(json.dumps(record))
+        sys.exit(2)
     if answer is not None:
         (args.files / "answer.json").write_text(answer)
     else:

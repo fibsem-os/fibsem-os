@@ -7,7 +7,7 @@ read from the scene, not marked by hand:
 
 - square_finding: every square's centre, the pitch and the bar angle
 - square_quality: each shown square's label, by the rules in ``RULES``
-- site_selection: the good squares; damaged squares are bad picks
+- site_selection: the good squares; damaged and thick squares are bad picks
 
 Sim cases carry ``tier: sim`` and are scored apart from the real cases.
 Squares whose label sits close to a rule's threshold are left out of the
@@ -18,6 +18,7 @@ import json
 import logging
 import math
 import os
+from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -36,6 +37,7 @@ from fibsem.drivers.demo.sim.scene import (
     surface_foreshortening,
 )
 from fibsem.geometry.projection import BeamStageProjection
+from fibsem.structures.image import FibsemImage
 from fibsem.structures.settings import BeamType, ImageSettings
 
 logger = logging.getLogger(__name__)
@@ -70,6 +72,8 @@ RULES: Dict[str, Any] = {
 # outlines 0.9x and 1.1x their drawn size and the thresholds at these factors.
 MARGIN = (0.67, 1.5)
 LABEL_ORDER = ("damaged", "thick", "no_cells", "cell_near_bar", "good")
+# Squares a lamella must not go on: picking one is a costly mistake.
+BAD_SITE = ("damaged", "thick")
 
 # The scene options a seed draws, when the caller doesn't set them.
 VARIED = {
@@ -114,6 +118,34 @@ BRIEFS = {
         "of the cell on the full-size overview ({w} x {h} px), with a reason."
     ),
 }
+# The "-example" twin of a site case: the same overview and key, and one good
+# site the operator picked, as a run would start when they show the agent one.
+# The example is not scored: a pick on it neither counts nor counts against.
+EXAMPLE_BRIEF = (
+    " The operator has picked one good site as an example of what they want: "
+    "the cell at x {x:.0f}, y {y:.0f} px. Find others like it; the example "
+    "itself is not one of your picks. A crop of the overview around it is "
+    "example.tif (x {x0}-{x1}, y {y0}-{y1} px of the overview)."
+)
+EXAMPLE_IMAGE = "example.tif"
+
+
+def crop_example(
+    image: FibsemImage, centre: Tuple[float, float], side: int
+) -> Tuple[FibsemImage, Tuple[int, int, int, int]]:
+    """A square crop of *image* about *centre* (px), *side* px across and
+    kept inside the image, with its metadata at the crop's size, and the
+    crop's x0, y0, x1, y1 on the image."""
+    h, w = image.data.shape[:2]
+    side = int(min(side, w, h))
+    x0 = int(np.clip(round(centre[0] - side / 2), 0, w - side))
+    y0 = int(np.clip(round(centre[1] - side / 2), 0, h - side))
+    data = np.array(image.data[y0 : y0 + side, x0 : x0 + side])
+    metadata = deepcopy(image.metadata)
+    if metadata is not None:
+        metadata.image_settings.resolution = (side, side)
+        metadata.image_settings.hfw = side * metadata.pixel_size.x
+    return FibsemImage(data=data, metadata=metadata), (x0, y0, x0 + side, y0 + side)
 
 
 @dataclass
@@ -355,7 +387,7 @@ def measure_square(scene, grid, index: Tuple[int, int], step: float = 1e-6) -> D
         for f in near:
             if f.kind == "ice" or getattr(f, "part", "") == "frost":
                 ice |= _outline(f, xs, ys, scale)
-        cells, clear_cells = 0, 0
+        cells, clear_cells, clear_at = 0, 0, []
         for f in near:
             if f.kind != "cell" or f.part != "body":
                 continue
@@ -367,10 +399,13 @@ def measure_square(scene, grid, index: Tuple[int, int], step: float = 1e-6) -> D
             # wholly on the film and clear of every bar
             if not (body & ~clear).any() and body.any():
                 clear_cells += 1
+                clear_at.append((float(f.x), float(f.y)))
         out[name] = {
             "ice_fraction": float((ice & film).sum()) / area,
             "cells": cells,
             "clear_cells": clear_cells,
+            # where each clear cell is (world, m): an example points at one
+            "clear_cells_at": clear_at,
         }
     return out
 
@@ -558,7 +593,13 @@ def write_cases(
     }
     keyed = {"status": "keyed", "keyed_by": "simulator", "rules": dict(RULES)}
     good = [q for q in squares if q.label == "good" and q.certain]
-    bad = [q for q in squares if q.label == "damaged" and q.in_view]
+    # a torn square is bad however close its call; a thick one only when
+    # certain, so a square on the edge of the ice rule is left unkeyed
+    bad = [
+        q
+        for q in squares
+        if q.in_view and (q.label == "damaged" or (q.label == "thick" and q.certain))
+    ]
 
     cases = {
         site: {
@@ -615,6 +656,61 @@ def write_cases(
         },
     }
     shown = _pick_shown(squares, seed, most_labelled)
+    if good:
+        # the example: the good square nearest the overview's centre
+        example = min(
+            good,
+            key=lambda q: math.hypot(
+                q.point()["x_px"] - w / 2, q.point()["y_px"] - h / 2
+            ),
+        )
+        twin = dict(cases[site])
+        point = example.point()
+        # the example points at its clear cell, as a pick does: the square's
+        # centre is often bare film, and "the cell at" bare film taught agents
+        # to pick empty squares
+        cell = min(
+            example.measures["mid"]["clear_cells_at"],
+            key=lambda at: math.hypot(
+                *np.subtract(overview.px(*at), (point["x_px"], point["y_px"]))
+            ),
+        )
+        cx, cy = overview.px(*cell)
+        # and a picture of it: a crop about the square, a square and a half
+        # across, so the agent sees what "like it" means
+        crop, (x0, y0, x1, y1) = crop_example(
+            overview.image,
+            (point["x_px"], point["y_px"]),
+            round(1.5 * pitch_px),
+        )
+        example_dir = out / "site-selection" / f"{name}-example" / "experiment"
+        example_dir.mkdir(parents=True, exist_ok=True)
+        crop.save(str(example_dir / EXAMPLE_IMAGE))
+        point = {
+            **point,
+            "cell_x_px": round(float(cx), 1),
+            "cell_y_px": round(float(cy), 1),
+            "crop_px": [x0, y0, x1, y1],
+        }
+        twin.update(
+            id=f"{name}-sites-example",
+            inputs={"overview": f"../{name}/experiment/overview.tif"},
+            brief=twin["brief"]
+            + EXAMPLE_BRIEF.format(
+                x=point["cell_x_px"],
+                y=point["cell_y_px"],
+                x0=x0,
+                x1=x1,
+                y0=y0,
+                y1=y1,
+            ),
+            key={
+                **twin["key"],
+                "good": [q.point() for q in good if q is not example],
+                "example": point,
+            },
+        )
+        cases[out / "site-selection" / f"{name}-example"] = twin
     cases[out / "square-quality" / name] = {
         "id": f"{name}-labels",
         "task": "square_quality",
@@ -622,7 +718,7 @@ def write_cases(
         "brief": BRIEFS["square_quality"].format(w=w, h=h, view=view) + note,
         "squares": [q.point() for q in shown],
         "key": {**keyed, "labels": {str(q.number): q.label for q in shown}},
-        "scoring": {"min_accuracy": 0.8, "costly_if_called_good": ["damaged"]},
+        "scoring": {"min_accuracy": 0.8, "costly_if_called_good": list(BAD_SITE)},
     }
 
     written = []

@@ -171,13 +171,32 @@ each.
 **Coincidence: do it yourself.** To bring the beams onto the same feature,
 centre it in one beam with `stage_stable_move`, find it in the other beam's
 image, and `stage_vertical_move` by its offset there (`beam_type` = the beam
-you measured in). Cap each step to a few µm, take both images again, and
-repeat until it is centred in both. Work from whichever beam has it centred
-already. Do it before any overview, and again at each site on a bent
-grid: on one grid the coincident height ran from +20.8 to +33.6 µm between
-sites. Use this loop, not the coincidence commands: it worked better on a
-real instrument. A coincidence error shows only as a vertical offset in the
-image, never side to side.
+you measured in). Take both images again and repeat until it is centred in
+both; cap each step to a few µm, or use `relaxation` below 1 if it
+overshoots. Work from whichever beam has it centred already. Do it before
+any overview, and again at each site on a bent grid: on one grid the
+coincident height ran from +20.8 to +33.6 µm between sites. Use this loop,
+not the coincidence commands: it worked better on a real instrument. Fix it
+with the stage, never with a beam shift: a site made coincident by beam
+shift is not ready.
+
+- *Measure, don't eyeball.* Find the feature's pixel position in the other
+  image, take its offset from the centre, and convert with that image's
+  pixel size. Pass the offset as measured: `stage_vertical_move` allows for
+  the FIB's tilted view, so don't scale it yourself.
+- *Match a sharp landmark.* At the SEM orientation the FIB sees the sample
+  at a glancing angle: its image is squashed top to bottom (to about 0.6),
+  and a cell that is a bright blob in the SEM can show only as an arc of
+  its rim. Line up something with an edge that looks the same in both, such
+  as a hole, a bar corner or a small dark speck, not a soft outline.
+- *Only up and down.* A height error moves the feature only vertically in
+  the image. A sideways offset that doesn't change when you move is beam
+  alignment, not height: a vertical move can't fix it, so don't chase it.
+  Judge the vertical offset alone and say in a note how big the sideways
+  one was.
+- *The tolerance is in the image.* "Within 5 µm, aim for 2-3 µm" means as
+  measured in the FIB image at a 50 µm field of view, the feature against
+  the image centre.
 
 The one exception is `alignment_check_coincidence`, experimental, and only
 when the operator asks you to try it. Start from the SEM when the error may

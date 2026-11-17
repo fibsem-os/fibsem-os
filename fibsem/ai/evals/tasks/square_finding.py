@@ -9,7 +9,15 @@ from fibsem.ai.evals.cases import Case
 from fibsem.ai.evals.review import _cluster, _kept, _repeat, _squares_found
 from fibsem.ai.evals.scoring import InvalidAnswer, _point
 from fibsem.ai.evals.tasks.base import EvalTask, Run
-from fibsem.ai.evals.visual import KEY, _figure, _input, _read_image, _show, _shrink
+from fibsem.ai.evals.visual import (
+    KEY,
+    THEME,
+    _figure,
+    _input,
+    _read_image,
+    _show,
+    _shrink,
+)
 
 
 def match_squares(points: List[tuple], squares: List[Dict[str, Any]], radius: float):
@@ -132,11 +140,20 @@ def draw_square_finding(case: Case, runs: List[Run]):
         matched = match_squares(points, squares, radius)
         found = set(matched.values())
         for j, sq in enumerate(squares):
-            colour = KEY if j in found else ("#999999" if sq.get("optional") else "red")
+            colour = (
+                KEY
+                if j in found
+                else (THEME.text_muted if sq.get("optional") else THEME.bad)
+            )
             ax.plot(sq["x_px"], sq["y_px"], "o", mfc="none", mec=colour, ms=9, mew=1.5)
         for i, (x, y) in enumerate(points):
             ax.plot(
-                x, y, "+", color="#1f77b4" if i in matched else "orange", ms=8, mew=2
+                x,
+                y,
+                "+",
+                color=THEME.series[0] if i in matched else THEME.warn,
+                ms=8,
+                mew=2,
             )
         score = (result.get("scores") or [{}])[0]
         d = score.get("details", {})
@@ -154,8 +171,8 @@ def draw_square_finding(case: Case, runs: List[Run]):
         "+: agent (blue matched, orange extra)",
         transform=axes[0, 0].transAxes,
         fontsize=8,
-        color="white",
-        bbox=dict(facecolor="black", alpha=0.6),
+        color=THEME.text_strong,
+        bbox=THEME.label_box(),
     )
     return fig
 

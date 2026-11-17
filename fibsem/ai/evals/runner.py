@@ -172,8 +172,11 @@ def task_text(case: Case, inputs: Iterable[str]) -> str:
             lines += ["", notes]
     if case.data.get("sim_run"):
         last = (
-            "The microscope is a simulator: work it as the task says. Once "
-            "the answer is written you are done; say so and stop."
+            "The microscope is a simulator: work it as the task says. Nobody "
+            "is at it to answer you: this task is your go, so don't wait for "
+            "an operator to agree to a plan or a playbook; if another playbook "
+            "fits better, set it yourself. Write the answer once every site you "
+            "keep is saved; then you are done: say so and stop."
         )
     else:
         last = "Look and read only. Once the answer is written you are done; say so and stop."
@@ -251,6 +254,20 @@ def _wait_for(check: Callable[[], bool], timeout_s: float, proc=None) -> bool:
             return False
         time.sleep(0.5)
     return check()
+
+
+TURN_DONE = "Turn ended: success"
+
+
+def _turn_ended(log_path: Path) -> bool:
+    """Whether fibsem-agent's last turn ended on its own: a turn cut at its
+    step limit carries on, so only a turn that ended well counts."""
+    try:
+        lines = log_path.read_text(errors="replace").splitlines()
+    except OSError:
+        return False
+    ended = [line for line in lines if "Turn ended:" in line]
+    return bool(ended) and TURN_DONE in ended[-1]
 
 
 def _read_answer(path: Path) -> Optional[Dict[str, Any]]:
@@ -365,11 +382,17 @@ def run_case(case: Case, repeat: int, config: RunConfig) -> Dict[str, Any]:
             agent = subprocess.Popen(
                 command, env=agent_env, stdout=agent_log, stderr=subprocess.STDOUT
             )
-            answered = _wait_for(
-                lambda: _read_answer(work / ANSWER) is not None,
-                config.timeout_s,
-                agent,
-            )
+            log_path = folder / "agent.log"
+
+            def finished() -> bool:
+                # A live agent may write its answer as it goes, site by
+                # site: the run ends when the answer is there and its turn
+                # has ended, not at the first write.
+                if _read_answer(work / ANSWER) is None:
+                    return False
+                return not sim_run or agent.poll() is not None or _turn_ended(log_path)
+
+            answered = _wait_for(finished, config.timeout_s, agent)
             timed_out = not answered and agent.poll() is None
             session = manager.session_folder(session_id)
             if agent.poll() is None:
@@ -380,10 +403,16 @@ def run_case(case: Case, repeat: int, config: RunConfig) -> Dict[str, Any]:
                 except subprocess.TimeoutExpired:
                     end(agent, 10)
         result["agent_exit"] = agent.returncode
-        result["status"] = (
-            "answered" if answered else "timeout" if timed_out else "no_answer"
-        )
         result.update(_collect_session(session, folder / "session"))
+        result["status"] = (
+            OUT_OF_BUDGET
+            if over_budget(result)
+            else "answered"
+            if answered
+            else "timeout"
+            if timed_out
+            else "no_answer"
+        )
         if sim_run:
             record = live.record(found_at, home, experiment)
             (folder / live.RECORD).write_text(json.dumps(record, indent=2))
@@ -395,9 +424,32 @@ def run_case(case: Case, repeat: int, config: RunConfig) -> Dict[str, Any]:
 
     result["seconds"] = round(time.monotonic() - started, 1)
     answer = run_answer(folder)
-    result["scores"] = [s.to_dict() for s in score_case(case, answer or {})]
+    result["scores"] = [s.to_dict() for s in run_scores(case, answer, result)]
     (folder / RESULT).write_text(json.dumps(result, indent=2))
     return result
+
+
+OUT_OF_BUDGET = "out_of_budget"
+
+
+def over_budget(result: Dict[str, Any]) -> bool:
+    """Whether the run stopped because it spent its cap: fibsem-agent ends
+    with ``manager.BUDGET`` then, and the session says why."""
+    return result.get("agent_exit") == manager.BUDGET or "budget" in str(
+        result.get("reason") or ""
+    )
+
+
+def run_scores(case: Case, answer: Optional[Dict[str, Any]], result: Dict[str, Any]):
+    """The run's scores. A run that spent its cap fails every part, whatever
+    it had saved by then: in real use the budget is part of the job."""
+    scores = score_case(case, answer or {})
+    if result.get("status") == OUT_OF_BUDGET:
+        for score in scores:
+            score.details["scored_as"] = score.result
+            score.result = "miss"
+            score.details["out_of_budget"] = True
+    return scores
 
 
 def _collect_session(session: Path, into: Path) -> Dict[str, Any]:
