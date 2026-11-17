@@ -331,6 +331,30 @@ imaging wore away (`exposures`), and for
 each fluorescence target whether it was milled away. Pass it points of your own,
 `scene.record({"name": (x, y, z)})` (world metres, z above the film), to ask the same of
 them.
+
+## Keeping the sample
+
+A session's milling is gone at the next connect, because the grid is grown again from its
+seed. `state_file` keeps it:
+
+```yaml
+sim:
+  sample:
+    enabled: true
+    seed: 2
+    state_file: ~/fibsem-sim/sample-2.json
+```
+
+Every change to the sample is written to the file as it happens: a milling pass, a spot
+burn, the wear of ion imaging, a GIS or sputter coat, and the faults that have fired. A
+session that connects with the same sample reads the file and carries on, so a workflow
+can stop and resume, and a run can start from a site that is already rough milled. The
+stage, the beams and the detectors start as they always do; only the sample comes back.
+
+The file belongs to one sample. With a different `seed`, cell type, film, mesh or
+preparation the session starts on a fresh sample and replaces the file at its first
+change. Delete the file to start the same sample again.
+
 ## The fluorescence view
 
 ![Fluorescence channels](img/simulator/fluorescence.png)
@@ -587,6 +611,7 @@ are in degrees, ranges are two-element lists, lengths in metres.
 | key | default | what it does |
 | -- | -- | -- |
 | `seed` | 24 | the draw everything grows from; same seed, same scene |
+| `state_file` | unset | a file the sample's state is kept in between sessions, see "Keeping the sample" |
 <!-- sample-keys:end -->
 
 ## Cost and limits
@@ -599,7 +624,8 @@ are in degrees, ranges are two-element lists, lengths in metres.
   measurements, cells bias it by about a micron, and the holey film's 4 um lattice can
   alias it. Its simulator tests measure on a scene without cells.
 - The scene is generated fresh from its seed on every connect. The same seed gives the
-  same grid; milled trenches do not survive a reconnect.
+  same grid; milled trenches survive a reconnect only with `state_file` set (see
+  "Keeping the sample").
 
 The figures on this page are rendered with `fiducial: true` (a landmark for the eye;
 off by default) by

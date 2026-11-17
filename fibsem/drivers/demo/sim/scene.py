@@ -34,7 +34,7 @@ import math
 import zlib
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 from scipy.ndimage import binary_dilation as ndi_binary_dilation
@@ -550,6 +550,17 @@ class SampleScene:
     # frames, dose (nC/um^2) and the depth worn away (m); see `expose`
     exposures: Dict[tuple, dict] = field(default_factory=dict, repr=False)
     _cuts: List[np.ndarray] = field(default_factory=list, repr=False)
+    # a file the sample's state is kept in, so a later session with the same
+    # sample carries on from it (see `fibsem.drivers.demo.sim.state`); None
+    # starts fresh at every connect. `on_change` is called after each change to
+    # the sample, `on_grids_placed` after the holder's grids are laid out
+    state_file: Optional[str] = None
+    on_change: Optional[Callable[[], None]] = field(
+        default=None, repr=False, compare=False
+    )
+    on_grids_placed: Optional[Callable[[], None]] = field(
+        default=None, repr=False, compare=False
+    )
     # the grids on the holder. With no calibrated, occupied slot handed in
     # (`holder_slots`, set by the simulator from its sample holder before
     # each acquisition) there is one grid, centred on the world anchor -
@@ -952,9 +963,15 @@ class SampleScene:
             depth[idx] = np.maximum(depth[idx], inside.astype(np.float32))
         return depth
 
+    def _changed(self) -> None:
+        """The sample was changed: tell whoever keeps it (`on_change`)."""
+        if self.on_change is not None:
+            self.on_change()
+
     def deposit(self, seconds: float) -> None:
         """A GIS deposition with the valve open *seconds*: a thicker coat."""
         self.gis_thickness += GIS_RATE * max(float(seconds), 0.0)
+        self._changed()
         logger.debug(
             {"msg": "sample_scene_deposited", "gis_thickness": self.gis_thickness}
         )
@@ -962,6 +979,7 @@ class SampleScene:
     def sputter(self, seconds: float) -> None:
         """A sputter coat of *seconds*: a thin metal layer."""
         self.sputter_thickness += SPUTTER_RATE * max(float(seconds), 0.0)
+        self._changed()
         logger.debug(
             {
                 "msg": "sample_scene_sputtered",
@@ -1058,6 +1076,8 @@ class SampleScene:
         self.milled = []
         self.mill_passes, self._cuts, self.damage_started = [], [], None
         self.exposures = {}
+        if self.on_grids_placed is not None:
+            self.on_grids_placed()
         logger.debug(
             {
                 "msg": "sample_scene_grids_placed",
@@ -1277,6 +1297,7 @@ class SampleScene:
             points = np.array([world(x, y) for x, y in corners])
             regions.append(MilledRegion(points=points, beam_cut=cut(corners)))
         self.milled.extend(regions)
+        self._changed()
         logger.debug(
             {
                 "msg": "sample_scene_milled",
@@ -1345,6 +1366,7 @@ class SampleScene:
             self.milled = [r for r in self.milled if r is not seen["region"]]
             self.milled.append(region)
             seen["depth"], seen["region"] = depth, region
+            self._changed()
         return seen
 
     @staticmethod
@@ -1534,6 +1556,7 @@ class SampleScene:
                 pts = pts + (0.0, self._along_beam_to_surface(pts.mean(axis=0), frame))
             regions.append(MilledRegion(points=pts, depth=diameter, halo=halo))
         self.milled.extend(regions)
+        self._changed()
         logger.debug(
             {
                 "msg": "sample_scene_burned",
@@ -2688,6 +2711,7 @@ class SampleScene:
         "gis_thickness",  # m, a GIS coat the grid comes in with
         "sputter_thickness",  # m, a sputter coat the grid comes in with
         "centre_mark",  # the orientation square at the grid's centre
+        "state_file",  # where the sample's state is kept between sessions
     )
 
     @classmethod
