@@ -31,7 +31,6 @@ import shutil
 import signal
 import sys
 import sysconfig
-import tempfile
 import threading
 import time
 import uuid
@@ -1809,6 +1808,9 @@ def build_options(
     kind = playbook.instrument if playbook is not None else None
     if kind:
         env[INSTRUMENT_ENV] = kind
+    # The extra servers' tokens: their entries name them, ${NAME}, and the
+    # CLI fills them in from here (`extra_mcp.definitions`).
+    env.update(extra_mcp.tokens(extras))
     granted = ALLOWED_TOOLS + subagent_tools(loaded.agents) + extra_mcp.allowed(extras)
     tools, allowed, denied = BUILT_IN_TOOLS, granted, DENIED_TOOLS
     settings = None
@@ -1822,14 +1824,8 @@ def build_options(
     servers = {SERVER: server}
     if alarm is not None:
         servers[HARNESS_SERVER] = wake_server(alarm, control)
-    # The extra servers' entries carry their credentials, so they go to the
-    # CLI in a file of their own, a second --mcp-config, and not with the
-    # servers above, which the SDK puts on the command line. Never in a work
-    # folder: the agent reads there.
-    extra_args = {}
-    if extras:
-        private = transcript or Path(tempfile.mkdtemp(prefix="fibsem-agent-"))
-        extra_args["mcp-config"] = str(extra_mcp.write_config(extras, private))
+    # The lab's: their entries carry no token, so the command line is fine.
+    servers.update(extra_mcp.definitions(extras))
     return ClaudeAgentOptions(
         # Its .claude holds the session's skills (`sources.assemble`; CLAUDE.md
         # is off, see CLI_ENV), and none of ~/.claude: the user's own
@@ -1843,7 +1839,6 @@ def build_options(
         permission_mode=PERMISSION_MODE,
         settings=settings,
         mcp_servers=servers,
-        extra_args=extra_args,
         env=env,
         # Only the servers above: not a `fibsem` registered in ~/.claude.json.
         strict_mcp_config=True,
@@ -2110,8 +2105,9 @@ def _setup(args, checkout: Path) -> Setup:
     loaded = session_names(checkout, playbook if args.playbook else None)
     try:
         extras = extra_mcp.load()
-        # Registered, or the agent would start without what it was told it has.
-        extra_mcp.definitions(extras)
+        # Each token stored, or the agent would start without what it was
+        # told it has.
+        extra_mcp.tokens(extras)
     except extra_mcp.ExtraMcpError as error:
         raise SetupRefused(str(error)) from None
     try:
@@ -2339,9 +2335,6 @@ def main(argv=None) -> int:
         code, outcome = 1, {"reason": f"the agent failed: {error}"}
     finally:
         signal.signal(signal.SIGINT, previous)
-        # The extra servers' credentials don't outlive the session: a resume
-        # writes the file again.
-        (session.folder / extra_mcp.CONFIG).unlink(missing_ok=True)
     session.end(code, **(outcome or harness.outcome()))
     return code
 
@@ -2432,7 +2425,7 @@ def show_config(
 ) -> dict:
     """``--show-config``: everything the agent would run with, from the same
     pieces `build_options` uses, without the SDK and without starting. The
-    extra servers by name and tools: their entries hold credentials."""
+    extra servers with their tokens' names, never the tokens."""
     loaded = loaded or session_names(checkout, playbook)
     extras = extra_mcp.load() if extras is None else extras
     granted = ALLOWED_TOOLS + subagent_tools(loaded.agents) + extra_mcp.allowed(extras)
@@ -2471,7 +2464,13 @@ def show_config(
     }
     if extras:
         config["extra_mcp"] = {
-            name: {"about": s.about, "tools": s.tools, "subagents": s.subagents}
+            name: {
+                "where": s.url or " ".join(s.command),
+                "token": s.token,
+                "about": s.about,
+                "tools": s.tools,
+                "subagents": s.subagents,
+            }
             for name, s in extras.items()
         }
     return config
@@ -2544,7 +2543,9 @@ def _config_text(config: dict) -> str:
         f"Denied:   {', '.join(config['denied_tools'])}",
     ]
     lines += [
-        f"MCP {name}: {', '.join(each['tools'])}; specialists: "
+        f"MCP {name} ({each['where']}"
+        + (f", token {each['token']}" if each["token"] else "")
+        + f"): {', '.join(each['tools'])}; specialists: "
         f"{', '.join(each['subagents']) or 'none'}"
         for name, each in config.get("extra_mcp", {}).items()
     ]

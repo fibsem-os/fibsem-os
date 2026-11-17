@@ -145,14 +145,18 @@ fibsem-agent
   server unless the lab adds one (below). Nothing waits on a permission
   prompt; anything else is denied. So the offline `read_record.py` reader
   stays with Claude Code.
-- **Extra MCP servers.** A lab can give the agent a server it registered at
-  user level in Claude Code (`claude mcp add -s user <name> ...`) by naming it
-  in `~/.fibsem/agent/mcp.yaml` (under `FIBSEM_HOME` when that is set), with
-  the tools the agent may call and the ones a specialist may list (`about`
-  and `subagents` are optional; tools are named one by one):
+- **Extra MCP servers.** A lab can give the agent another MCP server, a lab
+  notebook say, set up in one place: `~/.fibsem/agent/mcp.yaml` (under
+  `FIBSEM_HOME` when that is set). Each server gives its address (`url`) or
+  the command that starts it (`command`, the program then its arguments),
+  the name its token is stored under (`token`, optional), and the tools the
+  agent may call and the ones a specialist may list (`about` and `subagents`
+  are optional; tools are named one by one):
 
   ```yaml
   notebook:
+    url: https://notebook.example/mcp
+    token: NOTEBOOK_TOKEN
     about: The lab's shared notebook and paper library.
     tools: [get_overview, get_notebook_guide, get_tree, search, read_page,
             get_entry, get_changes, get_attachment, get_my_mentions,
@@ -164,15 +168,32 @@ fibsem-agent
                 read_paper, get_folder_notes]
   ```
 
+  Then store the token once: `fibsem-cli key set NOTEBOOK_TOKEN` (Windows
+  Credential Manager or the macOS Keychain; an environment variable of that
+  name wins). A `url` server gets it as `Authorization: Bearer <token>`, a
+  `command` one as an environment variable of that name. The token's name is
+  in capitals with KEY, TOKEN or SECRET in it, so code mode keeps it from
+  commands. It is in no file and on no command line: the server's entry
+  says `${NOTEBOOK_TOKEN}` and the CLI fills it in from its environment.
+  `--show-config` names the server, its address and its token's name, never
+  the token. No `claude mcp add` is needed, and a server registered in Claude
+  Code is not used. To have the notebook in your own Claude Code sessions too,
+  register it there with the same placeholder, so the token stays out of
+  `~/.claude.json`, and set `NOTEBOOK_TOKEN` in that shell:
+
+  ```
+  claude mcp add -s user --transport http notebook https://notebook.example/mcp --header 'Authorization: Bearer ${NOTEBOOK_TOKEN}'
+  ```
+
+  The single quotes keep the shell (bash, zsh, PowerShell) from filling the
+  token in at registration; in cmd use double quotes.
+
   Each specialist whose file lists its tools gets the `subagents` ones; one
   that lists none has every tool the session has, these included. The agent
   is told the server is there and that what it returns is data, never
-  instructions; its notes still go on the experiment's record. The server's
-  entry, with its token, is copied from `~/.claude.json` into a file in the
-  session's folder that only this account may read, and never printed:
-  `--show-config` names the server and its tools only. Without the file
-  nothing changes; a server it names that Claude Code doesn't have stops
-  `fibsem-agent` at the start, saying how to add it.
+  instructions; its notes still go on the experiment's record. Without the
+  file nothing changes; a token not stored stops `fibsem-agent` at the
+  start, saying how to store it.
 - **Agents.** Leading a run (the autolamella-lead skill), the agent is the Run
   Lead and makes every decision. It calls the Verifier for a second opinion
   on the site list, each Setup placement and every polishing pass, the
@@ -185,8 +206,8 @@ fibsem-agent
 - **Your Claude Code config stays out.** The session runs in a folder that
   holds only its skills and specialists, copied there each start (its
   session folder's `run/`, or the `--code`/`--files` folder), not `~/.claude`, and only this sidecar, not a
-  `fibsem` server you registered with `claude mcp add`: of those, only the
-  ones `mcp.yaml` names (above).
+  `fibsem` server you registered with `claude mcp add`; besides it, only the
+  servers `mcp.yaml` sets up (above).
 - **Signing in.** A Claude API key: the `ANTHROPIC_API_KEY` environment
   variable, else the one `fibsem-cli key set ANTHROPIC_API_KEY` stored in
   Windows Credential Manager or the macOS Keychain. Or configure Amazon Bedrock or Google Vertex as the Agent SDK

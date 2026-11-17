@@ -131,7 +131,8 @@ def test_a_specialist_gets_the_tools_an_extra_server_gives_specialists(
 ):
     (tmp_path / "home" / "agent").mkdir()
     (tmp_path / "home" / "agent" / "mcp.yaml").write_text(
-        "notebook:\n  tools: [search, append_entry]\n  subagents: [search]\n",
+        "notebook:\n  url: https://notebook.example/mcp\n"
+        "  tools: [search, append_entry]\n  subagents: [search]\n",
         encoding="utf-8",
     )
     subagents.check(_subagent("x", tools=f"{TOOL}, mcp__notebook__search"))
