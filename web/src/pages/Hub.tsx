@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { api, getToken } from "@/lib/api";
+import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Agents, StartButton } from "@/pages/hub/Agents";
 import { InstrumentView } from "@/pages/hub/InstrumentView";
@@ -15,14 +15,14 @@ const TABS: [Tab, string][] = [
   ["agents", "Agents"],
 ];
 
-/** The lab's page: the instruments this gateway is the hub for. Overview is
+/** The hub's page (`fibsem-hub`): the lab's instruments. Overview is
  * their status and opens one; Instruments is the list and its upkeep; Agents
- * is every agent running. The page for this PC alone is the gateway's. */
+ * is every agent running. */
 export function HubPage() {
   const hub = useHub();
-  const gateway = useQuery({
-    queryKey: ["gateway"],
-    queryFn: () => api<{ version: string }>("/gateway"),
+  const health = useQuery({
+    queryKey: ["health"],
+    queryFn: () => api<{ version: string }>("/health"),
     staleTime: 60_000,
   });
   const [tab, setTab] = useState<Tab>("overview");
@@ -73,13 +73,7 @@ export function HubPage() {
           ))}
         </div>
         <div className="mt-auto hidden flex-col gap-1.5 px-3 pt-4 text-xs text-muted-foreground sm:flex">
-          <a
-            href={`/ui/gateway#token=${getToken() ?? ""}`}
-            className="text-muted-foreground no-underline hover:text-foreground"
-          >
-            This PC's gateway
-          </a>
-          {gateway.data && <span>fibsemOS {gateway.data.version}</span>}
+          {health.data && <span>fibsemOS {health.data.version}</span>}
         </div>
       </nav>
       <main className="min-w-0 flex-1 overflow-auto">
@@ -132,26 +126,12 @@ export function HubPage() {
               {(hub.error as Error).message}
             </p>
           )}
-          {hub.data && !hub.data.hub && (
-            <p className="m-0 text-[13px] text-muted-foreground">
-              This gateway is a microscope PC's, not a hub. To make it a hub,
-              set its role in{" "}
-              <a
-                href={`/ui/gateway#token=${getToken() ?? ""}`}
-                className="text-foreground underline"
-              >
-                the gateway's Settings
-              </a>
-              .
-            </p>
-          )}
           {hub.data && tab === "overview" && one && (
             <InstrumentView key={one.name} instrument={one} />
           )}
           {hub.data &&
             tab === "overview" &&
             !one &&
-            hub.data.hub &&
             (instruments.length ? (
               <Overview instruments={instruments} open={open} />
             ) : (

@@ -832,11 +832,6 @@ function Gateway({
     queryFn: () => api<AgentState>("/gateway/agent"),
     refetchInterval: 2000,
   });
-  const role = useQuery({
-    queryKey: ["gateway/role"],
-    queryFn: () => api<{ role: string }>("/gateway/role"),
-  });
-  const isHub = role.data?.role === "hub";
   const state = gateway.data;
   const running = state?.mode === "running";
   const newer = state ? newerLabel(state.newer) : null;
@@ -886,14 +881,6 @@ function Gateway({
             </button>
           ))}
         </div>
-        {isHub && (
-          <a
-            href={`/ui/hub#token=${getToken() ?? ""}`}
-            className="mt-3 hidden rounded px-3 py-1.5 text-[13px] text-muted-foreground no-underline hover:bg-accent hover:text-foreground sm:block"
-          >
-            Lab Hub
-          </a>
-        )}
         <div className="mt-auto hidden px-3 pt-4 text-xs text-muted-foreground sm:block">
           {state && <div>fibsemOS {state.version}</div>}
           {newer && (
@@ -913,20 +900,7 @@ function Gateway({
               {(gateway.error as Error).message}
             </p>
           )}
-          {tab === "overview" && isHub && (
-            <p className="m-0 text-[13px] text-muted-foreground">
-              This gateway is a hub. It runs no app of its own: the
-              instruments and their agents are on the{" "}
-              <a
-                href={`/ui/hub#token=${getToken() ?? ""}`}
-                className="text-foreground underline"
-              >
-                Lab Hub
-              </a>
-              .
-            </p>
-          )}
-          {tab === "overview" && !isHub && role.data && state && settled && (
+          {tab === "overview" && state && settled && (
             <>
               <AppCard
                 key={state.mode}

@@ -29,15 +29,12 @@ from fibsem.gateway.agent import GatewayAgent
 from fibsem.gateway.gateway import (
     GATEWAY_FILE,
     GATEWAY_PORT,
+    TASK_NAME,
     Gateway,
     GatewayRefused,
     read_gateway_file,
 )
 from fibsem.gateway.host import HostMicroscope
-from fibsem.gateway.hub import Hub
-from fibsem.gateway.hub_agents import HubAgents
-from fibsem.gateway.role import HUB, MICROSCOPE, read_role, save_role
-from fibsem.gateway.tunnels import TASK_NAME
 from fibsem.server.operator_token import read_operator_token
 from fibsem.unreleased import refuse
 
@@ -88,16 +85,7 @@ def _parser() -> argparse.ArgumentParser:
     install = commands.add_parser(
         "install", help="Start the gateway at logon (Windows: a Startup shortcut)."
     )
-    install.add_argument(
-        "--hub",
-        action="store_true",
-        help="This PC is a hub: its gateway holds the lab's instrument list.",
-    )
     install.add_argument("connection", nargs=argparse.REMAINDER)
-    role = commands.add_parser(
-        "role", help="Show or set what this gateway is: microscope or hub."
-    )
-    role.add_argument("role", nargs="?", choices=[MICROSCOPE, HUB])
     commands.add_parser("uninstall", help="Stop starting it at logon.")
     pair = commands.add_parser("pair", help="Open pairing and show the code.")
     pair.add_argument("--hub", action="store_true", help="Pair a hub.")
@@ -142,11 +130,6 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
     auth = GatewayAuth.from_disk()
     agent = GatewayAgent(gateway, auth.pairing.tokens)
     microscope = HostMicroscope()
-    # Reads the instruments in this gateway's list, when it has one.
-    hub = Hub()
-    hub.start()
-    hub_agents = HubAgents(hub)
-    gateway.watchers.append(hub_agents.poll)
     # Set by the quit route; *again* starts a new one.
     stopping = threading.Event()
     again = threading.Event()
@@ -167,16 +150,7 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
 
     server = Server(
         uvicorn.Config(
-            build_gateway_app(
-                gateway,
-                auth,
-                agent,
-                microscope,
-                on_quit,
-                on_show,
-                hub=hub,
-                hub_agents=hub_agents,
-            ),
+            build_gateway_app(gateway, auth, agent, microscope, on_quit, on_show),
             host="127.0.0.1",
             port=port,
             log_level="warning",
@@ -216,7 +190,6 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
         if not again.is_set():
             quit_gateway(gateway)
         gateway.close()
-        hub.stop()
         server.should_exit = True
         GATEWAY_FILE.unlink(missing_ok=True)
         # the port is free for the next gateway once the server has stopped
@@ -457,15 +430,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     if extra:
         _parser().error(f"unrecognized arguments: {' '.join(extra)}")
     if args.command == "install":
-        if args.hub:
-            save_role(HUB)
-            print("This gateway is a hub.")
         return install(_connection(args.connection))
-    if args.command == "role":
-        if args.role:
-            save_role(args.role)
-        print(f"This gateway's role: {read_role()}")
-        return 0
     if args.command == "uninstall":
         return uninstall()
     if args.command == "open":

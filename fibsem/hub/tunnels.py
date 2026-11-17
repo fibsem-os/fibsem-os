@@ -19,10 +19,10 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Tuple
 
+from fibsem.gateway.gateway import TASK_NAME
 from fibsem.util.process import end
 
 __all__ = [
-    "TASK_NAME",
     "Tunnel",
     "TunnelDown",
     "Tunnels",
@@ -126,9 +126,6 @@ def command(tunnel: Tunnel, ssh: str = "ssh") -> List[str]:
     ]
 
 
-# The task `fibsem-gateway install` registers on a Windows PC, which starts
-# its gateway when a hub asks. No spaces: it is typed into a remote shell.
-TASK_NAME = "fibsemOS-Agent-Gateway"
 START_TIMEOUT_S = 20.0
 
 

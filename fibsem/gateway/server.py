@@ -12,9 +12,9 @@ operator, and ``/gateway/agent`` reads, starts and ends this
 PC's agent (`fibsem.gateway.agent`), resuming an ended session too, with
 the same rules as starting the app. ``/gateway/defaults`` is what the page
 fills in for the next start (the operator saves it), and ``/gateway/secrets``
-says which keys this PC has, never what they are. ``/hub`` lists the
-instruments this gateway is the hub for (`fibsem.gateway.hub`); the operator
-changes the list.
+says which keys this PC has, never what they are. A hub is another program
+on another PC (`fibsem.hub`): the gateway serves it what a paired hub may read
+and do here, and holds no list of instruments itself.
 Pairing is the App Server's (`fibsem.server.pairing_routes`), with the hub
 role, and the page is the web app's ``/ui/gateway``.
 """
@@ -41,9 +41,6 @@ from fibsem.gateway.gateway import (
     History,
 )
 from fibsem.gateway.host import HostMicroscope
-from fibsem.gateway.hub import Hub, HubState
-from fibsem.gateway.hub_agents import HubAgents
-from fibsem.gateway.role import page, read_role, save_role
 from fibsem.server.auth import _bearer_token, _matches
 from fibsem.server.bodies import refuse_invalid_requests
 from fibsem.server.operator_token import load_operator_token
@@ -128,9 +125,6 @@ def build_gateway_app(
     on_quit: Optional[Callable[[bool], None]] = None,
     on_show: Optional[Callable[[], bool]] = None,
     defaults_file: Optional[Path] = None,
-    role_file: Optional[Path] = None,
-    hub: Optional[Hub] = None,
-    hub_agents: Optional[HubAgents] = None,
 ) -> FastAPI:
     app = FastAPI(title="fibsem gateway")
     refuse_invalid_requests(app)
@@ -171,7 +165,7 @@ def build_gateway_app(
 
     @app.get("/")
     def root():
-        return RedirectResponse(f"/ui/{page(role_file)}")
+        return RedirectResponse("/ui/gateway")
 
     @app.get("/health")
     def health():
@@ -363,148 +357,6 @@ def build_gateway_app(
                 ),
             )
 
-    if hub is not None:
-
-        def hub_operator(request: HTTPConnection) -> Caller:
-            found = caller(request)
-            if not found.operator:
-                raise _refused(
-                    403, "operator_only", "Only the operator changes the hub's list."
-                )
-            return found
-
-        @app.get("/hub", response_model=HubState)
-        def get_hub(found: Caller = Depends(caller)):
-            """Whether this gateway is a hub, and each instrument in its list
-            as it was last read."""
-            return hub.state()
-
-        @app.post("/hub/instruments", response_model=HubState)
-        def add_instrument(body: Dict[str, Any], found: Caller = Depends(hub_operator)):
-            """``{name, ssh | url}``: add an instrument, or change how the one
-            with that name is reached: *ssh* is where a tunnel to it connects
-            (``user@host``), *url* its gateway's address to use as it is."""
-            return _act(
-                found,
-                {},
-                lambda force, via: hub.add(
-                    str(body.get("name") or ""),
-                    str(body.get("url") or "") or None,
-                    str(body.get("ssh") or "") or None,
-                ),
-            )
-
-        @app.delete("/hub/instruments/{name}", response_model=HubState)
-        def remove_instrument(name: str, found: Caller = Depends(hub_operator)):
-            return _act(found, {}, lambda force, via: hub.remove(name))
-
-        @app.post("/hub/instruments/{name}/pair", response_model=HubState)
-        def pair_instrument(
-            name: str, body: Dict[str, Any], found: Caller = Depends(hub_operator)
-        ):
-            """``{code}``: pair this hub with the instrument's gateway, using
-            the code ``fibsem-gateway pair --hub`` shows there."""
-            code = str(body.get("code") or "")
-            if not code:
-                raise _refused(422, "no_code", "Give the code its gateway shows.")
-            return _act(found, {}, lambda force, via: hub.pair(name, code))
-
-        @app.post("/hub/instruments/{name}/gateway/start", response_model=HubState)
-        def start_instrument_gateway(name: str, found: Caller = Depends(hub_operator)):
-            """Start the instrument's gateway when it is down, over ssh, by
-            the task its ``fibsem-gateway install`` registered."""
-
-            def start(force, via):
-                hub.start_gateway(name)
-                return hub.state()
-
-            return _act(found, {}, start)
-
-        @app.post("/hub/instruments/{name}/app/start", response_model=HubState)
-        def start_instrument_app(
-            name: str, body: Dict[str, Any], found: Caller = Depends(hub_operator)
-        ):
-            """``{app}``: start the app on the instrument's PC without its
-            window, on the experiment it had last, as this hub. Its gateway
-            refuses a hub it wasn't paired to start and stop apps."""
-
-            def start(force, via):
-                hub.call(
-                    name,
-                    "POST",
-                    "/gateway/start",
-                    {"app": body.get("app"), "window": False, "last": True},
-                )
-                hub.read(name)
-                return hub.state()
-
-            return _act(found, {}, start)
-
-        @app.post("/hub/instruments/{name}/app/stop", response_model=HubState)
-        def stop_instrument_app(name: str, found: Caller = Depends(hub_operator)):
-            """Stop the app on the instrument's PC, as this hub: its gateway
-            refuses a hub it wasn't paired to start and stop apps, and a stop
-            during a run."""
-
-            def stop(force, via):
-                hub.call(name, "POST", "/gateway/stop", {})
-                hub.read(name)
-                return hub.state()
-
-            return _act(found, {}, stop)
-
-    if hub is not None and hub_agents is not None:
-
-        @app.post("/hub/instruments/{name}/agent/start", response_model=HubState)
-        def start_hub_agent(
-            name: str, body: Dict[str, Any], found: Caller = Depends(hub_operator)
-        ):
-            """``{playbook, goal, level, budget_usd, replace}``: pair an agent
-            at the instrument's gateway and start it on this PC."""
-            budget = body.get("budget_usd")
-            try:
-                budget = float(budget) if budget not in (None, "") else None
-            except (TypeError, ValueError):
-                raise _refused(422, "bad_budget", "The budget is a number of dollars.")
-            if budget is not None and budget <= 0:
-                raise _refused(422, "bad_budget", "The budget is above $0.")
-
-            def act(force, via):
-                hub_agents.start(
-                    name,
-                    str(body.get("playbook") or DEFAULT_PLAYBOOK),
-                    str(body.get("goal") or "").strip() or None,
-                    str(body.get("level") or "watch"),
-                    who=found.who,
-                    budget_usd=budget,
-                    replace=bool(body.get("replace", False)),
-                )
-                return hub.state()
-
-            return _act(found, {}, act)
-
-        @app.post("/hub/instruments/{name}/agent/end", response_model=HubState)
-        def end_hub_agent(name: str, found: Caller = Depends(hub_operator)):
-            """End the agent this hub runs for the instrument, and unpair it."""
-
-            def act(force, via):
-                hub_agents.end(name, found.who)
-                return hub.state()
-
-            return _act(found, {}, act)
-
-        @app.put("/hub/instruments/{name}/level")
-        def set_instrument_level(
-            name: str, body: Dict[str, Any], found: Caller = Depends(hub_operator)
-        ) -> dict:
-            """``{level}``: set the agent's level at the instrument, which may
-            refuse one above its own limit."""
-            return _act(
-                found,
-                {},
-                lambda force, via: hub_agents.level(name, str(body.get("level") or "")),
-            )
-
     if agent is not None:
 
         @app.post("/gateway/agent/token")
@@ -558,23 +410,6 @@ def build_gateway_app(
             restart = bool((body or {}).get("restart", False))
             on_quit(restart)
             return {"stopping": True, "restart": restart}
-
-    @app.get("/gateway/role")
-    def get_role(found: Caller = Depends(caller)) -> dict:
-        """``{role}``: whether this gateway is a microscope PC's or a hub."""
-        return {"role": read_role(role_file)}
-
-    @app.put("/gateway/role")
-    def put_role(body: Dict[str, Any], found: Caller = Depends(caller)) -> dict:
-        """``{role}``: ``microscope`` or ``hub``. The operator only: a
-        gateway never becomes a hub because of what it was sent."""
-        if not found.operator:
-            raise _refused(403, "operator_only", "Only the operator sets the role.")
-        return _act(
-            found,
-            {},
-            lambda force, via: {"role": save_role(str(body.get("role")), role_file)},
-        )
 
     @app.get("/gateway/defaults", response_model=GatewayDefaults)
     def get_defaults(found: Caller = Depends(caller)):

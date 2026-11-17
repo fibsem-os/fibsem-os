@@ -28,7 +28,7 @@ from fibsem.ai.agent.manager import (
 )
 from fibsem.gateway.agent import API_KEY, END_WAIT_S
 from fibsem.gateway.gateway import GatewayRefused
-from fibsem.gateway.hub import Hub
+from fibsem.hub.hub import Hub
 from fibsem.keystore import stored_secret
 from fibsem.util import timestamps
 

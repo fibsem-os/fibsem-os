@@ -1,4 +1,4 @@
-"""The hub role: the instrument list, pairing with each instrument's gateway,
+"""The hub: the instrument list, pairing with each instrument's gateway,
 reading their health, and who may change the list."""
 
 import json
@@ -7,11 +7,11 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from fibsem.gateway import role
 from fibsem.gateway.gateway import OFF, GatewayRefused, GatewayState, History
-from fibsem.gateway.hub import Hub, Instrument
 from fibsem.gateway.server import GatewayAuth, build_gateway_app
-from fibsem.gateway.tunnels import Tunnels, command, start_command
+from fibsem.hub.hub import Hub, Instrument
+from fibsem.hub.server import build_hub_app, hub_auth
+from fibsem.hub.tunnels import Tunnels, command, start_command
 from fibsem.server.pairing import HUB
 
 OPERATOR_TOKEN = "operator-token"
@@ -130,81 +130,23 @@ def hub(tmp_path, instruments, ssh):
         pair=instruments.pair,
         clock=lambda: float(next(clock)),
         tunnels=ssh.tunnels,
-        is_hub=lambda: True,
     )
-
-
-def test_a_microscope_pcs_gateway_keeps_no_list_and_reads_nothing(tmp_path, ssh):
-    def fetch(*args):
-        raise AssertionError("a microscope PC's gateway reads no instrument")
-
-    is_hub = [True]
-    hub = Hub(
-        tmp_path / "hub.yaml",
-        tmp_path / "hub",
-        fetch=fetch,
-        tunnels=ssh.tunnels,
-        is_hub=lambda: is_hub[0],
-    )
-    hub.add("Scope 1", ssh="user@scope-1")
-    # Its role set back to a microscope PC's: the list it had is not used.
-    is_hub[0] = False
-    hub.check()
-    state = hub.state()
-    assert state.hub is False and state.instruments == []
-    assert ssh.started == []
-    with pytest.raises(GatewayRefused) as refused:
-        hub.add("Scope 2", URL)
-    assert refused.value.error_type == "not_a_hub"
 
 
 def test_a_hub_with_no_list_reads_nothing(tmp_path):
     def fetch(*args):
         raise AssertionError("nothing is read without a list")
 
-    hub = Hub(tmp_path / "hub.yaml", tmp_path / "hub", fetch=fetch, is_hub=lambda: True)
+    hub = Hub(tmp_path / "hub.yaml", tmp_path / "hub", fetch=fetch)
     hub.check()
     state = hub.state()
-    assert state.hub is True and state.instruments == []
-
-
-def test_the_role_is_a_microscope_pcs_until_a_person_sets_it(tmp_path):
-    path = tmp_path / "gateway-role.json"
-    assert role.read_role(path) == role.MICROSCOPE
-    assert role.save_role(role.HUB, path) == role.HUB
-    assert role.read_role(path) == role.HUB
-    with pytest.raises(GatewayRefused):
-        role.save_role("both", path)
-    path.write_text("not json")
-    assert role.read_role(path) == role.MICROSCOPE
-
-
-def test_only_the_operator_sets_the_role(tmp_path, hub):
-    path = tmp_path / "gateway-role.json"
-    auth = _auth(tmp_path)
-    client = TestClient(build_gateway_app(FakeGateway(), auth, hub=hub, role_file=path))
-    operator = {"Authorization": f"Bearer {OPERATOR_TOKEN}"}
-    assert client.get("/gateway/role", headers=operator).json() == {
-        "role": "microscope"
-    }
-    code = auth.pairing.open(role=HUB)
-    token = client.post("/pair", json={"code": code, "name": "other"}).json()["token"]
-    other = {"Authorization": f"Bearer {token}"}
-    refused = client.put("/gateway/role", json={"role": "hub"}, headers=other)
-    assert refused.status_code == 403
-    set_ = client.put("/gateway/role", json={"role": "hub"}, headers=operator)
-    assert set_.json() == {"role": "hub"} and role.read_role(path) == "hub"
-    # A hub opens on the Lab Hub page.
-    opened = client.get("/", follow_redirects=False)
-    assert opened.headers["location"] == "/ui/hub"
-    bad = client.put("/gateway/role", json={"role": "both"}, headers=operator)
-    assert bad.status_code == 422
+    assert state.instruments == []
 
 
 def test_the_list_is_kept_in_the_hubs_file(hub, tmp_path):
     hub.add("Scope 1", URL + "/", ssh="user@scope-1")
     hub.add("Scope 2", "http://scope-2:8010")
-    again = Hub(tmp_path / "hub.yaml", tmp_path / "hub", is_hub=lambda: True)
+    again = Hub(tmp_path / "hub.yaml", tmp_path / "hub")
     assert again.instruments() == [
         Instrument("Scope 1", URL, "user@scope-1"),
         Instrument("Scope 2", "http://scope-2:8010"),
@@ -212,7 +154,6 @@ def test_the_list_is_kept_in_the_hubs_file(hub, tmp_path):
     # The same name again changes its address: one row.
     hub.add("Scope 2", "http://scope-2:8011")
     assert [i.url for i in hub.instruments()][1] == "http://scope-2:8011"
-    assert hub.state().hub is True
 
 
 @pytest.mark.parametrize(
@@ -309,45 +250,69 @@ def test_removing_an_instrument_drops_its_token(hub, instruments, tmp_path):
         hub.remove("Scope 1")
 
 
+def _hub_auth(tmp_path):
+    token_file = tmp_path / "operator-token.json"
+    token_file.write_text(json.dumps({"token": OPERATOR_TOKEN}))
+    return hub_auth(token_file, tmp_path / "hub-paired.json")
+
+
+def _hub_app(tmp_path, hub):
+    return build_hub_app(hub, _hub_auth(tmp_path))
+
+
 @pytest.fixture
 def served(tmp_path, hub):
-    """The hub's own gateway, with its routes."""
-    auth = _auth(tmp_path)
-    client = TestClient(build_gateway_app(FakeGateway(), auth, hub=hub))
-    return client, auth
+    """The hub's own routes, with its own paired computers."""
+    auth = _hub_auth(tmp_path)
+    stopped = []
+    client = TestClient(build_hub_app(hub, auth, lambda: stopped.append(True)))
+    return client, auth, stopped
 
 
-def test_the_operator_changes_the_list_and_a_paired_hub_only_reads_it(served):
-    client, auth = served
+def test_only_someone_signed_in_at_the_hub_reads_or_changes_the_list(served):
+    client, auth, stopped = served
     operator = {"Authorization": f"Bearer {OPERATOR_TOKEN}"}
     assert client.get("/hub").status_code == 401
-    assert client.get("/hub", headers=operator).json() == {
-        "hub": True,
-        "instruments": [],
-    }
+    assert client.post("/hub/instruments", json={}).status_code == 401
+    assert client.get("/hub", headers=operator).json() == {"instruments": []}
 
     body = {"name": "Scope 1", "url": URL}
     added = client.post("/hub/instruments", json=body, headers=operator)
-    assert added.status_code == 200 and added.json()["hub"] is True
+    assert added.status_code == 200
     assert added.json()["instruments"][0]["name"] == "Scope 1"
 
-    code = auth.pairing.open(role=HUB)
-    token = client.post("/pair", json={"code": code, "name": "other"}).json()["token"]
-    other = {"Authorization": f"Bearer {token}"}
-    assert client.get("/hub", headers=other).status_code == 200
-    refused = client.post("/hub/instruments", json=body, headers=other)
-    assert refused.status_code == 403
-    assert client.delete("/hub/instruments/Scope 1", headers=other).status_code == 403
+    # A browser on another computer signs in with a code from the hub.
+    code = auth.pairing.open()
+    token = client.post("/pair", json={"code": code, "name": "desk"}).json()["token"]
+    desk = {"Authorization": f"Bearer {token}"}
+    assert client.get("/hub", headers=desk).status_code == 200
 
     bad = client.post("/hub/instruments", json={"name": "x"}, headers=operator)
     assert bad.status_code == 422 and bad.json()["detail"]["error_type"] == "no_address"
     no_code = client.post("/hub/instruments/Scope 1/pair", json={}, headers=operator)
     assert no_code.status_code == 422
     gone = client.delete("/hub/instruments/Scope 1", headers=operator)
-    assert gone.json() == {"hub": True, "instruments": []}
+    assert gone.json() == {"instruments": []}
     assert (
         client.delete("/hub/instruments/Scope 1", headers=operator).status_code == 404
     )
+
+
+def test_a_hub_only_pairs_browsers_and_stops_for_the_operator(served):
+    client, auth, stopped = served
+    operator = {"Authorization": f"Bearer {OPERATOR_TOKEN}"}
+    # Nothing pairs with a hub as a hub or an agent: it is not a door.
+    refused = client.post("/pairing", json={"role": "hub"}, headers=operator)
+    assert refused.status_code == 422
+    assert client.post("/hub/quit").status_code == 401 and not stopped
+    assert client.post("/hub/quit", headers=operator).json() == {"stopping": True}
+    assert stopped == [True]
+
+
+def test_a_gateway_serves_no_hub_routes(tmp_path):
+    client = TestClient(build_gateway_app(FakeGateway(), _auth(tmp_path)))
+    operator = {"Authorization": f"Bearer {OPERATOR_TOKEN}"}
+    assert client.get("/hub", headers=operator).status_code == 404
 
 
 # -- tunnels ---------------------------------------------------------------
@@ -410,7 +375,6 @@ def test_a_new_hub_opens_each_tunnel_on_the_ports_it_had(hub, tmp_path, instrume
         fetch=instruments.fetch,
         pair=instruments.pair,
         tunnels=again.tunnels,
-        is_hub=lambda: True,
     )
     later.check()
     assert later.state().instruments[0].tunnel == before
@@ -502,9 +466,7 @@ class Running:
 
 
 def _running_hub(tmp_path, there):
-    hub = Hub(
-        tmp_path / "hub.yaml", tmp_path / "hub", fetch=there.fetch, is_hub=lambda: True
-    )
+    hub = Hub(tmp_path / "hub.yaml", tmp_path / "hub", fetch=there.fetch)
     hub.add("Scope 1", URL)
     (tmp_path / "hub").mkdir()
     (tmp_path / "hub" / "scope-1.json").write_text(json.dumps({"token": "t"}))
@@ -526,7 +488,7 @@ def test_the_hub_reads_whether_the_app_has_the_microscope(tmp_path):
 def test_the_operator_stops_an_instruments_app_from_the_hub(tmp_path):
     there = Running()
     hub = _running_hub(tmp_path, there)
-    client = TestClient(build_gateway_app(FakeGateway(), _auth(tmp_path), hub=hub))
+    client = TestClient(_hub_app(tmp_path, hub))
     operator = {"Authorization": f"Bearer {OPERATOR_TOKEN}"}
     stopped = client.post("/hub/instruments/Scope 1/app/stop", headers=operator)
     assert stopped.status_code == 200
@@ -536,7 +498,7 @@ def test_the_operator_stops_an_instruments_app_from_the_hub(tmp_path):
 
 def test_an_instrument_that_refuses_the_stop_says_so_in_its_words(tmp_path):
     hub = _running_hub(tmp_path, Running(refuses=True))
-    client = TestClient(build_gateway_app(FakeGateway(), _auth(tmp_path), hub=hub))
+    client = TestClient(_hub_app(tmp_path, hub))
     operator = {"Authorization": f"Bearer {OPERATOR_TOKEN}"}
     refused = client.post("/hub/instruments/Scope 1/app/stop", headers=operator)
     assert refused.status_code == 403
@@ -550,7 +512,7 @@ def test_the_operator_starts_an_app_the_instrument_runs_without_a_window(tmp_pat
     hub.check()
     (row,) = hub.state().instruments
     assert row.gateway["apps"] == [{"key": "autolamella", "name": "AutoLamella"}]
-    client = TestClient(build_gateway_app(FakeGateway(), _auth(tmp_path), hub=hub))
+    client = TestClient(_hub_app(tmp_path, hub))
     operator = {"Authorization": f"Bearer {OPERATOR_TOKEN}"}
     started = client.post(
         "/hub/instruments/Scope 1/app/start",
@@ -564,15 +526,10 @@ def test_the_operator_starts_an_app_the_instrument_runs_without_a_window(tmp_pat
 
 def test_the_hub_starts_a_gateway_that_is_down_by_its_task_over_ssh(tmp_path):
     asked = []
-    hub = Hub(
-        tmp_path / "hub.yaml",
-        tmp_path / "hub",
-        start_there=asked.append,
-        is_hub=lambda: True,
-    )
+    hub = Hub(tmp_path / "hub.yaml", tmp_path / "hub", start_there=asked.append)
     hub.add("Scope 1", ssh="user@scope-1")
     hub.add("Scope 2", URL)
-    client = TestClient(build_gateway_app(FakeGateway(), _auth(tmp_path), hub=hub))
+    client = TestClient(_hub_app(tmp_path, hub))
     operator = {"Authorization": f"Bearer {OPERATOR_TOKEN}"}
     started = client.post("/hub/instruments/Scope 1/gateway/start", headers=operator)
     assert started.status_code == 200 and asked == ["user@scope-1"]
@@ -586,9 +543,7 @@ def test_a_gateway_that_does_not_start_says_what_it_needs(tmp_path):
     def fails(destination):
         raise OSError("ERROR: The system cannot find the file specified.")
 
-    hub = Hub(
-        tmp_path / "hub.yaml", tmp_path / "hub", start_there=fails, is_hub=lambda: True
-    )
+    hub = Hub(tmp_path / "hub.yaml", tmp_path / "hub", start_there=fails)
     hub.add("Scope 1", ssh="user@scope-1")
     with pytest.raises(GatewayRefused) as refused:
         hub.start_gateway("Scope 1")

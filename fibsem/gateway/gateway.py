@@ -39,6 +39,7 @@ __all__ = [
     "MODES",
     "OFF",
     "RUNNING",
+    "TASK_NAME",
     "Gateway",
     "GatewayRefused",
     "GatewayState",
@@ -54,6 +55,9 @@ STOPPING = "stopping"
 
 GATEWAY_PORT = 8010
 GATEWAY_FILE = DISCOVERY_DIR / "gateway.json"
+# The task `fibsem-gateway install` registers on a Windows PC, which starts
+# its gateway when a hub asks. No spaces: it is typed into a remote shell.
+TASK_NAME = "fibsemOS-Agent-Gateway"
 # Set on a window the gateway started, so its launch doesn't ask the gateway.
 CHILD_ENV = "FIBSEM_GATEWAY"
 STOP_WAIT_S = 60.0

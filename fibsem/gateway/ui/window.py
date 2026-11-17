@@ -30,7 +30,6 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from fibsem.gateway import role
 from fibsem.gateway.gateway import (
     OFF,
     STARTING,
@@ -497,9 +496,7 @@ class GatewayWindow(QWidget):
 
     def open_page(self) -> None:
         QDesktopServices.openUrl(
-            QUrl(
-                f"http://127.0.0.1:{self._port}/ui/{role.page()}#token={self._auth.token}"
-            )
+            QUrl(f"http://127.0.0.1:{self._port}/ui/gateway#token={self._auth.token}")
         )
 
     def _ask(self, title: str, text: str) -> bool:

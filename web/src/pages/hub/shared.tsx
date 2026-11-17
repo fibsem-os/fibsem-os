@@ -60,7 +60,6 @@ export interface Instrument {
 }
 
 export interface HubState {
-  hub: boolean;
   instruments: Instrument[];
 }
 
@@ -275,8 +274,8 @@ export function StartForm({
   children?: ReactNode;
 }) {
   const playbooks = useQuery({
-    queryKey: ["gateway/agent/playbooks"],
-    queryFn: () => api<Playbook[]>("/gateway/agent/playbooks"),
+    queryKey: ["hub/playbooks"],
+    queryFn: () => api<Playbook[]>("/hub/playbooks"),
     staleTime: 30_000,
     retry: false,
   });

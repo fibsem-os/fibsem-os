@@ -1,9 +1,8 @@
-"""The hub role: a gateway whose role is hub (`fibsem.gateway.role`) and its
-list of instruments. A microscope PC's gateway keeps no list and reads nothing.
+"""The hub's list of instruments, and what it reads from each.
 
 Each instrument is another PC's gateway, named in ``~/.fibsem/hub.yaml`` with
 where ssh connects to it: the hub opens a tunnel to each and picks the ports
-(`fibsem.gateway.tunnels`). An instrument can instead give an address to use
+(`fibsem.hub.tunnels`). An instrument can instead give an address to use
 as it is. The hub pairs with each one as a hub (the
 code ``fibsem-gateway pair --hub`` shows there), keeps the token it answers,
 and reads each gateway's health in the background: whether it answers, what it
@@ -28,9 +27,8 @@ from urllib.parse import urlsplit
 
 import yaml
 
-from fibsem.gateway import role
 from fibsem.gateway.gateway import GatewayRefused
-from fibsem.gateway.tunnels import (
+from fibsem.hub.tunnels import (
     Tunnel,
     TunnelDown,
     Tunnels,
@@ -120,8 +118,6 @@ class InstrumentState:
 
 @dataclass
 class HubState:
-    hub: bool
-    """Whether this gateway's role is hub (`fibsem.gateway.role`)."""
     instruments: List[InstrumentState] = field(default_factory=list)
 
 
@@ -191,7 +187,6 @@ class Hub:
         every_s: float = CHECK_EVERY_S,
         tunnels: Optional[Tunnels] = None,
         start_there: Callable[[str], None] = start_gateway_there,
-        is_hub: Callable[[], bool] = role.is_hub,
     ) -> None:
         self._file = Path(file or HUB_FILE)
         self._tokens = Path(tokens or TOKENS_DIR)
@@ -201,7 +196,6 @@ class Hub:
         self._every_s = every_s
         self._tunnels = tunnels or Tunnels()
         self._start_there = start_there
-        self._is_hub = is_hub
         self._lock = threading.Lock()
         self._read: Dict[str, InstrumentState] = {}
         self._stop = threading.Event()
@@ -212,10 +206,8 @@ class Hub:
     # -- the list ------------------------------------------------------------
 
     def instruments(self) -> List[Instrument]:
-        """The instruments in the hub's file; none when this gateway isn't a
-        hub, there is no file, or it doesn't read."""
-        if not self._is_hub():
-            return []
+        """The instruments in the hub's file; none when there is no file or it
+        doesn't read."""
         try:
             saved = yaml.safe_load(self._file.read_text(encoding="utf-8"))
         except (OSError, yaml.YAMLError):
@@ -239,15 +231,6 @@ class Hub:
                 return instrument
         raise GatewayRefused(404, "no_instrument", f"No instrument named {name}.")
 
-    def _hub_only(self) -> None:
-        if not self._is_hub():
-            raise GatewayRefused(
-                409,
-                "not_a_hub",
-                "This gateway is a microscope PC's, not a hub: set its role to "
-                "hub in its Settings, or run fibsem-gateway role hub.",
-            )
-
     def _write(self, instruments: List[Instrument]) -> None:
         rows = [
             {
@@ -265,7 +248,6 @@ class Hub:
     ) -> HubState:
         """Add an instrument, or change how the one named *name* is reached:
         by a tunnel to *ssh*, or at *url* as it is."""
-        self._hub_only()
         name = name.strip()
         url = (url or "").strip().rstrip("/") or None
         ssh = (ssh or "").strip() or None
@@ -574,8 +556,6 @@ class Hub:
             if not instrument.ssh:
                 self._tunnels.close(instrument.name)
         if not instruments:
-            # No list, or no longer a hub: nothing is read and no tunnel stays.
-            self._tunnels.close_all()
             return
         with ThreadPoolExecutor(max_workers=min(8, len(instruments))) as pool:
             for instrument in instruments:
@@ -604,7 +584,7 @@ class Hub:
             for i in instruments
         ]
         rows = [replace(row, session=self.session(row.name)) for row in rows]
-        return HubState(hub=self._is_hub(), instruments=rows)
+        return HubState(instruments=rows)
 
     # -- the background read -----------------------------------------------------
 

@@ -12,12 +12,13 @@ from fastapi.testclient import TestClient
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.gateway.agent import API_KEY, HUB_AGENT_NAME, GatewayAgent
 from fibsem.gateway.gateway import GatewayRefused
-from fibsem.gateway.hub import Hub
-from fibsem.gateway.hub_agents import HubAgents
 from fibsem.gateway.server import GatewayAuth, build_gateway_app
+from fibsem.hub.agents import HubAgents
+from fibsem.hub.hub import Hub
+from fibsem.hub.server import build_hub_app
 from fibsem.server.pairing import HUB, SWITCH_MODES
 from tests.gateway.test_gateway_agent import App, FakeGateway
-from tests.gateway.test_hub import Ssh
+from tests.hub.test_hub import Ssh, _hub_auth
 
 ROOT = Path(__file__).resolve().parents[2]
 STAND_IN = ROOT / "tests" / "agent" / "stand_in.py"
@@ -91,7 +92,6 @@ def made(tmp_path, scope, monkeypatch):
         fetch=scope.fetch,
         pair=scope.pair,
         tunnels=Ssh().tunnels,
-        is_hub=lambda: True,
     )
     hub.add("Scope 1", ssh="user@scope-1")
     built = []
@@ -235,11 +235,13 @@ def test_an_instrument_reached_without_a_tunnel_gets_no_agent(made):
 
 def test_the_hubs_routes_start_end_and_set_the_level(made, scope, tmp_path):
     hub, agents = made()
-    auth = _auth(tmp_path, "hub")
     client = TestClient(
-        build_gateway_app(FakeGateway(), auth, hub=hub, hub_agents=agents)
+        build_hub_app(
+            hub, _hub_auth(tmp_path), agents=agents, playbooks=lambda: [{"name": "x"}]
+        )
     )
     operator = {"Authorization": f"Bearer {OPERATOR_TOKEN}"}
+    assert client.get("/hub/playbooks", headers=operator).json() == [{"name": "x"}]
     body = {"playbook": "default", "goal": "mill 4", "level": "watch"}
     assert (
         client.post("/hub/instruments/Scope 1/agent/start", json=body).status_code
