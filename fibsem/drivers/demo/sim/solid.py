@@ -42,6 +42,10 @@ if TYPE_CHECKING:
 FLOOR_SMOOTH = 3.0  # um; a milled floor is flat over this scale
 VOID, ICE, CELL, NUCLEUS, FILM, BAR, PARTICLE, COAT = 0, 1, 2, 3, 4, 5, 6, 7
 DROPLET, VESICLE = 8, 9  # what lies in a cell's cytoplasm
+GUT, LUMEN = 10, 11  # a worm's pharynx and intestine, and the channel down them
+YOLK = 12  # the middle of an embryo
+# the preparations whose ice is a slab with what it holds afloat in it
+SLABS = ("waffle", "carrier")
 # the pieces of a stack, in the order a point is tested: the first that holds
 # it is what the point is made of
 # cells suspended in a waffle's slab lie over one another: a column holds one
@@ -106,6 +110,9 @@ YIELD = {
     COAT: (1.08, 1.3),
     DROPLET: (1.0, 1.0),
     VESICLE: (1.0, 1.0),
+    GUT: (1.0, 1.0),
+    LUMEN: (1.0, 1.0),
+    YOLK: (1.0, 1.0),
 }
 INSIDE = {
     ICE: (0.62, 0.6),
@@ -119,6 +126,9 @@ INSIDE = {
     COAT: (1.9, 2.0),  # edge-on, the metal in it is the brightest band on a face
     DROPLET: (0.62, 0.6),  # lipid: the darkest thing in a cell
     VESICLE: (0.95, 0.86),
+    GUT: (0.79, 0.74),
+    LUMEN: (0.66, 0.63),  # what a worm has eaten, in buffer: close to the ice
+    YOLK: (0.84, 0.78),  # the ground between its granules (see `_yolk`)
 }
 NOTHING = (0.1, 0.04)
 FLOOR = 1.3  # how much brighter a milled floor is than a cut face
@@ -148,6 +158,20 @@ SAG = 0.25  # um it drops per um out
 CRACK_AT = 0.3  # um; the lamella thickness the damage shapes are sized for
 GROOVE = 0.08  # um; how deep curtaining grooves a cut
 VESICLE_CELL = 12.0  # um; the radius of a cell that holds its full count of vesicles
+# a worm (C. elegans larva) is a chain of balls `WORM_STEP` um apart down its
+# middle line, head first. Along it, as shares of its length: the pharynx and
+# its two bulbs, then the intestine; across it, as shares of its radius there
+WORM_STEP = 1.5
+WORM_PHARYNX = (0.015, 0.2)
+WORM_BULBS = ((0.105, 0.02, 0.3), (0.18, 0.015, 0.34))  # (where, how long, how wide)
+WORM_INTESTINE = (0.2, 0.9)
+WORM_GUT = 0.62  # the intestine's outside
+WORM_LUMEN = 0.2  # and its channel
+# an embryo's yolk is granules packed in cytoplasm. Each size of granule: (um
+# the side of the cell that holds one, its least and greatest radius um, its
+# grey against the yolk's ground) - the big ones protein, the small ones lipid
+YOLK_GRAINS = ((3.4, 0.8, 1.55, 1.12), (1.5, 0.22, 0.6, 0.72))
+CARRIER_UNDER = 6.0  # um; how far under the deepest cut a view of a carrier looks
 WALL = 1.5  # a top is met through its side this many samples down its slope, at most
 CACHE_SIZE = 2  # views kept (one per beam)
 
@@ -156,14 +180,44 @@ CACHE_SIZE = 2  # views kept (one per beam)
 def film_top(scene: "SampleScene") -> float:
     """The height of the top of the film: just under the ice of a plunge
     frozen grid, at the bottom of a waffle's slab."""
-    if scene.preparation == "waffle":
+    if scene.preparation in SLABS:
         return -scene.slab_thickness * UM
     return FILM_TOP
 
 
 def z_min(scene: "SampleScene") -> float:
-    """The lowest height a view looks down to: under the film."""
-    return min(Z_MIN, film_top(scene) - 3.0)
+    """The lowest height a view looks down to: under the film, or in a
+    carrier (whose block is far deeper than anything is milled, and has no
+    way through it) under the deepest cut."""
+    low = min(Z_MIN, film_top(scene) - 3.0)
+    if scene.preparation == "carrier":
+        deepest = max((float(r.depth) for r in scene.milled), default=0.0) * UM
+        low = max(low, min(Z_MIN, -deepest - CARRIER_UNDER))
+    return low
+
+
+def _yolk(x, y, z, seed: int) -> np.ndarray:
+    """How much lighter or darker each point (um) of an embryo's yolk is
+    than its ground: inside a granule or not. Each size of granule has two
+    lattices of cells, half a cell apart, with one ball somewhere in each."""
+    out = np.ones(np.shape(x), dtype=np.float32)
+    n = 0
+    for cell, r_lo, r_hi, grey in YOLK_GRAINS:
+        for off in (0.0, 0.5 * cell):
+            n += 1
+            at = [(v + off * (1 + 0.3 * a)) / cell for a, v in enumerate((x, y, z))]
+            i, j, k = (np.floor(v).astype(np.int64) for v in at)
+            h = [
+                sim_view._hash(i + 7919 * k, j + 104729 * k, seed + 37 * n + m)
+                for m in range(4)
+            ]
+            r = (r_lo + (r_hi - r_lo) * h[3]) / cell
+            d2 = sum(
+                (v - w - r - (1 - 2 * r) * h[m]) ** 2
+                for m, (v, w) in enumerate(zip(at, (i, j, k)))
+            )
+            out[d2 < r * r] = grey
+    return out
 
 
 def _scratches(scene: "SampleScene", X, Y, finest: float) -> np.ndarray:
@@ -317,7 +371,7 @@ def _inclusions(scene: "SampleScene", f: "SceneFeature") -> list:
     n = int(rng.integers(300, 5000) * rng.random() ** 1.5)
     tall = max(float(f.height or 0.0) * UM, 1.5)
     reach = 0.9 * f.sigma * UM
-    if scene.preparation == "waffle":
+    if scene.preparation in SLABS:
         # a small round cell holds fewer than a spread one
         n = int(n * min(1.0, (f.sigma * UM / VESICLE_CELL) ** 2))
     r = reach * np.sqrt(rng.uniform(0, 1, n))
@@ -339,6 +393,74 @@ def _inclusions(scene: "SampleScene", f: "SceneFeature") -> list:
     return out
 
 
+def worm_organs(along: float, radius: float, cell_id: int = 0) -> tuple:
+    """The radius (um) of a worm's gut and of the channel down it, at a share
+    `along` its length where its body is `radius` um: the pharynx with its
+    bulbs, the intestine behind it, (0, 0) past either end of them."""
+    if WORM_PHARYNX[0] <= along < WORM_PHARYNX[1]:
+        wide = 0.28 + sum(
+            w * np.exp(-0.5 * ((along - at) / run) ** 2) for at, run, w in WORM_BULBS
+        )
+        return wide * radius, 0.25
+    if WORM_INTESTINE[0] <= along <= WORM_INTESTINE[1]:
+        swell = 0.3 * np.sin(40.0 * along + cell_id)
+        return WORM_GUT * radius, WORM_LUMEN * (1 + swell) * radius
+    return 0.0, 0.0
+
+
+def along_intestine(along: float) -> bool:
+    """Whether a share `along` a worm is where its intestine is."""
+    return WORM_INTESTINE[0] <= along <= WORM_INTESTINE[1]
+
+
+def _worm_inclusions(scene: "SampleScene", f: "SceneFeature") -> tuple:
+    """What lies in one ball of a worm's body: its gut and the channel down
+    it as balls along its heading (x, y, z, radius um, material, which of a
+    column's organelle pieces), and the granules in the gut's wall and the
+    vesicles outside it, as `_inclusions` gives them."""
+    r = f.sigma * UM
+    gut, lumen = worm_organs(f.along, r, f.cell_id)
+    fx, fy = f.x * UM, f.y * UM
+    z = film_top(scene) + f.base * UM + 0.5 * f.height * UM
+    c, s = np.cos(f.angle), np.sin(f.angle)
+    tubes = []
+    for d in (-WORM_STEP / 3, 0.0, WORM_STEP / 3):
+        if gut > 0:
+            tubes.append((fx + d * c, fy + d * s, z, gut, GUT, 2))
+            tubes.append((fx + d * c, fy + d * s, z, lumen, LUMEN, 1))
+    rng = np.random.default_rng(
+        [
+            int(scene.seed) & 0x7FFFFFFF,
+            139,
+            int(f.cell_id) & 0x7FFFFFFF,
+            int(round(f.along * 1e5)),
+        ]
+    )
+    small = []
+    # (how many, from and to how far off the middle line, what)
+    rings = [(4, gut + 0.3, r - 0.6, VESICLE)]
+    if along_intestine(f.along):
+        rings.append((6, lumen + 0.3, gut - 0.3, DROPLET))
+    for mean, lo, hi, what in rings:
+        if hi <= lo:
+            continue
+        for _ in range(int(rng.poisson(mean))):
+            off, turn = rng.uniform(lo, hi), rng.uniform(0, 2 * np.pi)
+            d = rng.uniform(-0.5, 0.5) * WORM_STEP
+            side = off * np.cos(turn)
+            small.append(
+                (
+                    fx + d * c - side * s,
+                    fy + d * s + side * c,
+                    z + off * np.sin(turn),
+                    rng.uniform(0.12, 0.35),
+                    what,
+                    0,
+                )
+            )
+    return tubes, small
+
+
 def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
     """The stack of pieces at every point of a grid of world points, x (W,)
     and y (P,) in um; `step` is the sampling along (columns, rows). Each
@@ -347,7 +469,12 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
     sx, sy = step
     f32 = np.float32
     seed = int(scene.seed)
-    waffle = scene.preparation == "waffle"
+    waffle = scene.preparation in SLABS
+    # a worm or an embryo is one body, in the first layer, with nuclei at
+    # every height
+    worm = waffle and scene.cell_type == "celegans"
+    embryo = waffle and scene.cell_type == "drosophila"
+    one = worm or embryo
     film = film_top(scene)
     bars, holes, rips, rim, beyond = scene.film_masks(X / UM, Y / UM)
     metal = bars | rim
@@ -359,7 +486,9 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
     if waffle:
         # the ice is a slab pressed flat by the hat: it dips a little in each
         # square, and carries the hat's polishing lines
-        bar_top = min(film + WAFFLE_BAR, -WAFFLE_SKIN)
+        # (a carrier has no bars: its metal is the wall of its cavity)
+        stand = -film if scene.preparation == "carrier" else WAFFLE_BAR
+        bar_top = min(film + stand, -WAFFLE_SKIN)
         weight = _gauss(metal.astype(f32), (4.0 / sy, 4.0 / sx))
         ice = 0.5 * waves - WAFFLE_SAG * (1 - weight)
         ice = ice - _scratches(scene, X, Y, max(sx, sy))
@@ -380,6 +509,8 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
     skirt = np.zeros(shape, dtype=bool)  # where an adherent cell is spread
     grains = []
     inclusions = []
+    tubes = []  # a worm's gut: balls that run together
+    cores = []  # an embryo's yolk
     # the cells suspended in a waffle's slab, a layer at a time
     layers = range(LAYERS if waffle else 0)
     s_lo = [np.full(shape, -NONE, dtype=f32) for _ in layers]
@@ -394,6 +525,8 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
         reach = (4.0 if f.sharpness < 2 else 2.2) * sigma * (1 + f.wobble) + 1.0
         if f.kind == "contamination":
             reach = max(reach, CLUMP_REACH)
+        if waffle and f.kind == "cell":
+            reach = 1.1 * sigma * (1 + f.wobble) + 0.2  # a ball: all inside its outline
         fx, fy = f.x * UM, f.y * UM
         if fx + reach < x_lo or fx - reach > x_hi:
             continue
@@ -409,12 +542,22 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
             half = 0.5 * f.height * UM
             mid = film + f.base * UM + half
             t = (half * np.sqrt(np.clip(1 - r2, 0, None))).astype(f32)
+            if f.part == "yolk":
+                cores.append((box, inside, mid - t, mid + t))
+                continue
             if f.part == "nucleus":
                 lo, hi = sn_lo[f.layer], sn_hi[f.layer]
             else:
                 lo, hi = s_lo[f.layer], s_hi[f.layer]
                 s_id[f.layer][box] = np.where(inside, f.cell_id, s_id[f.layer][box])
-                if fine:
+                if fine and worm:
+                    gut, small = _worm_inclusions(scene, f)
+                    tubes.extend(gut)
+                    inclusions.extend(small)
+                    if f.part == "body":  # the droplets the FM labels
+                        n = len(scene._fm_cell_points(f, "droplets"))
+                        inclusions.extend(_inclusions(scene, f)[:n])
+                elif fine and not embryo:
                     inclusions.extend(_inclusions(scene, f))
             lo[box] = np.where(inside, np.minimum(lo[box], mid - t), lo[box])
             hi[box] = np.where(inside, np.maximum(hi[box], mid + t), hi[box])
@@ -508,7 +651,12 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
     o_lo = [np.full(shape, -NONE, dtype=f32) for _ in range(kinds)]
     o_hi = [np.full(shape, NONE, dtype=f32) for _ in range(kinds)]
     o_is = [np.full(shape, DROPLET, dtype=np.uint8) for _ in range(kinds)]
-    for fx, fy, zc, r, what, layer in inclusions:
+    for box, inside, lo, hi in cores:
+        # under everything else in the embryo
+        o_lo[-1][box] = np.where(inside, lo, o_lo[-1][box])
+        o_hi[-1][box] = np.where(inside, hi, o_hi[-1][box])
+        o_is[-1][box] = np.where(inside, YOLK, o_is[-1][box])
+    for n, (fx, fy, zc, r, what, layer) in enumerate(tubes + inclusions):
         if fx + r < x_lo or fx - r > x_hi or fy + r < y_lo or fy - r > y_hi:
             continue
         cols = np.nonzero(np.abs(x - fx) < r)[0]
@@ -520,19 +668,27 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
         t = np.sqrt(np.clip(d2, 0, None)).astype(f32)
         lo, hi, kind = o_lo[layer], o_hi[layer], o_is[layer]
         if waffle:
-            floor, roof = s_lo[layer][box] + 0.1, s_hi[layer][box] - 0.1
+            own = 0 if one else layer
+            floor, roof = s_lo[own][box] + 0.1, s_hi[own][box] - 0.1
         else:
             floor, roof = film + 0.02, cell[box] - 0.1
-        inside = (d2 > 0) & (zc + t < roof) & (hi[box] < NONE / 2)
+        inside = (d2 > 0) & (zc + t < roof)
         if waffle:
             inside &= zc - t > floor
-        lo[box] = np.where(inside, np.maximum(zc - t, floor), lo[box])
-        hi[box] = np.where(inside, zc + t, hi[box])
+        if n < len(tubes):
+            # the balls of a gut run into one another: one piece
+            lo[box] = np.where(inside, np.minimum(lo[box], zc - t), lo[box])
+            hi[box] = np.where(inside, np.maximum(hi[box], zc + t), hi[box])
+        else:
+            inside &= hi[box] < NONE / 2
+            lo[box] = np.where(inside, np.maximum(zc - t, floor), lo[box])
+            hi[box] = np.where(inside, zc + t, hi[box])
         kind[box] = np.where(inside, what, kind[box])
     for layer in layers:
         # a nucleus lies inside its cell
-        sn_lo[layer] = np.maximum(sn_lo[layer], s_lo[layer] + 0.15)
-        sn_hi[layer] = np.minimum(sn_hi[layer], s_hi[layer] - 0.15)
+        own = 0 if one else layer
+        sn_lo[layer] = np.maximum(sn_lo[layer], s_lo[own] + 0.15)
+        sn_hi[layer] = np.minimum(sn_hi[layer], s_hi[own] - 0.15)
 
     # particles rest on the ice: each grain a ball
     p_lo = np.full(shape, -NONE, dtype=f32)
@@ -596,7 +752,7 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
         bar = (film, np.where(standing, bar_top, NONE).astype(f32))
         ice_from = np.where(standing, bar_top, film).astype(f32)
         # how much of a bar shows through the ice over it
-        weight = weight * np.exp(min(film + WAFFLE_BAR, 0.0) / BAR_DEPTH)
+        weight = weight * np.exp(min(film + stand, 0.0) / BAR_DEPTH)
     else:
         # the bars hang under the film
         bar = (
@@ -1097,6 +1253,10 @@ def canvas(scene: "SampleScene", beam: str, frame: ViewFrame, u, w, pix):
     for m, v in YIELD.items():
         mat_top[hit_m == m] = v[which]
         mat_in[hit_m == m] = INSIDE[m][which]
+    yolk = hit_m == YOLK
+    if yolk.any():
+        x, y = np.broadcast_arrays(hit["x"][None, :], hit["y"])
+        mat_in[yolk] *= _yolk(x[yolk], y[yolk], z_hit[yolk], int(scene.seed) + 613)
     # a top: the more the beam grazes it, the more electrons get out
     cosi = (fs + gy * kabs) / np.sqrt(1 + gx * gx + gy * gy)
     tilt = np.clip(fs / np.clip(cosi, 0.03, None), 0.0, 6.0) ** TILT[which]

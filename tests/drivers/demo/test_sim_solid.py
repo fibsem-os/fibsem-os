@@ -974,3 +974,189 @@ def test_a_hexagonal_mesh_has_its_mark_its_rips_and_a_waffle_s_cells():
     in_bar = col["bar"][1] > sim_solid.NONE / 2
     cells = np.any([col[k][1] > sim_solid.NONE / 2 for k in sim_solid.CELLS], axis=0)
     assert cells.mean() > 0.05 and not (cells & in_bar).any()
+
+
+WORMS = {
+    **WAFFLE,
+    "cell_type": "celegans",
+    "grid_pitch": 508e-6,
+    "grid_bar_width": 40e-6,
+    "grid_rotation": 0.0,
+}
+
+
+def _worms(scene) -> dict:
+    """Each worm's balls, head first."""
+    worms: dict = {}
+    for f in scene.features:
+        if f.kind == "cell" and f.part in ("segment", "body"):
+            worms.setdefault(f.cell_id, []).append(f)
+    return worms
+
+
+def test_worms_in_a_waffle_are_whole_and_clear_of_the_bars_and_each_other():
+    scene = SampleScene(**WORMS)
+    worms = _worms(scene)
+    assert len(worms) >= 8
+    lo, hi = scene.worm_length
+    for balls in worms.values():
+        assert [f.along for f in balls] == sorted(f.along for f in balls)
+        assert balls[0].along == 0.0 and balls[-1].along == 1.0
+        assert sum(f.part == "body" for f in balls) == 1
+        length = (len(balls) - 1) * sim_solid.WORM_STEP * 1e-6
+        assert lo - 2e-6 <= length <= hi
+        # widest in the middle, a narrow nose, a tail that runs out
+        middle = balls[len(balls) // 2].sigma
+        assert scene.worm_radius[0] <= middle <= scene.worm_radius[1]
+        assert balls[-1].sigma < balls[0].sigma < 0.6 * middle
+        for f in balls:
+            assert f.base > 0 and f.base + f.height < scene.slab_thickness
+    line = np.arange(-250.0, 250.0, 1.0)
+    col = sim_solid.columns(scene, line, line, (1.0, 1.0))
+    bars = col["bar"][1] > sim_solid.NONE / 2
+    body = col["cell"][1] > sim_solid.NONE / 2
+    assert bars.any() and body.mean() > 0.03 and not (body & bars).any()
+    # no two worms touch: each patch of body from above is one worm
+    patches, n = ndi.label(body)
+    for k in range(1, n + 1):
+        assert len(np.unique(col["cell_ids"][0][patches == k])) == 1
+
+
+def test_a_worm_cut_across_shows_its_gut_and_nuclei_inside_it():
+    scene = SampleScene(**WORMS)
+    balls = next(iter(_worms(scene).values()))
+    seen = set()
+    for f in balls[len(balls) // 4 : 3 * len(balls) // 4 : 4]:
+        x = f.x * 1e6 + np.arange(-8.0, 8.0, 0.1)
+        y = f.y * 1e6 + np.arange(-8.0, 8.0, 0.1)
+        col = sim_solid.columns(scene, x, y, (0.1, 0.1))
+        lo, hi = col["cell"]
+        whole = hi > sim_solid.NONE / 2
+        assert whole[80, 80]
+        for n, name in enumerate(sim_solid.ORGANELLES):
+            o_lo, o_hi = col[name]
+            there = o_hi > sim_solid.NONE / 2
+            assert not (there & ~whole).any()
+            assert (o_lo[there] > lo[there]).all() and (o_hi[there] < hi[there]).all()
+            seen |= set(np.unique(col[name + "_is"][there]).tolist())
+        # down the middle: the channel, inside the gut, inside the body
+        gut, channel = col[sim_solid.ORGANELLES[2]], col[sim_solid.ORGANELLES[1]]
+        assert lo[80, 80] < gut[0][80, 80] < channel[0][80, 80]
+        assert channel[1][80, 80] < gut[1][80, 80] < hi[80, 80]
+        for name in sim_solid.NUCLEI:
+            n_lo, n_hi = col[name]
+            there = n_hi > n_lo
+            assert (n_lo[there] > lo[there]).all() and (n_hi[there] < hi[there]).all()
+    assert {sim_solid.GUT, sim_solid.LUMEN, sim_solid.DROPLET} <= seen
+    nuclei = [f for f in scene.features if f.part == "nucleus"]
+    assert len(nuclei) > 100 * len(_worms(scene)) and {f.layer for f in nuclei} == {
+        0,
+        1,
+        2,
+        3,
+    }
+
+
+def test_few_worms_fit_a_fine_mesh_and_a_worm_is_only_for_a_waffle():
+    fine = SampleScene(**{**WAFFLE, "cell_type": "celegans"})
+    assert len(_worms(fine)) < len(_worms(SampleScene(**WORMS)))
+    with pytest.raises(ValueError, match="cell_type must be one of"):
+        SampleScene(**{**PLAIN, "cell_type": "celegans"})
+
+
+CARRIER = {**PLAIN, "preparation": "carrier", "slab_thickness": 200e-6}
+
+
+def test_a_carrier_is_a_deep_block_of_ice_with_no_grid_in_it():
+    scene = SampleScene(**CARRIER)
+    line = np.arange(-300.0, 300.0, 2.0)
+    col = sim_solid.columns(scene, line, line, (2.0, 2.0))
+    assert not (col["bar"][1] > sim_solid.NONE / 2).any()
+    assert sim_solid.film_top(scene) == pytest.approx(-200.0)
+    assert np.all(col["ice"][1] > -2.0) and np.all(col["ice"][0] == -200.0)
+    for thickness in (25e-6, 400e-6):
+        with pytest.raises(ValueError, match="between 50 and 300 um in a carrier"):
+            SampleScene(**{**CARRIER, "slab_thickness": thickness})
+    with pytest.raises(ValueError, match="between 5 and 50 um in a waffle"):
+        SampleScene(**{**WAFFLE, "slab_thickness": 200e-6})
+
+
+def test_a_view_of_a_carrier_looks_only_a_little_under_its_deepest_cut(
+    microscope, monkeypatch
+):
+    _face(microscope, "FIB")
+    scene = _use(microscope, **CARRIER)
+    assert sim_solid.z_min(scene) == -sim_solid.CARRIER_UNDER
+    microscope.draw_pattern(
+        FibsemRectangleSettings(
+            width=20e-6, height=20e-6, depth=40e-6, centre_x=0.0, centre_y=0.0
+        )
+    )
+    microscope.run_milling()
+    assert sim_solid.z_min(scene) == pytest.approx(-40.0 - sim_solid.CARRIER_UNDER)
+    # the floor of the trench is there to be seen
+    _, hit = _trace(microscope, monkeypatch, BeamType.ION, 60e-6)
+    assert hit["z"].min() < -35.0
+
+
+def _embryos(scene) -> list:
+    return [f for f in scene.features if f.kind == "cell" and f.part == "body"]
+
+
+def test_fly_embryos_lie_side_by_side_just_under_the_top_of_a_carrier():
+    scene = SampleScene(**{**CARRIER, "cell_type": "drosophila"})
+    bodies = _embryos(scene)
+    assert len(bodies) >= 4
+    for f in bodies:
+        assert 480e-6 <= 2 * f.sigma <= 520e-6
+        assert 170e-6 <= 2 * f.sigma * f.eccentricity <= 190e-6
+        assert 0 < scene.slab_thickness - (f.base + f.height) < 6e-6
+    line = np.arange(-600.0, 600.0, 4.0)
+    col = sim_solid.columns(scene, line, line, (4.0, 4.0))
+    body = col["cell"][1] > sim_solid.NONE / 2
+    # no two touch: each patch of body from above is one embryo
+    patches, n = ndi.label(body)
+    assert n == len(bodies)
+    for k in range(1, n + 1):
+        assert len(np.unique(col["cell_ids"][0][patches == k])) == 1
+    with pytest.raises(ValueError, match="a carrier 'drosophila'"):
+        SampleScene(**{**WAFFLE, "cell_type": "drosophila"})
+
+
+def test_an_embryo_has_nuclei_in_its_rind_and_yolk_under_it():
+    scene = SampleScene(**{**CARRIER, "cell_type": "drosophila"})
+    f = _embryos(scene)[0]
+    nuclei = [g for g in scene.features if g.part == "nucleus" and g.cell_id == 0]
+    assert len(nuclei) > 3000 and {g.layer for g in nuclei} == {0, 1, 2, 3}
+    x = f.x * 1e6 + np.arange(-30.0, 30.0, 0.2)
+    y = f.y * 1e6 + np.arange(-30.0, 30.0, 0.2)
+    col = sim_solid.columns(scene, x, y, (0.2, 0.2))
+    lo, top = col["cell"]
+    assert (top > sim_solid.NONE / 2).all()
+    y_lo, y_top = col[sim_solid.ORGANELLES[-1]]
+    assert (col[sim_solid.ORGANELLES[-1] + "_is"] == sim_solid.YOLK).all()
+    # the yolk starts a rind's thickness under the top of the embryo
+    assert np.all((top - y_top > 10.0) & (top - y_top < 16.0)) and np.all(y_lo > lo)
+    seen = np.zeros(top.shape, dtype=bool)
+    for name in sim_solid.NUCLEI[:2]:
+        n_lo, n_hi = col[name]
+        there = n_hi > n_lo
+        seen |= there
+        # every nucleus is in the rind: under the top, over the yolk
+        assert np.all(n_hi[there] < top[there]) and np.all(n_lo[there] > y_top[there])
+        assert np.all(n_hi[there] - n_lo[there] < 9.0)
+    assert 0.2 < seen.mean() < 0.8
+
+
+def test_yolk_is_granules_lighter_and_darker_than_its_ground():
+    x, z = np.meshgrid(np.arange(0, 60, 0.1), np.arange(-60, 0, 0.1))
+    grey = sim_solid._yolk(x, np.full(x.shape, 3.0), z, 7)
+    big, small = (g[3] for g in sim_solid.YOLK_GRAINS)
+    assert len(np.unique(grey)) == 3 and grey.min() < 1.0 < grey.max()
+    assert 0.1 < (grey == np.float32(big)).mean() < 0.5
+    assert 0.05 < (grey == np.float32(small)).mean() < 0.4
+    # the same at a point whatever samples it
+    again = sim_solid._yolk(
+        x[::7, ::3], np.full(x[::7, ::3].shape, 3.0), z[::7, ::3], 7
+    )
+    assert np.array_equal(again, grey[::7, ::3])
