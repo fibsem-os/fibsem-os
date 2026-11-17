@@ -905,7 +905,11 @@ class SystemInfo:
     model: str = "Unknown"
     serial_number: str = "Unknown"
     hardware_version: str = "Unknown"
+    # The vendor control API: ``software_version`` is the client this process
+    # runs, ``server_version`` the server on the microscope PC. None where a
+    # backend has no separate server, or cannot read it.
     software_version: str = "Unknown"
+    server_version: Optional[str] = None
     fibsem_version: str = fibsem.__version__
     application: Optional[str] = None
     # The commit actually running, when installed from a source checkout. None
@@ -924,6 +928,20 @@ class SystemInfo:
         # Configurations and old experiments carry "Thermo", "TESCAN" and so on;
         # everything downstream compares against the canonical spellings.
         self.manufacturer = normalize_name(self.manufacturer)
+
+    def versions(self) -> Dict[str, str]:
+        """The instrument's software versions under the names its vendor uses,
+        leaving out what is not known."""
+        if self.manufacturer == "ThermoFisher":
+            labels = ("xT", "AutoScript client", "AutoScript server")
+        else:
+            labels = ("hardware", "software", "server")
+        values = (self.hardware_version, self.software_version, self.server_version)
+        return {
+            label: str(value)
+            for label, value in zip(labels, values)
+            if value not in (None, "", "Unknown")
+        }
 
     def to_dict(self) -> dict:
         return encode(self)

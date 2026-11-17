@@ -120,6 +120,7 @@
     "name": "openfibsem-microscope-configuration",
     "port": null,
     "serial_number": "123456",
+    "server_version": null,
     "software_version": "0.1"
    },
    "user": {
@@ -257,6 +258,7 @@
     "name": "openfibsem-microscope-configuration",
     "port": null,
     "serial_number": "123456",
+    "server_version": null,
     "software_version": "0.1"
    },
    "user": {

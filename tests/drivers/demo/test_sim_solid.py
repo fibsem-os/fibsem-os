@@ -679,3 +679,484 @@ def test_a_gis_coat_closes_a_broken_hole_and_keeps_the_relief_under_it():
     assert 0.5 < (hi - lo)[over].mean() < 4.9
     relief = np.ptp(bare["surface"][~broken])
     assert np.ptp(hi[~broken]) > 0.6 * relief
+
+
+WAFFLE = {**PLAIN, "preparation": "waffle"}
+
+
+def _on_and_off_a_bar(scene) -> tuple:
+    """A world point (um) in the middle of a grid bar, and one in the middle
+    of a square."""
+    line = np.arange(-150.0, 150.0, 1.0)
+    bars = scene.film_masks(line[None, :] * 1e-6, line[:, None] * 1e-6)[0]
+    far = ndi.distance_transform_edt(bars), ndi.distance_transform_edt(~bars)
+    (by, bx), (sy, sx) = (np.unravel_index(np.argmax(d), d.shape) for d in far)
+    return (line[bx], line[by]), (line[sx], line[sy])
+
+
+def _face(microscope, orientation: str) -> None:
+    """Turn the stage to one of its named orientations."""
+    to = microscope.get_orientation(orientation)
+    pose = microscope.get_stage_position()
+    pose.r, pose.t = to.r, to.t
+    microscope.move_stage_absolute(pose)
+
+
+def test_a_waffle_is_a_slab_of_ice_with_the_bars_standing_in_it():
+    scene = SampleScene(**WAFFLE)
+    bar, square = _on_and_off_a_bar(scene)
+    in_square, on_bar = _stack(scene, *square), _stack(scene, *bar)
+    film = sim_solid.film_top(scene)
+    assert film == -25.0
+    # in a square: ice from the film at the bottom up to the plane in focus
+    assert in_square["film"][1] == film
+    assert in_square["ice"][0] == film
+    assert -1.5 < in_square["ice"][1] < 0.5
+    assert in_square["bar"][1] < sim_solid.NONE / 2
+    # a bar stands on the film, nearly as tall as the slab, under a skin of ice
+    lo, hi = on_bar["bar"]
+    assert lo == film and hi - lo > 23.0
+    assert on_bar["ice"][0] == pytest.approx(hi)
+    assert 0.2 < on_bar["ice"][1] - hi < 1.5
+    assert not [f for f in scene.features if f.kind == "cell"]
+
+
+def test_a_thicker_waffle_buries_its_bars():
+    flush = SampleScene(**WAFFLE)
+    thick = SampleScene(slab_thickness=40e-6, **WAFFLE)
+    bar, _ = _on_and_off_a_bar(thick)
+    stack = _stack(thick, *bar)
+    assert stack["ice"][1] - stack["bar"][1] > 14.0
+    x = bar[0] + np.arange(-2, 3) * 0.2
+    y = bar[1] + np.arange(-2, 3) * 0.2
+    shows = [
+        float(sim_solid.columns(s, x, y, (0.2, 0.2))["bar_weight"][2, 2])
+        for s in (flush, thick)
+    ]
+    assert shows[0] > 0.8 and shows[1] < 0.1
+
+
+def test_a_view_looks_down_through_a_waffle_and_no_further_through_a_plunged_grid():
+    assert sim_solid.z_min(SampleScene(**PLAIN)) == sim_solid.Z_MIN
+    assert sim_solid.z_min(SampleScene(**WAFFLE)) == -28.0
+
+
+def test_a_waffle_must_be_a_thickness_the_beam_can_mill():
+    with pytest.raises(ValueError, match="slab_thickness"):
+        SampleScene(slab_thickness=80e-6, **WAFFLE)
+    with pytest.raises(ValueError, match="preparation"):
+        SampleScene(preparation="sandwich")
+    scene = SampleScene.from_config(
+        {"preparation": "waffle", "slab_thickness": 30e-6, "hat_scratches": 0.5}
+    )
+    assert sim_solid.film_top(scene) == -30.0
+
+
+def test_the_hats_polish_leaves_lines_in_a_waffles_top():
+    """Fine parallel grooves, which a perfect polish (0) does not leave."""
+    _, square = _on_and_off_a_bar(SampleScene(**WAFFLE))
+    x = square[0] + np.arange(-20, 20, 0.1)
+    y = square[1] + np.arange(-20, 20, 0.1)
+    rough = []
+    for strength in (1.0, 0.0):
+        scene = SampleScene(hat_scratches=strength, **WAFFLE)
+        top = sim_solid.columns(scene, x, y, (0.1, 0.1))["ice"][1]
+        rough.append(float((top - ndi.gaussian_filter(top, 20)).std()))
+    assert rough[0] > 0.01 and rough[1] < 0.2 * rough[0], rough
+
+
+def test_a_trench_goes_through_a_waffle_only_if_it_is_set_as_deep(microscope):
+    """The slab is 25 um thick: a pattern set deeper, milled square on to
+    the grid, cuts a hole through it; one set shallower stops at a floor in
+    the ice."""
+    _face(microscope, "FIB")
+    bottom = []
+    for depth in (30e-6, 5e-6):
+        scene = _use(microscope, **WAFFLE)
+        microscope.draw_pattern(
+            FibsemRectangleSettings(
+                width=20e-6, height=20e-6, depth=depth, centre_x=0.0, centre_y=0.0
+            )
+        )
+        microscope.run_milling()
+        px, py = np.mean(scene.milled[0].points, axis=0) * 1e6
+        near = np.arange(-2, 3) * 0.5
+        z, mat = sim_solid.surface(scene, px + near, py + near)
+        bottom.append((float(z[2, 2]), int(mat[2, 2])))
+    through, floor = bottom
+    assert through[1] == sim_solid.VOID
+    assert floor[1] == sim_solid.ICE and floor[0] == pytest.approx(-5.0, abs=1.0)
+
+
+def test_a_trench_wall_in_a_waffle_is_a_dark_face_not_a_bright_top(microscope):
+    """Looking into a trench at the milling angle, the far wall is the side
+    of the slab: darker than the top round it, and darker further down."""
+    _face(microscope, "FIB")
+    _use(microscope, **WAFFLE)
+    microscope.draw_pattern(
+        FibsemRectangleSettings(
+            width=30e-6, height=30e-6, depth=30e-6, centre_x=0.0, centre_y=0.0
+        )
+    )
+    microscope.run_milling()
+    _face(microscope, "MILLING")
+    image = _image(microscope, BeamType.ION, hfw=80e-6)
+    top = float(np.median(image[:20]))
+    inside = ndi.binary_erosion(image < 0.6 * top, iterations=6)
+    assert inside.sum() > 2000
+    rows = np.nonzero(inside.any(axis=1))[0]
+    column = image[rows.min() : rows.max() + 1, 246:266].mean(axis=1)
+    assert column.max() < 0.6 * top
+    assert column[:5].mean() != pytest.approx(column[-5:].mean(), abs=5.0)
+
+
+def _afloat(scene) -> dict:
+    """The stacks over the 60 um about the middle of a waffle's centre square."""
+    line = np.arange(-30.0, 30.0, 0.25)
+    return sim_solid.columns(scene, line, line, (0.25, 0.25))
+
+
+def test_yeast_in_a_waffle_float_over_one_another_inside_the_slab():
+    scene = SampleScene(**{**WAFFLE, "cell_type": "yeast"})
+    col = _afloat(scene)
+    film, ice = sim_solid.film_top(scene), col["ice"][1]
+    cells = [col[k] for k in sim_solid.CELLS]
+    there = np.array([hi > sim_solid.NONE / 2 for _, hi in cells])
+    assert there.sum(axis=0).max() >= 2  # one cell over another
+    for (lo, hi), here in zip(cells, there):
+        if not here.any():
+            continue
+        assert lo[here].min() > film and (ice - hi)[here].min() > 0.5
+    # each layer lies wholly over the one below it
+    tops = [hi[here].max() for (_, hi), here in zip(cells, there) if here.any()]
+    floors = [lo[here].min() for (lo, _), here in zip(cells, there) if here.any()]
+    assert len(tops) >= 3
+    assert all(top < floor for top, floor in zip(tops, floors[1:]))
+    # a nucleus is inside its cell
+    for cell, nucleus in zip(sim_solid.CELLS, sim_solid.NUCLEI):
+        n_lo, n_hi = col[nucleus]
+        inside = n_hi > n_lo
+        assert (n_lo[inside] > col[cell][0][inside]).all()
+        assert (n_hi[inside] < col[cell][1][inside]).all()
+
+
+def test_no_cell_of_a_waffle_is_in_a_bar():
+    scene = SampleScene(**{**WAFFLE, "cell_type": "yeast"})
+    line = np.arange(-120.0, 120.0, 0.5)
+    col = sim_solid.columns(scene, line, line, (0.5, 0.5))
+    bars = col["bar"][1] > sim_solid.NONE / 2
+    cells = np.any([col[k][1] > sim_solid.NONE / 2 for k in sim_solid.CELLS], axis=0)
+    assert cells.mean() > 0.05 and not (cells & bars).any()
+
+
+def test_rpe_cells_in_a_waffle_are_round_and_one_deep():
+    scene = SampleScene(**{**WAFFLE, "cell_type": "rpe"})
+    bodies = [f for f in scene.features if f.kind == "cell" and f.part == "body"]
+    assert len(bodies) > 20 and {f.layer for f in bodies} == {0}
+    for f in bodies:
+        assert 15e-6 * 0.85 <= f.height <= 20e-6
+        assert f.base > 0 and f.base + f.height < scene.slab_thickness
+    with pytest.raises(ValueError, match="a waffle holds"):
+        SampleScene(**{**WAFFLE, "cell_type": "neuron"})
+
+
+def test_a_trench_wall_in_a_waffle_shows_the_cells_it_cut(microscope, monkeypatch):
+    _face(microscope, "FIB")
+    _use(microscope, **{**WAFFLE, "cell_type": "yeast"})
+    microscope.draw_pattern(
+        FibsemRectangleSettings(
+            width=60e-6, height=50e-6, depth=30e-6, centre_x=0.0, centre_y=0.0
+        )
+    )
+    microscope.run_milling()
+    _face(microscope, "MILLING")
+    _, hit = _trace(microscope, monkeypatch, BeamType.ION, 100e-6)
+    wall = hit["material"][hit["kind"] >= 2]
+    for material in (sim_solid.ICE, sim_solid.CELL, sim_solid.NUCLEUS):
+        assert (wall == material).sum() > 20, material
+    # and whose cell each is: more than one cell shows on the wall
+    cut = (hit["kind"] >= 2) & (hit["material"] == sim_solid.CELL)
+    assert len(np.unique(hit["cell_id"][cut])) >= 3
+
+
+def test_a_target_in_a_waffle_is_inside_its_cell_and_gone_with_it(microscope):
+    """An FM target's height is in its own cell, up in the slab; a trench
+    through the cell takes the target and the cell's glow with it."""
+    _face(microscope, "FIB")
+    scene = _use(
+        microscope, fm_no_target_chance=0.0, **{**WAFFLE, "cell_type": "yeast"}
+    )
+    bodies = {f.cell_id: f for f in scene.features if f.part == "body"}
+    targets = scene.fm_targets()
+    assert targets
+    for target in targets:
+        f = bodies[target["cell_id"]]
+        assert f.base < target["midpoint"][2] < f.base + f.height
+    target = min(targets, key=lambda t: np.hypot(*t["midpoint"][:2]))
+    x, y, z = target["midpoint"]
+    view = sim_solid.Plan(
+        scene, x * 1e6 + np.arange(-8, 8, 0.25), y * 1e6 + np.arange(-8, 8, 0.25)
+    )
+    before, _ = sim_solid.cell_depth(view)
+    assert before[32, 32] > 1.0 and not scene.milled_through(x, y, z)
+    for f in scene.features:
+        f.x -= x
+        f.y -= y
+    object.__setattr__(scene, "_solid_cache", None)
+    microscope.draw_pattern(
+        FibsemRectangleSettings(
+            width=6e-6, height=6e-6, depth=30e-6, centre_x=0.0, centre_y=0.0
+        )
+    )
+    microscope.run_milling()
+    near = np.arange(-8, 8, 0.25)
+    after, _ = sim_solid.cell_depth(sim_solid.Plan(scene, near, near))
+    assert after[32, 32] == 0.0
+    assert scene._milled_away(0.0, 0.0, z)
+
+
+HEXAGONAL = {**PLAIN, "grid_mesh": "hexagonal", "grid_rotation": 0.0}
+
+
+def _bars(scene, half=300.0, step=0.5):
+    line = np.arange(-half, half + step / 2, step)
+    return line, scene.film_masks(line[None, :] * 1e-6, line[:, None] * 1e-6)[0]
+
+
+def test_a_hexagonal_mesh_is_a_honeycomb_about_the_grid_centre():
+    scene = SampleScene(**{**HEXAGONAL, "centre_mark": False})
+    line, bars = _bars(scene)
+    X, Y = np.meshgrid(line, line)
+    disc = np.hypot(X, Y) < 290.0
+    # a hexagon's centre is the grid's centre, and it is open
+    assert not bars[len(line) // 2, len(line) // 2]
+    # the open share is that of hexagons a bar's width smaller than the pitch
+    pitch, bar = scene.grid_pitch, scene.grid_bar_width
+    assert (~bars)[disc].mean() == pytest.approx((1 - bar / pitch) ** 2, abs=0.02)
+    # the same mesh a sixth of a turn round, and not a quarter
+    for turn, same in ((60.0, True), (90.0, False)):
+        c, s = np.cos(np.deg2rad(turn)), np.sin(np.deg2rad(turn))
+        turned = scene.film_masks((X * c - Y * s) * 1e-6, (X * s + Y * c) * 1e-6)[0]
+        assert bool((turned == bars)[disc].mean() > 0.995) is same
+    # six bars of the same width round the middle hexagon
+    along = np.flatnonzero(bars[len(line) // 2] & (line > 0) & (line < pitch * 1e6))
+    assert line[along[0]] == pytest.approx((pitch - bar) / 2 * 1e6, abs=0.6)
+    assert len(along) * 0.5 == pytest.approx(bar * 1e6, abs=1.0)
+
+
+def test_a_square_mesh_is_the_default_and_other_meshes_are_refused():
+    assert SampleScene(**PLAIN).grid_mesh == "square"
+    assert SampleScene.from_config({"grid_mesh": "hexagonal"}).grid_mesh == "hexagonal"
+    with pytest.raises(ValueError, match="grid_mesh"):
+        SampleScene(**{**PLAIN, "grid_mesh": "round"})
+
+
+def test_a_hexagonal_mesh_has_its_mark_its_rips_and_a_waffle_s_cells():
+    plain = SampleScene(**{**HEXAGONAL, "centre_mark": False})
+    marked = SampleScene(**HEXAGONAL)
+    line, bars = _bars(plain, half=120.0)
+    more = _bars(marked, half=120.0)[1] & ~bars
+    X, Y = np.meshgrid(line, line)
+    # the mark is metal added where three hexagons meet, next to the centre
+    assert more.any()
+    assert np.hypot(X[more].mean(), Y[more].mean()) == pytest.approx(
+        plain.grid_pitch * 1e6 / np.sqrt(3), abs=4.0
+    )
+    # a ripped hexagon is torn inside its bars
+    torn = SampleScene(**{**HEXAGONAL, "rip_fraction": 0.3})
+    big = np.arange(-400.0, 400.0, 2.0)
+    t_bars, _, rips, _, _ = torn.film_masks(big[None, :] * 1e-6, big[:, None] * 1e-6)
+    assert rips.any() and not (rips & t_bars).any()
+    # and a waffle's cells keep out of a honeycomb's bars
+    waffle = SampleScene(**{**HEXAGONAL, "preparation": "waffle", "cell_type": "yeast"})
+    near = np.arange(-120.0, 120.0, 0.5)
+    col = sim_solid.columns(waffle, near, near, (0.5, 0.5))
+    in_bar = col["bar"][1] > sim_solid.NONE / 2
+    cells = np.any([col[k][1] > sim_solid.NONE / 2 for k in sim_solid.CELLS], axis=0)
+    assert cells.mean() > 0.05 and not (cells & in_bar).any()
+
+
+WORMS = {
+    **WAFFLE,
+    "cell_type": "celegans",
+    "grid_pitch": 508e-6,
+    "grid_bar_width": 40e-6,
+    "grid_rotation": 0.0,
+}
+
+
+def _worms(scene) -> dict:
+    """Each worm's balls, head first."""
+    worms: dict = {}
+    for f in scene.features:
+        if f.kind == "cell" and f.part in ("segment", "body"):
+            worms.setdefault(f.cell_id, []).append(f)
+    return worms
+
+
+def test_worms_in_a_waffle_are_whole_and_clear_of_the_bars_and_each_other():
+    scene = SampleScene(**WORMS)
+    worms = _worms(scene)
+    assert len(worms) >= 8
+    lo, hi = scene.worm_length
+    for balls in worms.values():
+        assert [f.along for f in balls] == sorted(f.along for f in balls)
+        assert balls[0].along == 0.0 and balls[-1].along == 1.0
+        assert sum(f.part == "body" for f in balls) == 1
+        length = (len(balls) - 1) * sim_solid.WORM_STEP * 1e-6
+        assert lo - 2e-6 <= length <= hi
+        # widest in the middle, a narrow nose, a tail that runs out
+        middle = balls[len(balls) // 2].sigma
+        assert scene.worm_radius[0] <= middle <= scene.worm_radius[1]
+        assert balls[-1].sigma < balls[0].sigma < 0.6 * middle
+        for f in balls:
+            assert f.base > 0 and f.base + f.height < scene.slab_thickness
+    line = np.arange(-250.0, 250.0, 1.0)
+    col = sim_solid.columns(scene, line, line, (1.0, 1.0))
+    bars = col["bar"][1] > sim_solid.NONE / 2
+    body = col["cell"][1] > sim_solid.NONE / 2
+    assert bars.any() and body.mean() > 0.03 and not (body & bars).any()
+    # no two worms touch: each patch of body from above is one worm
+    patches, n = ndi.label(body)
+    for k in range(1, n + 1):
+        assert len(np.unique(col["cell_ids"][0][patches == k])) == 1
+
+
+def test_a_worm_cut_across_shows_its_gut_and_nuclei_inside_it():
+    scene = SampleScene(**WORMS)
+    balls = next(iter(_worms(scene).values()))
+    seen = set()
+    for f in balls[len(balls) // 4 : 3 * len(balls) // 4 : 4]:
+        x = f.x * 1e6 + np.arange(-8.0, 8.0, 0.1)
+        y = f.y * 1e6 + np.arange(-8.0, 8.0, 0.1)
+        col = sim_solid.columns(scene, x, y, (0.1, 0.1))
+        lo, hi = col["cell"]
+        whole = hi > sim_solid.NONE / 2
+        assert whole[80, 80]
+        for n, name in enumerate(sim_solid.ORGANELLES):
+            o_lo, o_hi = col[name]
+            there = o_hi > sim_solid.NONE / 2
+            assert not (there & ~whole).any()
+            assert (o_lo[there] > lo[there]).all() and (o_hi[there] < hi[there]).all()
+            seen |= set(np.unique(col[name + "_is"][there]).tolist())
+        # down the middle: the channel, inside the gut, inside the body
+        gut, channel = col[sim_solid.ORGANELLES[2]], col[sim_solid.ORGANELLES[1]]
+        assert lo[80, 80] < gut[0][80, 80] < channel[0][80, 80]
+        assert channel[1][80, 80] < gut[1][80, 80] < hi[80, 80]
+        for name in sim_solid.NUCLEI:
+            n_lo, n_hi = col[name]
+            there = n_hi > n_lo
+            assert (n_lo[there] > lo[there]).all() and (n_hi[there] < hi[there]).all()
+    assert {sim_solid.GUT, sim_solid.LUMEN, sim_solid.DROPLET} <= seen
+    nuclei = [f for f in scene.features if f.part == "nucleus"]
+    assert len(nuclei) > 100 * len(_worms(scene)) and {f.layer for f in nuclei} == {
+        0,
+        1,
+        2,
+        3,
+    }
+
+
+def test_few_worms_fit_a_fine_mesh_and_a_worm_is_only_for_a_waffle():
+    fine = SampleScene(**{**WAFFLE, "cell_type": "celegans"})
+    assert len(_worms(fine)) < len(_worms(SampleScene(**WORMS)))
+    with pytest.raises(ValueError, match="cell_type must be one of"):
+        SampleScene(**{**PLAIN, "cell_type": "celegans"})
+
+
+CARRIER = {**PLAIN, "preparation": "carrier", "slab_thickness": 200e-6}
+
+
+def test_a_carrier_is_a_deep_block_of_ice_with_no_grid_in_it():
+    scene = SampleScene(**CARRIER)
+    line = np.arange(-300.0, 300.0, 2.0)
+    col = sim_solid.columns(scene, line, line, (2.0, 2.0))
+    assert not (col["bar"][1] > sim_solid.NONE / 2).any()
+    assert sim_solid.film_top(scene) == pytest.approx(-200.0)
+    assert np.all(col["ice"][1] > -2.0) and np.all(col["ice"][0] == -200.0)
+    for thickness in (25e-6, 400e-6):
+        with pytest.raises(ValueError, match="between 50 and 300 um in a carrier"):
+            SampleScene(**{**CARRIER, "slab_thickness": thickness})
+    with pytest.raises(ValueError, match="between 5 and 50 um in a waffle"):
+        SampleScene(**{**WAFFLE, "slab_thickness": 200e-6})
+
+
+def test_a_view_of_a_carrier_looks_only_a_little_under_its_deepest_cut(
+    microscope, monkeypatch
+):
+    _face(microscope, "FIB")
+    scene = _use(microscope, **CARRIER)
+    assert sim_solid.z_min(scene) == -sim_solid.CARRIER_UNDER
+    microscope.draw_pattern(
+        FibsemRectangleSettings(
+            width=20e-6, height=20e-6, depth=40e-6, centre_x=0.0, centre_y=0.0
+        )
+    )
+    microscope.run_milling()
+    assert sim_solid.z_min(scene) == pytest.approx(-40.0 - sim_solid.CARRIER_UNDER)
+    # the floor of the trench is there to be seen
+    _, hit = _trace(microscope, monkeypatch, BeamType.ION, 60e-6)
+    assert hit["z"].min() < -35.0
+
+
+def _embryos(scene) -> list:
+    return [f for f in scene.features if f.kind == "cell" and f.part == "body"]
+
+
+def test_fly_embryos_lie_side_by_side_just_under_the_top_of_a_carrier():
+    scene = SampleScene(**{**CARRIER, "cell_type": "drosophila"})
+    bodies = _embryos(scene)
+    assert len(bodies) >= 4
+    for f in bodies:
+        assert 480e-6 <= 2 * f.sigma <= 520e-6
+        assert 170e-6 <= 2 * f.sigma * f.eccentricity <= 190e-6
+        assert 0 < scene.slab_thickness - (f.base + f.height) < 6e-6
+    line = np.arange(-600.0, 600.0, 4.0)
+    col = sim_solid.columns(scene, line, line, (4.0, 4.0))
+    body = col["cell"][1] > sim_solid.NONE / 2
+    # no two touch: each patch of body from above is one embryo
+    patches, n = ndi.label(body)
+    assert n == len(bodies)
+    for k in range(1, n + 1):
+        assert len(np.unique(col["cell_ids"][0][patches == k])) == 1
+    with pytest.raises(ValueError, match="a carrier 'drosophila'"):
+        SampleScene(**{**WAFFLE, "cell_type": "drosophila"})
+
+
+def test_an_embryo_has_nuclei_in_its_rind_and_yolk_under_it():
+    scene = SampleScene(**{**CARRIER, "cell_type": "drosophila"})
+    f = _embryos(scene)[0]
+    nuclei = [g for g in scene.features if g.part == "nucleus" and g.cell_id == 0]
+    assert len(nuclei) > 3000 and {g.layer for g in nuclei} == {0, 1, 2, 3}
+    x = f.x * 1e6 + np.arange(-30.0, 30.0, 0.2)
+    y = f.y * 1e6 + np.arange(-30.0, 30.0, 0.2)
+    col = sim_solid.columns(scene, x, y, (0.2, 0.2))
+    lo, top = col["cell"]
+    assert (top > sim_solid.NONE / 2).all()
+    y_lo, y_top = col[sim_solid.ORGANELLES[-1]]
+    assert (col[sim_solid.ORGANELLES[-1] + "_is"] == sim_solid.YOLK).all()
+    # the yolk starts a rind's thickness under the top of the embryo
+    assert np.all((top - y_top > 10.0) & (top - y_top < 16.0)) and np.all(y_lo > lo)
+    seen = np.zeros(top.shape, dtype=bool)
+    for name in sim_solid.NUCLEI[:2]:
+        n_lo, n_hi = col[name]
+        there = n_hi > n_lo
+        seen |= there
+        # every nucleus is in the rind: under the top, over the yolk
+        assert np.all(n_hi[there] < top[there]) and np.all(n_lo[there] > y_top[there])
+        assert np.all(n_hi[there] - n_lo[there] < 9.0)
+    assert 0.2 < seen.mean() < 0.8
+
+
+def test_yolk_is_granules_lighter_and_darker_than_its_ground():
+    x, z = np.meshgrid(np.arange(0, 60, 0.1), np.arange(-60, 0, 0.1))
+    grey = sim_solid._yolk(x, np.full(x.shape, 3.0), z, 7)
+    big, small = (g[3] for g in sim_solid.YOLK_GRAINS)
+    assert len(np.unique(grey)) == 3 and grey.min() < 1.0 < grey.max()
+    assert 0.1 < (grey == np.float32(big)).mean() < 0.5
+    assert 0.05 < (grey == np.float32(small)).mean() < 0.4
+    # the same at a point whatever samples it
+    again = sim_solid._yolk(
+        x[::7, ::3], np.full(x[::7, ::3].shape, 3.0), z[::7, ::3], 7
+    )
+    assert np.array_equal(again, grey[::7, ::3])

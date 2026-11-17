@@ -114,6 +114,7 @@
     "name": "odemis-tfs-hydra-meteor-configuration",
     "port": null,
     "serial_number": "Unknown",
+    "server_version": null,
     "software_version": "Unknown"
   },
   "protocol": {

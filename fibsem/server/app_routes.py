@@ -819,7 +819,7 @@ def build_app_router(context: "AppContext") -> APIRouter:
             description=str(body.get("description") or ""),
             include_screenshots=bool(body.get("screenshots")),
             include_agent_log=bool(body.get("agent_log")),
-            system_context=bug_report.collect_system_context(),
+            system_context=bug_report.collect_system_context(context._microscope),
         )
         experiment = context.experiment_path
         with tempfile.TemporaryDirectory() as folder:

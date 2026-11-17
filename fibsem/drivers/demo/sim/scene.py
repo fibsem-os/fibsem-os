@@ -38,6 +38,7 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 from scipy.ndimage import binary_dilation as ndi_binary_dilation
+from scipy.ndimage import distance_transform_edt as ndi_distance
 from scipy.ndimage import gaussian_filter as ndi_gaussian
 from scipy.ndimage import zoom as ndi_zoom
 
@@ -185,6 +186,16 @@ FIDUCIAL_ARM_LENGTH = 8e-6  # m, half-length of each fiducial cross arm
 FIDUCIAL_CLEARING = 34e-6  # m, no cell body centre nearer the cross than this
 FIDUCIAL_POINT_SPACING = 0.5e-6  # m
 # a cell's and a nucleus's radius, in the size of the feature that draws it
+WAFFLE_ROOF = 1.5e-6  # m; the ice left over the highest cell in a waffle
+WAFFLE_FLOOR = 0.3e-6  # m; and under the lowest
+WAFFLE_FILLED = 500e-6  # m; how wide a waffle's cells are grown about its centre
+FM_REACH = 15.0  # how deep the FM sees dye in a carrier's block (um of full dye)
+EMBRYOS_OVER = 1500e-6  # m; how wide a carrier's embryos are laid about its centre
+EMBRYO_RIND = 12e-6  # m; the cytoplasm round an embryo's yolk
+# an embryo's nuclei (m): half as long, half as wide, how far apart, how deep
+EMBRYO_NUCLEUS = (3.6e-6, 2.3e-6, 6.5e-6, 5.5e-6)
+WORM_MAP = 2e-6  # m; the squares of the map worms are laid out on
+WORM_BEND = 16e-6  # m; the tightest a worm curls, as the radius of its middle line
 RPE_RADIUS = sim_solid.RPE_RADIUS
 NUCLEUS_RADIUS = sim_solid.NUCLEUS_RADIUS
 
@@ -210,6 +221,8 @@ class SceneFeature:
     wobble: float = 0.0
     wobble_phase: float = 0.0
     # which part of a cell this is - the FM dyes by part
+    # ("segment": one ball of a worm's body, of which one more is its "body";
+    # "yolk": the middle of an embryo)
     part: str = "body"  # "body" | "nucleus" | "organelle" | "bud" | "neurite"
     cell_id: int = -1
     # how much the feature hides what is under it (film, holes, bars): 0 is
@@ -219,6 +232,13 @@ class SceneFeature:
     # m; a feature with height is a mound the beams see in relief: its
     # slopes shade toward the detector and brighten with steepness
     height: float = 0.0
+    # a cell suspended in a waffle's slab: how far above the film its bottom
+    # floats (m), and which layer of the slab it is in (see sim_solid.LAYERS)
+    base: float = 0.0
+    layer: int = 0
+    # a ball of a worm's body: how far along the worm it is, 0 at the tip of
+    # its head to 1 at the tip of its tail (`angle` is the way the worm runs)
+    along: float = 0.0
 
 
 @dataclass
@@ -277,7 +297,7 @@ class MilledRegion:
     on the surface."""
 
     points: np.ndarray  # (N, 2) world coordinates, in order round the outline
-    depth: float = 1.0  # m, recorded only
+    depth: float = 1.0  # m; how far below the top the pattern cuts
     # m; width of the bright rim round the region. A trench has none; a spot
     # burn has one, the redeposition halo that makes the mark easy to find in
     # the reflection channel and the SEM.
@@ -345,6 +365,30 @@ class SampleScene:
 
     coincidence_offset: float = 10e-6  # m, initial height error at boot
     seed: int = 24
+    # how the grid was frozen: "plunge" (thin ice over cells on the film), or
+    # "waffle" (high-pressure frozen between two planchette hats: a slab of
+    # ice `slab_thickness` thick, flush with the bars standing in it or over
+    # them, the film at its bottom, its top smooth but for the lines of the
+    # hat's polish). A waffle's film is continuous and uncracked
+    preparation: str = "plunge"
+    slab_thickness: float = 25e-6  # m
+    # what is afloat in a waffle's slab is `cell_type`: "yeast", "rpe" (round,
+    # as in suspension; their radius here), "celegans" (young larvae: worms
+    # of the length and radius here, each whole in one square, so they want a
+    # coarse mesh) or "none". It takes up `slab_fill` of the slab's volume in
+    # the squares, over `extent` about the grid's centre (500 um when `extent`
+    # is None: a whole grid is too many cells)
+    slab_fill: float = 0.15
+    suspended_rpe_radius: Tuple[float, float] = (7.5e-6, 10e-6)  # m
+    worm_length: Tuple[float, float] = (180e-6, 250e-6)  # m
+    worm_radius: Tuple[float, float] = (4.5e-6, 6e-6)  # m
+    # a "carrier" holds `cell_type` "drosophila": fly embryos of this length
+    # and width lying side by side, the top of each just under the top of
+    # the ice
+    embryo_length: Tuple[float, float] = (480e-6, 520e-6)  # m
+    embryo_width: Tuple[float, float] = (170e-6, 190e-6)  # m
+    # how strongly the hat's polishing lines show in a waffle's top (0 = none)
+    hat_scratches: float = 1.0
     # what grows on the film: "mammalian" (adherent, fried-egg: a wide flat
     # body with an off-centre nuclear mound and organelle speckle, sparse),
     # "yeast" (compact bright ovoids in clusters, some budding), "bacteria"
@@ -376,6 +420,9 @@ class SampleScene:
     extent: Optional[float] = None
     grid_pitch: float = 125e-6  # m, mesh pitch (~200 mesh)
     grid_bar_width: float = 35e-6  # m
+    # the mesh: "square", or "hexagonal" for a honeycomb of hexagons
+    # `grid_pitch` across their flats
+    grid_mesh: str = "square"
     grid_intensity: float = 90.0  # scales the bars' reflection leak into the FM
     # the support film in each square: "continuous", or "holey" - a
     # Quantifoil-style lattice of round holes (diameter, centre-to-centre
@@ -547,6 +594,28 @@ class SampleScene:
     _index: Optional[FeatureIndex] = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
+        if self.grid_mesh not in ("square", "hexagonal"):
+            raise ValueError(
+                f"grid_mesh is 'square' or 'hexagonal', got {self.grid_mesh!r}"
+            )
+        if self.preparation not in ("plunge", *sim_solid.SLABS):
+            raise ValueError(
+                "preparation must be 'plunge', 'waffle' or 'carrier', "
+                f"got {self.preparation!r}"
+            )
+        if self.preparation in sim_solid.SLABS:
+            carrier = self.preparation == "carrier"
+            lo, hi = (50e-6, 300e-6) if carrier else (5e-6, 50e-6)
+            if not lo <= self.slab_thickness <= hi:
+                raise ValueError(
+                    f"slab_thickness must be between {lo * 1e6:g} and {hi * 1e6:g} um "
+                    f"in a {self.preparation}, got {self.slab_thickness * 1e6:g} um"
+                )
+            if carrier:
+                self.rip_fraction = 0.0
+            self.film = "continuous"
+            self.broken_hole_fraction = 0.0
+            self.crack_density = 0.0
         if self.features:
             return
         rng = np.random.default_rng(self.seed)
@@ -589,7 +658,10 @@ class SampleScene:
             rng = np.random.default_rng(grid.seed)
         half = grid.extent / 2
         start = len(self.features)
-        self._generate_cells(rng, half)
+        if self.preparation in sim_solid.SLABS:
+            self._generate_suspended(grid, half)
+        else:
+            self._generate_cells(rng, half)
         # fiducial-like cross at the grid centre: a dense line of small
         # blobs along each arm, so it goes through the same projection as
         # every other feature
@@ -769,7 +841,7 @@ class SampleScene:
             a = rng.uniform(0, 2 * np.pi)
             reach = float(rng.uniform(0.2, 0.5)) * f.sigma
             px, py = f.x + reach * np.cos(a), f.y + reach * np.sin(a)
-            z = float(rng.uniform(0.3e-6, 0.8 * tall))
+            z = f.base + float(rng.uniform(0.3e-6, 0.8 * tall))
             b = rng.uniform(0, 2 * np.pi)
             edge = 0.8 * pool_sigma
             mx, my = px + edge * np.cos(b), py + edge * np.sin(b)
@@ -1582,13 +1654,12 @@ class SampleScene:
         beyond = ~(inside_any | rim)
         return bars, holes, rips, rim, beyond
 
-    def _centre_mark(self, x_rot: np.ndarray, y_rot: np.ndarray) -> np.ndarray:
-        """The orientation mark at the bar crossing nearest the grid's
-        centre: a bigger square of metal with one corner rounded."""
+    def _centre_mark(self, dx: np.ndarray, dy: np.ndarray) -> np.ndarray:
+        """The orientation mark, from coordinates relative to the bar
+        crossing nearest the grid's centre it sits on: a bigger square of
+        metal with one corner rounded."""
         half = CENTRE_MARK_SIZE * self.grid_bar_width / 2
         corner = 0.6 * half  # radius of the rounded corner
-        dx = x_rot - self.grid_pitch / 2
-        dy = y_rot - self.grid_pitch / 2
         square = (np.abs(dx) <= half) & (np.abs(dy) <= half)
         cut = (dx > half - corner) & (dy > half - corner)
         rounded = np.hypot(dx - (half - corner), dy - (half - corner)) <= corner
@@ -1617,28 +1688,57 @@ class SampleScene:
         x_rot = xs * cos_r + ys * sin_r
         y_rot = -xs * sin_r + ys * cos_r
 
-        def _near_bar(w):
-            return np.abs((w % self.grid_pitch) - self.grid_pitch / 2) < (
-                self.grid_bar_width / 2
+        half_pitch = self.grid_pitch / 2
+        if self.grid_mesh == "hexagonal":
+            # a honeycomb: hexagons `grid_pitch` across their flats, one
+            # centred on the grid's centre. Each point belongs to the hexagon
+            # whose centre is nearest, found on the hexagons' own two axes
+            r = y_rot / (self.grid_pitch * np.sqrt(3) / 2)
+            q = x_rot / self.grid_pitch - r / 2
+            rq, rr, rs = np.round(q), np.round(r), np.round(-q - r)
+            dq, dr, ds = np.abs(rq - q), np.abs(rr - r), np.abs(rs + q + r)
+            rq = np.where((dq > dr) & (dq > ds), -rr - rs, rq)
+            rr = np.where((dr > ds) & ~((dq > dr) & (dq > ds)), -rq - rs, rr)
+            sq_i, sq_j = rq.astype(np.int64), rr.astype(np.int64)
+            # local coordinates within the hexagon, zero at its centre
+            lx = x_rot - self.grid_pitch * (rq + rr / 2)
+            ly = y_rot - self.grid_pitch * rr * np.sqrt(3) / 2
+            # how far out toward the nearest of its six sides
+            out = np.maximum(
+                np.abs(lx),
+                np.maximum(
+                    np.abs(lx / 2 + ly * np.sqrt(3) / 2),
+                    np.abs(lx / 2 - ly * np.sqrt(3) / 2),
+                ),
             )
+            bars = out > half_pitch - self.grid_bar_width / 2
+            # the mark sits where three hexagons meet
+            mark = (half_pitch, half_pitch / np.sqrt(3))
+        else:
 
-        bars = _near_bar(x_rot) | _near_bar(y_rot)
+            def _near_bar(w):
+                return np.abs((w % self.grid_pitch) - self.grid_pitch / 2) < (
+                    self.grid_bar_width / 2
+                )
+
+            bars = _near_bar(x_rot) | _near_bar(y_rot)
+            mark = (half_pitch, half_pitch)
+            # a per-square seeded draw, from the square's lattice index. The
+            # bars sit at half-pitch (the grid centre is a square's centre),
+            # so the square frame is the bar frame shifted by half a pitch
+            sq_i = np.floor((x_rot + half_pitch) / self.grid_pitch).astype(np.int64)
+            sq_j = np.floor((y_rot + half_pitch) / self.grid_pitch).astype(np.int64)
+            # local coordinates within the square, zero at its centre
+            lx = ((x_rot + half_pitch) % self.grid_pitch) - half_pitch
+            ly = ((y_rot + half_pitch) % self.grid_pitch) - half_pitch
         if self.centre_mark:
-            bars |= self._centre_mark(x_rot, y_rot)
+            bars |= self._centre_mark(x_rot - mark[0], y_rot - mark[1])
+        if self.preparation == "carrier":
+            bars = np.zeros_like(bars)  # no grid in it
         radius = np.hypot(xs, ys)
         inside = radius <= grid.radius
         rim = (radius > grid.radius) & (radius <= grid.radius + self.grid_rim_width)
-
-        # a per-square seeded draw, from the square's lattice index. The
-        # bars sit at half-pitch (the grid centre is a square's centre), so
-        # the square frame is the bar frame shifted by half a pitch
-        half_pitch = self.grid_pitch / 2
-        sq_i = np.floor((x_rot + half_pitch) / self.grid_pitch).astype(np.int64)
-        sq_j = np.floor((y_rot + half_pitch) / self.grid_pitch).astype(np.int64)
         square_draw = _lattice_draw(sq_i, sq_j, grid.seed)
-        # local coordinates within the square, zero at its centre
-        lx = ((x_rot + half_pitch) % self.grid_pitch) - half_pitch
-        ly = ((y_rot + half_pitch) % self.grid_pitch) - half_pitch
 
         # the rip: each ripped square its own tear. Every quantity is a
         # seeded per-square draw, so a rip is the same from every view:
@@ -1774,6 +1874,403 @@ class SampleScene:
             else:
                 n = int(round(self.bacteria_density * fields * fraction))
                 next_id = self._generate_bacteria(rng, half, n, next_id)
+
+    def _generate_suspended(self, grid: SceneGrid, half: float) -> None:
+        """The cells afloat in a waffle's slab: round yeast, or epithelial
+        cells rounded up as they are in suspension, each with a nucleus.
+        They fill the squares (none in a bar) to `slab_fill` of the slab's
+        volume, in as many layers as fit one over another, each cell at its
+        own height in its layer and clear of its neighbours."""
+        if self.cell_type == "none":
+            return
+        if self.cell_type == "celegans":
+            return self._generate_worms(grid, half)
+        if self.cell_type == "drosophila" and self.preparation == "carrier":
+            return self._generate_embryos(grid, half)
+        if self.cell_type not in ("yeast", "rpe"):
+            raise ValueError(
+                "a waffle holds cell_type 'yeast', 'rpe', 'celegans' or 'none' "
+                "(and a carrier 'drosophila' too), "
+                f"got {self.cell_type!r}"
+            )
+        yeast = self.cell_type == "yeast"
+        rng = np.random.default_rng([int(grid.seed) & 0x7FFFFFFF, 43])
+        r_lo, r_hi = self.cell_size if yeast else self.suspended_rpe_radius
+        room = self.slab_thickness - WAFFLE_ROOF - WAFFLE_FLOOR
+        if room < 2 * r_lo:
+            return
+        layers = int(np.clip(room // (2.3 * r_hi), 1, sim_solid.LAYERS))
+        band = room / layers
+        half = min(half, (self.extent or WAFFLE_FILLED) / 2)
+        mean = 0.5 * (r_lo + min(r_hi, band / 2))
+        open_share = (1 - self.grid_bar_width / self.grid_pitch) ** 2
+        want = self.slab_fill * (2 * half) ** 2 * open_share * band
+        want = int(want / (4 / 3 * np.pi * mean**3))
+        cell = 2.5 * r_hi  # the side of a square of the neighbour search
+        next_id = 0
+        for layer in range(layers):
+            taken: Dict[Tuple[int, int], List[Tuple[float, float, float]]] = {}
+            xs, ys = rng.uniform(-half, half, size=(2, 6 * want))
+            radius = rng.uniform(r_lo, r_hi, size=6 * want)
+            buds = yeast & (rng.uniform(size=6 * want) < 0.2)
+            turn = rng.uniform(0, 2 * np.pi, size=6 * want)
+            reach = np.where(buds, 1.9, 1.0) * radius
+            clear = np.ones(6 * want, dtype=bool)
+            # clear of the bars and the centre mark: the cell's middle and
+            # two rings of points about it
+            for ring in (0.0, 0.55, 1.08):
+                for t in np.arange(0, 2 * np.pi, np.pi / 4) if ring else (0.0,):
+                    dx, dy = ring * reach * np.cos(t), ring * reach * np.sin(t)
+                    clear &= ~self._grid_masks(grid, xs + dx, ys + dy)[0]
+            placed = 0
+            for k in np.flatnonzero(clear):
+                if placed >= want:
+                    break
+                x, y, r, out = float(xs[k]), float(ys[k]), float(radius[k]), reach[k]
+                i, j = int(x // cell), int(y // cell)
+                near = (
+                    q
+                    for a in (i - 1, i, i + 1)
+                    for b in (j - 1, j, j + 1)
+                    for q in taken.get((a, b), ())
+                )
+                if any(
+                    np.hypot(x - qx, y - qy) < out + qr + 0.2e-6 for qx, qy, qr in near
+                ):
+                    continue
+                taken.setdefault((i, j), []).append((x, y, float(out)))
+                placed += 1
+                tall = min(2 * r * float(rng.uniform(0.88, 1.0)), band - 0.2e-6)
+                base = WAFFLE_FLOOR + layer * band + float(rng.uniform(0, band - tall))
+                where = {"cell_id": next_id, "layer": layer}
+                self.features.append(
+                    SceneFeature(
+                        x=x,
+                        y=y,
+                        sigma=r,
+                        intensity=float(rng.uniform(60, 110)),
+                        sharpness=2.5,
+                        eccentricity=float(rng.uniform(0.9, 1.0)),
+                        angle=float(rng.uniform(0, np.pi)),
+                        wobble=0.0 if yeast else 0.04,
+                        wobble_phase=float(rng.uniform(0, 2 * np.pi)),
+                        opacity=1.0,
+                        height=tall,
+                        base=base,
+                        **where,
+                    )
+                )
+                size = r * (0.4 if yeast else float(rng.uniform(0.45, 0.58)))
+                off, t = (
+                    float(rng.uniform(0, 0.25)) * r,
+                    float(rng.uniform(0, 2 * np.pi)),
+                )
+                self.features.append(
+                    SceneFeature(
+                        x=x + off * np.cos(t),
+                        y=y + off * np.sin(t),
+                        sigma=size,
+                        intensity=8.0,
+                        sharpness=2.0,
+                        part="nucleus",
+                        height=1.8 * size * tall / (2 * r),
+                        base=base + 0.5 * tall - 0.9 * size * tall / (2 * r),
+                        **where,
+                    )
+                )
+                if buds[k]:  # a budding daughter, beside its mother
+                    small = 0.55 * r
+                    self.features.append(
+                        SceneFeature(
+                            x=x + 1.3 * r * np.cos(turn[k]),
+                            y=y + 1.3 * r * np.sin(turn[k]),
+                            sigma=small,
+                            intensity=70.0,
+                            sharpness=2.5,
+                            part="bud",
+                            opacity=1.0,
+                            height=1.9 * small,
+                            base=base + 0.5 * tall - 0.95 * small,
+                            **where,
+                        )
+                    )
+                next_id += 1
+
+    def _generate_worms(self, grid: SceneGrid, half: float) -> None:
+        """C. elegans larvae afloat in a waffle's slab, each a chain of balls
+        down a middle line that wanders and curls, clear of the bars, of the
+        other worms and of itself: a head that narrows to the nose, a tail
+        that runs out to a point, and nuclei through it (many round the
+        pharynx, a few big ones in the intestine's wall, a row under the
+        skin). A worm that cannot run its whole length is not there, so few
+        fit a fine mesh. They fill the squares to `slab_fill`, as far as
+        there is room."""
+        rng = np.random.default_rng([int(grid.seed) & 0x7FFFFFFF, 47])
+        um = 1e-6
+        step = sim_solid.WORM_STEP * um
+        r_lo, r_hi = self.worm_radius
+        room = self.slab_thickness - WAFFLE_ROOF - WAFFLE_FLOOR
+        if room < 2 * r_lo:
+            return
+        r_hi = min(r_hi, room / 2)
+        half = min(half, (self.extent or WAFFLE_FILLED) / 2)
+        # a map of the squares: how far each point is from the nearest bar,
+        # and which worm has taken it (and at which of its steps)
+        side = WORM_MAP
+        n = int(np.ceil(2 * half / side))
+        at = -half + (np.arange(n) + 0.5) * side
+        X, Y = np.meshgrid(at, at)
+        shut = self._grid_masks(grid, X, Y)[0] | (np.hypot(X, Y) > grid.radius)
+        far = ndi_distance(~shut, sampling=side)
+        owner = np.zeros((n, n), dtype=np.int32)
+        since = np.zeros((n, n), dtype=np.int32)
+        keep = 2 * r_hi + 0.5 * um  # between two worms' middle lines
+        k = int(np.ceil(keep / side))
+        dy, dx = np.mgrid[-k : k + 1, -k : k + 1]
+        disc = np.hypot(dx, dy) * side <= keep
+        tightest = 1.0 / WORM_BEND
+        ahead = np.array([2.0, 5.0, 9.0, 13.5, 18.0]) * um
+        # a step this old is far enough back to be met again only by curling
+        recent = int(np.ceil((keep + ahead[-1] + 10 * um) / step))
+        turns = np.linspace(-tightest, tightest, 9)
+
+        def free(px, py, me, now, radius):
+            i = np.floor((px + half) / side).astype(int)
+            j = np.floor((py + half) / side).astype(int)
+            if (i < 0).any() or (j < 0).any() or (i >= n).any() or (j >= n).any():
+                return False
+            if (far[j, i] < radius + 1.5 * um).any():
+                return False
+            whose = owner[j, i]
+            mine = (whose == me) & (now - since[j, i] < recent)
+            return bool(((whose == 0) | mine).all())
+
+        mean = np.pi * (0.5 * (r_lo + r_hi)) ** 2 * 0.5 * sum(self.worm_length)
+        want = int(self.slab_fill * (~shut).sum() * side**2 * room / mean)
+        worm = 0
+        for _ in range(6 * want):
+            if worm >= want:
+                break
+            radius = float(rng.uniform(r_lo, r_hi))
+            steps = int(rng.uniform(*self.worm_length) / step)
+            x, y = rng.uniform(-half, half, size=2)
+            heading, bend = rng.uniform(0, 2 * np.pi), 0.0
+            me = worm + 1
+            if not free(np.array([x]), np.array([y]), me, 0, radius):
+                continue
+            line = []
+            for now in range(steps):
+                line.append((x, y, heading))
+                i, j = int((x + half) // side), int((y + half) // side)
+                a, b = max(j - k, 0), max(i - k, 0)
+                part = disc[a - (j - k) :, b - (i - k) :][: n - a, : n - b]
+                box = (slice(a, a + part.shape[0]), slice(b, b + part.shape[1]))
+                new = part & (owner[box] == 0)
+                owner[box][new] = me
+                since[box][new] = now
+                # it turns as little off its own way as the room lets it
+                bend = 0.9 * bend + float(rng.normal(0, 0.2 * tightest))
+                bend = float(np.clip(bend, -tightest, tightest))
+                for turn in sorted(turns, key=lambda t: abs(t - bend)):
+                    # the points ahead on the arc this turn makes
+                    t = heading + turn * ahead
+                    if abs(turn) < 1e-9:
+                        px, py = (
+                            x + ahead * np.cos(heading),
+                            y + ahead * np.sin(heading),
+                        )
+                    else:
+                        px = x + (np.sin(t) - np.sin(heading)) / turn
+                        py = y - (np.cos(t) - np.cos(heading)) / turn
+                    if free(px, py, me, now, radius):
+                        break
+                else:
+                    break  # nowhere to go
+                bend = float(turn)
+                x += step * np.cos(heading + 0.5 * bend * step)
+                y += step * np.sin(heading + 0.5 * bend * step)
+                heading += bend * step
+            if len(line) < steps:
+                owner[owner == me] = 0
+                continue
+            self._worm(rng, np.array(line), radius, room, worm)
+            worm += 1
+
+    def _worm(self, rng, line: np.ndarray, radius: float, room: float, cell_id: int):
+        """One worm's features from its middle line (x, y, heading at each
+        step): the balls of its body, and its nuclei."""
+        um = 1e-6
+        n = len(line)
+        along = np.arange(n) / (n - 1)
+        # how wide it is along its length: the head narrows to the nose, the
+        # tail runs out to a point
+        wide = np.minimum(1.0, 0.45 + 0.55 * (along / 0.12) ** 0.7)
+        tail = np.clip((along - 0.78) / 0.22, 0, 1)
+        wide = radius * wide * (1 - 0.88 * tail**1.3)
+        axis = WAFFLE_FLOOR + radius + float(rng.uniform(0, room - 2 * radius))
+        intensity = float(rng.uniform(60, 110))
+        for i in range(n):
+            x, y, heading = line[i]
+            self.features.append(
+                SceneFeature(
+                    x=float(x),
+                    y=float(y),
+                    sigma=float(wide[i]),
+                    intensity=intensity,
+                    sharpness=2.5,
+                    angle=float(heading),
+                    part="body" if i == n // 2 else "segment",
+                    cell_id=cell_id,
+                    opacity=1.0,
+                    height=2 * float(wide[i]),
+                    base=axis - float(wide[i]),
+                    along=float(along[i]),
+                )
+            )
+        # nuclei: (how many, from and to where along it, from and to how far
+        # off the middle line as a share of the radius, their radius um)
+        groups = (
+            (70, (0.03, 0.21), (0.62, 0.86), (0.55, 0.8)),  # round the pharynx
+            (60, (0.2, 0.9), (0.76, 0.88), (0.6, 0.9)),  # under the skin
+            (20, (0.24, 0.86), (0.36, 0.46), (1.0, 1.3)),  # in the intestine's wall
+            (15, (0.88, 0.95), (0.0, 0.6), (0.55, 0.8)),  # in the tail
+        )
+        placed = np.zeros((0, 4))  # x, y, radius, layer
+        for count, where, off, size in groups:
+            for _ in range(count):
+                s = float(rng.uniform(*where)) * (n - 1)
+                i = int(s)
+                x, y, heading = line[i] + (s - i) * (line[min(i + 1, n - 1)] - line[i])
+                r = float(rng.uniform(*size)) * um
+                turn = float(rng.uniform(0, 2 * np.pi))
+                d = float(rng.uniform(*off)) * wide[i]
+                d = min(d, wide[i] - r - 0.3 * um)
+                if d < 0:
+                    continue
+                across = d * np.cos(turn)
+                x, y = x - across * np.sin(heading), y + across * np.cos(heading)
+                z = axis + d * np.sin(turn)
+                # a column holds one nucleus at each of four heights of the worm
+                layer = int(
+                    np.clip(
+                        (z - axis + radius) / (2 * radius) * 4, 0, sim_solid.LAYERS - 1
+                    )
+                )
+                near = placed[placed[:, 3] == layer]
+                if (np.hypot(near[:, 0] - x, near[:, 1] - y) < near[:, 2] + r).any():
+                    continue
+                placed = np.vstack([placed, (x, y, r, layer)])
+                self.features.append(
+                    SceneFeature(
+                        x=float(x),
+                        y=float(y),
+                        sigma=r,
+                        intensity=8.0,
+                        sharpness=2.0,
+                        part="nucleus",
+                        cell_id=cell_id,
+                        height=2 * r,
+                        base=float(z) - r,
+                        layer=layer,
+                    )
+                )
+
+    def _generate_embryos(self, grid: SceneGrid, half: float) -> None:
+        """Fly embryos in a carrier's block, lying side by side, the top of
+        each just under the top of the ice: an egg with a rind of cytoplasm,
+        one layer of nuclei in it all the way round (each longer toward the
+        outside than across), and yolk in the middle."""
+        rng = np.random.default_rng([int(grid.seed) & 0x7FFFFFFF, 53])
+        um = 1e-6
+        room = self.slab_thickness - WAFFLE_ROOF - WAFFLE_FLOOR
+        half = min(half, (self.extent or EMBRYOS_OVER) / 2)
+        pitch = self.embryo_width[1] + 25 * um
+        way = float(rng.uniform(0, np.pi))  # they all lie about one way
+        rows = int(half // pitch)
+        cell_id = 0
+        for row in range(-rows, rows):
+            a = 0.5 * float(rng.uniform(*self.embryo_length))
+            b = 0.5 * float(rng.uniform(*self.embryo_width))
+            c = min(b, room / 2)
+            run, across = float(rng.uniform(-60, 60)) * um, (row + 0.5) * pitch
+            x = run * np.cos(way) - across * np.sin(way)
+            y = run * np.sin(way) + across * np.cos(way)
+            if np.hypot(x, y) + a > grid.radius:
+                continue
+            angle = way + float(rng.normal(0, np.deg2rad(4)))
+            base = max(room - 2 * c - float(rng.uniform(0, 4)) * um, 0.0)
+            base += WAFFLE_FLOOR
+            shape = {"x": x, "y": y, "angle": angle, "cell_id": cell_id, "opacity": 1.0}
+            self.features.append(
+                SceneFeature(
+                    sigma=a,
+                    eccentricity=b / a,
+                    intensity=float(rng.uniform(60, 110)),
+                    sharpness=2.5,
+                    height=2 * c,
+                    base=base,
+                    **shape,
+                )
+            )
+            rind = EMBRYO_RIND
+            self.features.append(
+                SceneFeature(
+                    sigma=a - rind,
+                    eccentricity=(b - rind) / (a - rind),
+                    intensity=40.0,
+                    sharpness=2.5,
+                    part="yolk",
+                    height=2 * (c - rind),
+                    base=base + rind,
+                    **shape,
+                )
+            )
+            # the nuclei: rings round the egg from one end to the other, on
+            # the egg a little way in from its outside
+            long, wide, apart, deep = EMBRYO_NUCLEUS
+            A, B, C = a - deep, b - deep, c - deep
+            t, ring = 0.5 * apart / B, 0
+            cos_a, sin_a = np.cos(angle), np.sin(angle)
+            while t < np.pi:
+                count = max(int(round(np.pi * (B + C) * np.sin(t) / apart)), 1)
+                turn = 2 * np.pi * (np.arange(count) + 0.5 * (ring % 2)) / count
+                turn = turn + rng.normal(0, 0.08 * apart / (B * np.sin(t)), count)
+                p = np.stack(
+                    [
+                        np.full(count, A * np.cos(t)),
+                        B * np.sin(t) * np.cos(turn),
+                        C * np.sin(t) * np.sin(turn),
+                    ]
+                )
+                p = p + rng.normal(0, 0.1 * apart, p.shape)
+                n = p / np.array([[A * A], [B * B], [C * C]])
+                n = n / np.linalg.norm(n, axis=0)
+                flat = np.hypot(n[0], n[1])  # how far the way out lies over
+                size = rng.uniform(0.9, 1.1, count)
+                along = size * np.hypot(long * flat, wide * n[2])
+                up = size * np.hypot(long * n[2], wide * flat)
+                for k in range(count):
+                    self.features.append(
+                        SceneFeature(
+                            x=float(x + p[0, k] * cos_a - p[1, k] * sin_a),
+                            y=float(y + p[0, k] * sin_a + p[1, k] * cos_a),
+                            sigma=float(along[k]),
+                            eccentricity=float(size[k] * wide / along[k]),
+                            angle=float(angle + np.arctan2(n[1, k], n[0, k])),
+                            intensity=8.0,
+                            sharpness=2.0,
+                            part="nucleus",
+                            cell_id=cell_id,
+                            height=2 * float(up[k]),
+                            base=float(base + c + p[2, k] - up[k]),
+                            # two layers for the top half and two for the
+                            # bottom, a ring in one and the next in the other
+                            layer=ring % 2 + (2 if p[2, k] < 0 else 0),
+                        )
+                    )
+                t += apart / np.hypot(A * np.sin(t), B * np.cos(t))
+                ring += 1
+            cell_id += 1
 
     def _generate_yeast(self, rng, half, fraction, next_id) -> int:
         """Clumps of small round cells packed against each other: each new
@@ -2113,6 +2610,15 @@ class SampleScene:
         "tilt_axis_offset",  # m
         "grids_from_holder",
         "seed",
+        "preparation",  # plunge | waffle | carrier
+        "slab_thickness",  # m
+        "slab_fill",
+        "suspended_rpe_radius",  # [min, max] m
+        "worm_length",  # [min, max] m
+        "worm_radius",  # [min, max] m
+        "embryo_length",  # [min, max] m
+        "embryo_width",  # [min, max] m
+        "hat_scratches",
         "cell_type",  # mammalian | yeast | bacteria | mixed
         "n_clusters",
         "cells_per_cluster",  # [min, max]
@@ -2131,6 +2637,7 @@ class SampleScene:
         "extent",  # m
         "grid_pitch",  # m
         "grid_bar_width",  # m
+        "grid_mesh",  # square | hexagonal
         "grid_intensity",
         "noise_sigma",
         "noise_fraction",
@@ -2209,6 +2716,11 @@ class SampleScene:
             "sphere_size",
             "damage_below",
             "rpe_radius",
+            "suspended_rpe_radius",
+            "worm_length",
+            "worm_radius",
+            "embryo_length",
+            "embryo_width",
             "soma_radius",
             "neurite_length",
         ):
@@ -2433,7 +2945,7 @@ class SampleScene:
                     weight = FM_INTENSITY * body_dye * 0.6
                 else:
                     weight = FM_INTENSITY * body_dye
-                if f.part in ("body", "nucleus", "bud"):
+                if f.part in ("body", "nucleus", "bud", "segment", "yolk"):
                     # the solid sample: a dye through the cell glows by how
                     # much cell there is (see _fm_glow), not as a flat shape
                     if f.part != "nucleus":
@@ -2461,7 +2973,8 @@ class SampleScene:
             # through, so from above a trench reaches as far as the SEM sees
             gone = self.milled_fraction(xs_world, ys_world)
             canvas *= 1.0 - gone
-        if dyed:
+        waffle = self.preparation in sim_solid.SLABS
+        if dyed and not waffle:
             canvas += self._fm_glow(dyed, xs_world, ys_world, pixel_size)
         if bars > 0 and self.milled:
             # the leaked reflection is dark where the view passes through
@@ -2479,6 +2992,11 @@ class SampleScene:
         canvas[beyond] = 0.0
 
         canvas = self._fm_focus(canvas, defocus)
+        if dyed and waffle:
+            # cells through a slab: each layer in or out of focus by itself
+            glow = self._fm_glow(dyed, xs_world, ys_world, pixel_size, defocus or 0.0)
+            glow[rim | beyond] = 0.0
+            canvas += glow
 
         view = (ax, ay, cx, cy, pixel_size, fs, turn)
         if getattr(self, "fm_spots", None):
@@ -2540,24 +3058,53 @@ class SampleScene:
                 )
         return r
 
-    def _fm_glow(self, dyed: dict, xs_world, ys_world, pixel_size) -> np.ndarray:
+    def _fm_glow(
+        self, dyed: dict, xs_world, ys_world, pixel_size, defocus=None
+    ) -> np.ndarray:
         """The glow of cells dyed through: brightest where the cell is
         thickest, gone where it was milled away, with the haze a widefield
-        FM adds from above and below the focal plane."""
+        FM adds from above and below the focal plane. With `defocus` (m, the
+        height in focus) the cells of a waffle's slab are blurred a layer at
+        a time, each by how far it lies from that height."""
         plan, step = self._plan
-        cell_id = plan.col["cell_id"]
         ids = np.array(sorted(dyed), dtype=np.int64)
         level = np.array([dyed[i] for i in ids], dtype=np.float32)
-        at = np.clip(np.searchsorted(ids, cell_id), 0, len(ids) - 1)
-        dye = np.where(ids[at] == cell_id, level[at], 0.0)
-        depth, _ = sim_solid.cell_depth(plan, lean=self._fm_lean(step), dye=dye)
-        glow = depth / FM_CELL_DEPTH
+
+        def dye(cell_id):
+            at = np.clip(np.searchsorted(ids, cell_id), 0, len(ids) - 1)
+            return np.where(ids[at] == cell_id, level[at], 0.0)
+
         height, width = ys_world.shape[0], xs_world.shape[1]
-        glow = self._fm_full(glow.astype(np.float32), step, height, width)
-        sharp = _blur(glow, max(FM_PSF_SIGMA / pixel_size, 0.6))
-        haze = _blur(glow, min(FM_GLOW_HAZE / pixel_size, 60.0))
-        # a real cell is not evenly dyed: brighter and dimmer patches
         um = sim_view.UM
+
+        def seen(layer=None, away=0.0):
+            depth, _ = sim_solid.cell_depth(
+                plan, lean=self._fm_lean(step), dye=dye, layer=layer
+            )
+            if self.preparation == "carrier":
+                # the light does not go far into a block: what is dyed deep
+                # in it adds less and less
+                depth = FM_REACH * np.tanh(depth / FM_REACH)
+            glow = self._fm_full(
+                (depth / FM_CELL_DEPTH).astype(np.float32), step, height, width
+            )
+            blur = min(abs(away) * um * self.fm_blur_px_per_um, 40.0)
+            sharp = _blur(
+                glow, float(np.hypot(max(FM_PSF_SIGMA / pixel_size, 0.6), blur))
+            )
+            haze = _blur(glow, min(FM_GLOW_HAZE / pixel_size, 60.0))
+            return sharp, haze
+
+        if defocus is None:
+            sharp, haze = seen()
+        else:
+            sharp = np.zeros((height, width), dtype=np.float32)
+            haze = np.zeros((height, width), dtype=np.float32)
+            for layer, middle in enumerate(sim_solid.layer_heights(plan)):
+                if middle is not None:
+                    a, b = seen(layer, float(defocus) - middle / um)
+                    sharp, haze = sharp + a, haze + b
+        # a real cell is not evenly dyed: brighter and dimmer patches
         wx, wy = np.broadcast_arrays(xs_world * um, ys_world * um)
         patchy = 1 + 0.3 * sim_view.value_noise(wx, wy, 6.0, int(self.seed) + 71)
         return (0.3 * sharp + 0.7 * haze) * np.clip(patchy, 0.5, 1.5)
@@ -2777,6 +3324,7 @@ class SampleScene:
                 )
                 tubes.append(start + np.cumsum(step, axis=0))
             pts = np.concatenate(tubes)
+        pts[:, 2] += f.base
         cache[key] = pts
         return pts
 
@@ -2909,9 +3457,9 @@ class SampleScene:
             len(xs_world[0, :: plan[1]]),
         ):
             # the solid sample: its cells stand taller, from the film up
-            film = sim_solid.FILM_TOP
+            film = sim_solid.film_top(self)
             gone = plan[0].fraction(
-                film + 0.05, film + 2 * top * um, lean=self._fm_lean(plan[1])
+                film + 0.05, max(film + 2 * top * um, 0.0), lean=self._fm_lean(plan[1])
             )
             return self._fm_full(gone, plan[1], ys_world.shape[0], xs_world.shape[1])
         xs, ys = np.broadcast_arrays(xs_world * um, ys_world * um)
@@ -3023,7 +3571,7 @@ class SampleScene:
         """The height (m) of the film in the focal frame: heights in the FM
         are given above the film, and the solid sample's film lies under its
         ice, below the plane the stage brings into focus."""
-        return sim_solid.FILM_TOP / sim_view.UM
+        return sim_solid.film_top(self) / sim_view.UM
 
     def _in_red_subset(self, cell_id: int) -> bool:
         """Whether a cell carries the subset dye: drawn from the seed and

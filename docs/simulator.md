@@ -90,6 +90,108 @@ Cell bodies are opaque: they hide the film, holes and bars under them.
 - **Contamination** (`contamination_density`): small bright specks over film and bars
   alike, the aperiodic content that breaks a mesh-pitch alias in real images.
 
+## Hexagonal mesh
+
+![A hexagonal mesh, plunge frozen and as a waffle](img/simulator/hexagonal-mesh.jpg)
+
+`grid_mesh: hexagonal` makes the bars a honeycomb: hexagons `grid_pitch` across their flats,
+one centred on the grid's centre, with the orientation mark where three of them meet. Rips,
+cells and a waffle's slab follow the hexagons as they do the squares of the default
+`square` mesh.
+
+## Waffle grids
+
+![A waffle grid](img/simulator/waffle.jpg)
+
+`preparation: waffle` makes the grid a high-pressure frozen one (the Waffle Method) instead
+of a plunge frozen one. The ice is a slab `slab_thickness` thick (25 um by default, 5 to 50)
+that fills the squares, with the film at its bottom and the bars standing in it. At 25 um the
+slab is flush with the bars, which show faintly through a skin of ice; a thicker slab buries
+them. The top is flat but for the fine parallel lines the planchette hat's polish leaves
+(`hat_scratches`, 0 for none), and ice plates, frost and contamination lie on it as on any
+grid. A ripped square is one the slab is missing from.
+
+A view of a waffle looks down through the whole slab, so a trench milled square on to the
+grid shows its walls from the milling angle, and what is cleared from under the slab shows
+from both beams. A pattern cuts only as deep as it is set, so a trench goes through the slab
+only if its depth is more than the slab's thickness. A render of a waffle takes up to about
+twice as long as one of a plunge frozen grid.
+
+The film of a waffle is continuous and uncracked.
+
+### Cells in the slab
+
+![Yeast and RPE cells in a waffle](img/simulator/waffle-cells.jpg)
+
+The cells of a waffle float in the slab instead of lying on the film. `cell_type` is `yeast`,
+`rpe`, `celegans` (see below) or `none` (any other type is an error): yeast are round cells of `cell_size`, some with
+a bud, and RPE cells are rounded up as they are in suspension (`suspended_rpe_radius`, 15 to
+20 um across). They fill the squares, none in a bar, to `slab_fill` of the slab's volume, in
+as many layers one over another as the slab has room for (up to four): three of yeast and one
+of RPE in a 25 um slab. Each cell has a nucleus and its organelles, and the FM targets sit
+inside the cells as on a plunge frozen grid.
+
+From above a cell under the top does not show. A trench wall or a lamella's face shows the
+cells and nuclei it cut, and the FM sees every layer, each blurred by how far it is from the
+focus, so a stack through the slab brings one layer after another into focus.
+
+### Worms in the slab
+
+![C. elegans larvae in a waffle](img/simulator/waffle-worms.jpg)
+
+With `cell_type: celegans` the slab holds young C. elegans larvae: worms `worm_length` long
+and `worm_radius` thick, each a curled tube with a head that narrows to the nose and a tail
+that runs out to a point. Inside are the pharynx with its two bulbs, the intestine with the
+channel down its middle and granules in its wall, and a few hundred nuclei: many round the
+pharynx, big ones in the intestine's wall, a row under the skin. A trench wall or a lamella's
+face shows whichever of these it cut, and the FM shows the worms whole, with one target in a
+share of them.
+
+Each worm lies whole in one square, clear of the bars, of the other worms and of itself, so
+worms want a coarse mesh, as they do on a real grid:
+
+```yaml
+sim:
+  sample:
+    preparation: waffle
+    cell_type: celegans
+    grid_pitch: 508.0e-6      # 50 mesh; or 339.0e-6 with grid_mesh: hexagonal
+    grid_bar_width: 40.0e-6
+```
+
+On the default 200 mesh only the odd worm finds room to curl up in a square.
+
+Cells are grown over the middle 500 um of the grid (the scene's `extent`, if set, instead),
+since a whole grid of yeast is about half a million cells.
+
+## Carriers
+
+![Fly embryos in a carrier](img/simulator/carrier-embryos.jpg)
+
+`preparation: carrier` is a sample high-pressure frozen in a carrier's cavity, for images of
+bulk samples: a block of ice `slab_thickness` deep (50 to 300 um) with no grid in it, its top
+as flat and as scratched as a waffle's. What a waffle can hold a carrier can too, and with
+`cell_type: drosophila` it holds fly embryos:
+
+```yaml
+sim:
+  sample:
+    preparation: carrier
+    slab_thickness: 200.0e-6
+    cell_type: drosophila
+```
+
+The embryos (`embryo_length` by `embryo_width`) lie side by side about the middle of the
+carrier, the top of each a few microns under the top of the ice. An embryo is an egg with a
+rind of cytoplasm 12 um thick, one layer of nuclei in it all the way round, and yolk in the
+middle: granules packed together, the big ones a little lighter than the ground between them
+and the small ones darker. A trench into an embryo shows the rind and its nuclei on its wall
+and, where it goes deep enough, the yolk. The FM sees the embryos whole, though only the top
+of each: light does not go far into a block.
+
+A view of a carrier looks only a little under the deepest cut made so far, since the block
+is far deeper than anything is milled. Lift-out is not simulated.
+
 ## Charging and coating
 
 An uncoated grid charges in the SEM (`charging`, 0 turns it off): cells, ice plates and
@@ -385,6 +487,7 @@ are in degrees, ranges are two-element lists, lengths in metres.
 | -- | -- | -- |
 | `grid_pitch` | 0.000125 | mesh pitch (m); 125 um is a 200 mesh |
 | `grid_bar_width` | 3.5e-05 | bar width (m) |
+| `grid_mesh` | square | `square`, or `hexagonal` for a honeycomb of hexagons `grid_pitch` across their flats |
 | `grid_intensity` | 90 | how much reflected light from the bars leaks into a fluorescence channel |
 | `grid_radius` | 0.0014 | usable film radius (m); past it the rim, then the holder |
 | `grid_rim_width` | 0.00015 | the metal rim's width (m) |
@@ -396,11 +499,25 @@ are in degrees, ranges are two-element lists, lengths in metres.
 | `broken_hole_fraction` | 0.006 | holey film: fraction of holes broken into larger openings |
 | `fiducial` | False | a cross at each grid centre, a navigation landmark; absent on a real grid, so off by default |
 
+### Waffle
+
+| key | default | what it does |
+| -- | -- | -- |
+| `preparation` | plunge | `plunge`, `waffle` for a high-pressure frozen slab on a grid, or `carrier` for a block in a carrier |
+| `slab_thickness` | 2.5e-05 | how thick the ice is (m): 5 to 50 um in a waffle, 50 to 300 um in a carrier |
+| `hat_scratches` | 1.0 | waffle: how strongly the hat's polishing lines show in the top (0 = none) |
+| `slab_fill` | 0.15 | waffle: the share of the slab's volume that is cells |
+| `suspended_rpe_radius` | (7.5e-06, 1e-05) | waffle: the radius of a rounded RPE cell (m) |
+| `worm_length` | (0.00018, 0.00025) | waffle: how long a `celegans` worm is (m) |
+| `worm_radius` | (4.5e-06, 6e-06) | waffle: how thick it is at its middle, as a radius (m) |
+| `embryo_length` | (0.00048, 0.00052) | carrier: how long a `drosophila` embryo is (m) |
+| `embryo_width` | (0.00017, 0.00019) | carrier: how wide it is (m) |
+
 ### Cells
 
 | key | default | what it does |
 | -- | -- | -- |
-| `cell_type` | rpe | `rpe` (default), `mammalian`, `yeast`, `bacteria`, `mixed`, `none` |
+| `cell_type` | rpe | `rpe` (default), `mammalian`, `yeast`, `bacteria`, `mixed`, `none`; in a waffle `yeast`, `rpe`, `celegans`, `none`; in a carrier those and `drosophila` |
 | `extent` | None | content is grown over +/- extent/2 about the grid centre, on the grid's disc (m); None fills the whole grid |
 | `mammalian_density` | 7 | mammalian: cells per 150 x 150 um |
 | `mammalian_radius` | [1.8e-05, 3e-05] | mammalian: body radius range (m) |

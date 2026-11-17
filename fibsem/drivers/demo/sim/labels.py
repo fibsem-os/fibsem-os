@@ -63,7 +63,15 @@ for _number, _name, _colour in CLASSES:
 # what gets a box of its own in the annotations, beside each cell
 BOXED = ("contamination", "ice plate", "broken hole or rip", "fiducial")
 MIN_AREA = 60  # px; a smaller patch gets no box
-IN_CELL = (sim_solid.CELL, sim_solid.NUCLEUS, sim_solid.DROPLET, sim_solid.VESICLE)
+IN_CELL = (
+    sim_solid.CELL,
+    sim_solid.NUCLEUS,
+    sim_solid.DROPLET,
+    sim_solid.VESICLE,
+    sim_solid.GUT,
+    sim_solid.LUMEN,
+    sim_solid.YOLK,
+)
 
 
 @dataclass
