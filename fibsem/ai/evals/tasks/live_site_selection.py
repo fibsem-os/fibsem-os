@@ -17,9 +17,10 @@ import numpy as np
 from fibsem.ai.evals.cases import Case
 from fibsem.ai.evals.scoring import InvalidAnswer
 from fibsem.ai.evals.tasks.base import EvalTask, Run, Sim
-from fibsem.ai.evals.visual import KEY, _colour, _figure, _legend
+from fibsem.ai.evals.visual import KEY, THEME, _colour, _figure, _legend
 from fibsem.geometry.saved_images import stage_projector
 from fibsem.structures.settings import FibsemStagePosition
+from fibsem.theme.tokens import SAVED_POSITION_COLOUR
 
 VERDICTS = ("good", "bad")
 # How far a site may be from a cell body's edge and still be on it (m): a
@@ -28,10 +29,16 @@ ON_CELL_SLACK = 1e-6
 BAD_SQUARES = ("damaged", "thick")
 FLAT = math.radians(1.0)  # a pose this near no tilt is at the SEM orientation
 # A site is ready to mill when the SEM's and FIB's view centres meet within
-# this (m) at its saved pose, and its SEM image is sharp: the beam's spread
-# from being out of focus under this many pixels
-COINCIDENT = 1e-6
+# this (m) as the FIB image shows it at its saved pose, and its SEM image is
+# sharp: the beam's spread from being out of focus under this many pixels.
+# The operator's limit is 5 um in a 50 um FIB image; the FIB looks at the film
+# from 52 degrees, so a gap on the sample shows shortened by FIB_VIEW.
+COINCIDENT = 5e-6
+FIB_VIEW = math.cos(math.radians(52.0))
 SHARP_PX = 2.0
+# Coincidence is made by moving the stage vertically; a beam left shifted
+# by more than this (m) at the end of the run fails every site's readiness
+BEAM_SHIFT = 0.1e-6
 NEAR = 5e-6  # m, an image this near a site's x, y is of it
 SITE_HFW = 300e-6  # m, wider than this is not a look at one site
 
@@ -106,7 +113,8 @@ def prepared(
     z = float(at.get("z") or 0.0)
     off = optics["coincidence_per_z"] * abs(z - optics["coincident_z"])
     out["coincidence_um"] = round(off * 1e6, 2)
-    out["coincident"] = off <= COINCIDENT
+    out["coincidence_fib_um"] = round(off * FIB_VIEW * 1e6, 2)
+    out["coincident"] = off * FIB_VIEW <= COINCIDENT
     images = [
         image
         for image in (answer.get("record") or {}).get("images") or []
@@ -189,6 +197,12 @@ def score_live_site_selection(
         per_site.append(entry)
     counted = len(sites[:most])
     record = answer.get("record") or {}
+    shifted = beam_shifts(record)
+    if shifted:
+        for p in per_site:
+            if p.get("coincident"):
+                p["coincident"] = False
+                p["by_beam_shift"] = True
     scored = [p for p in per_site if "coincident" in p]
     said_good = [p for p in scored if p["verdict"] == "good"]
     # what a site called good must be left with to count as ready to mill:
@@ -220,6 +234,8 @@ def score_live_site_selection(
         "steps": steps,
         "per_site": per_site,
     }
+    if shifted:
+        details["beam_shift_um"] = shifted
     if scored:
         details.update(
             coincident=sum(1 for p in scored if p["coincident"]),
@@ -241,12 +257,25 @@ def score_live_site_selection(
     return ("hit" if hit else "miss"), details
 
 
+def beam_shifts(record: Dict[str, Any]) -> Dict[str, float]:
+    """Each beam left shifted at the end of the run, by how far (um): the
+    run's record holds each beam's shift (x, y) in metres."""
+    out = {}
+    for beam, shift in (record.get("beam_shifts") or {}).items():
+        if not shift:
+            continue
+        size = math.hypot(float(shift[0]), float(shift[1]))
+        if size > BEAM_SHIFT:
+            out[beam] = round(size * 1e6, 2)
+    return out
+
+
 SQUARE_COLOURS = {
     "good": KEY,
-    "cell_near_bar": "#e6a700",
-    "no_cells": "#999999",
-    "damaged": "#d62728",
-    "thick": "#1f77b4",
+    "cell_near_bar": THEME.warn,
+    "no_cells": THEME.text_muted,
+    "damaged": THEME.bad,
+    "thick": THEME.series[0],
 }
 
 
@@ -277,7 +306,7 @@ def _overview(answer: Any) -> Any:
 def _draw_overlays(case: Case, shown: List[Tuple[int, Dict[str, Any], Path]]):
     """One panel per repeat: its overview, the key's squares (by label) and
     good cells projected onto it, and its sites (o said good, x said bad;
-    cyan truly good, pink truly bad, yellow unsure)."""
+    cyan truly good, red truly bad, amber unsure)."""
     import tifffile
     from matplotlib.patches import Polygon
 
@@ -287,7 +316,7 @@ def _draw_overlays(case: Case, shown: List[Tuple[int, Dict[str, Any], Path]]):
     u, v = np.asarray(frame["u"], float), np.asarray(frame["v"], float)
     corners = [half * (a * u + b * v) for a, b in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
     labels = {tuple(q["index"]): q["label"] for q in key.get("squares") or []}
-    truth_colours = {"good": "#00e5ff", "bad": "#ff2d55"}
+    truth_colours = {"good": SAVED_POSITION_COLOUR, "bad": THEME.bad}
     fig, axes = _figure(12, 8 * len(shown), nrows=len(shown))
     for ax, (n, answer, path) in zip(np.atleast_1d(axes), shown):
         image = tifffile.imread(str(path))
@@ -311,7 +340,7 @@ def _draw_overlays(case: Case, shown: List[Tuple[int, Dict[str, Any], Path]]):
                     [px(centre + c) for c in corners],
                     closed=True,
                     fill=False,
-                    color=SQUARE_COLOURS.get(square["label"], "#999999"),
+                    color=SQUARE_COLOURS.get(square["label"], THEME.text_muted),
                     lw=1.4 if certain else 0.8,
                     ls="-" if certain else ":",
                 )
@@ -330,7 +359,7 @@ def _draw_overlays(case: Case, shown: List[Tuple[int, Dict[str, Any], Path]]):
             if where is None:
                 continue
             truth = site_truth(key, where["x"], where["y"])["truth"]
-            colour = truth_colours.get(truth, "#ffd60a")
+            colour = truth_colours.get(truth, THEME.warn)
             x, y = px((where["x"], where["y"]))
             good = str(site.get("verdict")) == "good"
             ax.plot(
@@ -350,7 +379,7 @@ def _draw_overlays(case: Case, shown: List[Tuple[int, Dict[str, Any], Path]]):
         ax.axis("off")
         ax.set_title(
             f"r{n + 1}: {path.name}. Sites: o said good, x said bad; "
-            "cyan truly good, pink truly bad, yellow unsure",
+            "cyan truly good, red truly bad, amber unsure",
             fontsize=9,
         )
     _square_legend(fig)
@@ -381,7 +410,7 @@ def _draw_map(case: Case, runs: List[Run]):
     u, v = np.asarray(frame["u"], float), np.asarray(frame["v"], float)
     corners = [half * (a * u + b * v) for a, b in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
     for square in key.get("squares") or []:
-        colour = SQUARE_COLOURS.get(square["label"], "#999999")
+        colour = SQUARE_COLOURS.get(square["label"], THEME.text_muted)
         centre = np.array([square["x"], square["y"]]) * 1e3
         ax.add_patch(
             Polygon(
@@ -404,7 +433,7 @@ def _draw_map(case: Case, runs: List[Run]):
             Circle(
                 (cell["x"] * 1e3, cell["y"] * 1e3),
                 cell["radius_um"] * 1e-3,
-                color=KEY if good else "#bbbbbb",
+                color=KEY if good else THEME.text_muted,
                 alpha=0.5,
             )
         )

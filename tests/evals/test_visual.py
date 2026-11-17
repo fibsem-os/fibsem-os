@@ -240,5 +240,5 @@ def test_run_folders_side_by_side(run, capsys):
     table = capsys.readouterr().out
     assert "| Case | out | out |" in table
     # Hits of the two repeats, with today's key, and the mean cost.
-    assert "| site | 2/2 ($0.50) | 2/2 ($0.50) |" in table
-    assert "| parts (a) | 0/2 ($0.50) |" in table
+    assert "| Real static: site | 2/2 ($0.50) | 2/2 ($0.50) |" in table
+    assert "| Real static: parts (a) | 0/2 ($0.50) |" in table

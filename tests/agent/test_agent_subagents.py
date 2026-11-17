@@ -85,6 +85,16 @@ def test_a_subagent_is_checked(lab, checkout):
         subagents.check_file("broken", checkout)
 
 
+def test_front_matter_reads_windows_line_endings():
+    # a checkout on Windows writes the shipped agent files with them
+    text = "---\nname: x\ntools: Read, Grep\n---\n\nLook.\n"
+    data, body = subagents.front_matter(text.replace("\n", "\r\n"))
+    assert data == {"name": "x", "tools": "Read, Grep"}
+    assert body.strip() == "Look."
+    plain = "No front matter.\r\n"
+    assert subagents.front_matter(plain) == (None, plain)
+
+
 def test_a_subagents_file_round_trips_through_its_settings():
     text = _subagent("x", tools=f"{TOOL}, Read", extra="model: opus\n")
     data, body = subagents.front_matter(text)
