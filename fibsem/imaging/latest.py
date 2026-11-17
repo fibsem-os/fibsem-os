@@ -6,6 +6,7 @@ widget. Each image is replaced whole, never changed in place, so a reader on
 another thread gets one image or the other, not half of each.
 """
 
+from functools import partial
 from typing import Any, Callable, Dict, List, Optional
 
 from fibsem.structures.image import FibsemImage
@@ -13,12 +14,14 @@ from fibsem.structures.settings import BeamType
 
 
 class LatestImages:
-    """The latest image of each beam, by its metadata's beam type, and the FM's
-    latest frame."""
+    """The latest image of each beam, by its metadata's beam type, the FM's
+    latest frame, and the latest image of each device that sends them, by the
+    device's name."""
 
     def __init__(self) -> None:
         self._images: Dict[BeamType, FibsemImage] = {}
         self._fm: Optional[Any] = None
+        self._by_device: Dict[str, Any] = {}
         self._unfollow: List[Callable[[], None]] = []
 
     def set(self, image: FibsemImage, beam_type: Optional[BeamType] = None) -> None:
@@ -43,16 +46,32 @@ class LatestImages:
         first."""
         return self._fm
 
+    def set_device(self, name: str, image: Any) -> None:
+        """Keep *image* as device *name*'s latest."""
+        self._by_device[name] = image
+
+    def by_device(self) -> Dict[str, Any]:
+        """Each device's latest image, by its name, in the order they first came."""
+        return dict(self._by_device)
+
     def follow(self, microscope: Optional[Any]) -> None:
         """Keep what *microscope*'s views are sent: each image shown
         (``imaging.image_shown``), each live frame, and each FM frame (live, or a
-        plane of an acquisition), window or none. Stops following the one before;
-        None follows nothing."""
+        plane of an acquisition), window or none; and, for any instrument, each
+        image a device sends on its ``image_acquired`` or ``live_frame``. Stops
+        following the one before and forgets its devices' images; None follows
+        nothing."""
         for unfollow in self._unfollow:
             unfollow()
         self._unfollow = []
+        self._by_device = {}
         if microscope is None:
             return
+        for name, device in dict(getattr(microscope, "devices", {})).items():
+            for signal_name in ("image_acquired", "live_frame"):
+                signal = getattr(device, signal_name, None)
+                if signal is not None:
+                    self._connect(signal, partial(self.set_device, name))
         imaging = getattr(microscope, "imaging", None)
         signals = [imaging.image_shown] if imaging is not None else []
         signals += [
