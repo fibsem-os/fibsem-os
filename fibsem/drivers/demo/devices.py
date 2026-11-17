@@ -55,7 +55,7 @@ from fibsem.devices.stage import (
     flip_stage_device_at_pose,
     flip_stage_poses,
 )
-from fibsem.drivers.demo.sim_faults import SimulatedFault
+from fibsem.drivers.demo.sim.faults import SimulatedFault
 from fibsem.drivers.demo.simulator import (
     BINNING_VALUES,
     EMISSION_WAVELENGTHS,
@@ -265,7 +265,7 @@ class DemoBeam(Beam):
         self.sim_detector.brightness = value
 
     def read_resolution(self) -> tuple:
-        return self.sim_beam.resolution
+        return tuple(self.sim_beam.resolution)
 
     def write_resolution(self, value: tuple) -> None:
         self.sim_beam.resolution = value

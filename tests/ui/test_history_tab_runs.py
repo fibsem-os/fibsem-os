@@ -382,23 +382,22 @@ def test_switching_to_a_lamella_with_other_tasks_keeps_the_filter_menu(
     assert "Setup Lamella Position" in _shown(widget)
 
 
-def test_the_filter_menu_has_the_apps_menu_background(widget, qapp):
+def test_the_filter_menu_has_the_apps_menu_background(widget):
     """The header row sets an unscoped `background: transparent`, which reached
     the menu through the filter button, its parent: the menu drew see-through
     over the runs. Parentless, it gets the app's menu style like every other."""
     from fibsem.theme.tokens import SURFACE_COLOR
     from fibsem.ui import stylesheets
 
-    before = qapp.styleSheet()
-    qapp.setStyleSheet(stylesheets.NAPARI_STYLE)
-    try:
-        menu = widget._filter_button.menu()
-        menu.ensurePolished()
-        image = menu.grab().toImage()
-        pixel = image.pixelColor(image.width() - 3, image.height() // 2)
-        assert pixel.name() == SURFACE_COLOR.lower()
-    finally:
-        qapp.setStyleSheet(before)
+    menu = widget._filter_button.menu()
+    assert menu.parent() is None, "a parent's stylesheet would reach the menu"
+    # The app's stylesheet set on the menu, not on the app: on the app it restyles
+    # every window the earlier tests in this process left open, minutes in CI.
+    menu.setStyleSheet(stylesheets.NAPARI_STYLE)
+    menu.ensurePolished()
+    image = menu.grab().toImage()
+    pixel = image.pixelColor(image.width() - 3, image.height() // 2)
+    assert pixel.name() == SURFACE_COLOR.lower()
 
 
 def test_an_opened_mill_lists_each_stage_with_its_drift_correction(qapp, tmp_path):

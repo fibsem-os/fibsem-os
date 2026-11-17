@@ -79,13 +79,118 @@ Cell bodies are opaque: they hide the film, holes and bars under them.
 - **Rips**: a seeded fraction of squares (`rip_fraction`) has the film torn away. Each rip
   is its own tear (size, orientation, where it starts, how ragged), a square beside a
   ripped one rips more readily, and a bright curled edge rings each rip.
-- **Ice** (`ice_density`): flat bright plates with an irregular outline.
+- **Ice** (`ice_density`, `ice_size`): hexagonal plates lying on the ice, each a slab 1 to 3 um
+  thick with a hard edge. A plate's top is brighter than the ice round it and its edge catches
+  the beam, so it shows in the SEM and the FIB at a grid square's field of view; it charges a
+  little in the SEM, and milling cuts through it as through any ice.
 - **Frost** (`frost_density`): patches of small bright grains.
 - **Spheres** (`sphere_density`, `sphere_size`): dark round balls standing on the film.
 - **Cracks** (`crack_density`): hairline cracks in the film, a dark wandering line (some
   branched) that doesn't open the film the way a rip does.
 - **Contamination** (`contamination_density`): small bright specks over film and bars
   alike, the aperiodic content that breaks a mesh-pitch alias in real images.
+
+## Hexagonal mesh
+
+![A hexagonal mesh, plunge frozen and as a waffle](img/simulator/hexagonal-mesh.jpg)
+
+`grid_mesh: hexagonal` makes the bars a honeycomb: hexagons `grid_pitch` across their flats,
+one centred on the grid's centre, with the orientation mark where three of them meet. Rips,
+cells and a waffle's slab follow the hexagons as they do the squares of the default
+`square` mesh.
+
+## Waffle grids
+
+![A waffle grid](img/simulator/waffle.jpg)
+
+`preparation: waffle` makes the grid a high-pressure frozen one (the Waffle Method) instead
+of a plunge frozen one. The ice is a slab `slab_thickness` thick (25 um by default, 5 to 50)
+that fills the squares, with the film at its bottom and the bars standing in it. At 25 um the
+slab is flush with the bars, which show faintly through a skin of ice; a thicker slab buries
+them. The top is flat but for the fine parallel lines the planchette hat's polish leaves
+(`hat_scratches`, 0 for none), and ice plates, frost and contamination lie on it as on any
+grid. A ripped square is one the slab is missing from.
+
+A view of a waffle looks down through the whole slab, so a trench milled square on to the
+grid shows its walls from the milling angle, and what is cleared from under the slab shows
+from both beams. A pattern cuts only as deep as it is set, so a trench goes through the slab
+only if its depth is more than the slab's thickness. A render of a waffle takes up to about
+twice as long as one of a plunge frozen grid.
+
+The film of a waffle is continuous and uncracked.
+
+### Cells in the slab
+
+![Yeast and RPE cells in a waffle](img/simulator/waffle-cells.jpg)
+
+The cells of a waffle float in the slab instead of lying on the film. `cell_type` is `yeast`,
+`rpe`, `celegans` (see below) or `none` (any other type is an error): yeast are round cells of `cell_size`, some with
+a bud, and RPE cells are rounded up as they are in suspension (`suspended_rpe_radius`, 15 to
+20 um across). They fill the squares, none in a bar, to `slab_fill` of the slab's volume, in
+as many layers one over another as the slab has room for (up to four): three of yeast and one
+of RPE in a 25 um slab. Each cell has a nucleus and its organelles, and the FM targets sit
+inside the cells as on a plunge frozen grid.
+
+From above a cell under the top does not show. A trench wall or a lamella's face shows the
+cells and nuclei it cut, and the FM sees every layer, each blurred by how far it is from the
+focus, so a stack through the slab brings one layer after another into focus.
+
+### Worms in the slab
+
+![C. elegans larvae in a waffle](img/simulator/waffle-worms.jpg)
+
+With `cell_type: celegans` the slab holds young C. elegans larvae: worms `worm_length` long
+and `worm_radius` thick, each a curled tube with a head that narrows to the nose and a tail
+that runs out to a point. Inside are the pharynx with its two bulbs, the intestine with the
+channel down its middle and granules in its wall, and a few hundred nuclei: many round the
+pharynx, big ones in the intestine's wall, a row under the skin. A trench wall or a lamella's
+face shows whichever of these it cut, and the FM shows the worms whole, with one target in a
+share of them.
+
+Each worm lies whole in one square, clear of the bars, of the other worms and of itself, so
+worms want a coarse mesh, as they do on a real grid:
+
+```yaml
+sim:
+  sample:
+    preparation: waffle
+    cell_type: celegans
+    grid_pitch: 508.0e-6      # 50 mesh; or 339.0e-6 with grid_mesh: hexagonal
+    grid_bar_width: 40.0e-6
+```
+
+On the default 200 mesh only the odd worm finds room to curl up in a square.
+
+Cells are grown over the middle 500 um of the grid (the scene's `extent`, if set, instead),
+since a whole grid of yeast is about half a million cells.
+
+## Carriers
+
+![Fly embryos in a carrier](img/simulator/carrier-embryos.jpg)
+
+`preparation: carrier` is a sample high-pressure frozen in a carrier's cavity, for images of
+bulk samples: a block of ice `slab_thickness` deep (50 to 300 um) with no grid in it, its top
+as flat and as scratched as a waffle's. What a waffle can hold a carrier can too, and with
+`cell_type: drosophila` it holds fly embryos:
+
+```yaml
+sim:
+  sample:
+    preparation: carrier
+    slab_thickness: 200.0e-6
+    cell_type: drosophila
+```
+
+The embryos (`embryo_length` by `embryo_width`) lie side by side about the middle of the
+carrier, the top of each a few microns under the top of the ice. An embryo is an egg with a
+rind of cytoplasm 12 um thick, one layer of nuclei in it all the way round, and yolk in the
+middle: granules packed together, the big ones a little lighter than the ground between them
+and the small ones darker. A trench into an embryo shows the rind and its nuclei on its wall
+and, where it goes deep enough, the yolk. The FM sees the embryos whole, though only the top
+of each: light does not go far into a block.
+
+A view of a carrier looks only a little under the deepest cut made so far, since the block
+is far deeper than anything is milled. Lift-out is not simulated.
 
 ## Charging and coating
 
@@ -130,6 +235,11 @@ It is what a focus sweep has to go on where little else is in view: its default 
 (`tenengrad`) peaks at focus on a probe image at a field of view of 80 um or so, where
 a 10 um focus error is about half a pixel of blur. At 150 um and wider the same error
 is too small to see, and a sweep lands within a few tens of microns.
+
+The ion beam converges a quarter as fast, so its focus shows over hundreds of microns
+where the electron beam's shows over tens. A sweep finds it with passes that wide (a
+millimetre in 100 um steps, then 100 um in 10 um steps), at 80 um and at 150 um; the
+sweep's default passes, 50 um and 10 um wide, are too narrow to see any change in it.
 
 Voltage changes nothing, and the height of a cell or the depth of a trench is too
 little to change focus.
@@ -226,6 +336,30 @@ imaging wore away (`exposures`), and for
 each fluorescence target whether it was milled away. Pass it points of your own,
 `scene.record({"name": (x, y, z)})` (world metres, z above the film), to ask the same of
 them.
+
+## Keeping the sample
+
+A session's milling is gone at the next connect, because the grid is grown again from its
+seed. `state_file` keeps it:
+
+```yaml
+sim:
+  sample:
+    enabled: true
+    seed: 2
+    state_file: ~/fibsem-sim/sample-2.json
+```
+
+Every change to the sample is written to the file as it happens: a milling pass, a spot
+burn, the wear of ion imaging, a GIS or sputter coat, and the faults that have fired. A
+session that connects with the same sample reads the file and carries on, so a workflow
+can stop and resume, and a run can start from a site that is already rough milled. The
+stage, the beams and the detectors start as they always do; only the sample comes back.
+
+The file belongs to one sample. With a different `seed`, cell type, film, mesh or
+preparation the session starts on a fresh sample and replaces the file at its first
+change. Delete the file to start the same sample again.
+
 ## The fluorescence view
 
 ![Fluorescence channels](img/simulator/fluorescence.png)
@@ -280,6 +414,51 @@ two spots, its pool and its cilium's base and tip (or None). With `fm_red: cilia
 lists only the cells with a cilium, and the midpoint is the cilium's. The camera has hot
 pixels (`fm_hot_pixels`): the same pixels, as bright, in every frame.
 
+## Labelled images
+
+The simulator draws every SEM and FIB image from objects, so it knows what each pixel
+shows. `fibsem.drivers.demo.sim.labels` gives that as labels:
+
+```python
+from fibsem.drivers.demo.sim import labels
+
+image, found = labels.acquire(microscope, image_settings)
+found.classes   # uint8, the class of each pixel (labels.CLASSES)
+found.cells     # uint16, the number of the cell at each pixel, 0 where none
+found.boxes()   # a box for each cell, speck, ice plate, rip and fiducial
+```
+
+The classes are background, ice, grid bar, cell, film hole, broken hole or rip, crack,
+contamination, ice plate, fiducial, milled trench, cut face, cell cut face and coat. They
+follow the image through tilt, scan rotation, beam shift and milling.
+
+Run as a program it writes a dataset, one scene per seed:
+
+```
+python -m fibsem.drivers.demo.sim.labels --out labels --seeds 1 2 3
+```
+
+For each seed that is eight images (SEM overviews at 300 and 120 um, FIB and SEM at the
+milling angle at 150 um, FIB and SEM at 50 um of two trenches cut either side of a cell,
+and the fluorescence camera in reflection and in GFP; choose with `--views`), in
+`images/`, with `labels/` (class ids, as a paletted PNG), `instances/` (cell numbers),
+`overlays/` to look at, and one COCO `annotations.json` with a box and a mask for each
+cell and each patch of contamination, ice plate, rip, fiducial and fluorescence target.
+
+The fluorescence view has labels too:
+
+```python
+image, found = labels.acquire_fm(microscope, channel_settings)
+```
+
+They are the same classes, seen as the camera sees the sample and the same whatever the
+channel, with one more: `fluorescence target`, a disc at each target that has not been
+milled away (`scene.fm_targets()`). The FM images of a dataset are 16-bit.
+
+Labels come from the objects, not from the image: something too faint to make out, a
+crack under thick ice or a target in a channel that does not show it, is labelled all
+the same.
+
 ## One world, three views
 
 ![SEM, FIB and FM of the same place](img/simulator/triplet.png)
@@ -298,6 +477,28 @@ calibrated position and a loaded grid, centred where the slot's stage position f
 and shows the holder between them. A grid's content is seeded from its name, so
 exchanging grids between slots moves their cells with them. Off (the default), or with no
 such slot, there is one grid centred on the position the stage was at when it connected.
+
+Grids need not be alike. `grid_quality` says what each one is like:
+
+```yaml
+sim:
+  sample:
+    grids_from_holder: true
+    grid_quality: [good, thick_ice, torn, sparse]
+```
+
+| quality | what the grid is like |
+| -- | -- |
+| `good` | as the other keys describe it (the default) |
+| `thick_ice` | 4 um more ice: the bars and the cells are buried and barely show |
+| `torn` | the film is torn out of about four squares in ten |
+| `sparse` | about one cell in seven of the usual number |
+| `empty` | no cells |
+
+A list goes to the holder's grids in slot order, and is repeated if it is short. A
+mapping names the grids (`{Grid-01: torn}`), and a grid it leaves out is good. One name
+alone is every grid, the single default grid included. So a session can screen four
+grids and find one worth milling.
 
 To set a two-grid shuttle up on the Demo: calibrate the two slots with the holder
 calibration wizard (Microscope tab, Sample Holder panel) at two stage positions a few
@@ -335,9 +536,9 @@ are in degrees, ranges are two-element lists, lengths in metres.
 | `beam_offset` | {} | per-beam misalignment `{electron: [dx, dy], ion: [dx, dy]}` (m): a persistent lateral offset |
 | `current_offset_scale` | 0 | sigma (m) of a seeded per-(beam, current) offset; 0 is off |
 | `beam_optics` | true | working distance, stigmation and current show in the image (see Beam settings) |
-| `focus_fuzz` | 15e-6 | how far a beam's focus is from its eucentric height, at most (m) |
+| `focus_fuzz` | 1.5e-05 | how far a beam's focus is from its eucentric height, at most (m) |
 | `scan_rotation_at_start` | {} | the scan rotation each beam boots at, `{electron: deg, ion: deg}` |
-| `fm_camera_mount` | null | the mount transform the FM camera really has; null is as configured |
+| `fm_camera_mount` | unset | the mount transform the FM camera really has; unset is as configured |
 | `imaging_damage` | 1 | how fast FIB imaging wears the sample away (1 is ice, 0 is never) |
 | `surface_grain` | 1 | how strongly a surface's fine texture shows (0 is smooth; see Beam settings) |
 | `faults` | [] | things that go wrong and when, see "Things going wrong" |
@@ -348,6 +549,7 @@ are in degrees, ranges are two-element lists, lengths in metres.
 | -- | -- | -- |
 | `grid_pitch` | 0.000125 | mesh pitch (m); 125 um is a 200 mesh |
 | `grid_bar_width` | 3.5e-05 | bar width (m) |
+| `grid_mesh` | square | `square`, or `hexagonal` for a honeycomb of hexagons `grid_pitch` across their flats |
 | `grid_intensity` | 90 | how much reflected light from the bars leaks into a fluorescence channel |
 | `grid_radius` | 0.0014 | usable film radius (m); past it the rim, then the holder |
 | `grid_rim_width` | 0.00015 | the metal rim's width (m) |
@@ -357,29 +559,50 @@ are in degrees, ranges are two-element lists, lengths in metres.
 | `hole_diameter` | 2e-06 | holey film: hole diameter (m) |
 | `hole_pitch` | 4e-06 | holey film: hole pitch (m) |
 | `broken_hole_fraction` | 0.006 | holey film: fraction of holes broken into larger openings |
-| `fiducial` | False | a cross at each grid centre, a navigation landmark; absent on a real grid, so off by default |
+| `centre_mark` | true | the orientation mark at the grid's centre: a bigger square of metal with one corner rounded |
+| `fiducial` | false | a cross at each grid centre, a navigation landmark; absent on a real grid, so off by default |
+
+### Waffle
+
+| key | default | what it does |
+| -- | -- | -- |
+| `preparation` | plunge | `plunge`, `waffle` for a high-pressure frozen slab on a grid, or `carrier` for a block in a carrier |
+| `slab_thickness` | 2.5e-05 | how thick the ice is (m): 5 to 50 um in a waffle, 50 to 300 um in a carrier |
+| `hat_scratches` | 1 | waffle: how strongly the hat's polishing lines show in the top (0 = none) |
+| `slab_fill` | 0.15 | waffle: the share of the slab's volume that is cells |
+| `suspended_rpe_radius` | [7.5e-06, 1e-05] | waffle: the radius of a rounded RPE cell (m) |
+| `worm_length` | [0.00018, 0.00025] | waffle: how long a `celegans` worm is (m) |
+| `worm_radius` | [4.5e-06, 6e-06] | waffle: how thick it is at its middle, as a radius (m) |
+| `embryo_length` | [0.00048, 0.00052] | carrier: how long a `drosophila` embryo is (m) |
+| `embryo_width` | [0.00017, 0.00019] | carrier: how wide it is (m) |
 
 ### Cells
 
 | key | default | what it does |
 | -- | -- | -- |
-| `cell_type` | rpe | `rpe` (default), `mammalian`, `yeast`, `bacteria`, `mixed`, `none` |
-| `extent` | None | content is grown over +/- extent/2 about the grid centre, on the grid's disc (m); None fills the whole grid |
+| `cell_type` | rpe | `rpe` (default), `mammalian`, `neuron`, `yeast`, `bacteria`, `mixed`, `none`; in a waffle `yeast`, `rpe`, `celegans`, `none`; in a carrier those and `drosophila` |
+| `extent` | unset | content is grown over +/- extent/2 about the grid centre, on the grid's disc (m); unset fills the whole grid |
+| `rpe_density` | 3 | rpe: cells per 150 x 150 um |
+| `rpe_radius` | [1.1e-05, 2.1e-05] | rpe: cell radius range (m) |
 | `mammalian_density` | 7 | mammalian: cells per 150 x 150 um |
 | `mammalian_radius` | [1.8e-05, 3e-05] | mammalian: body radius range (m) |
 | `nucleus_radius` | [5e-06, 7e-06] | mammalian: nucleus radius range (m) |
 | `n_clusters` | 120 | yeast: clusters per 800 x 800 um |
-| `cells_per_cluster` | [3, 8] | yeast: cells per cluster (inclusive range) |
-| `cell_size` | [4.5e-06, 1.2e-05] | yeast: sigma range per cell (m) |
-| `cluster_spread` | 1.5e-05 | yeast: how far cells scatter round a cluster (m) |
+| `cells_per_cluster` | [8, 40] | yeast: cells per cluster (inclusive range) |
+| `cell_size` | [1.8e-06, 2.8e-06] | yeast: sigma range per cell (m) |
+| `cluster_spread` | 2e-05 | yeast: how far cells scatter round a cluster (m) |
 | `bacteria_density` | 160 | bacteria: rods per 150 x 150 um |
 | `bacteria_length` | [2e-06, 3.5e-06] | bacteria: rod length range (m) |
+| `neuron_density` | 1.2 | neuron: somas per 150 x 150 um |
+| `soma_radius` | [5e-06, 9e-06] | neuron: soma radius range (m) |
+| `neurite_length` | [6e-05, 0.00022] | neuron: how long its processes are (m) |
 
 ### Rips, ice and contamination
 
 | key | default | what it does |
 | -- | -- | -- |
 | `rip_fraction` | 0.03 | fraction of squares with the film torn; neighbours rip more readily |
+| `grid_quality` | unset | what each grid is like: a name, a list in slot order or a mapping by grid name, see "Grids at the holder's slots" |
 | `ice_density` | 0.4 | ice crystals per 100 x 100 um |
 | `ice_size` | [6e-06, 1.6e-05] | ice plate radius range (m) |
 | `contamination_density` | 15 | specks per 100 x 100 um, on film and bars alike |
@@ -426,13 +649,14 @@ are in degrees, ranges are two-element lists, lengths in metres.
 
 | key | default | what it does |
 | -- | -- | -- |
-| `grids_from_holder` | False | grids at the holder's calibrated, occupied slots (opt-in) |
+| `grids_from_holder` | false | grids at the holder's calibrated, occupied slots (opt-in) |
 
 ### Reproducibility
 
 | key | default | what it does |
 | -- | -- | -- |
 | `seed` | 24 | the draw everything grows from; same seed, same scene |
+| `state_file` | unset | a file the sample's state is kept in between sessions, see "Keeping the sample" |
 <!-- sample-keys:end -->
 
 ## Cost and limits
@@ -445,7 +669,8 @@ are in degrees, ranges are two-element lists, lengths in metres.
   measurements, cells bias it by about a micron, and the holey film's 4 um lattice can
   alias it. Its simulator tests measure on a scene without cells.
 - The scene is generated fresh from its seed on every connect. The same seed gives the
-  same grid; milled trenches do not survive a reconnect.
+  same grid; milled trenches survive a reconnect only with `state_file` set (see
+  "Keeping the sample").
 
 The figures on this page are rendered with `fiducial: true` (a landmark for the eye;
 off by default) by

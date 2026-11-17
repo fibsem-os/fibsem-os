@@ -5,7 +5,7 @@ the GUI as a Python ``int`` (not a ``float``). Regression coverage for the class
 of bug where ``get_pattern`` / ``get_strategy`` leaked floats into strategies
 that expect integers.
 
-Uses PyQt5 directly with the offscreen platform (no pytest-qt dependency).
+Uses Qt directly with the offscreen platform (no pytest-qt dependency).
 """
 
 import os

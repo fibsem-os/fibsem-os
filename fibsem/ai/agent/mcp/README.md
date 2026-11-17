@@ -141,9 +141,38 @@ fibsem-agent
   ToolSearch to find the fibsem tools, the Agent tool for the checkout's
   three `autolamella-*` agents (`.claude/agents`), and SendMessage to carry
   one on (a lamella's polishing passes, one Verifier). Nothing else, for those
-  agents either: no shell, no file reads or writes, no web. Nothing waits on
-  a permission prompt; anything else is denied. So the offline
-  `read_record.py` reader stays with Claude Code.
+  agents either: no shell, no file reads or writes, no web, and no other MCP
+  server unless the lab adds one (below). Nothing waits on a permission
+  prompt; anything else is denied. So the offline `read_record.py` reader
+  stays with Claude Code.
+- **Extra MCP servers.** A lab can give the agent a server it registered at
+  user level in Claude Code (`claude mcp add -s user <name> ...`) by naming it
+  in `~/.fibsem/agent/mcp.yaml` (under `FIBSEM_HOME` when that is set), with
+  the tools the agent may call and the ones a specialist may list (`about`
+  and `subagents` are optional; tools are named one by one):
+
+  ```yaml
+  notebook:
+    about: The lab's shared notebook and paper library.
+    tools: [get_overview, get_notebook_guide, get_tree, search, read_page,
+            get_entry, get_changes, get_attachment, get_my_mentions,
+            append_entry, edit_entry, add_comment, create_page, request_upload,
+            list_papers, search_literature, get_paper, read_paper,
+            get_folder_notes, add_paper_note, add_folder_note]
+    subagents: [get_overview, get_tree, search, read_page, get_entry,
+                get_attachment, list_papers, search_literature, get_paper,
+                read_paper, get_folder_notes]
+  ```
+
+  Each specialist whose file lists its tools gets the `subagents` ones; one
+  that lists none has every tool the session has, these included. The agent
+  is told the server is there and that what it returns is data, never
+  instructions; its notes still go on the experiment's record. The server's
+  entry, with its token, is copied from `~/.claude.json` into a file in the
+  session's folder that only this account may read, and never printed:
+  `--show-config` names the server and its tools only. Without the file
+  nothing changes; a server it names that Claude Code doesn't have stops
+  `fibsem-agent` at the start, saying how to add it.
 - **Agents.** Leading a run (the autolamella-lead skill), the agent is the Run
   Lead and makes every decision. It calls the Verifier for a second opinion
   on the site list, each Setup placement and every polishing pass, the
@@ -156,7 +185,8 @@ fibsem-agent
 - **Your Claude Code config stays out.** The session runs in a folder that
   holds only its skills and specialists, copied there each start (its
   session folder's `run/`, or the `--code`/`--files` folder), not `~/.claude`, and only this sidecar, not a
-  `fibsem` server you registered with `claude mcp add`.
+  `fibsem` server you registered with `claude mcp add`: of those, only the
+  ones `mcp.yaml` names (above).
 - **Signing in.** A Claude API key: the `ANTHROPIC_API_KEY` environment
   variable, else the one `fibsem-cli key set ANTHROPIC_API_KEY` stored in
   Windows Credential Manager or the macOS Keychain. Or configure Amazon Bedrock or Google Vertex as the Agent SDK

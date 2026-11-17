@@ -200,8 +200,10 @@ Before you decide or place either:
    in one beam with `stage_stable_move`, bring the other beam onto it with
    `stage_vertical_move`, and image both again.
 4. Check it again with both beams at a 50 µm field of view: the same feature
-   within 5 µm of the centre in both images (aim for 2-3 µm). Coincidence
-   only shows as a vertical offset, so measure it up and down the image.
+   within 5 µm of the centre in both images (aim for 2-3 µm), measured in
+   the image. Coincidence only shows as a vertical offset, so measure it up
+   and down the image, on a sharp landmark (fibsem-microscope,
+   *Coincidence: do it yourself*).
 5. Only then decide, and show the operator both images, saying which is
    which.
 

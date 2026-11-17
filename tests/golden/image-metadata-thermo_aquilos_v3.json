@@ -108,6 +108,7 @@
     "name": "test-configuration",
     "port": null,
     "serial_number": "0000000",
+    "server_version": null,
     "software_version": "4.9.0.902"
   },
   "user": {

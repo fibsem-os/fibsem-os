@@ -814,6 +814,41 @@ def test_gain_with_set_values_takes_the_nearest(odemis):
     assert va.value == 4.0
 
 
+def _enumerated_gain(choices):
+    """A gain VA that, like andorcam3's FloatEnumerated, refuses anything but its
+    choices."""
+
+    def refuse_others(value):
+        if value not in choices:
+            raise IndexError(f"{value} not in {choices}")
+
+    return stubs.FakeVA(min(choices), choices=set(choices), setter=refuse_others)
+
+
+def test_a_default_channel_sets_an_enumerated_gain(odemis, caplog):
+    # FIB-1088: a channel's gain defaults to 0, which an enumerated gain often lacks
+    # (a Zyla's choices start above 0). The channel still applies, at the lowest gain.
+    from fibsem.fm.microscope import FluorescenceMicroscope
+
+    drivers = odemis
+    va = _enumerated_gain((1.0, 2.0, 4.0))
+    components = _components("retracted")
+    components["ccd"].gain = va
+    world = _World(components)
+    _CURRENT.append(world)
+    try:
+        fm = FluorescenceMicroscope(drivers.bind_odemis_fm())
+        va.value = 4.0
+        with caplog.at_level("WARNING"):
+            fm.set_channel(ChannelSettings())
+    finally:
+        _CURRENT.pop()
+
+    assert ChannelSettings().gain == 0.0
+    assert va.value == 1.0
+    assert "not one of [1.0, 2.0, 4.0], set to the nearest, 1" in caplog.text
+
+
 def _bound(drivers, state):
     world = _World(_components(state))
     _CURRENT.append(world)

@@ -7,6 +7,7 @@ cases a Demo run cannot produce: a failed run, an old experiment, a re-run.
 """
 
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -184,7 +185,8 @@ def test_a_task_run_twice_keeps_both_runs_images_in_their_own_folders(tmp_path):
         folders = {Path(p).relative_to(lamella.path).parts[:2] for p in row.images}
         assert len(folders) == 1, "one run, one folder"
         ((task_folder, stamp),) = folders
-        assert task_folder == SETUP and len(stamp) == len("20261014-093012")
+        # A second run in the same second as the first gets "-2" on its stamp.
+        assert task_folder == SETUP and re.fullmatch(r"\d{8}-\d{6}(-\d+)?", stamp)
     # the lamella's shared state stays in its folder, once
     assert (lamella.path / "ref_alignment_ib.tif").is_file()
 

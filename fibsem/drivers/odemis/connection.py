@@ -20,23 +20,8 @@ from __future__ import annotations
 
 from typing import Any
 
-import numpy as np
-
 from fibsem.structures.settings import BeamType
-
-
-def plain(value: Any) -> Any:
-    """*value* with every numpy scalar and array in it as plain Python: what can cross
-    to odemis. Anything else passes through unchanged."""
-    if isinstance(value, np.generic):
-        return value.item()
-    if isinstance(value, np.ndarray):
-        return value.tolist()
-    if isinstance(value, dict):
-        return {plain(k): plain(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)) and not hasattr(value, "_fields"):
-        return type(value)(plain(v) for v in value)
-    return value
+from fibsem.util.plain import plain
 
 
 class PlainCalls:

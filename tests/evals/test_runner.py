@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from fibsem.ai.evals import report, visual
+from fibsem.ai.evals import report, runner, visual
 from fibsem.ai.evals.__main__ import main
 from fibsem.ai.evals.cases import load_case
 from fibsem.ai.evals.runner import (
@@ -127,6 +127,22 @@ def test_run_stops_an_agent_that_never_answers(home, case, tmp_path, monkeypatch
     assert result["status"] == "timeout"
     assert result["agent_exit"] == 0  # stopped through its stop file
     assert [s["result"] for s in result["scores"]] == ["invalid"]
+
+
+def test_a_run_that_spends_its_cap_is_out_of_budget_and_fails(
+    home, case, tmp_path, monkeypatch
+):
+    # Even with a right answer saved before the cap, the run fails.
+    monkeypatch.setenv("EVAL_FAKE_ANSWER", json.dumps(STOP_AT_P3))
+    monkeypatch.setenv("EVAL_FAKE_OVER_BUDGET", "1")
+    result = run_case(case, 1, config(tmp_path, timeout_s=20))
+    assert result["status"] == "out_of_budget"
+    assert result["agent_exit"] == 2
+    (score,) = result["scores"]
+    assert score["result"] == "miss"
+    assert score["details"]["out_of_budget"] is True
+    assert score["details"]["scored_as"] == "hit"
+    assert "0/1 ($1.00, 1 out of budget)" in visual.compare_table([tmp_path / "out"])
 
 
 def test_runs_beside_another_app_server_and_in_parallel(
@@ -273,3 +289,21 @@ def test_the_square_finding_task_says_how_pitch_is_measured(tmp_path):
     data = {"id": "finding", "task": "square_finding", "brief": "Find squares."}
     (folder / "case.yaml").write_text(yaml.safe_dump(data))
     assert "along a grid bar" in task_text(load_case(folder), [])
+
+
+def test_a_live_run_ends_when_the_turn_ends_not_at_the_first_answer(tmp_path):
+    log = tmp_path / "agent.log"
+    assert not runner._turn_ended(log)
+    log.write_text("21:43 Wrote answer.json\n")
+    assert not runner._turn_ended(log)
+    log.write_text(
+        "21:44 Turn ended: error_max_turns, 41 steps, $1.93 so far.\n"
+        "21:45 Wrote answer.json\n"
+    )
+    assert not runner._turn_ended(log)
+    log.write_text(
+        "21:44 Turn ended: error_max_turns, 41 steps, $1.93 so far.\n"
+        "21:46 Wrote answer.json\n"
+        "21:47 Turn ended: success, 30 steps, $0.81 ($2.75 so far).\n"
+    )
+    assert runner._turn_ended(log)

@@ -7,6 +7,7 @@ import pytest
 from fibsem import acquire, alignment, utils
 from fibsem.alignment import (
     AlignmentDifferential,
+    AlignmentIteration,
     AlignmentMethod,
     AlignmentResult,
     compare_alignment_methods,
@@ -18,6 +19,7 @@ from fibsem.alignment import (
 )
 from fibsem.alignment.methods import _subpixel_peak
 from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import Point
 
 
 @pytest.mark.parametrize("offset", [-30, -10, 0, 10, 30])
@@ -625,3 +627,43 @@ def test_the_skimage_score_says_how_good_the_match_is():
     assert shift_from_skimage_phase_correlation(ref, ref).score > 0.99
     assert shift_from_skimage_phase_correlation(ref, moved).score > 0.5
     assert shift_from_skimage_phase_correlation(ref, _textured(1)).score < 0.2
+
+
+def test_a_multi_step_alignment_focuses_and_sets_contrast_on_the_first_step_only(
+    demo_session, monkeypatch
+):
+    """Autofocus and autocontrast before the first step; the later steps refine the
+    shift with the beam as the first step left it."""
+    microscope, settings = demo_session
+    ref_image = acquire.acquire_image(microscope, settings.image)
+    steps = []
+    real_step = alignment.beam_shift_alignment_v2
+
+    def step(**kwargs):
+        steps.append((kwargs["use_autofocus"], kwargs["use_autocontrast"]))
+        return real_step(
+            **{**kwargs, "use_autofocus": False, "use_autocontrast": False}
+        )
+
+    monkeypatch.setattr(alignment, "beam_shift_alignment_v2", step)
+
+    multi_step_alignment_v2(
+        microscope=microscope,
+        ref_image=ref_image,
+        steps=3,
+        use_autofocus=True,
+        use_autocontrast=True,
+    )
+
+    assert steps == [(True, True), (False, False), (False, False)]
+
+
+def test_a_step_with_no_image_metadata_has_no_pixel_shift():
+    shift = Point(1e-6, 2e-6)
+    assert AlignmentIteration(shift=shift, score=1.0, image=None).shift_px == Point(
+        0, 0
+    )
+    image = FibsemImage(np.zeros((4, 4), dtype=np.uint8), metadata=None)
+    assert AlignmentIteration(shift=shift, score=1.0, image=image).shift_px == Point(
+        0, 0
+    )

@@ -58,6 +58,7 @@ from fibsem.structures.params import (
     display_to_dict,
 )
 from fibsem.structures.settings import FibsemAxesPosition
+from fibsem.util.plain import plain as to_python
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +131,11 @@ class DeviceParameter(Parameter):
     it, as a filter wheel's bands do: 488 nm asks for the band at 485. Such a value is
     snapped, with a warning when it moved, rather than refused; and after every write
     the parameter is read back, so its cache and its ``changed`` signal carry what the
-    hardware applied rather than what was asked for.
+    hardware applied rather than what was asked for. ``nearest="driver"`` leaves
+    the snapping to the driver, as an instrument that sets the nearest allowed value
+    itself does (AutoScript's beam current): ``set_value`` passes a value between the
+    choices through unchanged, reads back what was applied and warns when it moved;
+    ``write_through`` writes it as given and reads nothing back.
 
     ``display`` says how to show it (a ``fibsem.structures.params.Display``, or one per field for
     a composite value). Like the type and unit it means the same on every backend: a
@@ -138,7 +143,7 @@ class DeviceParameter(Parameter):
     """
 
     depends_on: Sequence[str] = ()
-    nearest: bool = False
+    nearest: Union[bool, str] = False
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "depends_on", tuple(self.depends_on))
@@ -343,7 +348,17 @@ class BoundParameter:
         if not self.settable:
             raise ParameterReadOnly(f"{self.device.name}.{self.name} is read-only")
         value = self.validate(value)
-        return self._write_path(value)
+        written = self._write_path(value, read_back=bool(self.spec.nearest))
+        if (
+            self.spec.nearest == "driver"
+            and isinstance(written, (int, float))
+            and not math.isclose(written, value, rel_tol=1e-6)
+        ):
+            logger.warning(
+                f"{self.device.name}.{self.name}: {value} is not one of the choices, "
+                f"set to the nearest, {written}"
+            )
+        return written
 
     @property
     def value(self) -> Any:
@@ -360,7 +375,8 @@ class BoundParameter:
         self.set_value(value)
 
     def write_through(self, value: Any) -> None:
-        """The write path with no checks.
+        """The write path with no checks. A numpy value is written as the plain
+        Python it holds, which is a conversion, not a check.
 
         A ``nearest`` parameter is still snapped to its nearest choice first. That is
         what the value means rather than a check, and it never refuses: a driver that
@@ -369,22 +385,27 @@ class BoundParameter:
         """
         if self._write is None:
             raise ParameterReadOnly(f"{self.device.name}.{self.name} is read-only")
+        value = to_python(value)
         if self._snaps(value):
             value = self._snap(value)
-        self._write_path(value)
+        self._write_path(value, read_back=self.spec.nearest is True)
 
     def report(self, value: Any) -> None:
         """A change the backend observed itself (vendor UI, another client, a push)."""
         self._remember(value)
 
     def validate(self, value: Any) -> Any:
-        value = _coerce(self.type, value, f"{self.device.name}.{self.name}")
+        value = _coerce(self.type, to_python(value), f"{self.device.name}.{self.name}")
         if self._snaps(value):
             value = self._snap(value)
         elif self.choices is not None:
-            value = _match_choice(
-                value, self.choices, f"{self.device.name}.{self.name}"
-            )
+            try:
+                value = _match_choice(
+                    value, self.choices, f"{self.device.name}.{self.name}"
+                )
+            except ValueError:
+                if not self._driver_snaps(value):
+                    raise
         if isinstance(self.limits, RangeLimit) and isinstance(value, (int, float)):
             clipped = self.limits.clamp(value)
             if clipped != value:
@@ -395,10 +416,18 @@ class BoundParameter:
                 value = self.type(clipped)
         return value
 
+    def _driver_snaps(self, value: Any) -> bool:
+        """Whether the driver sets `value` to its nearest choice itself."""
+        return (
+            self.spec.nearest == "driver"
+            and isinstance(value, (int, float))
+            and not isinstance(value, bool)
+        )
+
     def _snaps(self, value: Any) -> bool:
         """Whether `value` is snapped to a choice: a number, for a ``nearest`` parameter."""
         return (
-            self.spec.nearest
+            self.spec.nearest is True
             and bool(_numeric_choices(self.choices))
             and isinstance(value, (int, float))
             and not isinstance(value, bool)
@@ -415,11 +444,11 @@ class BoundParameter:
             )
         return self.type(choice)
 
-    def _write_path(self, value: Any) -> Any:
+    def _write_path(self, value: Any, read_back: bool = False) -> Any:
         """Write, cache and signal; returns the value now held."""
         with self.device._claim_write(self):
             self._write(value)
-            if self.spec.nearest:
+            if read_back:
                 # what the hardware applied, which a driver may have adjusted again
                 value = self._read()
         logger.debug(
@@ -485,9 +514,13 @@ def command(
     (`fibsem.devices.runs`), and the App Server answers a call to it at once
     with the run's id and lets it run on. ``line`` says a call to it in an
     agent's request, as the operator approves it (`fibsem.util.wording.Line`).
+
+    A numpy value among its arguments reaches the method as the plain Python it
+    holds (`fibsem.util.plain`), so no driver is handed numpy.
     """
 
     def mark(method: Callable) -> Callable:
+        method = _plain_arguments(method)
         if long:
             method = _tracked(method)
             method.__device_long__ = True  # type: ignore[attr-defined]
@@ -497,6 +530,16 @@ def command(
         return method
 
     return mark(fn) if fn is not None else mark
+
+
+def _plain_arguments(method: Callable) -> Callable:
+    """*method*, its arguments converted with `fibsem.util.plain.plain` first."""
+
+    @functools.wraps(method)
+    def converted(self: Any, *args: Any, **kwargs: Any) -> Any:
+        return method(self, *to_python(args), **to_python(kwargs))
+
+    return converted
 
 
 def _tracked(method: Callable) -> Callable:

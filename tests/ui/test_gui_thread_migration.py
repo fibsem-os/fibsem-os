@@ -15,7 +15,7 @@ and the workflow hooks (``fibsem/hooks.py``). Those are Qt-free by design, and
 ``FunctionWorker`` is a ``QObject`` — pulling it in there would drag Qt into non-GUI code.
 
 These checks read source rather than importing it, deliberately: one CI job installs no
-PyQt5, and ``fibsem/ui/__init__.py`` eagerly imports every widget, so *any* import under
+Qt, and ``fibsem/ui/__init__.py`` eagerly imports every widget, so *any* import under
 ``fibsem.ui`` pulls in Qt and would skip the whole file there. Reading the files keeps the
 guard running on CI, where it is most useful. ``FunctionWorker``'s runtime behaviour — including
 the ``start`` / ``is_alive`` / ``join`` surface these call sites rely on — is covered by

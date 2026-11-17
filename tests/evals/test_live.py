@@ -3,6 +3,7 @@ image rules, the runner's part, and one scripted run end to end (slow)."""
 
 import json
 import math
+from copy import deepcopy
 
 import numpy as np
 import pytest
@@ -111,6 +112,25 @@ def test_a_site_is_good_only_on_a_clear_cell_in_a_clean_square():
     assert site_truth(KEY, 5 * PITCH, 0.0)["truth"] == "unkeyed"
 
 
+def test_a_cell_with_a_crack_by_it_is_a_bad_site():
+    near, far = deepcopy(KEY), deepcopy(KEY)
+    near["cells"][0]["crack_um"] = 12.0
+    far["cells"][0]["crack_um"] = 35.0
+    assert site_truth(near, 2e-6, 1e-6)["why"] == "a crack in the film by the cell"
+    assert site_truth(far, 2e-6, 1e-6)["truth"] == "good"
+
+
+def test_the_key_says_how_far_each_cell_is_from_a_crack():
+    from types import SimpleNamespace
+
+    from fibsem.ai.evals.live import sim_sites
+
+    arm = np.array([[0.0, -50e-6, 0.5e-6], [0.0, 50e-6, 0.5e-6]])
+    scene = SimpleNamespace(crack_density=0.3, cracks=[arm])
+    assert sim_sites._nearest_crack(scene, 15e-6, 0.0) == pytest.approx(15e-6)
+    assert sim_sites._nearest_crack(SimpleNamespace(crack_density=0.0), 0, 0) is None
+
+
 def test_sites_are_scored_where_the_run_saved_them(tmp_path):
     case = _case(tmp_path)
     answer = {
@@ -208,6 +228,8 @@ def test_a_site_is_scored_on_coincidence_and_the_focus_of_its_image(tmp_path):
     a, b = details["per_site"]
     assert a["coincident"] and a["sharp"] and a["blur_px"] < 0.5
     assert not b["coincident"] and b["coincidence_um"] == pytest.approx(13.0)
+    # seen in the FIB image, from 52 degrees
+    assert b["coincidence_fib_um"] == pytest.approx(8.0, abs=0.01)
     assert not b["sharp"]
     assert details["steps"] == {
         "overview": True,
@@ -225,6 +247,25 @@ def test_a_site_is_scored_on_coincidence_and_the_focus_of_its_image(tmp_path):
     assert score_live_site_selection(case, answer, key)[0] == "hit"
     strict = _case(tmp_path / "strict", require_sharp=True)
     assert score_live_site_selection(strict, answer, key)[0] == "miss"
+
+
+def test_coincidence_made_with_a_beam_shift_is_not_ready(tmp_path):
+    # Coincidence is made by moving the stage vertically, never by shifting
+    # a beam: a beam left shifted fails every site's readiness.
+    case = _case(tmp_path)
+    key = {**KEY, "optics": OPTICS}
+    site = _item("A", 0.0, 0.0)
+    site["poses"]["MILLING"]["z"] = -10e-6
+    answer = {
+        "sites": [{"item": "A", "verdict": "good"}],
+        "record": {"items": [site], "beam_shifts": {"ion_beam": [0.0, 0.0]}},
+    }
+    assert score_live_site_selection(case, answer, key)[0] == "hit"
+    answer["record"]["beam_shifts"] = {"ion_beam": [3e-6, -4e-6]}
+    result, details = score_live_site_selection(case, answer, key)
+    assert result == "miss"
+    assert details["beam_shift_um"] == {"ion_beam": 5.0}
+    assert details["per_site"][0]["by_beam_shift"] is True
 
 
 def test_an_answer_without_sites_or_with_a_wrong_verdict_is_invalid(tmp_path):
@@ -275,10 +316,12 @@ def test_the_scripted_agent_calls_a_site_good_only_with_a_clear_cell_at_centre()
 
 # The whole run takes about 4.5 minutes alone on one core (5 with the textured
 # surface of #2577), so under a loaded `-n auto` run it passes the suite's 300 s
-# per-test timeout. Its own run is capped at 600 s (timeout_s below); this gives
-# pytest room past that, so a hang still fails.
+# per-test timeout. Windows runners are about half as fast again, and 600 s was
+# not enough there under load (nightly of 15 Nov 2026), so its own run is capped
+# at 1200 s (timeout_s below); this gives pytest room past that, so a hang still
+# fails.
 @pytest.mark.slow
-@pytest.mark.timeout(900)
+@pytest.mark.timeout(1500)
 def test_a_scripted_run_of_a_live_case_end_to_end(tmp_path, monkeypatch):
     """The case's microscope on a real App Server, the scripted agent at it,
     and the run scored from what it saved."""
@@ -291,7 +334,7 @@ def test_a_scripted_run_of_a_live_case_end_to_end(tmp_path, monkeypatch):
     config = RunConfig(
         out=tmp_path / "runs",
         repeats=1,
-        timeout_s=600,
+        timeout_s=1200,
         knowledge=tmp_path / "no-knowledge",
         agent_command=live_runs.scripted_command(),
     )
@@ -306,3 +349,28 @@ def test_a_scripted_run_of_a_live_case_end_to_end(tmp_path, monkeypatch):
     assert details["not_saved"] == 0 and details["good_sites"] >= 1
     assert details["steps"]["overview"] and details["steps"]["sites_imaged"] >= 1
     assert details["coincident"] >= 1
+
+
+def test_the_beams_meet_at_the_coincident_height_with_no_sideways_gap(tmp_path):
+    # a site is made coincident by a vertical move alone: at the key's
+    # height the beams' centres meet, and off it they part only up and down
+    from fibsem.ai.evals.live import sim_sites
+    from fibsem.structures.settings import BeamType, FibsemStagePosition
+
+    path = tmp_path / "microscope.yaml"
+    path.write_text(yaml.safe_dump(sim_sites.microscope_config(1), sort_keys=False))
+    microscope = sim_sites._session(path)
+    try:
+        key = sim_sites.optics_key(microscope)
+        gaps = []
+        for z in (key["coincident_z"], key["coincident_z"] + 5e-6):
+            stage = FibsemStagePosition(x=0, y=0, z=z, r=0, t=0)
+            microscope.move_stage_absolute(stage)
+            gaps.append(
+                sim_sites._centre(microscope, BeamType.ION)
+                - sim_sites._centre(microscope, BeamType.ELECTRON)
+            )
+    finally:
+        microscope.disconnect()
+    assert np.allclose(gaps[0], 0.0, atol=1e-8)
+    assert abs(gaps[1][0]) < 1e-8 and abs(gaps[1][1]) > 5e-6

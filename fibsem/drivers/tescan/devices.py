@@ -250,7 +250,8 @@ class TescanBeam(Beam):
     # -- read from the last image: the API cannot read or set these ------------------
 
     def read_resolution(self) -> Any:
-        return self._cache.resolution
+        resolution = self._cache.resolution
+        return None if resolution is None else tuple(resolution)
 
     def write_resolution(self, value: Any) -> None:
         self._not_supported("resolution")

@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from fibsem import utils
-from fibsem.drivers.demo.sim_scene import SampleScene
+from fibsem.drivers.demo.sim.scene import SampleScene
 from fibsem.structures.settings import BeamType
 
 

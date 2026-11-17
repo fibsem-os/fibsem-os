@@ -552,9 +552,10 @@ class _ImagesTab(QWidget):
         # when the editable path widget re-emits editingFinished (focus-out).
         self._fib_loaded_path: str = ""
         self._fm_loaded_path: str = ""
-        # Asked before a *user-driven* image load, so the owner can confirm
-        # discarding the coordinates. None = no guard (standalone use).
-        self.confirm_image_change: Optional[Callable[[], bool]] = None
+        # Asked before a *user-driven* image load, with the side being replaced
+        # ("fib" or "fm"), so the owner can confirm discarding that image's
+        # coordinates. None = no guard (standalone use).
+        self.confirm_image_change: Optional[Callable[[str], bool]] = None
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -706,17 +707,19 @@ class _ImagesTab(QWidget):
         p = self._proj_path.text().strip()
         return p if p else None
 
-    def _allow_image_change(self) -> bool:
-        """Whether a user-driven image load may proceed.
+    def _allow_image_change(self, side: str) -> bool:
+        """Whether a user-driven load of the ``side`` image may proceed.
 
         Only the picker paths ask. Programmatic ``set_fib_image`` /
         ``set_fm_image`` — how the lamella's images arrive on open — must never
         prompt.
         """
-        return self.confirm_image_change() if self.confirm_image_change else True
+        if self.confirm_image_change is None:
+            return True
+        return self.confirm_image_change(side)
 
     def _load_fib(self, path: str) -> None:
-        if not self._allow_image_change():
+        if not self._allow_image_change("fib"):
             self._fib_picker.show_path(self._fib_loaded_path)  # undo the selection
             return
         try:
@@ -732,7 +735,7 @@ class _ImagesTab(QWidget):
         self.fib_image_changed.emit(image)
 
     def _load_fm(self, path: str) -> None:
-        if not self._allow_image_change():
+        if not self._allow_image_change("fm"):
             self._fm_picker.show_path(self._fm_loaded_path)  # undo the selection
             return
         try:
@@ -2822,15 +2825,20 @@ class CorrelationTabWidget(QWidget):
                 live=state.result.matches_inputs(self._session.fit_data),
             )
 
-    def _confirm_image_change(self) -> bool:
-        """Confirm discarding the coordinates before loading a different image.
+    def _confirm_image_change(self, side: str) -> bool:
+        """Confirm discarding one image's coordinates before loading a different
+        image on that ``side`` ("fib" or "fm").
 
         Coordinates are pixel positions in a *specific* image. A different file is
         a different scene — even at identical shape and pixel size the sample has
-        drifted or been milled — so the existing points no longer mark anything.
-        Keeping them produced off-image points, a coordinate list that displayed
-        clamped values while the data said otherwise, and a result that looked
-        current at the wrong scale.
+        drifted or been milled — so the replaced image's points no longer mark
+        anything. Keeping them produced off-image points, a coordinate list that
+        displayed clamped values while the data said otherwise, and a result that
+        looked current at the wrong scale.
+
+        Only the replaced image's points go. The other image has not changed, so
+        its points still mark what they did: loading the FM stack after seeding
+        the FIB fiducials from the spot burns keeps the fiducials.
 
         Rescaling is deliberately not offered: scaling by the shape ratio is only
         correct if the field of view is unchanged, and nothing in the files says
@@ -2838,28 +2846,31 @@ class CorrelationTabWidget(QWidget):
         resampled; here we know nothing, so we clear.
 
         Returns True to proceed — clearing as a side effect — or False to leave
-        both the image and the coordinates untouched.
+        the image and the coordinates untouched.
         """
-        if not self._session.positions():
+        if not self._session.points.on_side(side):
             return True  # nothing to lose
+        if side == "fib":
+            title, cleared = "FIB", "the FIB fiducials and the FIB surface point"
+            kept = "The FM points are kept."
+        else:
+            title, cleared = "FM", "the FM fiducials, POIs and the FM surface point"
+            kept = "The FIB fiducials are kept."
         reply = QMessageBox.question(
             self,
-            "Change image?",
-            "Loading a different image will clear the current coordinates — they "
-            "mark positions in the image they were placed on.\n\n"
-            "Any correlation result is discarded with them.",
+            f"Change {title} image?",
+            f"Loading a different {title} image will clear {cleared} — they mark "
+            f"positions in the image they were placed on. {kept}\n\n"
+            "Any correlation result is discarded.",
             QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
             QMessageBox.StandardButton.Cancel,
         )
         if reply != QMessageBox.StandardButton.Ok:
             return False
-        self.set_data(
-            CorrelationInputData(
-                fib_image=self._session.fib_image, fm_image=self._session.fm_image
-            )
-        )
+        self._session.clear_side(side)
         self._discard_result()
-        self._session.mark_seeded()  # nothing on screen, so nothing edited
+        if not self._session.positions():
+            self._session.mark_seeded()  # nothing on screen, so nothing edited
         return True
 
     def _discard_result(self) -> None:

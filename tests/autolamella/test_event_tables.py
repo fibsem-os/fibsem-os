@@ -46,8 +46,12 @@ from fibsem.workflows.proposals import (
     POINT_OF_INTEREST,
     STATE,
 )
+from tests.fixtures.microscopes import demo_microscope
 from tests.protocols import planned, task_protocol
 from tests.run_state import run_lamellae
+
+# Function scope: the tests change the instrument and would see each other's changes.
+microscope = demo_microscope(scope="function")
 
 SETUP = "Setup Lamella Position"
 ROUGH = "Rough Milling"

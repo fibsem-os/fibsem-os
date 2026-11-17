@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from fibsem import utils
-from fibsem.drivers.demo.sim_scene import SampleScene
+from fibsem.drivers.demo.sim.scene import SampleScene
 from fibsem.structures.settings import BeamType, ImageSettings
 
 PLAIN = {
@@ -57,6 +57,7 @@ def test_an_imaging_current_leaves_no_mark(microscope):
     assert 0 < seen["dose"] * 10 < 1e-3  # under a nanometre of ice
 
 
+@pytest.mark.slow
 def test_a_milling_current_wears_a_rectangle_that_deepens(microscope):
     scene = microscope._connection.sample_scene
     microscope.set_beam_current(20e-12, BeamType.ION)

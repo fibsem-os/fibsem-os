@@ -28,6 +28,9 @@ SPLIT = 1e-3  # m of focus between the two directions, per unit of stigmation
 # the probe's size at a reference current, and how it grows: (um, A, power)
 PROBE = ((0.002, 100e-12, 0.4), (0.012, 20e-12, 0.4))
 DOSE = (0.25, 8.0)  # the least and most a current changes the counts
+# the counts a dose gives, SEM and FIB: an ion frees more secondary electrons
+# than an electron does
+YIELD = (1.0, 2.0)
 DWELL = (1e-6, 0.5, 4.0)  # s for the usual counts; the least and most it changes them
 LEVELS = 6  # the most different blurs drawn across one tilted view
 SHARP = 0.15  # px; a blur under this is not drawn
@@ -64,7 +67,7 @@ class Optics:
     def dose(self, which: int) -> float:
         """The counts in a pixel, against those at the reference current and
         the usual dwell."""
-        dose = 1.0
+        dose = YIELD[which]
         if self.current:
             dose *= float(np.clip(abs(self.current) / PROBE[which][1], *DOSE))
         if self.dwell:

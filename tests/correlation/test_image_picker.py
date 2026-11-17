@@ -9,7 +9,7 @@ contract is small but load-bearing:
   so the programmatic ``show_path`` used for pre-loads and error-reverts cannot
   loop back into a reload.
 
-Headless PyQt5, offscreen.
+Headless Qt, offscreen.
 """
 
 import os

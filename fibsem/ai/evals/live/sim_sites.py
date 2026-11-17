@@ -29,8 +29,8 @@ from fibsem.ai.evals.sim_cases import (
     measure_square,
     scene_options,
 )
-from fibsem.drivers.demo.sim_optics import ANGLE
-from fibsem.drivers.demo.sim_scene import SampleScene
+from fibsem.drivers.demo.sim.optics import ANGLE
+from fibsem.drivers.demo.sim.scene import SampleScene
 from fibsem.geometry.projection import BeamStageProjection
 from fibsem.structures.settings import BeamType, FibsemStagePosition
 
@@ -48,6 +48,7 @@ REACH = (0.72e-3, 0.39e-3)
 # would be keyed thick for ice nobody can see (back once it draws them).
 SCENE = {"cell_type": "rpe", "film": "holey", "extent": 2.4e-3, "ice_density": 0.0}
 STEP = 0.5e-6  # m, the grid a cell's outline is measured on
+NO_BEAM_OFFSET = {"beam_offset": {}, "current_offset_scale": 0.0}
 
 BRIEF = (
     "Grid {grid} is loaded and the stage is at the SEM orientation. Find "
@@ -72,6 +73,11 @@ def microscope_config(seed: int, overrides: Optional[Dict[str, Any]] = None) -> 
     sample = {k: v for k, v in options.items() if k in SampleScene.CONFIG_KEYS}
     sim["sample"].update(sample)
     sim["sample"].update({"enabled": True, "grids_from_holder": False})
+    # the beams meet where the stage's height says: no fixed beam offset and
+    # no per-current one, so a site is made coincident by a vertical move
+    # alone, as the task asks (the offsets are for the beam-shift alignment
+    # work, not for site selection)
+    sim["sample"].update(NO_BEAM_OFFSET)
     sim["stage_error"] = {"enabled": False}
     return config
 
@@ -176,6 +182,23 @@ def _to_stage(world_map: np.ndarray, x: float, y: float) -> Tuple[float, float]:
     return float(s[0]), float(s[1])
 
 
+def _nearest_crack(scene, x: float, y: float) -> Optional[float]:
+    """How far the nearest hairline crack's line is from world (x, y) (m);
+    None when the scene has none."""
+    best = None
+    if getattr(scene, "crack_density", 0) <= 0:
+        return None
+    for arm in getattr(scene, "cracks", None) or []:
+        a, b = arm[:-1, :2], arm[1:, :2]
+        ab = b - a
+        length2 = np.maximum((ab**2).sum(axis=1), 1e-30)
+        t = np.clip(((np.array([x, y]) - a) * ab).sum(axis=1) / length2, 0.0, 1.0)
+        nearest = a + ab * t[:, None]
+        d = float(np.hypot(nearest[:, 0] - x, nearest[:, 1] - y).min())
+        best = d if best is None else min(best, d)
+    return best
+
+
 def _cell(scene, grid, feature, world_map) -> Optional[Dict[str, Any]]:
     """A cell body's place, size and square in stage coordinates, and
     whether it is wholly on the film and clear of every bar."""
@@ -203,10 +226,14 @@ def _cell(scene, grid, feature, world_map) -> Optional[Dict[str, Any]]:
     radius = float(
         np.hypot(xs[body] - xs[body].mean(), ys[body] - ys[body].mean()).max()
     )
+    crack = _nearest_crack(scene, float(xs[body].mean()), float(ys[body].mean()))
     return {
         "x": round(cx, 9),
         "y": round(cy, 9),
         "radius_um": round(radius * 1e6, 2),
+        # how far the nearest hairline crack is from the cell's centre (um);
+        # None with no crack in the scene
+        "crack_um": None if crack is None else round(crack * 1e6, 2),
         "square": [i, j],
         "on_film": on_film >= RULES["cell_area"],
         "clear": clear,

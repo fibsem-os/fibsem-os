@@ -22,6 +22,10 @@ from fibsem.workflows.events.recording import (
     read_events_before,
     read_new_events,
 )
+from tests.fixtures.microscopes import demo_microscope
+
+# Function scope: the tests change the instrument and would see each other's changes.
+microscope = demo_microscope(scope="function")
 
 
 def _move(microscope):

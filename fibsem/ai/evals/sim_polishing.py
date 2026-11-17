@@ -28,7 +28,7 @@ import yaml
 
 from fibsem.ai.evals.cases import FORMAT
 from fibsem.ai.evals.sim_cases import PLAYBOOK, TIER, _demo_microscope
-from fibsem.drivers.demo.sim_scene import SampleScene, SceneFeature
+from fibsem.drivers.demo.sim.scene import SampleScene, SceneFeature
 from fibsem.structures.settings import (
     BeamType,
     FibsemRectangleSettings,

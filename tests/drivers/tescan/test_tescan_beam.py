@@ -185,6 +185,16 @@ UNSUPPORTED = {
 }
 
 
+def _expected(case: str) -> dict:
+    """What *case* gives now: as recorded, but a resolution reads as the tuple the
+    beam declares, where the old get answered a list."""
+    expected = UNSUPPORTED.get(case, EXPECTED[case])
+    if case.endswith(" get resolution") or " set resolution " in case:
+        result = expected["result"].replace("[1536, 1024]", "(1536, 1024)")
+        expected = {**expected, "result": result}
+    return expected
+
+
 def test_every_case_was_recorded():
     assert sorted(CASES) == sorted(EXPECTED)
 
@@ -192,7 +202,7 @@ def test_every_case_was_recorded():
 @pytest.mark.parametrize("case", list(CASES))
 def test_a_routed_key_makes_the_same_calls_logs_and_result(monkeypatch, case):
     microscope, fake = _connected(monkeypatch)
-    assert _run(microscope, fake, CASES[case]) == UNSUPPORTED.get(case, EXPECTED[case])
+    assert _run(microscope, fake, CASES[case]) == _expected(case)
     assert fake.unlocked == []
 
 

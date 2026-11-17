@@ -41,12 +41,8 @@ def settings():
 
 
 def frame_seconds(settings: ImageSettings) -> float:
-    """How long the simulator spends on the frame itself.
-
-    The simulator sleeps twice per acquisition -- once reading the microscope state for
-    the metadata, once for the frame -- and only the second is inside the channel lock.
-    Tests that want to act *during the frame* discriminate on this.
-    """
+    """How long a frame takes in the simulator: what `frame_sleep` is asked to wait
+    out, inside the channel lock, less the time the image took to build."""
     return settings.dwell_time * settings.resolution[0] * settings.resolution[1]
 
 
@@ -168,13 +164,12 @@ class TestTheBeamNoticesATheft:
         still do. It lands mid-frame, where on hardware `grab_frame` would then read the
         FM's buffer and hand it back labelled as an ion image.
         """
-        during_the_frame = frame_seconds(settings)
 
-        def steal(seconds: float) -> None:
-            if seconds == during_the_frame:
-                microscope.fm.set_active_channel()
+        def steal(seconds: float, started: float) -> None:
+            assert seconds == frame_seconds(settings)
+            microscope.fm.set_active_channel()
 
-        monkeypatch.setattr("fibsem.drivers.demo.simulator.sim_sleep", steal)
+        monkeypatch.setattr("fibsem.drivers.demo.simulator.frame_sleep", steal)
 
         with caplog.at_level(logging.WARNING):
             microscope.acquire_image(image_settings=settings)
@@ -194,7 +189,6 @@ class TestTheBeamNoticesATheft:
         during the frame *and* that it eventually got in, so a thief that never ran
         cannot pass this by doing nothing.
         """
-        during_the_frame = frame_seconds(settings)
         at_the_door = threading.Event()
         got_in = threading.Event()
         blocked_during_the_frame = []
@@ -207,14 +201,12 @@ class TestTheBeamNoticesATheft:
         thief = threading.Thread(target=steal, daemon=True)
         thief.start()
 
-        def frame(seconds: float) -> None:
-            if seconds != during_the_frame:
-                return
+        def frame(seconds: float, started: float) -> None:
             at_the_door.set()
             # Long enough that a thief who could get in, would have.
             blocked_during_the_frame.append(not got_in.wait(timeout=0.5))
 
-        monkeypatch.setattr("fibsem.drivers.demo.simulator.sim_sleep", frame)
+        monkeypatch.setattr("fibsem.drivers.demo.simulator.frame_sleep", frame)
 
         with caplog.at_level(logging.WARNING):
             microscope.acquire_image(image_settings=settings)

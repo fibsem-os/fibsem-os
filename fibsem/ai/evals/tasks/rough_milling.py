@@ -7,7 +7,7 @@ import numpy as np
 from fibsem.ai.evals.cases import Case, pass_names
 from fibsem.ai.evals.scoring import InvalidAnswer, yes_no
 from fibsem.ai.evals.tasks.base import EvalTask, Run, Sim
-from fibsem.ai.evals.visual import _pass_strip
+from fibsem.ai.evals.visual import KEY, THEME, _pass_strip
 
 # What a rough_milling key says about each step.
 ROUGH_CHECKS = ("milled_through", "intact")
@@ -66,7 +66,9 @@ def draw_rough_milling(case: Case, runs: List[Run], key=None, part=None):
             except InvalidAnswer:
                 value = None
             want = yes_no(key[check][name])
-            colour = "#bbbbbb" if value is None else ("#2ca02c" if value else "#444444")
+            colour = (
+                THEME.grid if value is None else (KEY if value else THEME.text_muted)
+            )
             ax.add_patch(plt.Rectangle((c, r), 0.9, 0.9, color=colour))
             ax.text(
                 c + 0.45,
@@ -75,7 +77,7 @@ def draw_rough_milling(case: Case, runs: List[Run], key=None, part=None):
                 ha="center",
                 va="center",
                 fontsize=7,
-                color="red" if r and value != want else "white",
+                color=THEME.bad if r and value != want else THEME.text_strong,
             )
     ax.set_xlim(0, len(cols))
     ax.set_ylim(len(rows), 0)

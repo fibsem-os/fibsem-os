@@ -222,7 +222,7 @@ def test_an_empty_folder_says_how_to_start_where_you_are_looking(qapp, tmp_path)
 
 
 def test_the_empty_state_points_at_the_worked_examples(qapp, tmp_path):
-    """examples/scripts/ is not in the wheel, so a pip-installed user has no local
+    """examples/app_scripts/ is not in the wheel, so a pip-installed user has no local
     copy and no way to know three of them exist. Saying "repository" is the point:
     without it the only advice is to write one from scratch."""
     from fibsem.ui.widgets.script_manager_dialog import EXAMPLES_PATH

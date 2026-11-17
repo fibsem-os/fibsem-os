@@ -9,6 +9,7 @@ from fibsem.ai.evals.scoring import InvalidAnswer, _point
 from fibsem.ai.evals.tasks.base import EvalTask, Run
 from fibsem.ai.evals.visual import (
     KEY,
+    THEME,
     _colour,
     _figure,
     _input,
@@ -28,6 +29,22 @@ def score_site_selection(
     radius = float(key.get("hit_radius_px", case.scoring.get("hit_radius_px", 100)))
     picks = picks[: int(case.scoring.get("max_picks", 10))]
     good, bad = key.get("good") or [], key.get("bad") or []
+    # a case that shows the agent an example site doesn't score a pick on it
+    example = key.get("example")
+    on_example = 0
+    if example:
+        kept = []
+        # its square's centre, and its cell when the key gives it
+        spots = [(example["x_px"], example["y_px"])]
+        if "cell_x_px" in example:
+            spots.append((example["cell_x_px"], example["cell_y_px"]))
+        for pick in picks:
+            x, y = _point(pick)
+            if any(math.hypot(x - sx, y - sy) <= radius for sx, sy in spots):
+                on_example += 1
+            else:
+                kept.append(pick)
+        picks = kept
 
     def nearest(x, y, squares):
         best = None
@@ -61,6 +78,7 @@ def score_site_selection(
         "good_total": len(good),
         "bad_picks": len(bad_picks),
         "unkeyed_picks": unkeyed,
+        **({"example_picks": on_example} if example else {}),
         "costly": len(bad_picks),
         "per_pick": per_pick,
     }
@@ -83,7 +101,9 @@ def draw_site_selection(case: Case, runs: List[Run]):
         )
     for square in case.key.get("bad") or []:
         ax.add_patch(
-            Circle((square["x_px"], square["y_px"]), radius, fill=False, color="red")
+            Circle(
+                (square["x_px"], square["y_px"]), radius, fill=False, color=THEME.bad
+            )
         )
     for n, (_, answer) in enumerate(runs):
         for i, pick in enumerate((answer or {}).get("picks") or []):

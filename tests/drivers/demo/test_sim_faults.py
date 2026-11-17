@@ -8,8 +8,8 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.drivers.demo.sim_faults import Faults, SimulatedFault
-from fibsem.drivers.demo.sim_scene import SampleScene
+from fibsem.drivers.demo.sim.faults import Faults, SimulatedFault
+from fibsem.drivers.demo.sim.scene import SampleScene
 from fibsem.structures.settings import (
     BeamType,
     FibsemRectangleSettings,
@@ -84,6 +84,7 @@ def test_a_fault_the_simulator_does_not_have_is_refused(entry):
         SampleScene.from_config({"faults": [entry]})
 
 
+@pytest.mark.slow
 def test_the_beam_turns_off_until_it_is_turned_on_again():
     microscope = _microscope({"kind": "beam_off", "at": 2})
     try:

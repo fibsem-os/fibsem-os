@@ -36,7 +36,9 @@ def test_calls_from_a_worker_run_on_the_gui_thread(qapp):
         for i in range(2000):
             record(i)  # the future is dropped at once
             if i % 100 == 0:
-                gc.collect()
+                # The youngest generation, where the dropped futures are: a full
+                # collection walks every widget the earlier tests left alive.
+                gc.collect(0)
 
     thread = threading.Thread(target=worker)
     thread.start()
