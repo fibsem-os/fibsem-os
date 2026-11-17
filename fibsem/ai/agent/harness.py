@@ -731,6 +731,10 @@ def _last_line(batch) -> bool:
     return bool(watch_mod.kinds(batch) & watch_mod.LAST_KINDS)
 
 
+# how long stopping the watch waits for a poll in flight (s)
+STOP_JOIN_S = 5.0
+
+
 class _WatchClient:
     """The watch's client: it refuses another request once stopped."""
 
@@ -778,6 +782,10 @@ class Watcher:
         """Ends the watch: closing its client ends a parked poll as well."""
         self._stopping.set()
         _close(self._client)
+        # wait for a poll in flight to come back, so its connection is closed
+        # with the client instead of left open after it
+        if self._thread.is_alive() and self._thread is not threading.current_thread():
+            self._thread.join(STOP_JOIN_S)
 
     def _out(self, line: str) -> None:
         if self._stopping.is_set():
