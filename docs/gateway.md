@@ -151,6 +151,19 @@ and opens its page signed in as the operator, so this browser needs no pairing. 
 starts: pick the microscope, the app and the agent on the page. `fibsem-gateway open` does the
 same from a terminal.
 
+## A microscope PC's gateway, or a hub
+
+A gateway is one of two things, and a person chooses which:
+
+- **A microscope PC's** (the default) runs the app for the instrument beside it.
+- **A hub** is on another PC. It holds a list of instruments, one or many, reaches each
+  over an ssh tunnel it opens itself, and reads what each is doing.
+
+`fibsem-gateway role hub` makes this PC's gateway a hub, and `fibsem-gateway role microscope`
+sets it back; `fibsem-gateway install --hub` sets it as it installs. A gateway never becomes a
+hub because of what it was sent: a microscope PC's gateway keeps no list, opens no tunnel and
+refuses an instrument.
+
 ## Pairing a hub
 
 Pair a hub with a 4-digit code from `fibsem-gateway pair --hub --may-switch`. The

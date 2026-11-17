@@ -35,6 +35,7 @@ from fibsem.gateway.gateway import (
 )
 from fibsem.gateway.host import HostMicroscope
 from fibsem.gateway.hub import Hub
+from fibsem.gateway.role import HUB, MICROSCOPE, read_role, save_role
 from fibsem.server.operator_token import read_operator_token
 from fibsem.unreleased import refuse
 
@@ -85,7 +86,16 @@ def _parser() -> argparse.ArgumentParser:
     install = commands.add_parser(
         "install", help="Start the gateway at logon (Windows: a Startup shortcut)."
     )
+    install.add_argument(
+        "--hub",
+        action="store_true",
+        help="This PC is a hub: its gateway holds the lab's instrument list.",
+    )
     install.add_argument("connection", nargs=argparse.REMAINDER)
+    role = commands.add_parser(
+        "role", help="Show or set what this gateway is: microscope or hub."
+    )
+    role.add_argument("role", nargs="?", choices=[MICROSCOPE, HUB])
     commands.add_parser("uninstall", help="Stop starting it at logon.")
     pair = commands.add_parser("pair", help="Open pairing and show the code.")
     pair.add_argument("--hub", action="store_true", help="Pair a hub.")
@@ -398,7 +408,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     if extra:
         _parser().error(f"unrecognized arguments: {' '.join(extra)}")
     if args.command == "install":
+        if args.hub:
+            save_role(HUB)
+            print("This gateway is a hub.")
         return install(_connection(args.connection))
+    if args.command == "role":
+        if args.role:
+            save_role(args.role)
+        print(f"This gateway's role: {read_role()}")
+        return 0
     if args.command == "uninstall":
         return uninstall()
     if args.command == "open":
