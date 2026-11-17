@@ -536,9 +536,9 @@ are in degrees, ranges are two-element lists, lengths in metres.
 | `beam_offset` | {} | per-beam misalignment `{electron: [dx, dy], ion: [dx, dy]}` (m): a persistent lateral offset |
 | `current_offset_scale` | 0 | sigma (m) of a seeded per-(beam, current) offset; 0 is off |
 | `beam_optics` | true | working distance, stigmation and current show in the image (see Beam settings) |
-| `focus_fuzz` | 15e-6 | how far a beam's focus is from its eucentric height, at most (m) |
+| `focus_fuzz` | 1.5e-05 | how far a beam's focus is from its eucentric height, at most (m) |
 | `scan_rotation_at_start` | {} | the scan rotation each beam boots at, `{electron: deg, ion: deg}` |
-| `fm_camera_mount` | null | the mount transform the FM camera really has; null is as configured |
+| `fm_camera_mount` | unset | the mount transform the FM camera really has; unset is as configured |
 | `imaging_damage` | 1 | how fast FIB imaging wears the sample away (1 is ice, 0 is never) |
 | `surface_grain` | 1 | how strongly a surface's fine texture shows (0 is smooth; see Beam settings) |
 | `faults` | [] | things that go wrong and when, see "Things going wrong" |
@@ -559,7 +559,8 @@ are in degrees, ranges are two-element lists, lengths in metres.
 | `hole_diameter` | 2e-06 | holey film: hole diameter (m) |
 | `hole_pitch` | 4e-06 | holey film: hole pitch (m) |
 | `broken_hole_fraction` | 0.006 | holey film: fraction of holes broken into larger openings |
-| `fiducial` | False | a cross at each grid centre, a navigation landmark; absent on a real grid, so off by default |
+| `centre_mark` | true | the orientation mark at the grid's centre: a bigger square of metal with one corner rounded |
+| `fiducial` | false | a cross at each grid centre, a navigation landmark; absent on a real grid, so off by default |
 
 ### Waffle
 
@@ -567,36 +568,41 @@ are in degrees, ranges are two-element lists, lengths in metres.
 | -- | -- | -- |
 | `preparation` | plunge | `plunge`, `waffle` for a high-pressure frozen slab on a grid, or `carrier` for a block in a carrier |
 | `slab_thickness` | 2.5e-05 | how thick the ice is (m): 5 to 50 um in a waffle, 50 to 300 um in a carrier |
-| `hat_scratches` | 1.0 | waffle: how strongly the hat's polishing lines show in the top (0 = none) |
+| `hat_scratches` | 1 | waffle: how strongly the hat's polishing lines show in the top (0 = none) |
 | `slab_fill` | 0.15 | waffle: the share of the slab's volume that is cells |
-| `suspended_rpe_radius` | (7.5e-06, 1e-05) | waffle: the radius of a rounded RPE cell (m) |
-| `worm_length` | (0.00018, 0.00025) | waffle: how long a `celegans` worm is (m) |
-| `worm_radius` | (4.5e-06, 6e-06) | waffle: how thick it is at its middle, as a radius (m) |
-| `embryo_length` | (0.00048, 0.00052) | carrier: how long a `drosophila` embryo is (m) |
-| `embryo_width` | (0.00017, 0.00019) | carrier: how wide it is (m) |
+| `suspended_rpe_radius` | [7.5e-06, 1e-05] | waffle: the radius of a rounded RPE cell (m) |
+| `worm_length` | [0.00018, 0.00025] | waffle: how long a `celegans` worm is (m) |
+| `worm_radius` | [4.5e-06, 6e-06] | waffle: how thick it is at its middle, as a radius (m) |
+| `embryo_length` | [0.00048, 0.00052] | carrier: how long a `drosophila` embryo is (m) |
+| `embryo_width` | [0.00017, 0.00019] | carrier: how wide it is (m) |
 
 ### Cells
 
 | key | default | what it does |
 | -- | -- | -- |
-| `cell_type` | rpe | `rpe` (default), `mammalian`, `yeast`, `bacteria`, `mixed`, `none`; in a waffle `yeast`, `rpe`, `celegans`, `none`; in a carrier those and `drosophila` |
-| `extent` | None | content is grown over +/- extent/2 about the grid centre, on the grid's disc (m); None fills the whole grid |
+| `cell_type` | rpe | `rpe` (default), `mammalian`, `neuron`, `yeast`, `bacteria`, `mixed`, `none`; in a waffle `yeast`, `rpe`, `celegans`, `none`; in a carrier those and `drosophila` |
+| `extent` | unset | content is grown over +/- extent/2 about the grid centre, on the grid's disc (m); unset fills the whole grid |
+| `rpe_density` | 3 | rpe: cells per 150 x 150 um |
+| `rpe_radius` | [1.1e-05, 2.1e-05] | rpe: cell radius range (m) |
 | `mammalian_density` | 7 | mammalian: cells per 150 x 150 um |
 | `mammalian_radius` | [1.8e-05, 3e-05] | mammalian: body radius range (m) |
 | `nucleus_radius` | [5e-06, 7e-06] | mammalian: nucleus radius range (m) |
 | `n_clusters` | 120 | yeast: clusters per 800 x 800 um |
-| `cells_per_cluster` | [3, 8] | yeast: cells per cluster (inclusive range) |
-| `cell_size` | [4.5e-06, 1.2e-05] | yeast: sigma range per cell (m) |
-| `cluster_spread` | 1.5e-05 | yeast: how far cells scatter round a cluster (m) |
+| `cells_per_cluster` | [8, 40] | yeast: cells per cluster (inclusive range) |
+| `cell_size` | [1.8e-06, 2.8e-06] | yeast: sigma range per cell (m) |
+| `cluster_spread` | 2e-05 | yeast: how far cells scatter round a cluster (m) |
 | `bacteria_density` | 160 | bacteria: rods per 150 x 150 um |
 | `bacteria_length` | [2e-06, 3.5e-06] | bacteria: rod length range (m) |
+| `neuron_density` | 1.2 | neuron: somas per 150 x 150 um |
+| `soma_radius` | [5e-06, 9e-06] | neuron: soma radius range (m) |
+| `neurite_length` | [6e-05, 0.00022] | neuron: how long its processes are (m) |
 
 ### Rips, ice and contamination
 
 | key | default | what it does |
 | -- | -- | -- |
 | `rip_fraction` | 0.03 | fraction of squares with the film torn; neighbours rip more readily |
-| `grid_quality` | null | what each grid is like: a name, a list in slot order or a mapping by grid name, see "Grids at the holder's slots" |
+| `grid_quality` | unset | what each grid is like: a name, a list in slot order or a mapping by grid name, see "Grids at the holder's slots" |
 | `ice_density` | 0.4 | ice crystals per 100 x 100 um |
 | `ice_size` | [6e-06, 1.6e-05] | ice plate radius range (m) |
 | `contamination_density` | 15 | specks per 100 x 100 um, on film and bars alike |
@@ -643,7 +649,7 @@ are in degrees, ranges are two-element lists, lengths in metres.
 
 | key | default | what it does |
 | -- | -- | -- |
-| `grids_from_holder` | False | grids at the holder's calibrated, occupied slots (opt-in) |
+| `grids_from_holder` | false | grids at the holder's calibrated, occupied slots (opt-in) |
 
 ### Reproducibility
 
