@@ -19,6 +19,7 @@ def session(out, cell, repeat):
     return json.loads(folder.read_text())
 
 
+@pytest.mark.slow
 def test_every_cell_runs_repeat_by_repeat(home, polish_case, tmp_path, monkeypatch):
     monkeypatch.setenv("EVAL_FAKE_ANSWER", json.dumps(STOP_AT_P3))
     out = tmp_path / "matrix"
@@ -39,7 +40,8 @@ def test_every_cell_runs_repeat_by_repeat(home, polish_case, tmp_path, monkeypat
     assert session(out, "opus-files-base", 2)["playbook"] is None
     text = matrix.matrix_markdown(out)
     assert "Commit abc" in text and "| opus-code-case |" in text
-    assert "| polish | " + " | ".join(["2/2 ($0.25)"] * 8) + " |" in text
+    # results rows are grouped: real or sim, then static or live
+    assert "| Real static: polish | " + " | ".join(["2/2 ($0.25)"] * 8) + " |" in text
     # The fake agent reads no skill.
     assert "| polish | " + " | ".join(["0/2"] * 8) + " |" in text
 

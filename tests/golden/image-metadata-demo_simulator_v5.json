@@ -113,6 +113,7 @@
     "name": "test-configuration",
     "port": null,
     "serial_number": "0000000",
+    "server_version": null,
     "software_version": "0.1"
   },
   "user": {

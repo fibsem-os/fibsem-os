@@ -75,6 +75,7 @@ def _count(page, pattern):
 # ── a real run ───────────────────────────────────────────────────────────────
 
 
+@pytest.mark.slow
 def test_the_report_of_a_run_is_written_beside_its_record(microscope, experiment):
     run_lamellae(microscope, experiment, [SETUP, ROUGH])
 

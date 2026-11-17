@@ -4,8 +4,8 @@ are on."""
 
 import pytest
 
+from fibsem.ai.agent import extra_mcp, playbooks, sources, subagents
 from fibsem.ai.agent import harness as harness_mod
-from fibsem.ai.agent import playbooks, sources, subagents
 
 TOOL = "mcp__fibsem__app_get_status"
 
@@ -85,6 +85,16 @@ def test_a_subagent_is_checked(lab, checkout):
         subagents.check_file("broken", checkout)
 
 
+def test_front_matter_reads_windows_line_endings():
+    # a checkout on Windows writes the shipped agent files with them
+    text = "---\nname: x\ntools: Read, Grep\n---\n\nLook.\n"
+    data, body = subagents.front_matter(text.replace("\n", "\r\n"))
+    assert data == {"name": "x", "tools": "Read, Grep"}
+    assert body.strip() == "Look."
+    plain = "No front matter.\r\n"
+    assert subagents.front_matter(plain) == (None, plain)
+
+
 def test_a_subagents_file_round_trips_through_its_settings():
     text = _subagent("x", tools=f"{TOOL}, Read", extra="model: opus\n")
     data, body = subagents.front_matter(text)
@@ -124,3 +134,45 @@ def test_the_transcript_says_which_subagents_are_on(lab, checkout):
     control.set("autolamella", "named by the operator")
     control.loaded("autolamella-lead")
     assert said[-1] == "Subagents on: " + ", ".join(_all().agents)
+
+
+def test_a_specialist_gets_the_tools_an_extra_server_gives_specialists(
+    lab, checkout, tmp_path
+):
+    (tmp_path / "home" / "agent").mkdir()
+    (tmp_path / "home" / "agent" / "mcp.yaml").write_text(
+        "notebook:\n  tools: [search, append_entry]\n  subagents: [search]\n",
+        encoding="utf-8",
+    )
+    subagents.check(_subagent("x", tools=f"{TOOL}, mcp__notebook__search"))
+    # The agent's alone: in tools, not in subagents.
+    with pytest.raises(
+        subagents.SubagentError, match="no tool mcp__notebook__append_entry"
+    ):
+        subagents.check(_subagent("x", tools=f"{TOOL}, mcp__notebook__append_entry"))
+
+    anything = "---\nname: anything\ndescription: Looks.\n---\n\nLook.\n"
+    (lab / "anything.md").write_text(anything, encoding="utf-8")
+    original = sources.agent_file("autolamella-verifier", checkout)
+    before = original.read_bytes()
+    run = tmp_path / "run"
+    agents = ["autolamella-verifier", "anything"]
+    sources.assemble(run, checkout, ["fibsem-agent"], agents)
+    copied = run / ".claude" / "agents"
+    assembled = {p.name: p.read_bytes() for p in copied.iterdir()}
+    subagents.add_tools(run, agents, [])
+    assert {p.name: p.read_bytes() for p in copied.iterdir()} == assembled
+
+    subagents.add_tools(run, agents, extra_mcp.subagent_allowed(extra_mcp.load()))
+    # The session's copies only: the shipped file is as it was.
+    assert original.read_bytes() == before
+    shipped, _ = subagents.front_matter(before.decode("utf-8"))
+    data, body = subagents.front_matter(
+        (copied / "autolamella-verifier.md").read_text("utf-8")
+    )
+    assert subagents.names(data["tools"]) == subagents.names(shipped["tools"]) + [
+        "mcp__notebook__search"
+    ]
+    assert data["model"] == shipped["model"] and body.strip()
+    # No tools line is every tool already: a line would narrow it.
+    assert (copied / "anything.md").read_text("utf-8") == anything

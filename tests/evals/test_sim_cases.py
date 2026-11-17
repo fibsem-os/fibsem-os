@@ -376,6 +376,7 @@ def test_an_fm_target_case_from_the_sim(tmp_path, seed, kind, usable):
     )
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize(
     "seed, through, intact",
     [
@@ -403,6 +404,7 @@ def test_a_rough_milling_case_from_the_sim(tmp_path, seed, through, intact):
         assert miss.result == "miss" and miss.costly >= 1
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("seed, lost", [(1, False), (3, True)])
 def test_a_coincidence_case_from_the_sim(tmp_path, seed, lost):
     folder = sim_coincidence.write_case(
@@ -422,3 +424,24 @@ def test_a_coincidence_case_from_the_sim(tmp_path, seed, lost):
     if lost:
         [miss] = score_case(case, {"present": {n: True for n in names}})
         assert miss.result == "miss" and miss.costly >= 1
+
+
+def test_the_example_comes_with_a_crop_of_it(tmp_path):
+    sim_cases.write_cases(2, tmp_path, None, **SMALL)
+    folder = tmp_path / "site-selection" / "sim-0002-example"
+    case = load_case(folder)
+    example = case.key["example"]
+    crop = folder / "experiment" / sim_cases.EXAMPLE_IMAGE
+    assert crop.exists()
+    # the crop is a piece of the overview, with the example's cell in it
+    overview = tifffile.imread(
+        tmp_path / "site-selection" / "sim-0002" / "experiment" / "overview.tif"
+    )
+    image = tifffile.imread(crop)
+    x0, y0, x1, y1 = example["crop_px"]
+    side = x1 - x0
+    assert image.shape == (side, y1 - y0)
+    assert f"example.tif (x {x0}-{x1}, y {y0}-{y1} px" in case.data["brief"]
+    assert np.array_equal(image, overview[y0 : y0 + side, x0 : x0 + side])
+    assert x0 <= example["cell_x_px"] < x0 + side
+    assert y0 <= example["cell_y_px"] < y0 + side

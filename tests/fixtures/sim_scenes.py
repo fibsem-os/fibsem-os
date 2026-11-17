@@ -3,7 +3,7 @@ film became the default: mammalian cells on a continuous film. The SEM to FIB
 alignment tests were written against it; they ask for it by name.
 """
 
-from fibsem.drivers.demo.sim_scene import SampleScene
+from fibsem.drivers.demo.sim.scene import SampleScene
 
 MAMMALIAN_SCENE = {"cell_type": "mammalian", "film": "continuous"}
 

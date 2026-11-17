@@ -136,6 +136,7 @@ def test_a_mask_already_set_is_kept_and_not_counted(microscope):
     assert settings.tile_mask[0][0] is True  # the caller's settings are not rewritten
 
 
+@pytest.mark.slow
 def test_a_fluorescence_overview_skips_its_tiles_out_of_reach(microscope, experiment):
     """A column of 10 tiles of the simulator's 102 um field: the top and bottom
     tiles are past the y travel. One column keeps the run short."""

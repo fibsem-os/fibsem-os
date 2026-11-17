@@ -14,6 +14,10 @@ from fibsem.structures.settings import (
     ImageSettings,
     OverviewAcquisitionSettings,
 )
+from tests.fixtures.microscopes import demo_microscope
+
+# Function scope: the tests change the instrument and would see each other's changes.
+microscope = demo_microscope(scope="function")
 
 
 def _settings(**kwargs) -> ImageSettings:

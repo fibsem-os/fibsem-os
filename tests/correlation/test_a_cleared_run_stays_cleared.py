@@ -1,7 +1,7 @@
 """A run in flight doesn't bring back a result the user has cleared (FIB-1242).
 
 ``_run`` hands a snapshot to a worker thread and leaves the widget usable. When
-the user then loads another FIB image and agrees to clear the points, the run
+the user then loads another FIB image and agrees to clear its points, the run
 is still going, and its result used to be adopted when it arrived: drawn on
 the new image, filled into the Results tab and auto-saved beside zero inputs.
 Clearing or loading a result now bumps a generation number, and a run started
@@ -79,8 +79,8 @@ def test_a_run_finishing_after_the_points_are_cleared_is_dropped(
     )
 
     widget._run()
-    widget._images_tab._load_fib(str(other))  # another image; clear the points
-    assert widget.session.positions() == []
+    widget._images_tab._load_fib(str(other))  # another image; clear its points
+    assert widget.session.data.fib_coordinates == []
     _deliver(widget, qapp)
 
     assert widget.session.result is None

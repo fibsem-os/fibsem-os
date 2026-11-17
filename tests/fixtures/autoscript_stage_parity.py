@@ -250,6 +250,7 @@ def make(compustage, fm_inserted=False):
         (connection.service.system, "serial_number", "0"),
         (connection.service.system, "version", "0"),
         (connection.service.autoscript.client, "version", "0"),
+        (connection.service.autoscript.server, "version", "0"),
     ):
         object.__setattr__(node, name, value)
     if compustage:

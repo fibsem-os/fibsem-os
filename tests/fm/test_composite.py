@@ -2,7 +2,7 @@
 
 The module was written for the quad-view canvas on PR #111 and lifted to
 `fibsem/fm/` so it can be shared. It had no unit tests there — it lived under
-`fibsem/ui/`, which CI skips for lack of napari/PyQt5 — so these are new.
+`fibsem/ui/`, which CI skips for lack of napari/Qt — so these are new.
 """
 
 import numpy as np

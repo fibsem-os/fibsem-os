@@ -303,6 +303,8 @@ def test_end_stops_the_agent_and_unpairs_it(made, tmp_path):
 def test_end_and_stop_the_app(made, tmp_path):
     agent, gateway, _ = made()
     agent.start("default", None, "watch", "operator", "page")
+    # Started, so the stop is not taken for a stale one and cleared.
+    assert until(lambda: _record(tmp_path).get("runs"))
     agent.end("operator", "page", stop_app=True)
     assert gateway.stopped == [("operator", "page", False)]
     assert agent.state().running is None
@@ -311,6 +313,8 @@ def test_end_and_stop_the_app(made, tmp_path):
 def test_stopping_the_app_ends_the_agent_first(made, tmp_path):
     agent, gateway, _ = made()
     agent.start("default", None, "watch", "operator", "page")
+    # Started, so the stop is not taken for a stale one and cleared.
+    assert until(lambda: _record(tmp_path).get("runs"))
     gateway.stop("hub-mac", "hub")
     assert agent.state().running is None
     assert PairedTokens(tmp_path / "paired.json").agent() is None

@@ -25,7 +25,7 @@ from fibsem.workflows.site_tasks.spot_burn import (
 )
 from tests.protocols import planned, task_protocol
 
-# The widget-dispatch tests need the UI stack (PyQt5/superqt, the [ui] extra), which
+# The widget-dispatch tests need the UI stack (Qt/superqt, the [ui] extra), which
 # isn't installed in the core CI env (`pip install .`). napari is not part of it: it
 # moved to [labelling] (#778), and probing it here skipped these tests on every [ui]
 # install. Probe the third-party packages themselves,

@@ -596,7 +596,7 @@ class CorrelationResult:
           * ``method`` — not read by ``run_correlation_from_data``.
 
         And the images it was fitted in (:meth:`image_mismatch`). Changing the
-        image in the widget clears the coordinates (``_confirm_image_change``),
+        image in the widget clears that image's coordinates (``_confirm_image_change``),
         but a loaded result arrives beside whatever images are already open: a
         run opened with the wrong reference, or another lamella's file loaded
         into this one's dialog, matched on points alone and armed Continue

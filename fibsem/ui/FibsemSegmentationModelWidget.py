@@ -54,7 +54,7 @@ class FibsemSegmentationModelWidget(QtWidgets.QDialog):
         self.label_header_model = QtWidgets.QLabel("Segmentation Model")
         header_font = QFont()
         header_font.setBold(True)
-        header_font.setWeight(75)
+        header_font.setWeight(QFont.Weight.Bold)
         self.label_header_model.setFont(header_font)
         layout.addWidget(self.label_header_model, 0, 0, 1, 2)
 

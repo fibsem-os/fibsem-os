@@ -373,14 +373,14 @@ def draw_line(img: np.ndarray, x1: int, y1: int, x2: int, y2: int, thickness: in
     err = dx - dy
 
     x, y = x1, y1
+    low, high = -thickness // 2, thickness // 2 + 1
 
     while True:
-        # Draw thick point
-        for tx in range(-thickness // 2, thickness // 2 + 1):
-            for ty in range(-thickness // 2, thickness // 2 + 1):
-                px, py = x + tx, y + ty
-                if 0 <= px < width and 0 <= py < height:
-                    img[py, px] = 1
+        # Draw thick point: the square of side high - low around it
+        img[
+            max(0, y + low) : max(0, min(height, y + high)),
+            max(0, x + low) : max(0, min(width, x + high)),
+        ] = 1
 
         if x == x2 and y == y2:
             break

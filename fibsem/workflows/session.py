@@ -444,7 +444,23 @@ class AppSession:
         self.experiment = experiment
         experiment.configure_logging()
         logger.info(f"Logging to experiment {experiment.name} at {experiment.path}")
+        self._log_instrument()
         self.changed.emit(EXPERIMENT)
+
+    def _log_instrument(self) -> None:
+        """One line naming the connected microscope and its versions, so the
+        experiment's log says what it ran against."""
+        info = getattr(getattr(self.microscope, "system", None), "info", None)
+        if info is None:
+            return
+        try:
+            versions = ", ".join(f"{k} {v}" for k, v in info.versions().items())
+            logger.info(
+                f"Microscope: {info.manufacturer} {info.model}, serial "
+                f"{info.serial_number}; {versions or 'versions unknown'}"
+            )
+        except Exception:  # noqa: BLE001 - a log line must not stop adoption
+            logger.debug("Could not log the microscope's versions.", exc_info=True)
 
     def recording_experiment(self) -> Any:
         """The experiment what is done now is recorded to: the open one, or else

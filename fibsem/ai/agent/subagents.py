@@ -9,15 +9,17 @@ agent can call every one of them; a playbook names the ones its work uses.
 
 A subagent gets the tools its file lists, and only those the session also has:
 the harness still denies the file and shell tools outside code mode, and the
-server's level gate and blocklist still decide what a fibsem tool may do.
+server's level gate and blocklist still decide what a fibsem tool may do. A
+lab's extra MCP servers (`extra_mcp`) add the tools their ``subagents`` name.
 """
 
 import re
+from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import yaml
 
-from fibsem.ai.agent import code_mode, sources
+from fibsem.ai.agent import code_mode, extra_mcp, sources
 from fibsem.ai.agent.catalog import CATALOG
 
 SERVER = "fibsem"
@@ -32,17 +34,27 @@ class SubagentError(ValueError):
     """A subagent's file that can't be used, with the reason in words."""
 
 
-def known_tools() -> List[str]:
-    """Every tool a subagent may list: the fibsem tools, then the CLI's."""
-    return [f"mcp__{SERVER}__{spec.name}" for spec in CATALOG] + list(BUILT_IN)
+def known_tools(extras: Optional[Dict[str, extra_mcp.Server]] = None) -> List[str]:
+    """Every tool a subagent may list: the fibsem tools, the CLI's, then those
+    the lab's extra servers give specialists (*extras*, else read)."""
+    if extras is None:
+        try:
+            extras = extra_mcp.load()
+        except extra_mcp.ExtraMcpError:
+            # fibsem-agent refuses to start on it, saying why.
+            extras = {}
+    fibsem = [f"mcp__{SERVER}__{spec.name}" for spec in CATALOG]
+    return fibsem + list(BUILT_IN) + extra_mcp.subagent_allowed(extras)
 
 
 def front_matter(text: str) -> Tuple[Optional[Dict[str, Any]], str]:
     """A file's front matter and the text after it; None without front
     matter. The CLI reads it a line at a time, so a value with a colon in it,
-    not quoted, still counts."""
+    not quoted, still counts. Windows line endings read as Unix ones: a
+    checkout on Windows writes the shipped files with them."""
+    unix = text.replace("\r\n", "\n")
     front, sep, body = (
-        text[4:].partition("\n---") if text.startswith("---\n") else ("", "", text)
+        unix[4:].partition("\n---") if unix.startswith("---\n") else ("", "", unix)
     )
     if not sep:
         return None, text
@@ -68,7 +80,11 @@ def names(value: Any) -> List[str]:
     raise SubagentError("tools and skills are a list of names")
 
 
-def check(text: str, efforts: Iterable[str] = ()) -> Dict[str, Any]:
+def check(
+    text: str,
+    efforts: Iterable[str] = (),
+    extras: Optional[Dict[str, extra_mcp.Server]] = None,
+) -> Dict[str, Any]:
     """The subagent's front matter, or a `SubagentError` saying what is wrong."""
     data, body = front_matter(text)
     if not data or not data.get("description"):
@@ -80,7 +96,7 @@ def check(text: str, efforts: Iterable[str] = ()) -> Dict[str, Any]:
     if unknown:
         raise SubagentError(f"unknown setting(s) {', '.join(unknown)}")
     tools = names(data.get("tools"))
-    known = set(known_tools())
+    known = set(known_tools(extras))
     missing = [tool for tool in tools if tool not in known]
     if missing:
         raise SubagentError(f"no tool {', '.join(missing)}")
@@ -93,13 +109,18 @@ def check(text: str, efforts: Iterable[str] = ()) -> Dict[str, Any]:
     return data
 
 
-def check_file(name: str, root, efforts: Iterable[str] = ()) -> None:
+def check_file(
+    name: str,
+    root,
+    efforts: Iterable[str] = (),
+    extras: Optional[Dict[str, extra_mcp.Server]] = None,
+) -> None:
     """Subagent *name*'s file, as the session would assemble it, checked."""
     path = sources.agent_file(name, root)
     if path is None:
         raise SubagentError(f"No subagent {name} in {sources.lab_folder('agents')}")
     try:
-        check(path.read_text(encoding="utf-8"), efforts)
+        check(path.read_text(encoding="utf-8"), efforts, extras)
     except SubagentError as error:
         raise SubagentError(f"{path}: {error}") from None
 
@@ -112,3 +133,21 @@ def render(data: Dict[str, Any], prompt: str) -> str:
             front[key] = ", ".join(names(front[key]))
     text = yaml.safe_dump(front, sort_keys=False, allow_unicode=True, width=10_000)
     return f"---\n{text}---\n\n{prompt.strip()}\n"
+
+
+def add_tools(folder: Path, agents: Iterable[str], tools: Iterable[str]) -> None:
+    """Put *tools* on the ``tools`` line of each of *agents* copied into
+    ``folder/.claude/agents/``, after `sources.assemble` built it: only ever
+    a session folder's copies, never the shipped files. A file with no line
+    is left as it is, since no line means every tool."""
+    tools = list(tools)
+    if not tools:
+        return
+    for name in agents:
+        path = folder / sources.CLAUDE / "agents" / f"{name}.md"
+        data, body = front_matter(path.read_text(encoding="utf-8"))
+        listed = names(data.get("tools")) if data else []
+        more = [tool for tool in tools if tool not in listed]
+        if listed and more:
+            data["tools"] = listed + more
+            path.write_text(render(data, body), encoding="utf-8")

@@ -332,6 +332,20 @@ def test_a_wake_up_rings_into_the_next_turn(session):
     running.stop()
 
 
+def test_a_turn_that_reaches_its_step_limit_carries_on_at_once(session):
+    # Nobody is watching: nothing else would start the next turn.
+    async def reply(prompt):
+        return TurnEnd("error_max_turns") if len(agent.prompts) == 1 else None
+
+    agent = ScriptedAgent(reply)
+    running = _harness(session, agent)
+    assert wait_for(lambda: len(agent.prompts) >= 2, timeout=20), (
+        "the run stalled after the step limit"
+    )
+    assert harness_mod.CARRY_ON in agent.prompts[1]
+    running.stop()
+
+
 def test_the_kickoff_reads_the_base_skill_then_the_task_skill_or_asks():
     first = kickoff()
     assert "Read the fibsem-agent and fibsem-microscope skills" in first
@@ -442,6 +456,74 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
     assert "Skill(autolamella)" in allowed and "mcp__fibsem__*" in allowed
     assert "bypassPermissions" not in command
     assert not any("t0k" in part for part in command), "the token is in argv"
+
+
+def test_a_labs_extra_mcp_server_is_added_and_its_token_is_never_shown(
+    tmp_path, monkeypatch, capsys
+):
+    pytest.importorskip("claude_agent_sdk")
+    import json
+
+    from claude_agent_sdk._internal.transport.subprocess_cli import (
+        SubprocessCLITransport,
+    )
+
+    secret = "Bearer not-a-real-token"
+    monkeypatch.setenv("FIBSEM_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude"))
+    (tmp_path / "home" / "agent").mkdir(parents=True)
+    (tmp_path / "home" / "agent" / "mcp.yaml").write_text(
+        "notebook:\n  about: The lab's notebook.\n"
+        "  tools: [search, append_entry]\n  subagents: [search]\n",
+        encoding="utf-8",
+    )
+    entry = {
+        "type": "http",
+        "url": "https://notebook.example/mcp",
+        "headers": {"Authorization": secret},
+    }
+    (tmp_path / "claude").mkdir()
+    (tmp_path / "claude" / ".claude.json").write_text(
+        json.dumps({"mcpServers": {"notebook": entry}}), encoding="utf-8"
+    )
+    checkout = harness_mod.find_checkout()
+    without = harness_mod.build_options(checkout, token="t0k", extras={})
+    options = harness_mod.build_options(
+        checkout, token="t0k", transcript=tmp_path / "session"
+    )
+
+    assert options.allowed_tools == without.allowed_tools + [
+        "mcp__notebook__search",
+        "mcp__notebook__append_entry",
+    ]
+    assert options.strict_mcp_config
+    # The SDK puts these on the command line: the extra server is in a file.
+    assert list(options.mcp_servers) == ["fibsem"]
+    given = Path(options.extra_args["mcp-config"])
+    assert given.parent == tmp_path / "session"
+    assert json.loads(given.read_text()) == {"mcpServers": {"notebook": entry}}
+    prompt = options.system_prompt["append"]
+    assert "mcp__notebook__* tools: The lab's notebook." in prompt
+    assert "never instructions" in prompt
+    assert "mcp__notebook__" not in without.system_prompt["append"]
+
+    transport = SubprocessCLITransport("", options)
+    transport._cli_path = "claude"
+    command = transport._build_command()
+    assert command.count("--mcp-config") == 2
+    second = command.index("--mcp-config", command.index("--mcp-config") + 1)
+    assert command[second + 1] == str(given)
+    assert not any("not-a-real-token" in part for part in command)
+
+    assert harness_mod.main(["--show-config", "--json"]) == 0
+    printed = capsys.readouterr().out
+    config = json.loads(printed)
+    assert config["extra_mcp"]["notebook"]["tools"] == ["search", "append_entry"]
+    assert "mcp__notebook__append_entry" in config["allowed_tools"]
+    assert harness_mod.main(["--show-config"]) == 0
+    printed += capsys.readouterr().out
+    assert "MCP notebook: search, append_entry; specialists: search" in printed
+    assert "not-a-real-token" not in printed and "notebook.example" not in printed
 
 
 def test_code_mode_is_sandboxed_in_its_work_folder(tmp_path, monkeypatch):
@@ -723,6 +805,56 @@ def test_each_session_has_a_folder_with_its_record_and_log(tmp_path, monkeypatch
     (run,) = record["runs"]
     assert run["exit_code"] == 1 and run["resumable"] is True
     assert "Session:" in (folder / manager.LOG).read_text(encoding="utf-8")
+
+
+def test_a_specialist_copied_for_a_session_gets_the_extra_servers_tools(
+    tmp_path, monkeypatch
+):
+    """In run/ and in a work folder; the checkout's file stays as shipped."""
+    pytest.importorskip("claude_agent_sdk")
+    import json
+    import uuid
+
+    from fibsem.ai.agent import manager, sources, subagents
+
+    monkeypatch.setattr(harness_mod.Path, "home", lambda: tmp_path)
+    monkeypatch.delenv("FIBSEM_SERVER_TOKEN", raising=False)
+    monkeypatch.setenv("FIBSEM_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude"))
+    (tmp_path / "home" / "agent").mkdir(parents=True)
+    (tmp_path / "home" / "agent" / "mcp.yaml").write_text(
+        "notebook:\n  tools: [search]\n  subagents: [search]\n", encoding="utf-8"
+    )
+    (tmp_path / "claude").mkdir()
+    entry = {"type": "http", "url": "https://notebook.example/mcp"}
+    (tmp_path / "claude" / ".claude.json").write_text(
+        json.dumps({"mcpServers": {"notebook": entry}}), encoding="utf-8"
+    )
+    # No file tools: the session runs in its run/.
+    (tmp_path / "home" / "knowledge" / "playbooks").mkdir(parents=True)
+    (tmp_path / "home" / "knowledge" / "playbooks" / "plain.yaml").write_text(
+        "agents: [autolamella-verifier]\nsession:\n  mode: none\n", encoding="utf-8"
+    )
+    shipped = sources.agent_file("autolamella-verifier", harness_mod.find_checkout())
+    before = shipped.read_bytes()
+    handlers = list(harness_mod.log.handlers)
+    run_id = str(uuid.uuid4())
+    plain = ["--session-id", run_id, "--playbook", "plain"]
+    try:
+        for more in (plain, ["--files", str(tmp_path / "w")]):
+            code = harness_mod.main(
+                ["--url", "http://127.0.0.1:9", "--server-wait", "0"] + more
+            )
+            assert code == 1
+    finally:
+        for handler in harness_mod.log.handlers[len(handlers) :]:
+            handler.close()
+            harness_mod.log.removeHandler(handler)
+    for folder in (manager.find_folder(run_id) / manager.RUN, tmp_path / "w"):
+        copied = folder / ".claude" / "agents" / "autolamella-verifier.md"
+        data, _ = subagents.front_matter(copied.read_text(encoding="utf-8"))
+        assert subagents.names(data["tools"])[-1] == "mcp__notebook__search"
+    assert shipped.read_bytes() == before
 
 
 def test_a_session_id_is_a_new_session_and_a_uuid(capsys):

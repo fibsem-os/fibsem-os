@@ -1,6 +1,7 @@
 """Today's FM API over the Demo FM devices served on localhost: the calls the FM UI and
 workflows make answer as they do on a local FM, and read the FM's computer each time."""
 
+import threading
 import time
 
 import numpy as np
@@ -166,12 +167,18 @@ def test_acquire_image_sets_up_the_channel_on_the_far_side(served):
 
 
 def _counting_requests(fm):
-    """Record each request the FM API sends to the FM's computer."""
+    """Record each request the FM API sends to the FM's computer.
+
+    Not the event stream's own: when it reconnects it reads every parameter again
+    on its thread (`DeviceClient._resync`), which a loaded CI runner can trigger by
+    missing a heartbeat mid-test, and those reads are not the calls under test.
+    """
     sent = []
     request = fm.client.request
 
     def counted(method, path, *args, **kwargs):
-        sent.append((method, path))
+        if threading.current_thread() is not fm.client._events._thread:
+            sent.append((method, path))
         return request(method, path, *args, **kwargs)
 
     fm.client.request = counted

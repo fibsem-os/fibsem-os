@@ -25,8 +25,8 @@ import fibsem.config as fconfig
 from fibsem import utils
 from fibsem.ai.evals.cases import FORMAT
 from fibsem.ai.evals.sim_cases import TIER
-from fibsem.drivers.demo import sim_solid
-from fibsem.drivers.demo.sim_scene import (
+from fibsem.drivers.demo.sim import solid as sim_solid
+from fibsem.drivers.demo.sim.scene import (
     MIN_FORESHORTENING,
     SampleScene,
     surface_foreshortening,

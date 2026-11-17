@@ -3,6 +3,7 @@ import logging
 import os
 import sys
 import tempfile
+import time
 
 import pytest
 
@@ -33,6 +34,27 @@ _MADE_UP_KINDS = frozenset(
     | {"in the first", "in the second", "before any experiment"}
     | {"by_the_task", "by_the_agent"}
 )
+
+
+# A test not marked `slow` fails when its body takes longer than this. Slow tests
+# run once per pull request in their own job; one that is not marked lands on both
+# build legs, and the suite slows a little with every such test. Generous, since
+# a Windows runner takes two to three times as long as Linux: it catches tests
+# that wait out a timeout or simulate far more than they check. 0 turns it off.
+TIME_BUDGET_S = float(os.environ.get("FIBSEM_TEST_TIME_BUDGET_S", "30"))
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_call(item):
+    start = time.perf_counter()
+    result = yield
+    took = time.perf_counter() - start
+    if 0 < TIME_BUDGET_S < took and item.get_closest_marker("slow") is None:
+        pytest.fail(
+            f"took {took:.1f} s, over the {TIME_BUDGET_S:.0f} s budget for a test "
+            "not marked slow: make it faster, or mark it @pytest.mark.slow"
+        )
+    return result
 
 
 @pytest.fixture(autouse=True)
@@ -213,6 +235,17 @@ def _isolate_cwd(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _restore_excepthooks(monkeypatch):
+    """Put sys.excepthook and threading.excepthook back after every test: a test
+    that runs a program's main() installs fibsem.diagnostics' hooks, which would
+    otherwise chain into every later test in the process."""
+    import threading
+
+    monkeypatch.setattr(sys, "excepthook", sys.excepthook)
+    monkeypatch.setattr(threading, "excepthook", threading.excepthook)
+
+
+@pytest.fixture(autouse=True)
 def _refuse_downloads(monkeypatch):
     """Refuse ``urllib.request.urlretrieve`` in every test: a test that fetches
     a file passes or fails with the network, and an offline microscope PC is the
@@ -225,6 +258,19 @@ def _refuse_downloads(monkeypatch):
         raise RuntimeError(f"tests must not download files: refused {url}")
 
     monkeypatch.setattr(urllib.request, "urlretrieve", refuse)
+
+
+@pytest.fixture(autouse=True)
+def _no_browser_for_pdfs(monkeypatch):
+    """Print no report to a PDF: ``html_to_pdf`` starts the machine's Edge or Chrome,
+    and on a page a test stubbed out it waits its full minute for a PDF that never
+    comes. Its own tests import it by name and pass a stand-in browser."""
+    from fibsem.applications.autolamella.tools import pdf_export
+
+    def refuse(*args, **kwargs):
+        raise pdf_export.PdfExportError("tests do not start a browser")
+
+    monkeypatch.setattr(pdf_export, "html_to_pdf", refuse)
 
 
 @pytest.fixture(scope="module")
@@ -256,7 +302,7 @@ def qapp():
     try:
         from qtpy.QtWidgets import QApplication
     except Exception as exc:  # pragma: no cover - environment without Qt
-        pytest.skip(f"PyQt5 not available: {exc}")
+        pytest.skip(f"Qt not available: {exc}")
     app = QApplication.instance() or QApplication([])
 
     gc_was_enabled = gc.isenabled()
@@ -371,22 +417,31 @@ def odemis_microscope_cls():
     sys.modules.update(saved)
 
 
+def pytest_sessionfinish(session, exitstatus):
+    session.config.stash[_EXIT_STATUS] = int(exitstatus)
+
+
+_EXIT_STATUS = pytest.StashKey[int]()
+
+
+@pytest.hookimpl(trylast=True)
 def pytest_unconfigure(config):
-    """On PySide, delete the widgets still alive and shut the QApplication down
-    before the interpreter exits. Left to interpreter exit, PySide tears Qt down in
-    an order that segfaults after every test has passed."""
+    """On PySide, end the process here rather than let Qt be torn down.
+
+    The Qt tests leak thousands of top-level widgets, and taking them down at the
+    end -- left to interpreter exit, or deleted here first -- segfaulted now and
+    then after every test had passed (a chunk of the second Qt runner did so in
+    CI on some runs and not others, never locally). Nothing after this hook needs
+    them, so the process exits with pytest's own status, with its output flushed
+    and nothing torn down. xdist workers still report back after this, so they
+    are left to exit normally.
+    """
     qtpy = sys.modules.get("qtpy")
     if qtpy is None or not getattr(qtpy, "PYSIDE6", False):
         return
-    from qtpy.QtCore import QEvent
-    from qtpy.QtWidgets import QApplication
-
-    app = QApplication.instance()
-    if app is None:
+    if hasattr(config, "workerinput") or _EXIT_STATUS not in config.stash:
         return
-    # Deleted, not closed: closing runs each window's closeEvent, and a widget a
-    # test left half-built has nothing to close.
-    for widget in app.topLevelWidgets():
-        widget.deleteLater()
-    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
-    app.shutdown()
+    logging.shutdown()
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(config.stash[_EXIT_STATUS])

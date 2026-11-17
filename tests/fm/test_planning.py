@@ -420,7 +420,7 @@ def test_the_selection_is_not_mirrored_on_its_way_to_the_run(geometry):
 #
 # A canvas frame takes its rotation and tilt from its origin -- `StageFrame.offset` is a
 # one-line pass through to `projection.to_plane(position, self.origin)`, which is what
-# these test directly, since importing `StageFrame` pulls in PyQt5 and CI does not
+# these test directly, since importing `StageFrame` pulls in Qt and CI does not
 # install it.
 #
 # The mistake these exist to catch: `FMOverviewWidget._posed()` reads r and t off the

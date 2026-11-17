@@ -6,6 +6,7 @@ import logging
 import os
 import random
 import threading
+import time
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from itertools import cycle
@@ -16,8 +17,8 @@ from skimage.transform import resize
 
 from fibsem._timing import sim_sleep
 from fibsem.devices.fm import mount_transform_from_name
-from fibsem.drivers.demo.sim_optics import Optics
-from fibsem.drivers.demo.sim_scene import fm_channel_weights
+from fibsem.drivers.demo.sim.optics import Optics
+from fibsem.drivers.demo.sim.scene import fm_channel_weights
 from fibsem.fm.microscope import (
     FluorescenceMicroscope,
 )
@@ -42,7 +43,7 @@ from fibsem.util.draw_numbers import draw_text
 
 if TYPE_CHECKING:
     from fibsem.drivers.demo.microscope import DemoMicroscope
-    from fibsem.drivers.demo.sim_scene import SampleScene
+    from fibsem.drivers.demo.sim.scene import SampleScene
 
 logger = logging.getLogger(__name__)
 
@@ -281,6 +282,13 @@ _DETECTOR_GAIN = 6.0
 _DETECTOR_OFFSET = 1.5
 
 
+def frame_sleep(seconds: float, started: float) -> None:
+    """Wait out a beam frame that takes `seconds` and began at `started`
+    (`time.perf_counter`): building its image is part of that time, so only
+    what is left of it is slept, and nothing once the build took longer."""
+    sim_sleep(seconds - (time.perf_counter() - started))
+
+
 def detector_response(
     data: np.ndarray, brightness: Optional[float], contrast: Optional[float]
 ) -> np.ndarray:
@@ -459,22 +467,7 @@ class DemoSimulator:
             beam_type=effective_beam_type
         )
 
-        # One lock over the channel and the frame, as `ThermoMicroscope.acquire_image`
-        # holds it over `set_channel` + `grab_frame`: the grab reads the
-        # active view's buffer, so a channel that is not still ours when the frame lands
-        # returns whoever took it in between. Deliberately just that pair --
-        # `_threading_lock` is shared by every caller on this microscope.
-        with self.lock:
-            self.set_channel(effective_beam_type)
-            # The frame. On hardware this is the one `grab_frame` RPC; here the sleep is
-            # the only part of it with any duration, so it is the window an unguarded FM
-            # read would land in.
-            sim_sleep(
-                effective_image_settings.dwell_time
-                * effective_image_settings.resolution[0]
-                * effective_image_settings.resolution[1]
-            )  # simulate acquisition time
-            self._warn_if_channel_moved(effective_beam_type, "acquire_image")
+        started = time.perf_counter()
 
         # construct image (random noise)
         image = FibsemImage.generate_blank_image(
@@ -568,6 +561,25 @@ class DemoSimulator:
             brightness=self.microscope.get_detector_brightness(effective_beam_type),
             contrast=self.microscope.get_detector_contrast(effective_beam_type),
         )
+
+        # One lock over the channel and the frame, as `ThermoMicroscope.acquire_image`
+        # holds it over `set_channel` + `grab_frame`: the grab reads the
+        # active view's buffer, so a channel that is not still ours when the frame lands
+        # returns whoever took it in between. Deliberately just that pair --
+        # `_threading_lock` is shared by every caller on this microscope.
+        with self.lock:
+            self.set_channel(effective_beam_type)
+            # The frame. On hardware this is the one `grab_frame` RPC; here the sleep is
+            # the only part of it that waits, so it is the window an unguarded FM read
+            # would land in. A frame takes its dwell over its pixels, and building the
+            # image is part of that time: only what is left of it is slept.
+            frame_sleep(
+                effective_image_settings.dwell_time
+                * effective_image_settings.resolution[0]
+                * effective_image_settings.resolution[1],
+                started,
+            )
+            self._warn_if_channel_moved(effective_beam_type, "acquire_image")
 
         # add additional metadata
         image.metadata.image_settings = copy.deepcopy(effective_image_settings)
@@ -846,7 +858,8 @@ class DemoSimulator:
         older flat keys `coincidence_projection`, `coincidence_offset` and
         `tilt_axis_offset` are still honoured when there is no `sample` block.
         """
-        from fibsem.drivers.demo.sim_scene import SampleScene
+        from fibsem.drivers.demo.sim import state as sim_state
+        from fibsem.drivers.demo.sim.scene import SampleScene
 
         self.sample_scene = None
         sim = self.microscope.system.sim
@@ -887,6 +900,8 @@ class DemoSimulator:
                 "it will anchor at the first acquisition instead.",
                 e,
             )
+        # a sample kept in a file carries on from where the last session left it
+        sim_state.attach(self.sample_scene)
         logger.info(
             "Simulator sample scene enabled (coincidence offset %.2f um, "
             "tilt axis offset %.1f um)",
@@ -1095,7 +1110,8 @@ def initial_demo_parts(system: SystemSettings) -> DemoParts:
         blanked=False,
         beam=BeamSettings(
             beam_type=BeamType.ELECTRON,
-            working_distance=4.0e-3,
+            # each column boots focused at its configured eucentric height
+            working_distance=system.electron.eucentric_height,
             beam_current=100e-12,
             voltage=2000,
             hfw=150e-6,
@@ -1119,7 +1135,7 @@ def initial_demo_parts(system: SystemSettings) -> DemoParts:
         blanked=False,
         beam=BeamSettings(
             beam_type=BeamType.ION,
-            working_distance=16.5e-3,
+            working_distance=system.ion.eucentric_height,
             beam_current=20e-12,
             voltage=30000,
             hfw=150e-6,

@@ -24,7 +24,12 @@ from typing import Iterator, List, Optional, Tuple
 from fibsem.correlation.config import MIN_FIDUCIAL_PAIRS, CorrelationConfig
 from fibsem.correlation.fit import Seed, fit_transform, seed_for
 from fibsem.correlation.history import CorrelationRun, save_run
-from fibsem.correlation.points import SELECTION, STRUCTURE, CorrelationPoints
+from fibsem.correlation.points import (
+    SELECTION,
+    STRUCTURE,
+    CorrelationPoints,
+    side_of,
+)
 from fibsem.correlation.prediction import excluded_indices
 from fibsem.correlation.prior import PlacementOffset, placement_offset_from_runs
 from fibsem.correlation.refractive_index import ZetaParams, zeta_params_from_settings
@@ -206,6 +211,17 @@ class CorrelationSession:
             data.ri_pre_correction_params
             if self.ri_pre_correction_factor is not None
             else None
+        )
+
+    def clear_side(self, side: str) -> None:
+        """Remove the points drawn on one image, ``"fib"`` or ``"fm"``.
+
+        The other image's points stay: they mark positions in an image that
+        has not changed. Removing the FM surface point disarms the
+        pre-correction, as any removal of it does.
+        """
+        self.points.replace_all(
+            c for c in self.points.coordinates if side_of(c.point_type) != side
         )
 
     def _disarm_without_fm_surface(self, change: str, _coords) -> None:

@@ -31,6 +31,7 @@ import shutil
 import signal
 import sys
 import sysconfig
+import tempfile
 import threading
 import time
 import uuid
@@ -42,6 +43,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from fibsem import diagnostics
 from fibsem.ai.agent import (
     code_mode,
+    extra_mcp,
     instruments,
     mirror,
     playbooks,
@@ -176,11 +178,16 @@ def harness_prompt(
     code: bool = True,
     words: Optional[instruments.Texts] = None,
     deadline_warn_min: Optional[float] = None,
+    extras: Optional[Dict[str, extra_mcp.Server]] = None,
 ) -> str:
     """What the harness tells the agent about itself; with a work folder (code
-    mode, or files only), about it too."""
+    mode, or files only), about it too; and about the lab's extra MCP servers
+    (*extras*, else read), if any."""
     words = words or texts()
     tools = NO_CODE if work is None else code_mode.prompt(work, code)
+    more = extra_mcp.prompt_lines(extra_mcp.load() if extras is None else extras)
+    if more:
+        tools += "\n" + more
     warn = deadline_warn_min or defaults().deadline_warn_min
     return words.prompt.format(tools=tools, deadline_warn_min=f"{warn:g}")
 
@@ -190,11 +197,12 @@ def system_prompt(
     code: bool = True,
     playbook: Optional[playbooks.Playbook] = None,
     words: Optional[instruments.Texts] = None,
+    extras: Optional[Dict[str, extra_mcp.Server]] = None,
 ) -> str:
     """The harness's prompt, and the rules of the playbook the session
     started on after it, so they are read every turn."""
     warn = playbook.session.deadline_warn_min if playbook is not None else None
-    prompt = harness_prompt(work, code, words, warn)
+    prompt = harness_prompt(work, code, words, warn, extras)
     if playbook is not None and playbook.rules:
         prompt += (
             f"\n\nRules of the {playbook.name} playbook you started on:\n"
@@ -340,6 +348,12 @@ INTERRUPTED = (
     "started) before you act. Never repeat a relative move, or any call that "
     "changes something by an amount, until you have checked it did not "
     "already happen."
+)
+
+
+CARRY_ON = (
+    "WAKE your last turn reached its step limit before you finished: carry on "
+    "from where you were."
 )
 
 
@@ -717,6 +731,10 @@ def _last_line(batch) -> bool:
     return bool(watch_mod.kinds(batch) & watch_mod.LAST_KINDS)
 
 
+# how long stopping the watch waits for a poll in flight (s)
+STOP_JOIN_S = 5.0
+
+
 class _WatchClient:
     """The watch's client: it refuses another request once stopped."""
 
@@ -764,6 +782,10 @@ class Watcher:
         """Ends the watch: closing its client ends a parked poll as well."""
         self._stopping.set()
         _close(self._client)
+        # wait for a poll in flight to come back, so its connection is closed
+        # with the client instead of left open after it
+        if self._thread.is_alive() and self._thread is not threading.current_thread():
+            self._thread.join(STOP_JOIN_S)
 
     def _out(self, line: str) -> None:
         if self._stopping.is_set():
@@ -1136,10 +1158,13 @@ class Harness:
             self._code = 1
             return False
         if end.subtype == "error_max_turns":
+            # The limit is a checkpoint, not a stop: the next turn starts at
+            # once, with any lines that came in. Waiting for a line instead
+            # stalls a run nobody is watching.
             log.warning(
-                "The turn hit --max-turns before it finished; the next wake-up "
-                "starts a new one."
+                "The turn hit --max-turns before it finished; a new one starts."
             )
+            self._put(self._watcher, watch_mod.Wake(ALARM, CARRY_ON))
         elif end.subtype != "success":
             log.warning("The turn ended with %s.", end.subtype)
         await self._report()
@@ -1771,10 +1796,12 @@ def build_options(
     control: Optional[PlaybookControl] = None,
     loaded: Optional[Loaded] = None,
     words: Optional[instruments.Texts] = None,
+    extras: Optional[Dict[str, extra_mcp.Server]] = None,
 ):
-    """The SDK session: the sidecar as the only MCP server, the *loaded*
-    skills and subagents (`session_names`) and nothing of the user's Claude
-    Code config. Settings left None are the base playbook's. With ``work``, code
+    """The SDK session: the sidecar as the only MCP server, besides the lab's
+    extra ones (*extras*, else read; `extra_mcp`), the *loaded* skills and
+    subagents (`session_names`) and nothing else of the user's Claude Code
+    config. Settings left None are the base playbook's. With ``work``, code
     mode: the code tools, sandboxed, in ``work`` (``code_mode.prepare`` has
     copied the skills there); without ``code``, the file tools only. The
     *playbook* the session starts on puts its rules in the prompt, and its
@@ -1784,6 +1811,7 @@ def build_options(
     from claude_agent_sdk import ClaudeAgentOptions
 
     loaded = loaded or session_names(checkout, playbook)
+    extras = extra_mcp.load() if extras is None else extras
     base = defaults()
     command = sidecar_command()
     server = {"type": "stdio", "command": command[0], "args": command[1:]}
@@ -1798,7 +1826,7 @@ def build_options(
     kind = playbook.instrument if playbook is not None else None
     if kind:
         env[INSTRUMENT_ENV] = kind
-    granted = ALLOWED_TOOLS + subagent_tools(loaded.agents)
+    granted = ALLOWED_TOOLS + subagent_tools(loaded.agents) + extra_mcp.allowed(extras)
     tools, allowed, denied = BUILT_IN_TOOLS, granted, DENIED_TOOLS
     settings = None
     if work is not None:
@@ -1811,6 +1839,14 @@ def build_options(
     servers = {SERVER: server}
     if alarm is not None:
         servers[HARNESS_SERVER] = wake_server(alarm, control)
+    # The extra servers' entries carry their credentials, so they go to the
+    # CLI in a file of their own, a second --mcp-config, and not with the
+    # servers above, which the SDK puts on the command line. Never in a work
+    # folder: the agent reads there.
+    extra_args = {}
+    if extras:
+        private = transcript or Path(tempfile.mkdtemp(prefix="fibsem-agent-"))
+        extra_args["mcp-config"] = str(extra_mcp.write_config(extras, private))
     return ClaudeAgentOptions(
         # Its .claude holds the session's skills (`sources.assemble`; CLAUDE.md
         # is off, see CLI_ENV), and none of ~/.claude: the user's own
@@ -1824,13 +1860,14 @@ def build_options(
         permission_mode=PERMISSION_MODE,
         settings=settings,
         mcp_servers=servers,
+        extra_args=extra_args,
         env=env,
-        # Only the server above: not a `fibsem` registered in ~/.claude.json.
+        # Only the servers above: not a `fibsem` registered in ~/.claude.json.
         strict_mcp_config=True,
         system_prompt={
             "type": "preset",
             "preset": "claude_code",
-            "append": system_prompt(work, code, playbook, words),
+            "append": system_prompt(work, code, playbook, words, extras),
         },
         # With a playbook control, the reminders on now, asked at each call.
         hooks=(
@@ -2064,6 +2101,7 @@ class Setup:
     session_id: str
     folder: Path
     run: Optional[Path]
+    extras: Dict[str, extra_mcp.Server]
 
 
 def _setup(args, checkout: Path) -> Setup:
@@ -2088,8 +2126,14 @@ def _setup(args, checkout: Path) -> Setup:
     # narrows it (`session_names`).
     loaded = session_names(checkout, playbook if args.playbook else None)
     try:
+        extras = extra_mcp.load()
+        # Registered, or the agent would start without what it was told it has.
+        extra_mcp.definitions(extras)
+    except extra_mcp.ExtraMcpError as error:
+        raise SetupRefused(str(error)) from None
+    try:
         for name in loaded.agents:
-            subagents.check_file(name, checkout, EFFORTS)
+            subagents.check_file(name, checkout, EFFORTS, extras)
     except subagents.SubagentError as error:
         raise SetupRefused(str(error)) from None
     work = None
@@ -2122,7 +2166,7 @@ def _setup(args, checkout: Path) -> Setup:
         refused = code_mode.refusal(work, checkout, code)
         if refused:
             raise SetupRefused(refused)
-    return Setup(playbook, words, loaded, work, code, session_id, folder, run)
+    return Setup(playbook, words, loaded, work, code, session_id, folder, run, extras)
 
 
 def playbook_list() -> List[dict]:
@@ -2149,6 +2193,7 @@ def playbook_configuration(name: str) -> dict:
         setup.playbook,
         setup.loaded,
         setup.words,
+        setup.extras,
     )
 
 
@@ -2182,9 +2227,11 @@ def main(argv=None) -> int:
         return 1
     playbook, words, loaded = setup.playbook, setup.words, setup.loaded
     work, code, session_id = setup.work, setup.code, setup.session_id
-    folder, run = setup.folder, setup.run
+    folder, run, extras = setup.folder, setup.run, setup.extras
     if args.show_config:
-        config = show_config(args, checkout, work, code, playbook, loaded, words)
+        config = show_config(
+            args, checkout, work, code, playbook, loaded, words, extras
+        )
         return _print(config, args.json, _config_text)
     missing = missing_extra_message("agent", "fibsem-agent")
     if missing:
@@ -2204,12 +2251,18 @@ def main(argv=None) -> int:
     _log_to(log_path)
     for line in status(args, checkout, log_path, work, session_id, code):
         log.info(line)
+    # The specialists' tools on the extra servers go on their copies in the
+    # folder just assembled; with nothing assembled (run is the checkout),
+    # the files are the shipped ones and stay as they are.
+    extra_tools = extra_mcp.subagent_allowed(extras)
     if work is not None:
         code_mode.prepare(work, checkout, loaded.skills, loaded.agents)
+        subagents.add_tools(work, loaded.agents, extra_tools)
         for line in code_mode.details():
             log.debug(line)
     elif run != checkout:
         sources.assemble(run, checkout, loaded.skills, loaded.agents)
+        subagents.add_tools(run, loaded.agents, extra_tools)
 
     alarm = Alarm(playbook.session.wake_max_min)
     control = PlaybookControl(
@@ -2251,6 +2304,7 @@ def main(argv=None) -> int:
         cwd=run,
         loaded=loaded,
         words=words,
+        extras=extras,
     )
     agent = SdkAgent(options, usage_path=session.folder / usage.FILE)
     agent.playbook = control
@@ -2302,6 +2356,9 @@ def main(argv=None) -> int:
         code, outcome = 1, {"reason": f"the agent failed: {error}"}
     finally:
         signal.signal(signal.SIGINT, previous)
+        # The extra servers' credentials don't outlive the session: a resume
+        # writes the file again.
+        (session.folder / extra_mcp.CONFIG).unlink(missing_ok=True)
     session.end(code, **(outcome or harness.outcome()))
     return code
 
@@ -2388,18 +2445,21 @@ def show_config(
     playbook: playbooks.Playbook,
     loaded: Optional[Loaded] = None,
     words: Optional[instruments.Texts] = None,
+    extras: Optional[Dict[str, extra_mcp.Server]] = None,
 ) -> dict:
     """``--show-config``: everything the agent would run with, from the same
-    pieces `build_options` uses, without the SDK and without starting."""
+    pieces `build_options` uses, without the SDK and without starting. The
+    extra servers by name and tools: their entries hold credentials."""
     loaded = loaded or session_names(checkout, playbook)
-    granted = ALLOWED_TOOLS + subagent_tools(loaded.agents)
+    extras = extra_mcp.load() if extras is None else extras
+    granted = ALLOWED_TOOLS + subagent_tools(loaded.agents) + extra_mcp.allowed(extras)
     tools, allowed, denied = BUILT_IN_TOOLS, granted, DENIED_TOOLS
     if work is not None:
         given = code_mode.tools(code)
         tools = BUILT_IN_TOOLS + given
         allowed = granted + code_mode.allowed_tools(work, code)
         denied = [tool for tool in DENIED_TOOLS if tool not in given]
-    return {
+    config = {
         "level": playbook.session.level,
         "description": playbook.description,
         "model": args.model,
@@ -2424,8 +2484,14 @@ def show_config(
             "path": str(playbook.path),
             "hash": playbook.hash,
         },
-        "system_prompt": system_prompt(work, code, playbook, words),
+        "system_prompt": system_prompt(work, code, playbook, words, extras),
     }
+    if extras:
+        config["extra_mcp"] = {
+            name: {"about": s.about, "tools": s.tools, "subagents": s.subagents}
+            for name, s in extras.items()
+        }
+    return config
 
 
 def _playbook_rows(checkout: Path) -> List[dict]:
@@ -2493,8 +2559,13 @@ def _config_text(config: dict) -> str:
         f"Tools:    {', '.join(config['tools'])}",
         f"Allowed:  {', '.join(config['allowed_tools'])}",
         f"Denied:   {', '.join(config['denied_tools'])}",
-        f"Playbook skills: {', '.join(playbook['skills']) or 'none'}",
     ]
+    lines += [
+        f"MCP {name}: {', '.join(each['tools'])}; specialists: "
+        f"{', '.join(each['subagents']) or 'none'}"
+        for name, each in config.get("extra_mcp", {}).items()
+    ]
+    lines.append(f"Playbook skills: {', '.join(playbook['skills']) or 'none'}")
     lines += [f"  When needed: {o['skill']}, {o['when']}" for o in playbook["optional"]]
     lines.append("Reminders:")
     lines += [f"  {r['label']}: {r['say']}" for r in playbook["reminders"]] or [

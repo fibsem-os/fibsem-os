@@ -198,9 +198,10 @@ def collect_system_context(
             info = microscope.system.info
             ctx["microscope_manufacturer"] = str(getattr(info, "manufacturer", ""))
             ctx["microscope_model"] = str(getattr(info, "model", ""))
-            ctx["microscope_software_version"] = str(
-                getattr(info, "software_version", "")
-            )
+            for name, version in info.versions().items():
+                ctx["microscope_" + name.lower().replace(" ", "_") + "_version"] = (
+                    version
+                )
         except Exception:
             logger.debug("Could not read microscope system info for bug report.")
 
