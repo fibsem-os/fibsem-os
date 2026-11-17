@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
+from fibsem.gateway import role
 from fibsem.gateway.gateway import OFF, GatewayRefused, GatewayState, History
 from fibsem.gateway.hub import Hub, Instrument
 from fibsem.gateway.server import GatewayAuth, build_gateway_app
@@ -129,23 +130,78 @@ def hub(tmp_path, instruments, ssh):
         pair=instruments.pair,
         clock=lambda: float(next(clock)),
         tunnels=ssh.tunnels,
+        is_hub=lambda: True,
     )
 
 
-def test_a_gateway_with_no_list_is_not_a_hub_and_reads_nothing(tmp_path):
+def test_a_microscope_pcs_gateway_keeps_no_list_and_reads_nothing(tmp_path, ssh):
     def fetch(*args):
-        raise AssertionError("nothing is read without a list")
+        raise AssertionError("a microscope PC's gateway reads no instrument")
 
-    hub = Hub(tmp_path / "hub.yaml", tmp_path / "hub", fetch=fetch)
+    is_hub = [True]
+    hub = Hub(
+        tmp_path / "hub.yaml",
+        tmp_path / "hub",
+        fetch=fetch,
+        tunnels=ssh.tunnels,
+        is_hub=lambda: is_hub[0],
+    )
+    hub.add("Scope 1", ssh="user@scope-1")
+    # Its role set back to a microscope PC's: the list it had is not used.
+    is_hub[0] = False
     hub.check()
     state = hub.state()
     assert state.hub is False and state.instruments == []
+    assert ssh.started == []
+    with pytest.raises(GatewayRefused) as refused:
+        hub.add("Scope 2", URL)
+    assert refused.value.error_type == "not_a_hub"
+
+
+def test_a_hub_with_no_list_reads_nothing(tmp_path):
+    def fetch(*args):
+        raise AssertionError("nothing is read without a list")
+
+    hub = Hub(tmp_path / "hub.yaml", tmp_path / "hub", fetch=fetch, is_hub=lambda: True)
+    hub.check()
+    state = hub.state()
+    assert state.hub is True and state.instruments == []
+
+
+def test_the_role_is_a_microscope_pcs_until_a_person_sets_it(tmp_path):
+    path = tmp_path / "gateway-role.json"
+    assert role.read_role(path) == role.MICROSCOPE
+    assert role.save_role(role.HUB, path) == role.HUB
+    assert role.read_role(path) == role.HUB
+    with pytest.raises(GatewayRefused):
+        role.save_role("both", path)
+    path.write_text("not json")
+    assert role.read_role(path) == role.MICROSCOPE
+
+
+def test_only_the_operator_sets_the_role(tmp_path, hub):
+    path = tmp_path / "gateway-role.json"
+    auth = _auth(tmp_path)
+    client = TestClient(build_gateway_app(FakeGateway(), auth, hub=hub, role_file=path))
+    operator = {"Authorization": f"Bearer {OPERATOR_TOKEN}"}
+    assert client.get("/gateway/role", headers=operator).json() == {
+        "role": "microscope"
+    }
+    code = auth.pairing.open(role=HUB)
+    token = client.post("/pair", json={"code": code, "name": "other"}).json()["token"]
+    other = {"Authorization": f"Bearer {token}"}
+    refused = client.put("/gateway/role", json={"role": "hub"}, headers=other)
+    assert refused.status_code == 403
+    set_ = client.put("/gateway/role", json={"role": "hub"}, headers=operator)
+    assert set_.json() == {"role": "hub"} and role.read_role(path) == "hub"
+    bad = client.put("/gateway/role", json={"role": "both"}, headers=operator)
+    assert bad.status_code == 422
 
 
 def test_the_list_is_kept_in_the_hubs_file(hub, tmp_path):
     hub.add("Scope 1", URL + "/", ssh="user@scope-1")
     hub.add("Scope 2", "http://scope-2:8010")
-    again = Hub(tmp_path / "hub.yaml", tmp_path / "hub")
+    again = Hub(tmp_path / "hub.yaml", tmp_path / "hub", is_hub=lambda: True)
     assert again.instruments() == [
         Instrument("Scope 1", URL, "user@scope-1"),
         Instrument("Scope 2", "http://scope-2:8010"),
@@ -263,7 +319,7 @@ def test_the_operator_changes_the_list_and_a_paired_hub_only_reads_it(served):
     operator = {"Authorization": f"Bearer {OPERATOR_TOKEN}"}
     assert client.get("/hub").status_code == 401
     assert client.get("/hub", headers=operator).json() == {
-        "hub": False,
+        "hub": True,
         "instruments": [],
     }
 
@@ -285,7 +341,7 @@ def test_the_operator_changes_the_list_and_a_paired_hub_only_reads_it(served):
     no_code = client.post("/hub/instruments/Scope 1/pair", json={}, headers=operator)
     assert no_code.status_code == 422
     gone = client.delete("/hub/instruments/Scope 1", headers=operator)
-    assert gone.json() == {"hub": False, "instruments": []}
+    assert gone.json() == {"hub": True, "instruments": []}
     assert (
         client.delete("/hub/instruments/Scope 1", headers=operator).status_code == 404
     )
@@ -351,6 +407,7 @@ def test_a_new_hub_opens_each_tunnel_on_the_ports_it_had(hub, tmp_path, instrume
         fetch=instruments.fetch,
         pair=instruments.pair,
         tunnels=again.tunnels,
+        is_hub=lambda: True,
     )
     later.check()
     assert later.state().instruments[0].tunnel == before
@@ -442,7 +499,9 @@ class Running:
 
 
 def _running_hub(tmp_path, there):
-    hub = Hub(tmp_path / "hub.yaml", tmp_path / "hub", fetch=there.fetch)
+    hub = Hub(
+        tmp_path / "hub.yaml", tmp_path / "hub", fetch=there.fetch, is_hub=lambda: True
+    )
     hub.add("Scope 1", URL)
     (tmp_path / "hub").mkdir()
     (tmp_path / "hub" / "scope-1.json").write_text(json.dumps({"token": "t"}))
@@ -502,7 +561,12 @@ def test_the_operator_starts_an_app_the_instrument_runs_without_a_window(tmp_pat
 
 def test_the_hub_starts_a_gateway_that_is_down_by_its_task_over_ssh(tmp_path):
     asked = []
-    hub = Hub(tmp_path / "hub.yaml", tmp_path / "hub", start_there=asked.append)
+    hub = Hub(
+        tmp_path / "hub.yaml",
+        tmp_path / "hub",
+        start_there=asked.append,
+        is_hub=lambda: True,
+    )
     hub.add("Scope 1", ssh="user@scope-1")
     hub.add("Scope 2", URL)
     client = TestClient(build_gateway_app(FakeGateway(), _auth(tmp_path), hub=hub))
@@ -519,7 +583,9 @@ def test_a_gateway_that_does_not_start_says_what_it_needs(tmp_path):
     def fails(destination):
         raise OSError("ERROR: The system cannot find the file specified.")
 
-    hub = Hub(tmp_path / "hub.yaml", tmp_path / "hub", start_there=fails)
+    hub = Hub(
+        tmp_path / "hub.yaml", tmp_path / "hub", start_there=fails, is_hub=lambda: True
+    )
     hub.add("Scope 1", ssh="user@scope-1")
     with pytest.raises(GatewayRefused) as refused:
         hub.start_gateway("Scope 1")

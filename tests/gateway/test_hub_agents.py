@@ -91,6 +91,7 @@ def made(tmp_path, scope, monkeypatch):
         fetch=scope.fetch,
         pair=scope.pair,
         tunnels=Ssh().tunnels,
+        is_hub=lambda: True,
     )
     hub.add("Scope 1", ssh="user@scope-1")
     built = []

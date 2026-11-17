@@ -43,6 +43,7 @@ from fibsem.gateway.gateway import (
 from fibsem.gateway.host import HostMicroscope
 from fibsem.gateway.hub import Hub, HubState
 from fibsem.gateway.hub_agents import HubAgents
+from fibsem.gateway.role import read_role, save_role
 from fibsem.server.auth import _bearer_token, _matches
 from fibsem.server.bodies import refuse_invalid_requests
 from fibsem.server.operator_token import load_operator_token
@@ -127,6 +128,7 @@ def build_gateway_app(
     on_quit: Optional[Callable[[bool], None]] = None,
     on_show: Optional[Callable[[], bool]] = None,
     defaults_file: Optional[Path] = None,
+    role_file: Optional[Path] = None,
     hub: Optional[Hub] = None,
     hub_agents: Optional[HubAgents] = None,
 ) -> FastAPI:
@@ -556,6 +558,23 @@ def build_gateway_app(
             restart = bool((body or {}).get("restart", False))
             on_quit(restart)
             return {"stopping": True, "restart": restart}
+
+    @app.get("/gateway/role")
+    def get_role(found: Caller = Depends(caller)) -> dict:
+        """``{role}``: whether this gateway is a microscope PC's or a hub."""
+        return {"role": read_role(role_file)}
+
+    @app.put("/gateway/role")
+    def put_role(body: Dict[str, Any], found: Caller = Depends(caller)) -> dict:
+        """``{role}``: ``microscope`` or ``hub``. The operator only: a
+        gateway never becomes a hub because of what it was sent."""
+        if not found.operator:
+            raise _refused(403, "operator_only", "Only the operator sets the role.")
+        return _act(
+            found,
+            {},
+            lambda force, via: {"role": save_role(str(body.get("role")), role_file)},
+        )
 
     @app.get("/gateway/defaults", response_model=GatewayDefaults)
     def get_defaults(found: Caller = Depends(caller)):
