@@ -17,6 +17,7 @@ from fibsem.structures.image import FibsemImage
 from fibsem.structures.settings import BeamType, Point
 from fibsem.ui import notification_service
 from fibsem.ui.widgets.canvas.canvas_state import MillingSpec
+from fibsem.ui.widgets.canvas.overlays.milling_overlay import PatternDrag
 from fibsem.ui.widgets.custom_widgets import ContextMenu, ContextMenuConfig
 from fibsem.ui.widgets.milling_task_config_widget import MillingTaskConfigWidget
 from fibsem.ui.widgets.milling_widget import FibsemMillingWidget
@@ -194,6 +195,7 @@ class MillingTaskViewerWidget(QWidget):
         )
         if self._fib_canvas is not None:
             self._fib_canvas.canvas_right_clicked.connect(self._on_canvas_right_click)
+            controller.overlay_edited.connect(self._on_overlay_edited)
         self._schedule_pattern_update()
 
     def closeEvent(self, event) -> None:
@@ -202,6 +204,10 @@ class MillingTaskViewerWidget(QWidget):
                 self._fib_canvas.canvas_right_clicked.disconnect(
                     self._on_canvas_right_click
                 )
+            except Exception:
+                pass
+            try:
+                self._controller.overlay_edited.disconnect(self._on_overlay_edited)
             except Exception:
                 pass
             try:
@@ -234,6 +240,33 @@ class MillingTaskViewerWidget(QWidget):
             return
         # quad-view: reposition via the FIB canvas right-click signal
         self._fib_canvas.canvas_right_clicked.connect(self._on_canvas_right_click)
+        self._controller.overlay_edited.connect(self._on_overlay_edited)
+
+    def _on_overlay_edited(self, beam, overlay_id: str, drag) -> None:
+        """A drag on a pattern in the FIB view moves it, and with Shift held every
+        pattern with it, by changing the point each is placed at."""
+        if overlay_id != "milling" or not isinstance(drag, PatternDrag):
+            return
+        if self.is_milling:
+            return
+        stages_widget = self.config_widget.milling_stages_widget
+        stages = stages_widget.get_enabled_stages()
+        if drag.index >= len(stages):
+            return
+        stage = stages[drag.index]
+        if drag.phase == "press":
+            self._drag_origin = stage.pattern.point
+            if stages_widget._list._selected_stage is not stage:
+                stages_widget._list.select_stage(stage)
+            self._schedule_pattern_update()
+        elif drag.phase == "move":
+            self._move_patterns(
+                self._drag_origin + Point(drag.dx, drag.dy),
+                move_all="Shift" in drag.modifiers,
+                live=True,
+            )
+        else:
+            self._on_settings_changed(self.config_widget.get_settings())
 
     def _on_canvas_right_click(self, x: float, y: float, modifiers) -> None:
         """FIB canvas right-click → pattern reposition menu.
@@ -293,8 +326,10 @@ class MillingTaskViewerWidget(QWidget):
         )
         ContextMenu(cfg, parent=self).show_at_cursor()
 
-    def _move_patterns(self, point: Point, move_all: bool) -> None:
-        """Move patterns to point. move_all=True shifts all relative to selected; False moves only selected."""
+    def _move_patterns(self, point: Point, move_all: bool, live: bool = False) -> None:
+        """Move patterns to point. move_all=True shifts all relative to selected; False
+        moves only selected. live=True is one step of a drag: a step off the image is
+        skipped quietly, and the change is announced when the drag ends."""
         # Guarded as well as the menu that opens it: this is the mutation, and a menu
         # already on screen when a run starts would otherwise still act on it.
         if self.is_milling:
@@ -319,9 +354,10 @@ class MillingTaskViewerWidget(QWidget):
             pattern_copy = copy.deepcopy(stage.pattern)
             _apply_diff_to_pattern(pattern_copy, diff)
             if not is_pattern_placement_valid(pattern_copy, self._fib_image):
-                msg = f"'{stage.name}' pattern would be outside the FIB image."
-                logger.warning(msg)
-                notification_service.show_toast(msg, "warning")
+                if not live:
+                    msg = f"'{stage.name}' pattern would be outside the FIB image."
+                    logger.warning(msg)
+                    notification_service.show_toast(msg, "warning")
                 return
 
         for idx, stage in enumerate(stages):
@@ -333,7 +369,10 @@ class MillingTaskViewerWidget(QWidget):
         sw = self.config_widget.milling_stages_widget
         if sw._selected_stage is not None:
             sw._sync_panels_from_stage(sw._selected_stage)
-        self._on_settings_changed(self.config_widget.get_settings())
+        if live:
+            self._schedule_pattern_update()
+        else:
+            self._on_settings_changed(self.config_widget.get_settings())
 
     # ------------------------------------------------------------------
     # Pattern display

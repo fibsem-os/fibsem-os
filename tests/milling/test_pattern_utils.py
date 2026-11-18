@@ -9,6 +9,7 @@ from fibsem.milling.patterning.utils import (
     create_pattern_mask,
     get_pattern_bounding_box,
     get_patterns_bounding_box,
+    stage_at,
 )
 from fibsem.structures.image import FibsemImage
 from fibsem.structures.settings import Point
@@ -268,3 +269,50 @@ class TestUtilityFunctionIntegration:
 
 if __name__ == "__main__":
     pytest.main([__file__])
+
+
+class TestStageAt:
+    """Which stage's pattern is under a point, in metres from the field's centre."""
+
+    @staticmethod
+    def _stage(pattern):
+        from fibsem.milling.base import FibsemMillingStage
+
+        return FibsemMillingStage(name="stage", pattern=pattern)
+
+    def test_a_point_inside_a_rectangle_finds_its_stage(self):
+        stage = self._stage(
+            RectanglePattern(width=10e-6, height=4e-6, point=Point(x=20e-6, y=0.0))
+        )
+        assert stage_at([stage], 24e-6, 1e-6) == 0
+        assert stage_at([stage], 26e-6, 1e-6) is None
+        assert stage_at([stage], 24e-6, 3e-6) is None
+
+    def test_a_rotated_rectangle_is_tested_as_it_is_drawn(self):
+        stage = self._stage(RectanglePattern(width=10e-6, height=2e-6, rotation=90))
+        assert stage_at([stage], 0.0, 4e-6) == 0
+        assert stage_at([stage], 4e-6, 0.0) is None
+
+    def test_the_hole_of_a_ring_is_not_the_ring(self):
+        stage = self._stage(CirclePattern(radius=10e-6, thickness=2e-6))
+        assert stage_at([stage], 9e-6, 0.0) == 0
+        assert stage_at([stage], 0.0, 0.0) is None
+
+    def test_a_line_is_found_within_the_tolerance(self):
+        from fibsem.milling.patterning.patterns import LinePattern
+
+        stage = self._stage(
+            LinePattern(start_x=-5e-6, start_y=0.0, end_x=5e-6, end_y=0.0)
+        )
+        assert stage_at([stage], 2e-6, 0.4e-6, tolerance=0.5e-6) == 0
+        assert stage_at([stage], 2e-6, 0.6e-6, tolerance=0.5e-6) is None
+        assert stage_at([stage], 6e-6, 0.0, tolerance=0.5e-6) is None
+
+    def test_where_stages_overlap_the_preferred_wins_else_the_top_one(self):
+        stages = [
+            self._stage(RectanglePattern(width=10e-6, height=10e-6)),
+            self._stage(RectanglePattern(width=4e-6, height=4e-6)),
+        ]
+        assert stage_at(stages, 0.0, 0.0) == 1
+        assert stage_at(stages, 0.0, 0.0, prefer=0) == 0
+        assert stage_at(stages, 4e-6, 0.0, prefer=1) == 0
