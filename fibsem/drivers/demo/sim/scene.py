@@ -179,6 +179,11 @@ CENTRE_MARK_SIZE = 2.4
 # thicknesses that take away about two-thirds of the SEM charging
 GIS_RATE = 0.04e-6  # m/s with the valve open
 SPUTTER_RATE = 0.5e-9  # m/s
+# FIB charging (see ion_charge_up): how far (px at 1024) the scan lines
+# wander and jump, and how often a line jumps
+ION_WANDER = 3.0
+ION_STEP = 3.0
+ION_JUMP = 0.004
 SPUTTER_DISCHARGE = 5e-9  # m
 GIS_DISCHARGE = 1e-6  # m
 
@@ -484,6 +489,11 @@ class SampleScene:
     # how strongly the SEM charges an uncoated grid (cells, ice): bright
     # patches and streaks along the scan, worse with a longer dwell; 0 = never
     charging: float = 1.0
+    # how strongly the FIB charges the sample while it images: what stands
+    # up off the film goes dark with a bright edge, the ice blotches, and the
+    # scan lines slip sideways, a little differently every frame. 0 = never;
+    # on for a scene from the configuration
+    fib_charging: float = 0.0
     # milling is not perfect: each pass drifts by a seeded offset (m, sigma)
     # and a pattern cuts a little past its edges (m, up to)
     mill_drift: float = 20e-9
@@ -1060,6 +1070,56 @@ class SampleScene:
         )
         dwell = float(np.clip(np.sqrt(dwell_time / 1e-6), 0.0, 2.5))
         return float(self.charging * coat * dwell)
+
+    def ion_charge_strength(self, dwell_time: Optional[float]) -> float:
+        """How much the FIB charges the sample now: the scene's
+        `fib_charging`, less what a coat carries away, more the longer each
+        pixel dwells. 0 with no dwell given."""
+        if not dwell_time or self.fib_charging <= 0:
+            return 0.0
+        coat = np.exp(-self.sputter_thickness / SPUTTER_DISCHARGE) / (
+            1.0 + self.gis_thickness / GIS_DISCHARGE
+        )
+        dwell = float(np.clip(np.sqrt(dwell_time / 1e-6), 0.3, 2.5))
+        return float(self.fib_charging * coat * dwell)
+
+    @staticmethod
+    def ion_charge_up(
+        data: np.ndarray, charge: np.ndarray, strength: float, rng
+    ) -> np.ndarray:
+        """FIB charging on a grey-level image, different every frame: the
+        ions leave the insulating parts (`charge`, 0..1 per pixel: what
+        stands up, and patches of the ice) positive, so they go dark with a
+        bright edge, and the charge deflects the beam, so the scan lines slip
+        sideways as it builds and jump where it lets go."""
+        if strength <= 0:
+            return data
+        height, width = data.shape
+        size = max(data.shape) / 1024.0
+        bias = rng.uniform(0.85, 1.15)  # how charged this frame is
+        k = np.clip(strength * bias * sim_view.gauss(charge, 4.0 * size), 0, 1)
+        edge = np.clip(
+            sim_view.gauss(charge, 1.5 * size) - sim_view.gauss(charge, 6.0 * size),
+            0,
+            None,
+        )
+        out = data * (1 - 0.55 * k) + 90.0 * strength * edge
+        # the scan lines slip: a slow wander, and a jump where charge lets go
+        walk = np.cumsum(rng.normal(0, 1, height))
+        walk = ndi_gaussian(walk - walk.mean(), 6.0 * size)
+        walk = walk / (np.abs(walk).max() or 1.0)
+        jumps = np.cumsum((rng.random(height) < ION_JUMP) * rng.normal(0, 1, height))
+        load = 0.3 + k.mean(axis=1)
+        shift = strength * size * load * (ION_WANDER * walk + ION_STEP * jumps)
+        # it bends the frame rather than moving it: the rows slip about where
+        # the frame is
+        shift = shift - np.median(shift)
+        cols = np.clip(np.arange(width)[None, :] - shift[:, None], 0, width - 1)
+        c0 = np.floor(cols).astype(np.int64)
+        c1 = np.minimum(c0 + 1, width - 1)
+        f = cols - c0
+        r = np.arange(height)[:, None]
+        return out[r, c0] * (1 - f) + out[r, c1] * f
 
     @staticmethod
     def charge_up(data: np.ndarray, charge: np.ndarray, strength: float) -> np.ndarray:
@@ -2777,6 +2837,7 @@ class SampleScene:
         "fm_cilium_fraction",  # of the target cells, those with a cilium
         "fm_hot_pixels",  # fraction of FM camera pixels that are hot
         "charging",  # SEM charging strength on an uncoated grid (0 = never)
+        "fib_charging",  # FIB charging strength on an uncoated grid (0 = never)
         "gis_thickness",  # m, a GIS coat the grid comes in with
         "sputter_thickness",  # m, a sputter coat the grid comes in with
         "centre_mark",  # the orientation square at the grid's centre
@@ -2795,6 +2856,7 @@ class SampleScene:
             "surface_grain": 1.0,
             "damage_current": DAMAGE_CURRENT,
             "mill_depth_scale": MILL_DEPTH_SCALE,
+            "fib_charging": 1.0,
         }
 
     @classmethod
@@ -2915,6 +2977,8 @@ class SampleScene:
         charge = 0.0
         if beam_type is BeamType.ELECTRON:
             charge = self.charge_strength(dwell_time)
+        else:
+            charge = self.ion_charge_strength(dwell_time)
         return sim_view.render(
             self,
             beam,

@@ -621,6 +621,7 @@ are in degrees, ranges are two-element lists, lengths in metres.
 | `damage_chance` | 0.4 | chance per pass below it that damage starts |
 | `damage_current` | 6e-11 | the milling current `damage_below` is given at (A); 0 and the current makes no difference |
 | `charging` | 1 | SEM charging strength on an uncoated grid (0 = never) |
+| `fib_charging` | 1 | FIB charging strength on an uncoated grid (0 = never) |
 | `gis_thickness` | 0 | GIS coat the grid starts with (m) |
 | `sputter_thickness` | 0 | sputter coat the grid starts with (m) |
 
