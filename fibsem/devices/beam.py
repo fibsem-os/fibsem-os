@@ -103,7 +103,7 @@ DEFAULT_STIGMATION_LIMITS = {
 
 class Beam(Device):
     voltage = DeviceParameter(
-        float, unit="V", display=Display("Beam Voltage", advanced=True), risk="optics"
+        float, unit="V", display=Display("Beam Voltage", advanced=True)
     )
     # the currents an instrument offers change with the gas and the voltage
     # (AutoScript); the instrument sets one between them to the nearest itself
@@ -113,22 +113,19 @@ class Beam(Device):
         depends_on=("plasma_gas", "voltage"),
         nearest="driver",
         display=Display("Beam Current"),
-        risk="optics",
     )
-    plasma_gas = DeviceParameter(str, display=Display("Plasma Gas"), risk="never")
+    plasma_gas = DeviceParameter(str, display=Display("Plasma Gas"))
     working_distance = DeviceParameter(
         float,
         unit="m",
         limits=DEFAULT_WORKING_DISTANCE_LIMITS,
         display=Display("Working Distance", scale=1e3, step=0.01, decimals=3),
-        risk="optics",
     )
     hfw = DeviceParameter(
         float,
         unit="m",
         limits=DEFAULT_HFW_LIMITS,
         display=Display("Field of View", scale=1e6, step=50.0, decimals=1),
-        risk="optics",
     )
     scan_rotation = DeviceParameter(
         float,
@@ -142,31 +139,23 @@ class Beam(Device):
             decimals=0,
             advanced=True,
         ),
-        risk="optics",
     )
-    blanked = DeviceParameter(bool, display=Display("Blanked"), risk="optics")
+    blanked = DeviceParameter(bool, display=Display("Blanked"))
     live = DeviceParameter(bool, doc="Whether live view is running. Read only.")
-    preset = DeviceParameter(str, display=Display("Preset"), risk="optics")
-    detector_type = DeviceParameter(
-        str, display=Display("Detector Type"), risk="optics"
-    )
+    preset = DeviceParameter(str, display=Display("Preset"))
+    detector_type = DeviceParameter(str, display=Display("Detector Type"))
     detector_mode = DeviceParameter(
-        str,
-        depends_on=("detector_type",),
-        display=Display("Detector Mode"),
-        risk="optics",
+        str, depends_on=("detector_type",), display=Display("Detector Mode")
     )
     detector_contrast = DeviceParameter(
         float,
         limits=RangeLimit(min=0.0, max=1.0),
         display=Display("Contrast", step=0.01, decimals=3),
-        risk="optics",
     )
     detector_brightness = DeviceParameter(
         float,
         limits=RangeLimit(min=0.0, max=1.0),
         display=Display("Brightness", step=0.01, decimals=3),
-        risk="optics",
     )
     resolution = DeviceParameter(
         tuple,
@@ -174,14 +163,12 @@ class Beam(Device):
         choices=STANDARD_RESOLUTIONS,
         doc="(width, height). The choices are what the scan can be set to.",
         display=Display("Resolution"),
-        risk="optics",
     )
     dwell_time = DeviceParameter(
         float,
         unit="s",
         limits=DEFAULT_DWELL_TIME_LIMITS,
         display=Display("Dwell Time", scale=1e6, step=0.01, decimals=3),
-        risk="optics",
     )
     bit_depth = DeviceParameter(
         int,
@@ -190,13 +177,11 @@ class Beam(Device):
         doc="Bits per pixel of each frame acquired. An image's own bit_depth sets it; "
         "an image that names none takes this.",
         display=Display("Bit Depth", advanced=True),
-        risk="optics",
     )
     stigmation = DeviceParameter(
         Point,
         limits=DEFAULT_STIGMATION_LIMITS,
         display=Display("Stigmation", step=0.001, decimals=4, advanced=True),
-        risk="optics",
     )
     shift = DeviceParameter(
         Point,
@@ -204,7 +189,6 @@ class Beam(Device):
         limits=DEFAULT_SHIFT_LIMITS,
         doc="Beam shift.",
         display=Display("Shift", scale=1e6, step=0.01, decimals=3, advanced=True),
-        risk="optics",
     )
     source_tilt = DeviceParameter(
         Point,
@@ -212,7 +196,6 @@ class Beam(Device):
         doc="Electron source tilt: the angle the beam enters the column from the gun "
         "at. Corrects an illumination drop.",
         display=Display("Source Tilt", scale=1e3, step=0.01, decimals=3, advanced=True),
-        risk="optics",
     )
     lens_alignment = DeviceParameter(
         Point,
@@ -222,20 +205,16 @@ class Beam(Device):
         display=Display(
             "Lens Alignment", scale=1e6, step=0.01, decimals=3, advanced=True
         ),
-        risk="optics",
     )
-    on = DeviceParameter(bool, doc="The beam is switched on.", risk="never")
+    on = DeviceParameter(bool, doc="The beam is switched on.")
     scanning_mode = DeviceParameter(
         ScanMode, doc="What the beam scans; the scan commands set it."
     )
     angular_correction = DeviceParameter(
-        float,
-        unit="rad",
-        doc="The tilt the angular correction corrects the image for.",
-        risk="never",
+        float, unit="rad", doc="The tilt the angular correction corrects the image for."
     )
     tilt_correction = DeviceParameter(
-        bool, doc="The angular correction's tilt correction is on.", risk="never"
+        bool, doc="The angular correction's tilt correction is on."
     )
 
     scanner = Role(
@@ -378,29 +357,29 @@ class Beam(Device):
         """
         return None
 
-    @command(available=lambda beam: "on" in beam.parameters, risk="high_impact")
+    @command(available=lambda beam: "on" in beam.parameters)
     def turn_on(self) -> bool:
         """Switch the beam on. Answers whether it is on."""
         self.on.write_through(True)
         return bool(self.on.get_value())
 
-    @command(available=lambda beam: "on" in beam.parameters, risk="high_impact")
+    @command(available=lambda beam: "on" in beam.parameters)
     def turn_off(self) -> bool:
         """Switch the beam off. Answers whether it is on."""
         self.on.write_through(False)
         return bool(self.on.get_value())
 
-    @command(available=lambda beam: "blanked" in beam.parameters, risk="optics")
+    @command(available=lambda beam: "blanked" in beam.parameters)
     def blank(self) -> None:
         """Blank the beam."""
         self.blanked.set_value(True)
 
-    @command(available=lambda beam: "blanked" in beam.parameters, risk="optics")
+    @command(available=lambda beam: "blanked" in beam.parameters)
     def unblank(self) -> None:
         """Unblank the beam."""
         self.blanked.set_value(False)
 
-    @command(available=lambda beam: "shift" in beam.parameters, risk="optics")
+    @command(available=lambda beam: "shift" in beam.parameters)
     def shift_by(self, dx: float, dy: float) -> Point:
         """Shift the beam by (dx, dy) metres from where it is, as a beam image
         measured it. Returns the shift afterwards, which a driver may have clipped to
@@ -434,19 +413,19 @@ class Beam(Device):
     # the scan area but not read it back says so in _scans (Odemis); its commands
     # then read nothing back.
 
-    @command(available=lambda beam: beam._scans(), risk="optics")
+    @command(available=lambda beam: beam._scans())
     def spot(self, point: Point) -> None:
         """Park the beam on a point, in image coordinates (0 to 1)."""
         self._spot(point)
         self._read_scanning_mode()
 
-    @command(available=lambda beam: beam._scans(), risk="optics")
+    @command(available=lambda beam: beam._scans())
     def reduced_area(self, area: FibsemRectangle) -> None:
         """Scan only a rectangle of the frame, in image coordinates (0 to 1)."""
         self._reduced_area(area)
         self._read_scanning_mode()
 
-    @command(available=lambda beam: beam._scans(), risk="optics")
+    @command(available=lambda beam: beam._scans())
     def full_frame(self) -> None:
         """Scan the whole frame."""
         self._full_frame()
@@ -475,7 +454,7 @@ class Beam(Device):
     # whose driver lacks a hook doesn't have that command. auto_focus is the
     # instrument's own routine only: the software sweep stays microscope.auto_focus's.
 
-    @command(risk="acquires")
+    @command
     def acquire(self, image_settings: Optional[ImageSettings] = None) -> FibsemImage:
         """Acquire an image with this beam: with the given settings, or with the beam's
         current ones. Imaging is a beam command, not a device."""
@@ -561,7 +540,7 @@ class Beam(Device):
         param = self.parameters.get(name)
         return None if param is None else param.get_value()
 
-    @command(available=lambda beam: implements(beam, "_autocontrast"), risk="acquires")
+    @command(available=lambda beam: implements(beam, "_autocontrast"))
     def autocontrast(self, reduced_area: Optional[FibsemRectangle] = None) -> None:
         """Run the instrument's brightness and contrast routine, optionally on a
         rectangle of the frame (0 to 1); the beam scans the full frame after."""
@@ -570,8 +549,7 @@ class Beam(Device):
     @command(
         available=lambda beam: (
             implements(beam, "_auto_focus") and beam._has_auto_focus()
-        ),
-        risk="acquires",
+        )
     )
     def auto_focus(self, reduced_area: Optional[FibsemRectangle] = None) -> None:
         """Run the instrument's autofocus routine, optionally on a rectangle of the
@@ -679,8 +657,7 @@ class Beam(Device):
     # them today.
 
     @command(
-        available=lambda beam: implements(beam, "_live") or "scanner" in beam.roles,
-        risk="acquires",
+        available=lambda beam: implements(beam, "_live") or "scanner" in beam.roles
     )
     def start_live(self) -> None:
         """Acquire continuously with the current settings, each image on
@@ -709,8 +686,7 @@ class Beam(Device):
             self.live.report(live)
 
     @command(
-        available=lambda beam: implements(beam, "_live") or "scanner" in beam.roles,
-        risk="stops",
+        available=lambda beam: implements(beam, "_live") or "scanner" in beam.roles
     )
     def stop_live(self) -> None:
         """Stop live view, waiting briefly for its last frame. Safe when not live."""

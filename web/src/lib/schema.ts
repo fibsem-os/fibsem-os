@@ -207,7 +207,6 @@ export interface components {
             /** @default false */
             long: boolean;
             returns: string | null;
-            risk: string | null;
             signature: string;
         };
         /** @description A patch to a task config, or its milling stages reordered, against
@@ -1542,7 +1541,6 @@ export interface components {
             } | null;
             native_max: number | null;
             native_unit: string | null;
-            risk: string | null;
             settable: boolean;
             type: string;
             type_path: string | null;
@@ -1706,7 +1704,6 @@ export interface components {
             };
             available: boolean;
             returns: string | null;
-            risk: string | null;
             signature: string;
         };
         Queue: {

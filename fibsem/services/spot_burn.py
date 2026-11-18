@@ -168,7 +168,7 @@ class SpotBurn(Service):
 
     # -- commands ----------------------------------------------------------------
 
-    @command(long=True, line=_run_line, risk="alters_sample")
+    @command(long=True, line=_run_line)
     def run(
         self,
         settings: SpotBurnSettings,
@@ -236,7 +236,7 @@ class SpotBurn(Service):
                             f"Failed to restore the beam {name} after the spot burn"
                         )
 
-    @command(risk="stops")
+    @command
     def stop(self) -> None:
         """End the run in progress as cancelled."""
         self._stop_requested.set()

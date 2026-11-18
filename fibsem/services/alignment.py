@@ -37,7 +37,7 @@ class Alignment(Service):
         super().__init__(name, **kwargs)
         self._stop_requested = threading.Event()
 
-    @command(long=True, risk="moves_hardware")
+    @command(long=True)
     def align_to_reference(
         self,
         reference_path: str,
@@ -93,7 +93,7 @@ class Alignment(Service):
             "path": os.path.join(path, run.name) if run.results else None,
         }
 
-    @command(risk="stops")
+    @command
     def stop(self) -> None:
         """Stop an ``align_to_reference`` after the step it is on."""
         self._stop_requested.set()
@@ -101,7 +101,7 @@ class Alignment(Service):
     # Coincidence at a target: experimental, for the agent to try
     # against its own by-hand loop. See `fibsem.alignment.coincidence_target`.
 
-    @command(risk="moves_hardware")
+    @command
     def check_coincidence(
         self,
         x: float = 0.0,

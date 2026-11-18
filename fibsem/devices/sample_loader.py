@@ -146,7 +146,7 @@ class SampleLoader(Device):
         super().__init__(name="sample_loader", parent=parent, **kwargs)
         self._busy = False
 
-    @command(risk="moves_hardware")
+    @command
     def load(self, slot: int) -> None:
         """Bring the grid in a magazine slot (1-based) onto the stage. The FM
         objective is retracted first."""
@@ -154,7 +154,7 @@ class SampleLoader(Device):
             self._retract_objective()
             self._load(int(slot))
 
-    @command(risk="moves_hardware")
+    @command
     def unload(self) -> None:
         """Put the grid on the stage back in the magazine. The FM objective is
         retracted first."""
@@ -162,7 +162,7 @@ class SampleLoader(Device):
             self._retract_objective()
             self._unload()
 
-    @command(risk="moves_hardware")
+    @command
     def scan(self) -> Magazine:
         """Check every slot physically: slow, and the magazine must stay shut.
         Returns what it found."""
@@ -176,7 +176,7 @@ class SampleLoader(Device):
             self.on_stage.get_value()
         return found
 
-    @command(risk="local")
+    @command
     def set_description(self, slot: int, text: str) -> MagazineSlot:
         """Write a slot's description and read it back. Raises
         ``GridExchangeError`` when the slot does not exist or the text did not stick."""
