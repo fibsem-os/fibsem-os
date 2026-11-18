@@ -22,9 +22,12 @@ from fibsem.ai.evals.sim_cases import TIER
 TASK = "live_coincidence_correction"
 SITE = "Site-01"
 # How far off the coincident height the stage starts (m): far enough that
-# the beams' centres are visibly apart, near enough that a check sees the
-# same feature in both
-OFF_Z = (6e-6, 20e-6)
+# the beams' centres are tens of microns apart, so a site image may not
+# show the same feature in both and the holey film offers look-alikes
+OFF_Z = (30e-6, 60e-6)
+# Coincident within this (m): what placing a lamella needs, not what
+# picking a site does
+TOLERANCE = 1e-6
 
 BRIEF = (
     "Grid {grid} is loaded and the stage is at the SEM orientation, over a "
@@ -34,6 +37,21 @@ BRIEF = (
     "it is, and save it there as a lamella named {site} (item_add). Say "
     "whether it is coincident, and how you know."
 )
+
+
+def realistic_config(seed: int, overrides: Optional[Dict[str, Any]] = None) -> Dict:
+    """The live site selection microscope with the Arctis's own errors back
+    on: the stage lands off where it reports, and the beams meet off the
+    stage's height by a fixed offset and one for each current. A script
+    that moves z by one measurement should not always be right."""
+    config = sim_sites.microscope_config(seed, overrides)
+    arctis = yaml.safe_load(sim_sites.ARCTIS.read_text())["sim"]
+    sample = arctis["sample"]
+    config["sim"]["sample"].update(
+        {k: sample[k] for k in sim_sites.NO_BEAM_OFFSET if k in sample}
+    )
+    config["sim"]["stage_error"] = {**arctis["stage_error"], "seed": int(seed)}
+    return config
 
 
 def _pick_cell(key: Dict[str, Any], rng: np.random.Generator) -> Dict[str, Any]:
@@ -58,7 +76,7 @@ def write_case(
     ``out/live-coincidence-correction/sim-NNNN``."""
     folder = Path(out) / "live-coincidence-correction" / f"sim-{int(seed):04d}"
     folder.mkdir(parents=True, exist_ok=True)
-    config = sim_sites.microscope_config(seed, overrides)
+    config = realistic_config(seed, overrides)
     (folder / sim_sites.MICROSCOPE).write_text(yaml.safe_dump(config, sort_keys=False))
     grid_key = sim_sites.build_key(folder / sim_sites.MICROSCOPE)
     rng = np.random.default_rng(int(seed))
@@ -94,7 +112,7 @@ def write_case(
             ],
         },
         "brief": BRIEF.format(grid=sim_sites.GRID, site=SITE),
-        "scoring": {},
+        "scoring": {"tolerance_um": TOLERANCE * 1e6},
         "key": {
             "status": "keyed",
             "keyed_by": "simulator",
@@ -105,8 +123,10 @@ def write_case(
             "optics": optics,
         },
         "traps": [
-            f"The beams start {off_um:.0f} um apart: one check and one move "
-            "may not be enough; check again after moving.",
+            f"The beams start {off_um:.0f} um apart: a check at a site's "
+            "field width can lock onto a look-alike hole and report a small "
+            "offset; widen the field first, then narrow it, and check again "
+            "after moving.",
             "Moving the stage in x or y moves off the cell: correct the "
             "height only (a vertical move).",
         ],
