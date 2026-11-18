@@ -117,6 +117,7 @@ from fibsem.devices.entries import (
     resolve_device_entries,
 )
 from fibsem.devices.fm import FM
+from fibsem.devices.risk import Risk
 from fibsem.devices.runs import RUNNING, Run
 from fibsem.devices.sample_loader import GridExchangeError
 from fibsem.devices.wire import (
@@ -310,6 +311,7 @@ def describe_device(
                 available=info.available,
                 agent=agent("command", name),
                 long=info.long,
+                risk=_risk(info.risk),
             )
             for name, info in device.commands.items()
         },
@@ -319,11 +321,16 @@ def describe_device(
                 arguments=_arguments(device, name),
                 returns=_returns(device, name),
                 available=info.available,
+                risk=_risk(info.risk),
             )
             for name, info in getattr(device, "queries", {}).items()
         },
         facts=_facts(device),
     )
+
+
+def _risk(risk: Optional[Risk]) -> Optional[str]:
+    return None if risk is None else risk.value
 
 
 def _arguments(device: Device, name: str) -> Dict[str, Any]:

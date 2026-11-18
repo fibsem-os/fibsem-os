@@ -205,6 +205,8 @@ class ParameterDescription:
     native_unit: Optional[str] = None
     # Whether the agent may set it; None where the server has no blocklist.
     agent: Optional[bool] = None
+    # What a write of it risks (`fibsem.devices.risk.Risk`); None when unlabelled.
+    risk: Optional[str] = None
 
 
 @dataclass
@@ -214,6 +216,8 @@ class QueryDescription:
     arguments: Dict[str, Any]
     returns: Optional[str]
     available: bool
+    # What a call risks: read_only for a query; None for an unlabelled command.
+    risk: Optional[str] = None
 
 
 @dataclass
