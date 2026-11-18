@@ -52,16 +52,18 @@ __all__ = [
 # sidecar offers the tools on that kind's devices (`Devices`).
 INSTRUMENT_ENV = "FIBSEM_AGENT_INSTRUMENT"
 
-# The agent's own record: its plan, and its notes and messages to the
-# operator. With an agent host (`fibsem.server.agent.host`) these go to the
-# host, not the instrument's server: fibsem-agent runs one sidecar on the
-# host with these alone, and the instrument's without them.
+# The agent's own record: its plan, its notes and messages to the
+# operator, and its session's goal. With an agent host
+# (`fibsem.server.agent.host`) these go to the host, not the instrument's
+# server: fibsem-agent runs one sidecar on the host with these alone, and
+# the instrument's without them.
 RECORD_TOOLS = frozenset(
     (
         "plan_get",
         "plan_set_section",
         "experiment_add_note",
         "experiment_message_operator",
+        "server_report_session",
     )
 )
 

@@ -4,6 +4,8 @@ intake and switched while the session runs."""
 import asyncio
 import json
 import re
+import subprocess
+import sys
 
 import pytest
 
@@ -343,7 +345,8 @@ def test_an_instrument_with_servers_of_its_own_runs_through_a_host(lab, checkout
 
     write(lab, "own-servers", "instrument: cryo-fm\nmcp: [scope, analysis]\n")
     playbook = playbooks.load("own-servers", checkout)
-    playbook.mcp = ["scope", "analysis"]
+    # Another kind than the base's: the base's fibsem is not under it.
+    assert playbook.mcp == ["scope", "analysis"]
     extras = {
         "scope": extra_mcp.Server(
             "scope", ["image"], url="http://127.0.0.1:8765/mcp", about="the scope"
@@ -371,6 +374,73 @@ def test_an_instrument_with_servers_of_its_own_runs_through_a_host(lab, checkout
         "mcp__fibsem_record__* tools" in prompt
     )
     assert "matching mcp__fibsem__ tool" not in prompt
+
+
+def _no_instrument(lab, checkout, mcp="[notebook]"):
+    write(
+        lab,
+        "advisor",
+        f"description: Plans with a scientist.\ninstrument: none\nmcp: {mcp}\n",
+    )
+    return playbooks.load("advisor", checkout)
+
+
+def test_a_playbook_may_have_no_instrument(lab, checkout):
+    playbook = _no_instrument(lab, checkout)
+    # None of the base's FIB-SEM skills or its fibsem server.
+    assert playbook.instrument == "none"
+    assert playbook.mcp == ["notebook"]
+    assert "fibsem-microscope" not in playbook.skills
+    assert harness_mod.mcp_names(playbook, _notebook(), host=True) == ["notebook"]
+    # Its record is on a host: without one it is refused, by why.
+    with pytest.raises(harness_mod.SetupRefused, match="no instrument.*--host"):
+        harness_mod.mcp_names(playbook, _notebook())
+    # And it has no fibsem server to name.
+    with_fibsem = _no_instrument(lab, checkout, "[fibsem, notebook]")
+    with pytest.raises(harness_mod.SetupRefused, match="no fibsem server"):
+        harness_mod.mcp_names(with_fibsem, _notebook(), host=True)
+    # No servers at all but the host's record is a session too.
+    assert harness_mod.mcp_names(_no_instrument(lab, checkout, "[]"), {}, True) == []
+
+
+def test_a_playbook_with_no_instrument_starts_against_a_bare_host(lab, checkout):
+    pytest.importorskip("claude_agent_sdk")
+    from fibsem.ai.agent import instruments
+
+    playbook = _no_instrument(lab, checkout)
+    words = instruments.load(playbook.instrument, checkout)
+    options = harness_mod.build_options(
+        checkout,
+        playbook=playbook,
+        extras=_notebook(),
+        host="http://127.0.0.1:8030",
+        host_token="t",
+        words=words,
+    )
+    assert list(options.mcp_servers)[:2] == ["notebook", harness_mod.RECORD_SERVER]
+    assert SERVER not in options.mcp_servers
+    prompt = options.system_prompt["append"]
+    assert "with no instrument" in prompt
+    assert "mcp__notebook__*, mcp__fibsem_record__*" in prompt
+    for microscope in ("microscope", "FIB", "SEM", "stage", "mcp__fibsem__"):
+        assert microscope not in prompt
+    # Its words name no instrument tool.
+    for text in (words.start, words.resumed, words.goal, words.reread_level):
+        assert "server_get_capabilities" not in text
+        assert "app_get_status" not in text
+
+
+def test_with_no_instrument_fibsem_agent_imports_no_microscope():
+    code = (
+        "import sys; from fibsem.ai.agent import harness, instruments; "
+        "harness.find_checkout(); "
+        "print([m for m in sys.modules if m.startswith(('fibsem.microscope', "
+        "'fibsem.drivers', 'fibsem.server.server', 'fibsem.server.app_context'))])"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True
+    )
+    assert out.stdout.strip() == "[]"
 
 
 def test_without_a_host_the_prompt_names_the_fibsem_tools_as_before(checkout):

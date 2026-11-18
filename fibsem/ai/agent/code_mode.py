@@ -60,7 +60,7 @@ playbook names, and code mode's shell, \
 Read, Write, Edit, Glob and Grep, which work in {work} only, in a sandbox with no \
 network: code can't reach the App Server or the web, so the mcp__fibsem__* \
 tools are the only way to the microscope and its data. \
-experiment_fetch_file saves a file under fetched/ for your code. Run Python \
+{fetch}Run Python \
 with {python}: it has fibsem and what fibsem-agent's environment has. You \
 can't install anything: say what you are missing.
 """
@@ -69,13 +69,18 @@ FILES_PROMPT = """\
 playbook names, and Read, Write, Edit, Glob and Grep, which work in {work} \
 only. There is no shell and no web: you can't run code. Where a skill shows \
 curl, python or a script, use the matching mcp__fibsem__ tool, or say what \
-you can't do. experiment_fetch_file saves a file under fetched/ for you to \
-Read.
+you can't do.{fetch_read}
 """
-PROMPT = """\
+# What the fibsem sidecar adds: its experiment's files and record. Left out
+# when the session has no fibsem server (an agent host's own servers).
+FETCH = "experiment_fetch_file saves a file under fetched/ for your code. "
+FETCH_READ = " experiment_fetch_file saves a file under fetched/ for you to Read."
+EXPERIMENT_PROMPT = """\
 - Notes go on the open experiment's record. A note can't cite another \
 experiment's file as its source: attach your own image (a plot, a crop) and \
 name the experiment and file in the text.
+"""
+PROMPT = """\
 - You can't ask and wait inside a turn. Where your goal leaves a choice open \
 and a wrong pick is only a wasted read (which experiment, which file), pick \
 a reasonable one and say which and why in your note. Where a wrong pick \
@@ -86,10 +91,17 @@ analysis. Write lessons and scripts worth reusing there, one line each in \
 INDEX.md. Only conclusions go on the record: a note and one evidence image."""
 
 
-def prompt(work: Path, code: bool = True) -> str:
-    """What the agent is told about its folder: code mode's or files-only."""
+def prompt(work: Path, code: bool = True, fibsem: bool = True) -> str:
+    """What the agent is told about its folder: code mode's or files-only;
+    with *fibsem*, about the sidecar's experiment files and record too."""
     tools = CODE_PROMPT if code else FILES_PROMPT
-    return tools.format(work=work, python=sys.executable) + PROMPT
+    text = tools.format(
+        work=work,
+        python=sys.executable,
+        fetch=FETCH if fibsem else "",
+        fetch_read=FETCH_READ if fibsem else "",
+    )
+    return text + (EXPERIMENT_PROMPT if fibsem else "") + PROMPT
 
 
 def tools(code: bool = True) -> List[str]:

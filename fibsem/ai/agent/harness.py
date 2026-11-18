@@ -189,7 +189,8 @@ def harness_prompt(
     (*extras*, else read), if any. *servers*, the session's MCP servers, are
     named in place of the fibsem sidecar's when they are others."""
     words = words or texts()
-    tools = NO_CODE if work is None else code_mode.prompt(work, code)
+    fibsem = not servers or SERVER in servers
+    tools = NO_CODE if work is None else code_mode.prompt(work, code, fibsem)
     tools = _name_servers(tools, servers)
     more = extra_mcp.prompt_lines(extra_mcp.load() if extras is None else extras)
     if more:
@@ -1796,8 +1797,24 @@ def mcp_names(
     and any of the lab's (*extras*). Without a playbook, the sidecar alone.
     Raises `SetupRefused` for a server that isn't there, and, without an
     agent *host*, for a playbook without ``fibsem``: the agent's wake-ups and
-    its record go through the App Server then."""
-    names = list(playbook.mcp) if playbook is not None and playbook.mcp else [SERVER]
+    its record go through the App Server then. A playbook with no instrument
+    (``instrument: none``) has no ``fibsem`` and runs through a host."""
+    if playbook is not None and playbook.instrument == instruments.NONE:
+        if not host:
+            raise SetupRefused(
+                f"The {playbook.name} playbook has no instrument: it keeps its "
+                "record on an agent host, so start it with --host."
+            )
+        if SERVER in playbook.mcp:
+            raise SetupRefused(
+                f"The {playbook.name} playbook has no instrument, so no "
+                f"{SERVER} server: take {SERVER} out of its mcp."
+            )
+        names = list(playbook.mcp)
+    else:
+        names = (
+            list(playbook.mcp) if playbook is not None and playbook.mcp else [SERVER]
+        )
     missing = [n for n in names if n != SERVER and n not in extras]
     if missing:
         raise SetupRefused(
@@ -1813,10 +1830,15 @@ def mcp_names(
     return names
 
 
-def granted_tools(loaded: Loaded, extras, host: bool = False) -> List[str]:
-    """The tools allowed without asking: the fibsem tools, the harness's, the
-    subagents', the lab servers' and, with an agent host, the record tools."""
-    granted = ALLOWED_TOOLS + subagent_tools(loaded.agents) + extra_mcp.allowed(extras)
+def granted_tools(
+    loaded: Loaded, extras, host: bool = False, fibsem: bool = True
+) -> List[str]:
+    """The tools allowed without asking: the fibsem tools (with *fibsem*, the
+    sidecar among the session's servers), the harness's, the subagents', the
+    lab servers' and, with an agent host, the record tools."""
+    sidecar = f"mcp__{SERVER}__*"
+    own = [t for t in ALLOWED_TOOLS if fibsem or t != sidecar]
+    granted = own + subagent_tools(loaded.agents) + extra_mcp.allowed(extras)
     if host:
         granted = granted + [f"mcp__{RECORD_SERVER}__*"]
     return granted
@@ -1895,7 +1917,9 @@ def build_options(
     env.update(extra_mcp.tokens(extras))
     if host_token:
         env[HOST_TOKEN_ENV] = host_token
-    granted = granted_tools(loaded, extras, host is not None)
+    # The playbook's servers, in its order: the sidecar and the lab's it names.
+    names = mcp_names(playbook, extras, host is not None)
+    granted = granted_tools(loaded, extras, host is not None, SERVER in names)
     tools, allowed, denied = BUILT_IN_TOOLS, granted, DENIED_TOOLS
     settings = None
     if work is not None:
@@ -1907,8 +1931,6 @@ def build_options(
         settings = code_mode.settings_json(work, {**os.environ, **env}, code)
     servers = {}
     lab = extra_mcp.definitions(extras)
-    # The playbook's servers, in its order: the sidecar and the lab's it names.
-    names = mcp_names(playbook, extras, host is not None)
     for name in names:
         servers[name] = server if name == SERVER else lab[name]
     if host:
@@ -2566,7 +2588,7 @@ def show_config(
     servers = mcp_names(playbook, extras, host is not None) + (
         [RECORD_SERVER] if host else []
     )
-    granted = granted_tools(loaded, extras, host is not None)
+    granted = granted_tools(loaded, extras, host is not None, SERVER in servers)
     tools, allowed, denied = BUILT_IN_TOOLS, granted, DENIED_TOOLS
     if work is not None:
         given = code_mode.tools(code)

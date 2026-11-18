@@ -136,7 +136,10 @@ Each group contributes one kind of object:
   them), its playbooks in
   `.claude/fibsem-agent/playbooks/` and their skills in `.claude/skills/`. The
   agent finds them after what fibsemOS ships, so a plugin adds an instrument
-  kind for a lab's own instrument but never replaces a shipped one.
+  kind for a lab's own instrument but never replaces a shipped one. A
+  playbook for another kind than `fibsem` names its own MCP servers (`mcp:`);
+  one with no instrument at all sets `instrument: none` and runs through an
+  agent host (`fibsem-agent --host`).
 
 When a built-in, a runtime registration and a plugin claim the same name, the
 built-in is used, then the runtime registration, then the plugin.
