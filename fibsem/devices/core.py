@@ -48,7 +48,6 @@ from typing import (
 
 from psygnal import Signal
 
-from fibsem.devices.risk import Risk, checked
 from fibsem.devices.runs import Runs
 from fibsem.structures.params import (
     DisplayHint,
@@ -141,19 +140,13 @@ class DeviceParameter(Parameter):
     ``display`` says how to show it (a ``fibsem.structures.params.Display``, or one per field for
     a composite value). Like the type and unit it means the same on every backend: a
     subclass that redeclares the parameter keeps it, and can't give another.
-
-    ``risk`` labels what a write of it risks (`fibsem.devices.risk.Risk`); its read
-    is always ``read_only``. Like the display, a subclass keeps the label and
-    can't give another, so no backend weakens it.
     """
 
     depends_on: Sequence[str] = ()
     nearest: Union[bool, str] = False
-    risk: Optional[Risk] = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "depends_on", tuple(self.depends_on))
-        object.__setattr__(self, "risk", checked(self.risk, "a DeviceParameter"))
 
     # One declaration is one parameter: compared and hashed by identity, as the
     # class attribute it is.
@@ -503,7 +496,6 @@ class CommandInfo:
     available: bool
     doc: str
     long: bool = False
-    risk: Optional[Risk] = None
 
 
 def command(
@@ -512,7 +504,6 @@ def command(
     available: Optional[Callable[[Any], bool]] = None,
     long: bool = False,
     line: Optional[Callable[..., Dict[str, Any]]] = None,
-    risk: Optional[str] = None,
 ) -> Any:
     """Mark a device method as a command. It stays a plain method.
 
@@ -523,18 +514,13 @@ def command(
     (`fibsem.devices.runs`), and the App Server answers a call to it at once
     with the run's id and lets it run on. ``line`` says a call to it in an
     agent's request, as the operator approves it (`fibsem.util.wording.Line`).
-    ``risk`` labels what it risks (`fibsem.devices.risk.Risk`); a backend's
-    command of the same name keeps its class's label.
 
     A numpy value among its arguments reaches the method as the plain Python it
     holds (`fibsem.util.plain`), so no driver is handed numpy.
     """
 
-    label = checked(risk, "a command")
-
     def mark(method: Callable) -> Callable:
         method = _plain_arguments(method)
-        method.__device_risk__ = label  # type: ignore[attr-defined]
         if long:
             method = _tracked(method)
             method.__device_long__ = True  # type: ignore[attr-defined]
@@ -589,16 +575,6 @@ def query(
         return method
 
     return mark(fn) if fn is not None else mark
-
-
-def _command_risk(classes: Sequence[type], name: str) -> Optional[Risk]:
-    """The risk the first of *classes* to label command *name* gives it: a
-    backend's override that gives none keeps its class's."""
-    for cls in classes:
-        label = getattr(vars(cls).get(name), "__device_risk__", None)
-        if label is not None:
-            return label
-    return None
 
 
 class ResourceBusy(RuntimeError):
@@ -933,24 +909,6 @@ class _Controllable:
                     f"{base_param.display!r}; a backend can't change how a parameter "
                     f"is shown"
                 )
-            if attr.risk is None:
-                object.__setattr__(attr, "risk", base_param.risk)
-            elif attr.risk is not base_param.risk and base_param.risk is not None:
-                raise TypeError(
-                    f"{cls.__name__}.{name} declares risk {attr.risk.value}, but is "
-                    f"declared {base_param.risk.value}; a backend can't change a "
-                    f"parameter's risk"
-                )
-        for name, attr in vars(cls).items():
-            label = getattr(attr, "__device_risk__", None)
-            inherited_label = _command_risk(cls.__mro__[1:], name)
-            if label is None or inherited_label is None or label is inherited_label:
-                continue
-            raise TypeError(
-                f"{cls.__name__}.{name} declares risk {label.value}, but is "
-                f"declared {inherited_label.value}; a backend can't change a "
-                f"command's risk"
-            )
         declared = cls.declared_parameters()
         for attr, value in vars(cls).items():
             if not callable(value):
@@ -1040,9 +998,6 @@ class _Controllable:
                 available=True if available is None else bool(available(self)),
                 doc=inspect.getdoc(attr) or "",
                 long=bool(getattr(attr, "__device_long__", False)),
-                risk=Risk.READ_ONLY
-                if mark == "__device_query__"
-                else _command_risk(type(self).__mro__, name),
             )
         return found
 
@@ -1271,7 +1226,6 @@ def _describe(p: BoundParameter) -> Dict[str, Any]:
         "limits": _limits_to_dict(p.limits),
         "choices": list(p.choices) if p.choices is not None else None,
         "settable": p.settable,
-        "risk": p.spec.risk.value if p.spec.risk is not None else None,
     }
     # How to show it, when the class says: a client with no copy of the class (an
     # agent) shows it the same way.

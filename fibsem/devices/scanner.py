@@ -41,7 +41,7 @@ SCANNER_RESOURCE = "scanner"
 
 
 class Scanner(Device):
-    @command(risk="acquires")
+    @command
     def acquire(self, resolution: Tuple[int, int], dwell_time: float) -> np.ndarray:
         """Scan one frame of *resolution* (width, height) pixels with *dwell_time*
         seconds per pixel, and return it as a (height, width) array."""
@@ -74,7 +74,7 @@ class Scanner(Device):
         with self.resources.claim(SCANNER_RESOURCE):
             return self._acquire((width, height), float(dwell_time))
 
-    @command(risk="stops")
+    @command
     def stop(self) -> None:
         """Stop the scan: a frame in flight ends early. Safe when not scanning."""
         self._stop()

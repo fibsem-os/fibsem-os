@@ -21,7 +21,7 @@ class ChamberCamera(Device):
     def __init__(self, parent: Any = None, **kwargs: Any):
         super().__init__(name="chamber_camera", parent=parent, **kwargs)
 
-    @command(risk="acquires")
+    @command
     def acquire(self) -> np.ndarray:
         """One frame of the chamber, as the camera gives it."""
         return self._acquire()
