@@ -663,7 +663,7 @@ class SampleHandling(Service):
             )
         return entries
 
-    @command(line=_to_slot_line)
+    @command(line=_to_slot_line, risk="moves_hardware")
     def move_to_slot(self, slot_name: str) -> FibsemStagePosition:
         """Move the stage to a specific slot. Refuses a slot that is not calibrated."""
         if self.holder is None:
@@ -683,7 +683,7 @@ class SampleHandling(Service):
             return BUILTIN_SLOT_NAME
         return slot_name
 
-    @command(line=_to_grid_line)
+    @command(line=_to_grid_line, risk="moves_hardware")
     def move_to_grid(self, grid_name: str) -> FibsemStagePosition:
         """Move the stage to the holder slot that holds this grid."""
         slot = self.holder.find_slot_by_grid_name(grid_name)
@@ -698,7 +698,7 @@ class SampleHandling(Service):
         """The grids loaded right now, read from the holder every time."""
         return [s.loaded_grid for s in self.holder.occupied_slots]  # type: ignore[misc]
 
-    @command(long=True, line=_load_line)
+    @command(long=True, line=_load_line, risk="moves_hardware")
     def ensure_loaded(self, grid_name: str) -> GridSlot:
         """Make a grid reachable, and return the working slot it occupies.
 
@@ -732,7 +732,7 @@ class SampleHandling(Service):
         self.magazine.load_grid(home.name)
         return self.magazine.working_slot
 
-    @command(long=True, line=_unload_line)
+    @command(long=True, line=_unload_line, risk="moves_hardware")
     def unload(self) -> None:
         """Retract the working slot. Nothing to do on a fixed holder."""
         if self.magazine is None:
@@ -784,7 +784,7 @@ class SampleHandling(Service):
         occupied = [s for s in calibrated if s.loaded_grid is not None]
         return occupied or calibrated
 
-    @command(long=True, line=_inventory_line)
+    @command(long=True, line=_inventory_line, risk="moves_hardware")
     def run_inventory(self) -> List[GridInventoryEntry]:
         """Scan the magazine and return the inventory: the slow one.
 
@@ -796,7 +796,7 @@ class SampleHandling(Service):
             self.magazine.run_inventory()
         return self.grid_inventory()
 
-    @command
+    @command(risk="local")
     def assign_grid(
         self, slot_name: str, grid: Optional[SampleGrid], persist: bool = False
     ) -> None:

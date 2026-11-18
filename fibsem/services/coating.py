@@ -173,7 +173,7 @@ class Coating(Service):
 
     # -- commands ----------------------------------------------------------------
 
-    @command(available=_has_gis, long=True, line=_deposit_line)
+    @command(available=_has_gis, long=True, line=_deposit_line, risk="alters_sample")
     def deposit(
         self,
         seconds: float,
@@ -220,7 +220,7 @@ class Coating(Service):
         finally:
             self._put_back(gis, start)
 
-    @command(available=_has_coater, long=True, line=_sputter_line)
+    @command(available=_has_coater, long=True, line=_sputter_line, risk="alters_sample")
     def sputter(
         self,
         seconds: float,
@@ -250,7 +250,7 @@ class Coating(Service):
             self._report(CoatingProgress(status=CoatingStatus.FAILED, error=str(e)))
             raise
 
-    @command
+    @command(risk="stops")
     def stop(self) -> None:
         """End the deposition in progress as cancelled: the valve closes, the needle
         retracts and the stage moves back."""

@@ -202,6 +202,7 @@ class StageMovement(Service):
         unit="deg",
         doc="The stored milling angle the MILLING orientation is built from, in "
         "degrees. The configuration gives its value at connect.",
+        risk="local",
     )
 
     def __init__(self, name: str = "stage_movement", **kwargs: Any):
@@ -1148,7 +1149,7 @@ class StageMovement(Service):
 
     # -- moves the stage device has itself --------------------------------------------------
 
-    @command
+    @command(risk="never")
     def move_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
         """Move the stage to a position, within its limits. Axes that are None stay."""
         with recording_move(
@@ -1158,7 +1159,7 @@ class StageMovement(Service):
             self.stage.move_absolute(position)
             return self._position()
 
-    @command
+    @command(risk="moves_hardware")
     def move_relative(self, delta: FibsemStagePosition) -> FibsemStagePosition:
         """Move the stage by an offset, within its limits. Axes that are None stay."""
         with recording_move(self.session, self.stage, "move_relative", position=delta):
@@ -1168,7 +1169,7 @@ class StageMovement(Service):
 
     # -- moves by what a view shows ------------------------------------------------------
 
-    @command
+    @command(risk="moves_hardware")
     def stable_move(
         self, dx: float, dy: float, beam_type: BeamType, static_wd: bool = False
     ) -> FibsemStagePosition:
@@ -1245,7 +1246,7 @@ class StageMovement(Service):
         """Whether coincidence can be restored from the given view."""
         return beam_type in self.vertical_move_views
 
-    @command
+    @command(risk="moves_hardware")
     def vertical_move(
         self,
         dy: float,
@@ -1411,7 +1412,7 @@ class StageMovement(Service):
         fm = self._require_fm("Fluorescence microscope is not available.")
         return apply_delta(base_position, self._fm_stage_delta(fm, dx, dy))
 
-    @command
+    @command(risk="moves_hardware")
     def fm_stable_move(self, dx: float, dy: float) -> FibsemStagePosition:
         """Move the stage by a displacement seen in the fluorescence image, holding
         the focal plane: the same projection the beams use, with the camera's tilt in
@@ -1639,7 +1640,7 @@ class StageMovement(Service):
 
         return load_saved_positions(self._saved_state())
 
-    @command
+    @command(risk="local")
     def save_position(
         self, name: str, stage_position: Optional[FibsemStagePosition] = None
     ) -> FibsemStagePosition:
@@ -1660,7 +1661,7 @@ class StageMovement(Service):
         self._write_saved(positions)
         return position
 
-    @command
+    @command(risk="local")
     def rename_saved_position(self, name: str, new_name: str) -> FibsemStagePosition:
         """Rename a saved position; refused onto a name already saved."""
         new_name = str(new_name or "").strip()
@@ -1674,14 +1675,14 @@ class StageMovement(Service):
         self._write_saved(positions)
         return position
 
-    @command
+    @command(risk="local")
     def remove_saved_position(self, name: str) -> None:
         """Forget a saved position."""
         positions = self.saved_positions()
         self._named(positions, name)
         self._write_saved([p for p in positions if p.name != name])
 
-    @command
+    @command(risk="moves_hardware")
     def move_to_saved_position(self, name: str) -> FibsemStagePosition:
         """Move the stage to a saved position, through the safe absolute move."""
         return self.safe_absolute_stage_movement(
@@ -1690,7 +1691,7 @@ class StageMovement(Service):
 
     # -- moves to a place ------------------------------------------------------------------
 
-    @command
+    @command(risk="moves_hardware")
     def safe_absolute_stage_movement(
         self, stage_position: FibsemStagePosition
     ) -> FibsemStagePosition:
@@ -1773,7 +1774,7 @@ class StageMovement(Service):
 
         self._move_stage(FibsemStagePosition(r=stage_position.r))
 
-    @command
+    @command(risk="moves_hardware")
     def move_to_orientation(self, orientation: str) -> FibsemStagePosition:
         """Move the stage to a named orientation ('SEM', 'FIB', 'MILLING', ...)."""
         with recording_move(
@@ -1809,7 +1810,7 @@ class StageMovement(Service):
         pose.x, pose.y = target.x, target.y
         return pose
 
-    @command
+    @command(risk="moves_hardware")
     def move_to_milling_angle(
         self,
         milling_angle: float,
@@ -1884,7 +1885,7 @@ class StageMovement(Service):
         self._require_fm("No fluorescence microscope.")
         return self.parent.fm.objective
 
-    @command
+    @command(risk="moves_hardware")
     def insert_objective(self, tilt: Optional[float] = None) -> None:
         """Insert the FM objective where the stage stands, or tilted to *tilt*
         (radians) first, as the FM tab's Insert does: the objective is retracted
@@ -1910,7 +1911,7 @@ class StageMovement(Service):
                     self._move_stage(stage_position)
             objective.insert()
 
-    @command
+    @command(risk="moves_hardware")
     def retract_objective(self) -> None:
         """Retract the FM objective, as the FM tab's Retract does."""
         with recording_move(self.session, self.stage, "retract_objective"):
@@ -2097,7 +2098,7 @@ class StageMovement(Service):
             )
         ]
 
-    @command
+    @command(risk="moves_hardware")
     def move_to_device(self, device: str, orientation: Optional[str] = None) -> None:
         """Travel to `device`, re-posing on the way when the pose has to change.
 

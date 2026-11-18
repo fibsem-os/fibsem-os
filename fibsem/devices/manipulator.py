@@ -87,7 +87,7 @@ class Manipulator(Device):
                 f"{self.name}: target outside the needle limits: {', '.join(outside)}"
             )
 
-    @command
+    @command(risk="never")
     def insert(self, name: Optional[str] = None) -> FibsemManipulatorPosition:
         """Insert the needle to a named position, or to the instrument's own insert
         position when no name is given. Returns where it is afterwards."""
@@ -97,14 +97,14 @@ class Manipulator(Device):
             self._insert(name)
             return self._read_back()
 
-    @command
+    @command(risk="never")
     def retract(self) -> FibsemManipulatorPosition:
         """Retract the needle. Returns where it is afterwards."""
         with self.resources.claim(MANIPULATOR_RESOURCE):
             self._retract()
             return self._read_back()
 
-    @command
+    @command(risk="never")
     def move_absolute(
         self, position: FibsemManipulatorPosition
     ) -> FibsemManipulatorPosition:
@@ -114,7 +114,7 @@ class Manipulator(Device):
             self._move_absolute(position)
             return self.position.get_value()
 
-    @command
+    @command(risk="never")
     def move_relative(
         self, delta: FibsemManipulatorPosition
     ) -> FibsemManipulatorPosition:
@@ -124,7 +124,9 @@ class Manipulator(Device):
             self._move_relative(delta)
             return self.position.get_value()
 
-    @command(available=lambda needle: _implements(needle, "_move_corrected"))
+    @command(
+        available=lambda needle: _implements(needle, "_move_corrected"), risk="never"
+    )
     def move_corrected(
         self, dx: float, dy: float, beam_type: BeamType
     ) -> FibsemManipulatorPosition:
@@ -134,14 +136,14 @@ class Manipulator(Device):
             self._move_corrected(dx, dy, beam_type)
             return self.position.get_value()
 
-    @command
+    @command(risk="never")
     def move_to_offset(
         self, offset: FibsemManipulatorPosition, name: str
     ) -> FibsemManipulatorPosition:
         """Move to a named position plus an offset. Returns where it is afterwards."""
         return self.move_absolute(self._offset_target(offset, name))
 
-    @command
+    @command(risk="never")
     def stop(self) -> FibsemManipulatorPosition:
         """Stop the needle where it is. Returns where it stopped.
 

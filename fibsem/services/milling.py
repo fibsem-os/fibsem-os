@@ -751,7 +751,7 @@ class Milling(Service):
 
     # -- commands ----------------------------------------------------------------
 
-    @command
+    @command(risk="optics")
     def setup(
         self, settings: FibsemMillingSettings, name: Optional[str] = None
     ) -> None:
@@ -770,7 +770,7 @@ class Milling(Service):
         if self._drawn:
             self._set_drawn([])
 
-    @command
+    @command(risk="optics")
     def draw(self, patterns: Sequence[FibsemPatternSettings]) -> None:
         """Add ``patterns`` to what the next run mills.
 
@@ -819,7 +819,7 @@ class Milling(Service):
         parent = self.parent
         return type(parent).__name__ if parent is not None else type(self).__name__
 
-    @command(line=_prepare_line)
+    @command(line=_prepare_line, risk="optics")
     def prepare(
         self,
         settings: FibsemMillingSettings,
@@ -868,13 +868,13 @@ class Milling(Service):
         warnings = [w for w in (_unlisted(asked, used, parameter), ignored) if w]
         return {"milling_current": used, "warning": " ".join(warnings) or None}
 
-    @command(line=_said("Start milling what is drawn"))
+    @command(line=_said("Start milling what is drawn"), risk="never")
     def start(self) -> None:
         """Start milling what is drawn, and return at once. Nothing follows it:
         no ``progress`` and no ``milling`` event, so an agent mills with ``run``."""
         self._start()
 
-    @command(line=_said("Stop the mill now running"))
+    @command(line=_said("Stop the mill now running"), risk="stops")
     def stop(self) -> None:
         """Stop milling: the pattern now, and the milling task it is part of, which
         starts no later stage. A ``run`` in progress ends and answers ``cancelled``.
@@ -894,7 +894,10 @@ class Milling(Service):
             task_stop.set()
         self._end_step(MillingStepEnd(STOPPED, reason="Milling stopped."))
 
-    @command(line=_said("End the milling stage now running, keeping what it milled"))
+    @command(
+        line=_said("End the milling stage now running, keeping what it milled"),
+        risk="stops",
+    )
     def end(self, reason: str, by: Optional[str] = None) -> None:
         """End this stage, completed: the mill step now stops, and its stage run
         starts no further step. A run in progress answers ``completed``; the
@@ -917,7 +920,7 @@ class Milling(Service):
             stage_run.end_as(end)
         self._end_step(end)
 
-    @command
+    @command(risk="stops")
     def stop_pattern(self) -> None:
         """Stop the pattern milling now, and nothing more: the mill step ends
         ``ended`` and a milling task goes on. For a strategy that ends a mill on
@@ -972,7 +975,7 @@ class Milling(Service):
         except Exception:  # noqa: BLE001 - unsure counts as milling: stop it
             return True
 
-    @command(line=_said("Pause the mill"))
+    @command(line=_said("Pause the mill"), risk="stops")
     def pause(self) -> None:
         """Pause milling. While a monitor has the pattern paused (an SEM
         peek), it stays paused when the monitor is done."""
@@ -982,7 +985,7 @@ class Milling(Service):
         else:
             step.hold(self._pause)
 
-    @command(line=_said("Resume the paused mill"))
+    @command(line=_said("Resume the paused mill"), risk="stops")
     def resume(self) -> None:
         """Resume paused milling. While a monitor has the pattern paused, it
         resumes when the monitor is done."""
@@ -999,7 +1002,7 @@ class Milling(Service):
         Pass the answer's ``seq`` as the next *since* to follow along."""
         return self._readings.follow(since, timeout)
 
-    @command(long=True, line=_run_line)
+    @command(long=True, line=_run_line, risk="alters_sample")
     def run(
         self, stop_event: Optional[Union[threading.Event, AnyStopEvent]] = None
     ) -> str:
@@ -1019,7 +1022,7 @@ class Milling(Service):
             return self._run(stop_event)
         return self._run_on_the_record(stop_event)
 
-    @command(long=True, line=_run_task_line)
+    @command(long=True, line=_run_task_line, risk="alters_sample")
     def run_task(self, config: Any, path: Optional[str] = None) -> Dict[str, Any]:
         """Run a milling task, as the app runs a protocol's: each enabled stage
         in turn with its strategy, aligning to the task's reference image
@@ -1077,7 +1080,7 @@ class Milling(Service):
                 ended["path"] = None
         return ended
 
-    @command(long=True, line=_run_stage_line)
+    @command(long=True, line=_run_stage_line, risk="alters_sample")
     def run_stage(
         self, stage: FibsemMillingStage, path: Optional[str] = None
     ) -> Dict[str, Any]:
@@ -1362,14 +1365,14 @@ class Milling(Service):
         """
         return estimate_milling_time(stage.pattern, stage.milling.milling_current)
 
-    @command(line=_said("Clear the drawn patterns"))
+    @command(line=_said("Clear the drawn patterns"), risk="optics")
     def clear(self) -> None:
         """Remove every drawn pattern."""
         with self._milling_channel():
             self._clear()
         self._set_drawn([])
 
-    @command(line=_said("Put the beam back as it was before milling"))
+    @command(line=_said("Put the beam back as it was before milling"), risk="optics")
     def restore(self) -> None:
         """Put the milling beam back as the first ``setup`` found it.
 
@@ -1384,7 +1387,10 @@ class Milling(Service):
                     self._write_back(beam, name, saved[name])
         self._restore()
 
-    @command(line=_said("Finish milling: clear the patterns and put the beam back"))
+    @command(
+        line=_said("Finish milling: clear the patterns and put the beam back"),
+        risk="optics",
+    )
     def finish(self) -> None:
         """Clear the patterns and put the milling beam back as ``setup`` found it."""
         self.clear()
