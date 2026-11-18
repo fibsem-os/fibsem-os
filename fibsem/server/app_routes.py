@@ -29,6 +29,8 @@ from fastapi.routing import APIRoute
 
 from fibsem.ai.agent.calls import current_call
 from fibsem.server import exports, files, planes
+from fibsem.server.agent.record import build_record_router, cited_evidence
+from fibsem.server.agent.record import described as _with_text
 from fibsem.server.auth import (
     refusal_error,
     refuse_dashboard,
@@ -42,7 +44,6 @@ from fibsem.server.bodies import (
     DecideBody,
     DrawBody,
     DrawOptions,
-    EvidenceBody,
     ExperimentPathBody,
     GridNoteBody,
     GridPlanBody,
@@ -58,8 +59,6 @@ from fibsem.server.bodies import (
     NewExperimentBody,
     NewItemBody,
     NewTaskBody,
-    NoteBody,
-    OperatorMessageBody,
     PatchBody,
     PixelsBody,
     PlaceBody,
@@ -99,7 +98,6 @@ from fibsem.server.responses import (
     Decided,
     DisplayImages,
     EventHistory,
-    Events,
     ExperimentOpened,
     ExperimentSummary,
     FileEntry,
@@ -133,7 +131,6 @@ from fibsem.server.responses import (
     Queue,
     QueueEdited,
     RecentExperiments,
-    Recorded,
     Refusal,
     ReplayTimeline,
     ReplayView,
@@ -156,8 +153,6 @@ from fibsem.server.responses import (
 )
 from fibsem.tools import bug_report
 from fibsem.util.timestamps import to_datetime
-from fibsem.workflows import evidence
-from fibsem.workflows.events.text import note_asked, with_text
 from fibsem.workflows.history_rows import (
     HistoryDecidedBy,
     HistoryOrder,
@@ -230,14 +225,6 @@ def _missing_field(message: str) -> HTTPException:
     """The 422 for a request missing what a route needs, *message* saying what
     to pass."""
     return refusal_error(422, "missing_field", message)
-
-
-def _note_body(body: NoteBody) -> Tuple[str, Optional[str]]:
-    """A note's or a message's text and item name, or the 422 when the text
-    is blank or too long."""
-    if not body.text.strip() or len(body.text) > 4000:
-        raise _missing_field("Pass text (a non-empty string, at most 4000 characters).")
-    return body.text, body.item_name
 
 
 def _required_text(body: Any, key: str, what: str) -> str:
@@ -963,76 +950,9 @@ def build_app_router(context: "AppContext") -> APIRouter:
         task_names, grid_names, screen_all = _grid_run_body(body)
         return context.grid_workflow_plan(task_names, grid_names, screen_all)
 
-    @router.post("/experiment/notes", response_model=Recorded)
-    def add_note(body: NoteBody):
-        # Observations for the record — event stream + experiment log. On the
-        # read router, a POST the dashboard token is refused: a watching agent
-        # notes what it sees, and a note changes nothing.
-        text, item_name = _note_body(body)
-        cited = cited_evidence(context)
-        result = context.add_note(
-            text,
-            item_name,
-            **({"evidence": cited["evidence_id"]} if cited else {}),
-        )
-        return _answer_or_refusal(result)
-
-    @router.post("/experiment/messages", response_model=Recorded)
-    def add_message(body: OperatorMessageBody):
-        # The agent's message to the operator, on the record as a note to them.
-        # Like a note, it changes nothing.
-        text, item_name = _note_body(body)
-        reply_to = body.reply_to
-        cited = cited_evidence(context)
-        result = context.add_message(
-            text,
-            item_name,
-            reply_to,
-            **({"evidence": cited["evidence_id"]} if cited else {}),
-        )
-        return _answer_or_refusal(result)
-
-    @router.post("/experiment/evidence", response_model=Recorded)
-    def add_evidence(body: EvidenceBody):
-        # What the agent judged from, kept in the experiment: an image of the
-        # experiment's or one it made (uploaded, saved here), with marks on it.
-        # Changes nothing, like a note.
-        item_name = body.item_name
-
-        def save() -> Dict[str, Any]:
-            return evidence.save(
-                lambda: context.experiment_path,
-                image=body.image,
-                upload=body.upload,
-                marks=body.marks,
-                source=body.source,
-                item_name=item_name,
-            )
-
-        try:
-            result = context.add_evidence(item_name, save)
-        except evidence.EvidenceRefused as refusal:
-            raise _evidence_refused(refusal)
-        return _answer_or_refusal(result)
-
-    @router.get("/events", response_model=Events)
-    def events(
-        since: int = 0,
-        timeout: float = 0.0,
-        after: Optional[str] = None,
-        text: bool = False,
-    ):
-        # A long-poll: parks up to `timeout` seconds waiting for news. Capped
-        # here because the park occupies a threadpool worker — a transport
-        # concern, so the transport owns the ceiling. `after` is an event id,
-        # in place of `since`, and reaches back past a restart. `text` adds
-        # what each record says, in words, for a page to show.
-        timeout = min(max(timeout, 0.0), 30.0)
-        if after:
-            answer = context.events(since=since, timeout=timeout, after=after)
-        else:
-            answer = context.events(since=since, timeout=timeout)
-        return _with_text(answer) if text else answer
+    # The agent's record: the events long-poll, its notes, messages and
+    # evidence, shared with the agent host (`fibsem.server.agent.record`).
+    router.include_router(build_record_router(context, _AsSentRoute))
 
     @router.get("/events/history", response_model=EventHistory)
     def event_history(
@@ -1044,35 +964,6 @@ def build_app_router(context: "AppContext") -> APIRouter:
         return _with_text(answer) if text else answer
 
     return _served(router, context)
-
-
-def _with_text(answer: Dict[str, Any]) -> Dict[str, Any]:
-    """*answer* with each record's ``text`` and ``group`` (`events.text`)."""
-    events = answer.get("events")
-    if not isinstance(events, list):
-        return answer
-    asked: Dict[str, Any] = {}
-    described = []
-    for record in events:
-        note_asked(asked, record)
-        described.append(with_text(record, asked))
-    return {**answer, "events": described}
-
-
-def _evidence_refused(refusal: evidence.EvidenceRefused) -> HTTPException:
-    return HTTPException(status_code=refusal.status_code, detail=refusal.detail)
-
-
-def cited_evidence(context: "AppContext") -> Optional[Dict[str, Any]]:
-    """The record of the evidence the agent's call cites
-    (`calls.EVIDENCE_HEADER`); None when it cites none."""
-    call = current_call()
-    if call is None or not call.evidence:
-        return None
-    try:
-        return evidence.load(lambda: context.experiment_path, call.evidence)
-    except evidence.EvidenceRefused as refusal:
-        raise _evidence_refused(refusal)
 
 
 def build_app_control_router(context: "AppContext") -> APIRouter:

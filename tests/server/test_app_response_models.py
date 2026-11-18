@@ -69,12 +69,22 @@ def client(tmp_path, microscope, monkeypatch):
 def _models(client):
     """Each /app route's declared answer class, by (method, path)."""
     models = {}
-    for included in client.app.routes:
-        router = getattr(included, "original_router", None)
-        for route in router.routes if router is not None else ():
-            if isinstance(route, APIRoute) and route.path.startswith("/app"):
-                for method in route.methods:
-                    models[method, route.path] = route.response_model
+
+    def walk(routes, prefix=""):
+        for route in routes:
+            router = getattr(route, "original_router", None)
+            if router is not None:
+                # A router included in another (the shared record routes),
+                # under the prefix it was included with.
+                context = getattr(route, "include_context", None)
+                walk(router.routes, prefix + (getattr(context, "prefix", "") or ""))
+            elif isinstance(route, APIRoute):
+                path = prefix + route.path
+                if path.startswith("/app"):
+                    for method in route.methods:
+                        models[method, path] = route.response_model
+
+    walk(client.app.routes)
     return models
 
 

@@ -144,12 +144,6 @@ AGENT_MESSAGES_READ = _kind(
 )
 AGENT_PLAN_EDITED = _kind("agent_plan_edited", OTHER, "The agent edited its plan.")
 AGENT_SAMPLE_SET = _kind("agent_sample_set", OTHER, "The agent set the sample.")
-INSTRUMENT_EVENT = _kind(
-    "instrument_event",
-    OTHER,
-    "What an instrument's server told the agent host happened: a halt, a "
-    "phase change, a run done, a state it didn't expect.",
-)
 
 # --- requests (the agent's actions held for the operator) ----------------------------
 REQUEST_RAISED = _kind("request_raised", REQUESTS, "A request.", legacy=True)

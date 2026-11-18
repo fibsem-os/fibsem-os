@@ -3,17 +3,22 @@
 The watch, the harness's checks and the Agent page's calls are made against it
 as they are against the App Server, on a real socket where the watch runs."""
 
+import base64
+import io
 import json
 import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 
 import pytest
 import uvicorn
 from fastapi.testclient import TestClient
+from PIL import Image
 
 from fibsem.ai.agent import watch as watch_mod
+from fibsem.ai.agent.calls import EVIDENCE_HEADER
 from fibsem.ai.agent.harness import _reachable
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.client.transport import Transport
@@ -115,11 +120,65 @@ def test_operator_and_agent_messages_are_on_the_record(host, agent, operator):
     assert to_operator["payload"]["reply_to"] == message_id
 
 
-def test_a_message_here_is_text_only(operator, agent):
+def _png() -> str:
+    buffer = io.BytesIO()
+    Image.new("RGB", (40, 30), (200, 40, 160)).save(buffer, format="PNG")
+    return base64.b64encode(buffer.getvalue()).decode("ascii")
+
+
+def test_evidence_waits_for_a_session(operator, agent):
+    # Evidence is kept in the running session's folder: none before one.
+    assert (
+        agent.post("/app/experiment/evidence", json={"upload": _png()}).status_code
+        == 409
+    )
     marked = {"text": "this", "evidence": {"image": "a.png"}}
-    assert operator.post("/app/agent/messages", json=marked).status_code == 422
+    assert operator.post("/app/agent/messages", json=marked).status_code == 409
     note = {"text": "x", "item_name": "01"}
     assert agent.post("/app/experiment/notes", json=note).status_code == 422
+
+
+def test_pictures_go_both_ways_through_the_host(host, agent, operator):
+    agent.post("/app/agent/session", json={"session_id": "s1", "model": "m"})
+    kept = agent.post("/app/experiment/evidence", json={"upload": _png()})
+    assert kept.status_code == 200
+    evidence_id = kept.json()["evidence_id"]
+    # The sidecar cites it on the call it judged for.
+    cited = agent.post(
+        "/app/experiment/messages",
+        json={"text": "see this"},
+        headers={EVIDENCE_HEADER: evidence_id},
+    )
+    assert cited.status_code == 200
+    events = agent.get("/app/events").json()["events"]
+    (note,) = [e for e in events if e["kind"] == "note"]
+    assert note["payload"]["evidence"] == evidence_id
+    assert [e["payload"]["evidence_id"] for e in events if e["kind"] == "evidence"] == [
+        evidence_id
+    ]
+
+    # The Agent page shows it, and the operator marks it back.
+    view = operator.get(f"/app/agent/evidence/{evidence_id}")
+    assert view.status_code == 200
+    assert view.json()["preview"]
+    marked = {
+        "text": "the left one",
+        "evidence": {
+            "marks": {"points": [{"x": 5, "y": 5}]},
+            "answers": evidence_id,
+            "verdict": "good",
+        },
+    }
+    sent = operator.post("/app/agent/messages", json=marked)
+    assert sent.status_code == 201, sent.text
+    assert (
+        operator.get(f"/app/agent/evidence/{sent.json()['evidence_id']}").status_code
+        == 200
+    )
+    folder = host.state.host.experiment_path
+    assert folder is not None and f"{evidence_id}.json" in json.dumps(
+        sorted(p.name for p in Path(folder).rglob("*.json"))
+    )
 
 
 def test_the_level_gates_the_agent_and_stop_lowers_it(host, agent, operator):
@@ -304,11 +363,14 @@ def test_stop_here_presses_the_instrument_s_stop(linked):
 
     assert instrument.state.auth.level is AgentLevel.WATCH
     assert instrument.state.auth.stopped
-    # The agent hears the instrument's Stop, once.
-    stops = _wait_for(lambda: _kinds(host, "action"))
-    time.sleep(0.3)
-    assert len(_kinds(host, "action")) == 1
-    assert stops[0]["instrument"] == "fib-1"
+    # The agent hears the Stop once: the host's record of it, not the
+    # instrument's coming back.
+    _wait_for(lambda: _kinds(host, "action"))
+    time.sleep(1.5)
+    (stop,) = _kinds(host, "action")
+    assert stop["actor"] == "operator"
+    assert stop["payload"]["stops"] == "agent"
+    assert "did not answer" not in stop["payload"]["reason"]
 
 
 def test_stop_at_the_instrument_lowers_the_level_here(linked):
@@ -334,73 +396,12 @@ def test_stop_holds_here_when_the_instrument_does_not_answer(tmp_path, monkeypat
         host.state.host.close()
 
 
-# --- an instrument that tells the host its events ---------------------------------
-
-
-@pytest.fixture
-def told(tmp_path, monkeypatch):
-    """A host whose instrument keeps no event stream and has no Stop route:
-    it posts its events, with a token of its own."""
-    monkeypatch.setenv("FIBSEM_HOME", str(tmp_path / "home"))
-    link = InstrumentLink(
-        "http://127.0.0.1:9",
-        None,
-        name="scope-1",
-        events_path=None,
-        stop_path=None,
-        push_token="its-push",
-    )
-    auth = AuthConfig(token=AGENT, operator_token=OPERATOR)
-    app = build_agent_host(auth, tmp_path / "host", instrument=link)
-    yield app
-    app.state.host.close()
-
-
-def test_only_the_instrument_tells_the_host(told):
-    event = {"what": "halted", "text": "Column valve closed", "urgent": True}
-    for token in (None, AGENT, OPERATOR, "other"):
-        client = TestClient(told, headers=_as(token) if token else {})
-        assert client.post("/app/instrument/events", json=event).status_code == 401
-    told_by = TestClient(told, headers=_as("its-push"))
-    assert told_by.post("/app/instrument/events", json=event).status_code == 201
-    (record,) = _kinds(told, "instrument_event")
-    assert record["instrument"] == "scope-1"
-    assert record["payload"] == {
-        "what": "halted",
-        "text": "Column valve closed",
-        "urgent": True,
-    }
-    bad = {"what": " ", "text": "x"}
-    assert told_by.post("/app/instrument/events", json=bad).status_code == 422
-
-
-def test_what_the_instrument_tells_is_a_wake(told):
-    from fibsem.ai.agent.harness import is_urgent
-
-    told.state.host.pushed("phase", "Tilt series started", False)
-    told.state.host.pushed("halted", "Column valve closed", True)
-    lines = []
-    events = told.state.host.buffer.events_since(0)["events"]
-    watch_mod._print_events(events, 0, lines.append)
-    assert lines == [
-        "INSTRUMENT phase on scope-1: Tilt series started",
-        "INSTRUMENT halted on scope-1: Column valve closed",
-    ]
-    assert [is_urgent(line) for line in lines] == [False, True]
-
-
-def test_stop_with_no_stop_there_holds_here_and_says_so(told):
-    told.state.auth.set_level(AgentLevel.DRIVE)
-    TestClient(told, headers=_as(OPERATOR)).post("/app/agent/stop")
-    assert told.state.auth.level is AgentLevel.WATCH
-    (stop,) = _kinds(told, "action")
-    assert "scope-1 has no Stop the host can press" in stop["payload"]["reason"]
-
-
-def test_the_agent_page_s_other_reads(host, operator, agent):
+def test_the_agent_page_reads_the_host_s_record(host, operator):
+    # The App Server's own operator routes, over the host.
     operator.post("/app/agent/messages", json={"text": "hello"})
     rows = operator.get("/app/agent/recent").json()["rows"]
     assert any("hello" in json.dumps(row) for row in rows)
-    assert operator.get("/app/agent/connect").json() == {"text": None}
+    assert operator.get("/app/agent/connect").status_code == 200
+    # Nothing is drawn: no request or suggestion waits here.
     assert operator.get("/app/agent/pictures/request").status_code == 404
-    assert agent.get("/app/agent/recent").status_code == 403
+    assert operator.get("/app/agent/customisation").status_code == 200

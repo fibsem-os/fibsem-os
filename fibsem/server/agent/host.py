@@ -6,7 +6,9 @@ App Server: its events (``/app/events``), its session, transcript and plan
 level and Stop. An agent whose instrument is served by something else, or that
 has no instrument at all, still needs those. This module serves them on their
 own, at the same paths with the same answers, so the harness, the watch and
-the web app's Agent page work against it unchanged.
+the web app's Agent page work against it unchanged: each is the App Server's
+own route, over the host (`record`, `session`, `plan`, `transcript`, and
+`operator` over an `AgentControl` of the host).
 
 What it holds is the session's, not an instrument's: an event stream of its
 own (written to ``events.jsonl`` in its folder), the session the harness
@@ -29,97 +31,58 @@ gateway, the hub). Its tokens are an :class:`~fibsem.server.auth.AuthConfig`,
 made by whoever builds it and never passed on a command line.
 """
 
-import hmac
 import logging
 import sys
 import threading
+import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from types import SimpleNamespace
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import httpx
-from fastapi import APIRouter, Depends, FastAPI, Request
+from fastapi import APIRouter, Depends, FastAPI
 
 from fibsem import __version__, paths
 from fibsem.acting import AGENT, OPERATOR
-from fibsem.ai.agent.levels import (
-    LEVEL_NAMES,
-    LEVEL_TIPS,
-    LEVEL_WORDS,
-    AgentLevel,
-    chip_text,
-)
-from fibsem.ai.agent.recent import RecentActions
 from fibsem.ai.agent.session import (
-    MESSAGE_LIMIT,
-    budget_low,
-    session_facts,
-    session_line,
+    AgentControl,
 )
 from fibsem.client.transport import HOST_TOKEN_ENV
 from fibsem.keystore import get_secret
 from fibsem.server.agent.files import AgentFiles
-from fibsem.server.agent.plan import PlanStore, build_agent_plan_router
+from fibsem.server.agent.operator import build_operator_router
+from fibsem.server.agent.plan import (
+    PlanStore,
+    build_agent_plan_router,
+    running_session,
+)
+from fibsem.server.agent.record import build_record_router
 from fibsem.server.agent.session import build_agent_session_router
 from fibsem.server.agent.transcript import build_agent_transcript_router
 from fibsem.server.auth import (
     AuthConfig,
-    refusal_error,
-    require_level,
     require_monitoring,
-    require_operator,
 )
 from fibsem.server.bodies import (
-    STRICT,
-    LevelBody,
-    MessageBody,
-    NoteBody,
-    OperatorMessageBody,
     refuse_invalid_requests,
 )
 from fibsem.server.discovery import API_VERSION, fibsem_folder
-from fibsem.server.responses import (
-    AgentStopped,
-    AgentView,
-    ConnectText,
-    Events,
-    LevelOption,
-    LevelSet,
-    MessageSent,
-    RecentRows,
-    Recorded,
-    answer,
-)
-from fibsem.workflows.actions import ACTION, NOTE, action_record, note_record
+from fibsem.server.responses import Refusal
+from fibsem.workflows.actions import ACTION, NOTE, note_record
 from fibsem.workflows.events import EventBuffer, split_event_id
 from fibsem.workflows.events import kinds as event_kinds
 from fibsem.workflows.events.recording import EventFileWriter, read_events_after
-from fibsem.workflows.events.text import note_asked, with_text
+from fibsem.workflows.evidence import EVIDENCE
 
 logger = logging.getLogger(__name__)
 
-
-@dataclass
-class InstrumentEventBody:
-    """POST /app/instrument/events: what the instrument's server says
-    happened. ``what`` in a word or two (halted, phase, done, state), ``text``
-    in a sentence; ``urgent`` cuts the agent's turn short."""
-
-    __pydantic_config__ = STRICT
-
-    what: str
-    text: str = ""
-    urgent: bool = False
-
-
-# How long an instrument event's words may be.
-MAX_WHAT = 40
-MAX_TEXT = 2000
-
 EVENTS_FILENAME = "events.jsonl"
 # The long-poll's ceiling, as the App Server's: a parked poll holds a worker.
-MAX_POLL_S = 30.0
+# The host's own Stop coming back from the instrument within this long is
+# not recorded again.
+STOP_ECHO_S = 30.0
 
 
 # The instrument's routes the host calls: the App Server's paths.
@@ -135,19 +98,13 @@ RELAY_RETRY_S = 5.0
 class InstrumentLink:
     """The instrument server the agent works on, as the host reaches it: its
     address, the operator's token there (from the PC's key store, never a
-    file or a command line) and the routes for its events and its Stop.
+    file or a command line) and the routes for its events and its Stop."""
 
-    An instrument whose server keeps no event stream tells the host instead
-    (``POST /app/instrument/events``), with *push_token*: then
-    ``events_path`` is None. A ``stop_path`` of None is a server with no
-    Stop of its own; the host's Stop then holds at the host alone."""
-
-    url: Optional[str]
-    token: Optional[str]
+    url: str
+    token: str
     name: str = "instrument"
-    events_path: Optional[str] = INSTRUMENT_EVENTS
-    stop_path: Optional[str] = INSTRUMENT_STOP
-    push_token: Optional[str] = None
+    events_path: str = INSTRUMENT_EVENTS
+    stop_path: str = INSTRUMENT_STOP
 
     def client(self, timeout: float) -> httpx.Client:
         return httpx.Client(
@@ -261,12 +218,11 @@ class AgentHost:
         # No experiment: each session's files stay in its own folder.
         self.files = AgentFiles(lambda: None)
         self.plan = PlanStore(lambda: None, files=self.files)
-        follows = (
-            instrument is not None
-            and instrument.url is not None
-            and instrument.events_path is not None
-        )
-        self._relay = _Relay(self, instrument) if follows else None
+        # When the host last pressed the instrument's Stop, and why it
+        # didn't reach it (`stop_agent`).
+        self._pressed = float("-inf")
+        self.stop_reason = ""
+        self._relay = _Relay(self, instrument) if instrument is not None else None
         if self._relay is not None:
             self._relay.start()
 
@@ -323,6 +279,9 @@ class AgentHost:
             return
         if _is_agent_stop(record):
             self.auth.stop_agent()
+            # The host's own Stop, coming back: its record is already here.
+            if time.monotonic() - self._pressed < STOP_ECHO_S:
+                return
         self.buffer.append(
             kind,
             record.get("payload") or {},
@@ -330,78 +289,92 @@ class AgentHost:
             envelope={**record, "instrument": source},
         )
 
-    def pushed(self, what: str, text: str, urgent: bool) -> None:
-        """What the instrument's server says happened, on the record as an
-        ``instrument_event`` the watch wakes the agent on."""
-        name = self.instrument.name if self.instrument is not None else None
-        self.buffer.append(
-            event_kinds.INSTRUMENT_EVENT,
-            {"what": what, "text": text, "urgent": urgent},
-            envelope={"instrument": name} if name else None,
-        )
+    # --- the agent's notes and messages (`record.build_record_router`) -----------
 
-    # --- the operator's side ---------------------------------------------------
+    @property
+    def experiment_path(self) -> Optional[str]:
+        """Where the running session's evidence is kept, in place of an
+        experiment: the session's own folder, beside its plan and
+        transcript. None with no session running."""
+        folder = self.files.folder(running_session(self.auth))
+        return str(folder) if folder is not None else None
 
-    def message(self, text: str) -> str:
-        """The operator's message to the agent, on the record as the App
-        Server puts it (`AgentControl.message`); returns its id."""
+    def add_note(
+        self,
+        text: str,
+        item_name: Optional[str] = None,
+        evidence: Optional[str] = None,
+    ) -> Any:
+        if item_name is not None:
+            return _no_items()
+        self.record(NOTE, note_record(text, evidence=evidence), actor=AGENT)
+        return {"recorded": True}
+
+    def add_message(
+        self,
+        text: str,
+        item_name: Optional[str] = None,
+        reply_to: Optional[str] = None,
+        evidence: Optional[str] = None,
+    ) -> Any:
+        if item_name is not None:
+            return _no_items()
         message_id = uuid.uuid4().hex[:8]
-        logger.info("Operator message to the agent (%s): %s", message_id, text)
-        self.record(NOTE, note_record(text, to=AGENT, id=message_id), actor=OPERATOR)
-        return message_id
-
-    def set_level(self, level: AgentLevel) -> None:
-        previous = self.auth.level
-        self.auth.set_level(level)
-        logger.info("Agent level set to %s by the operator", level.value)
         self.record(
-            event_kinds.AGENT_LEVEL_SET,
-            {
-                "previous": previous.value if previous is not None else None,
-                "level": self.auth.level.value,
-            },
-            actor=OPERATOR,
-        )
-
-    def stop(self) -> Optional[str]:
-        """Stop agent: down to Watch at once, here and at the instrument.
-
-        The instrument's Stop puts its own record on its stream, which the
-        host passes on: the agent hears that one, which says what was
-        stopped there. With no instrument, or one that doesn't answer, the
-        host records the Stop itself. Returns what the instrument stopped,
-        if anything."""
-        previous = self.auth.level
-        self.auth.stop_agent()
-        logger.warning("Agent stopped by the operator: level set to watch")
-        reason = ""
-        if self.instrument is not None:
-            stopped, why_not = self._stop_instrument()
-            if why_not is None:
-                return stopped
-            reason = why_not
-        self.record(
-            ACTION,
-            action_record(
-                "Stop the agent",
-                reason=reason,
-                stops="agent",
-                previous=previous.value if previous is not None else None,
-                level=self.auth.level.value,
+            NOTE,
+            note_record(
+                text, to=OPERATOR, id=message_id, reply_to=reply_to, evidence=evidence
             ),
-            actor=OPERATOR,
+            actor=AGENT,
         )
-        return None
+        return {"recorded": True, "id": message_id}
+
+    def add_evidence(
+        self, item_name: Optional[str], save: Callable[[], Dict[str, Any]]
+    ) -> Any:
+        """Keep the agent's evidence (*save* keeps it in the session's folder
+        and answers its record) and put it on the record."""
+        if item_name is not None:
+            return _no_items()
+        record = save()
+        self.record(EVIDENCE, {**record, "item_id": None})
+        return {"recorded": True, **record}
+
+    # --- as the App Server's host is to `AgentControl` -------------------------
+
+    running = True
+    # What the operator's routes read of an App Server that the host has
+    # none of: its address for a pasted setup, its requests, its app.
+    url: Optional[str] = None
+    requests = None
+    app_context = None
+
+    def agent_seconds_since_seen(self) -> Optional[float]:
+        return self.auth.seconds_since_seen()
+
+    def agent_session(self) -> Optional[dict]:
+        return self.auth.agent_session
+
+    def agent_client(self) -> Optional[str]:
+        return self.auth.agent_client
+
+    def stop_agent(self, microscope: Any = None) -> Optional[str]:
+        """The operator's Stop agent: down to Watch at once, here and at the
+        instrument, whose Stop it presses. Returns what the instrument
+        stopped; ``stop_reason`` says why it didn't reach the instrument."""
+        self.auth.stop_agent()
+        self.stop_reason = ""
+        if self.instrument is None:
+            return None
+        self._pressed = time.monotonic()
+        stopped, why_not = self._stop_instrument()
+        self.stop_reason = why_not or ""
+        return stopped
 
     def _stop_instrument(self) -> Tuple[Optional[str], Optional[str]]:
         """(what it stopped, None) once the instrument has its Stop, or
         (None, why not)."""
         link = self.instrument
-        if link.url is None or link.stop_path is None:
-            return (
-                None,
-                f"{link.name} has no Stop the host can press, so press it there",
-            )
         try:
             with link.client(10.0) as client:
                 response = client.post(link.stop_path)
@@ -427,26 +400,37 @@ class AgentHost:
         self._writer.close()
 
 
-def _with_text(answer_: Dict[str, Any]) -> Dict[str, Any]:
-    asked: Dict[str, Any] = {}
-    described = []
-    for record in answer_.get("events") or []:
-        note_asked(asked, record)
-        described.append(with_text(record, asked))
-    return {**answer_, "events": described}
+def _no_items() -> Refusal:
+    return Refusal("invalid", "This host keeps no experiment, so no item_name.")
 
 
-def _text(value: str, key: str) -> str:
-    if not value.strip():
-        raise refusal_error(422, "missing_field", f"Pass {key!r} as text.")
-    return value.strip()
+class _HostSession:
+    """The host as `AgentControl` reads a session: its host, auth and record,
+    and no microscope, experiment or images."""
 
+    microscope = None
+    experiment = None
+    images: Dict[str, Any] = {}
 
-def _no_items(item_name: Optional[str]) -> None:
-    if item_name is not None:
-        raise refusal_error(
-            422, "invalid", "This host keeps no experiment, so no item_name."
-        )
+    def __init__(self, host: AgentHost) -> None:
+        self.app_server = host
+        self.agent_auth = host.auth
+        # Anything with a ``buffer``: the host is one.
+        self.recorder = host
+
+    @property
+    def plain_experiment(self) -> Optional[SimpleNamespace]:
+        """The running session's folder, where its evidence is kept, as the
+        App Server's plain experiment is read: by its path."""
+        path = self.app_server.experiment_path
+        return SimpleNamespace(path=path) if path is not None else None
+
+    def recording_experiment(self) -> None:
+        """Nothing to make: the host acts on nothing, and records on its own."""
+        return None
+
+    def deciders(self) -> tuple:
+        return ()
 
 
 def build_agent_host(
@@ -493,167 +477,22 @@ def build_agent_host(
             "gateway": None,
         }
 
-    @base.get("/app/events", response_model=Events)
-    def events(
-        since: int = 0,
-        timeout: float = 0.0,
-        after: Optional[str] = None,
-        text: bool = False,
-    ):
-        timeout = min(max(timeout, 0.0), MAX_POLL_S)
-        found = host.events(since=since, timeout=timeout, after=after)
-        return _with_text(found) if text else found
-
     app.include_router(base)
 
-    # What the agent writes: notes and messages to the operator.
-    record = APIRouter(
-        prefix="/app/experiment",
-        dependencies=[Depends(require_level(AgentLevel.WATCH))],
+    # The agent's record: the events long-poll, its notes and messages. The
+    # App Server's own routes, over the host.
+    app.include_router(
+        build_record_router(host),
+        prefix="/app",
+        dependencies=[Depends(require_monitoring())],
     )
-
-    @record.post("/notes", response_model=Recorded)
-    def add_note(body: NoteBody):
-        _no_items(body.item_name)
-        text = _text(body.text, "text")
-        host.record(NOTE, note_record(text), actor=AGENT)
-        return {"recorded": True}
-
-    @record.post("/messages", response_model=Recorded)
-    def add_message(body: OperatorMessageBody):
-        _no_items(body.item_name)
-        text = _text(body.text, "text")
-        message_id = uuid.uuid4().hex[:8]
-        host.record(
-            NOTE,
-            note_record(text, to=OPERATOR, id=message_id, reply_to=body.reply_to),
-            actor=AGENT,
-        )
-        return {"recorded": True, "id": message_id}
-
-    app.include_router(record)
-
     # The agent's session, plan and transcript: the App Server's own routes.
     app.include_router(build_agent_session_router(host.record))
     app.include_router(build_agent_plan_router(lambda: None, host.record))
     app.include_router(build_agent_transcript_router(lambda: None, host.record))
-
-    # The operator's side: what the Agent page does.
-    operator = APIRouter(
-        prefix="/app/agent", dependencies=[Depends(require_operator())]
-    )
-
-    @operator.get("", response_model=AgentView)
-    def get_agent():
-        session = auth.agent_session
-        return answer(
-            AgentView(
-                experiment=None,
-                level=auth.level.value,
-                stopped=bool(auth.stopped),
-                last_heard_s=auth.seconds_since_seen(),
-                client=auth.agent_client,
-                session=session_line(session),
-                budget_low=budget_low(session),
-                request=None,
-                chip=chip_text(auth.level, None, False),
-                suggestion=None,
-                now=None,
-                waiting=None,
-                pictures={},
-                levels=[
-                    LevelOption(
-                        level.value,
-                        LEVEL_NAMES[level],
-                        LEVEL_WORDS[level],
-                        LEVEL_TIPS[level],
-                    )
-                    for level in AgentLevel
-                ],
-                facts=[list(fact) for fact in session_facts(session)],
-            )
-        )
-
-    @operator.post("/messages", status_code=201, response_model=MessageSent)
-    def send_message(body: MessageBody):
-        if body.evidence is not None:
-            raise refusal_error(
-                422,
-                "invalid",
-                "This host keeps no images, so a message here is text only.",
-            )
-        text = _text(body.text, "text")
-        if len(text) > MESSAGE_LIMIT:
-            raise refusal_error(
-                422, "too_long", f"A message is at most {MESSAGE_LIMIT} characters."
-            )
-        return answer(MessageSent(host.message(text)), status_code=201)
-
-    @operator.put("/level", response_model=LevelSet)
-    def set_level(body: LevelBody):
-        try:
-            level = AgentLevel(_text(body.level, "level").lower())
-        except ValueError:
-            names = ", ".join(level.value for level in AgentLevel)
-            raise refusal_error(422, "bad_level", f"The level is one of {names}.")
-        if not auth.agent_allowed and level is not AgentLevel.OFF:
-            raise refusal_error(
-                409, "level_refused", "The agent is not part of this release."
-            )
-        host.set_level(level)
-        return answer(LevelSet(level.value))
-
-    @operator.get("/recent", response_model=RecentRows)
-    def recent():
-        """The Agent page's rows: the conversation and the agent's actions,
-        oldest first, from the host's record."""
-        rows = RecentActions()
-        for record in host.buffer.events_since(0).get("events", []):
-            rows.add(record)
-        return answer(RecentRows(rows.rows))
-
-    @operator.get("/connect", response_model=ConnectText)
-    def connect():
-        """None: an agent reaches the host through ``fibsem-agent --host``,
-        not a setup pasted into it."""
-        return answer(ConnectText(None))
-
-    @operator.get("/pictures/{kind}")
-    def get_picture(kind: str):
-        """The host draws no pictures: a request or a suggestion is the
-        instrument's."""
-        raise refusal_error(404, "not_found", f"No {kind} picture is drawn.")
-
-    @operator.post("/stop", response_model=AgentStopped)
-    def stop_agent():
-        stopped = host.stop()
-        return answer(AgentStopped(stopped, auth.level.value))
-
-    app.include_router(operator)
-
-    # What an instrument's server with no event stream of its own says
-    # happened: its token only, the one the host was given for it.
-    @app.post("/app/instrument/events", status_code=201)
-    def instrument_event(request: Request, body: InstrumentEventBody):
-        link = host.instrument
-        expected = link.push_token if link is not None else None
-        given = request.headers.get("Authorization", "")
-        if not expected or not hmac.compare_digest(given, f"Bearer {expected}"):
-            raise refusal_error(
-                401, "unauthorized", "Only the instrument's server tells the host."
-            )
-        what = " ".join(body.what.split())
-        if not what or len(what) > MAX_WHAT:
-            raise refusal_error(
-                422, "invalid", f"what is a word or two, at most {MAX_WHAT} characters."
-            )
-        if len(body.text) > MAX_TEXT:
-            raise refusal_error(
-                422, "too_long", f"text is at most {MAX_TEXT} characters."
-            )
-        host.pushed(what, body.text.strip(), bool(body.urgent))
-        return {"recorded": True}
-
+    # The operator's side, what the Agent page does: the App Server's own
+    # routes, over the host as a session (`_HostSession`).
+    app.include_router(build_operator_router(AgentControl(_HostSession(host))))
     return app
 
 
@@ -665,10 +504,6 @@ HOST_TOKEN = HOST_TOKEN_ENV
 HOST_OPERATOR_TOKEN = "FIBSEM_HOST_OPERATOR_TOKEN"
 # The instrument's operator token, by default: the App Server's.
 INSTRUMENT_TOKEN = "FIBSEM_OPERATOR_TOKEN"
-# The token an instrument's server presents to tell the host its events.
-INSTRUMENT_PUSH_TOKEN = "FIBSEM_HOST_INSTRUMENT_TOKEN"
-# A route the instrument's server doesn't have.
-NONE = "none"
 DEFAULT_PORT = 8030
 
 
@@ -706,29 +541,6 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="the key (environment or key store) holding the operator's token "
         f"at the instrument (default {INSTRUMENT_TOKEN})",
     )
-    parser.add_argument(
-        "--instrument-events",
-        default=INSTRUMENT_EVENTS,
-        metavar="PATH",
-        help=f"its events long-poll (default {INSTRUMENT_EVENTS}); '{NONE}' for "
-        "a server that tells the host its events instead "
-        "(POST /app/instrument/events)",
-    )
-    parser.add_argument(
-        "--instrument-stop",
-        default=INSTRUMENT_STOP,
-        metavar="PATH",
-        help=f"the route Stop presses there (default {INSTRUMENT_STOP}); "
-        f"'{NONE}' for a server with no Stop of its own",
-    )
-    parser.add_argument(
-        "--instrument-push-token",
-        default=INSTRUMENT_PUSH_TOKEN,
-        metavar="NAME",
-        help="the key holding the token the instrument's server presents to "
-        f"tell the host its events (default {INSTRUMENT_PUSH_TOKEN}); unset, "
-        "it can't",
-    )
     args = parser.parse_args(argv)
 
     token, operator = get_secret(HOST_TOKEN), get_secret(HOST_OPERATOR_TOKEN)
@@ -747,8 +559,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     instrument = None
     if args.instrument:
         instrument_token = get_secret(args.instrument_token)
-        follows = args.instrument_events != NONE or args.instrument_stop != NONE
-        if follows and not instrument_token:
+        if not instrument_token:
             print(
                 f"fibsem-agent-host: --instrument needs the operator's token "
                 f"there in {args.instrument_token}.",
@@ -756,14 +567,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             )
             return 1
         instrument = InstrumentLink(
-            args.instrument,
-            instrument_token,
-            name=args.instrument_name,
-            events_path=None
-            if args.instrument_events == NONE
-            else args.instrument_events,
-            stop_path=None if args.instrument_stop == NONE else args.instrument_stop,
-            push_token=get_secret(args.instrument_push_token),
+            args.instrument, instrument_token, name=args.instrument_name
         )
     auth = AuthConfig(token=token, operator_token=operator)
     folder = Path(args.folder).expanduser() if args.folder else None

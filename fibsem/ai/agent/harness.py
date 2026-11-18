@@ -351,8 +351,6 @@ URGENT = frozenset(
         # stop is OPERATOR_STOP above.
         watch_mod.WORKFLOW_FAILED,
         "task_failed",
-        # The instrument's server said its news can't wait.
-        watch_mod.INSTRUMENT_URGENT,
         watch_mod.COMMAND_FAILED,
         watch_mod.MILL_FAILED,
         # A milling monitor's stop rule fired.
