@@ -2,10 +2,12 @@
 
 `JeolMilling` mills by adding items to the FIB's process group: an ``area`` item for a
 rectangle and a ``line`` item for a horizontal or vertical line, placed in pixels of a
-fixed patterning frame. Each item carries its own beam mode and dose, so milling never
-sets the beam's current: the recipe's milling current picks the beam mode of every
-item. JEOL estimates the time of each item, and reports the time remaining while the
-process runs.
+fixed patterning frame. Each item carries its own beam mode and dose: the recipe's
+milling current picks the beam mode of every item. The setup also sets the column to
+that beam mode, so what runs between the setup and the mill (the initial alignment)
+images at the milling current, as on the other instruments; ``finish`` puts the
+imaging beam mode back. JEOL estimates the time of each item, and reports the time
+remaining while the process runs.
 
 `JeolSpotBurn` burns spots the same way: the FIB has no blanker and can't park the
 beam, so each point is a ``spot`` item, all run as one process by the milling service.
@@ -84,6 +86,10 @@ DEFAULT_SCAN_DIRECTION = "TopToBottom"
 
 # How long to wait before starting a process: the beam mode is still being set.
 START_DELAY = 2.0
+
+# How long to wait after the setup changes the column's beam mode, before anything
+# images at it. The process start's own delay, as nothing better is measured yet.
+BEAM_MODE_SETTLE = START_DELAY
 
 # The area JEOL assumes for a spot when it turns a dose (nC/um2) into an exposure
 # time (time = dose * area / current). Measured 2026-10-01: dose 333 ran 5 s at beam
@@ -170,6 +176,12 @@ class JeolMilling(Milling):
             float(settings.milling_current), BeamType.ION
         )
         self._milling_rate = self.own_settings(settings).milling_rate
+        # The items carry the beam mode, but the column is set to it too: the initial
+        # alignment between the setup and the mill images at the milling current, as
+        # it does on the other instruments. `restore` puts the saved one back.
+        if self.ion.current.get_value() != self._current:
+            self.ion.current.write_through(self._current)
+            self.connection.wait(BEAM_MODE_SETTLE)
         logger.info(
             f"JEOL milling at beam mode {self._beam_mode} ({self._current:.3e} A)"
         )
@@ -360,7 +372,7 @@ class JeolSpotBurn(SpotBurn):
 
     parent: JeolMicroscope
 
-    # Milling never sets the beam: each item carries its own beam mode.
+    # The milling setup sets the beam mode and its restore puts it back (`_finish`).
     saved_conditions = ()
 
     @classmethod

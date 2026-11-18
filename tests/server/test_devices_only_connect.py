@@ -129,6 +129,11 @@ def test_the_app_server_connects_and_serves_the_devices(server, local_fm):
     assert capabilities["instruments"] == ["devices"]
     power = server.get("/microscope/devices/light_source/power", headers=_as(AGENT))
     assert power.status_code == 200, power.text
+    # The latest images are each device's: none of these sends any.
+    images = server.get("/app/experiment/images", headers=_as(AGENT))
+    assert images.status_code == 200, images.text
+    assert images.json()["devices"] == {}
+    assert images.json()["sem"] is None
 
     # What needs a FIB/SEM says so, and what is connected instead.
     state_route = server.get("/microscope/state", headers=_as(AGENT))
