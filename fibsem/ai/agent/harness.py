@@ -50,11 +50,13 @@ from fibsem.ai.agent import (
     sources,
     subagents,
     usage,
+    wake_lines,
 )
 from fibsem.ai.agent import manager as sessions
 from fibsem.ai.agent import watch as watch_mod
 from fibsem.ai.agent.catalog import INSTRUMENT_ENV
 from fibsem.ai.agent.report import SessionReport, plain
+from fibsem.ai.agent.wake_lines import fibsem as fibsem_lines
 from fibsem.client.transport import (
     HOST_TOKEN_ENV,
     SERVER_TOKEN_ENV,
@@ -353,9 +355,9 @@ URGENT = frozenset(
         watch_mod.WORKFLOW_FAILED,
         "task_failed",
         watch_mod.COMMAND_FAILED,
-        watch_mod.MILL_FAILED,
+        fibsem_lines.MILL_FAILED,
         # A milling monitor's stop rule fired.
-        watch_mod.STOP_RULE,
+        fibsem_lines.STOP_RULE,
     }
 )
 
@@ -783,9 +785,12 @@ class Watcher:
         retry_s: Optional[float] = None,
         quiet_s: Optional[float] = None,
         after: Optional[str] = None,
+        lines: Optional[wake_lines.Lines] = None,
     ) -> None:
         self._client = client
         self._deliver = deliver
+        # The instrument kind's own lines (`wake_lines`); the FIB-SEM's for None.
+        self._lines = lines
         # An event id to watch from, for a resumed session; None starts at the tail.
         self._after = after
         self._poll_s = poll_s
@@ -834,6 +839,7 @@ class Watcher:
                 on_seeded=lambda: self._deliver(_Seeded()),
                 after=self._after,
                 on_cursor=lambda event_id: self._deliver(_Cursor(event_id)),
+                lines=self._lines,
             )
         except _Stopped:
             return
@@ -1078,6 +1084,8 @@ class Harness:
             retry_s=self._retry_s,
             quiet_s=self._quiet_s,
             after=self._after,
+            # The session's instrument kind's own lines: it can't switch kind.
+            lines=wake_lines.for_kind(self._words.kind),
         )
         self._watcher = watcher
         watcher.start()

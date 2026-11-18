@@ -24,6 +24,7 @@ from fibsem.ai.agent import watch as watch_mod
 from fibsem.ai.agent.harness import Harness, TurnEnd, Wakes, kickoff
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.ai.agent.session import AgentControl
+from fibsem.ai.agent.wake_lines import fibsem as fibsem_lines
 from fibsem.applications.autolamella.server.context import (
     AutoLamellaAppContext,
 )
@@ -1495,9 +1496,9 @@ def test_the_urgent_lines_are_the_four_the_operator_chose():
         watch_mod.WORKFLOW_FAILED,
         "task_failed",
         watch_mod.COMMAND_FAILED,
-        watch_mod.MILL_FAILED,
+        fibsem_lines.MILL_FAILED,
         # a stop rule firing
-        watch_mod.STOP_RULE,
+        fibsem_lines.STOP_RULE,
     }
     assert harness_mod.is_urgent(watch_mod.NO_END_EVENT_LINE)
     for line in (
