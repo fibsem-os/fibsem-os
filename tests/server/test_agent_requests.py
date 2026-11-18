@@ -53,7 +53,7 @@ class RecordingContext(AutoLamellaAppContext):
 
 @pytest.fixture
 def auth():
-    auth = AuthConfig(token="agent", dashboard_token="dashboard")
+    auth = AuthConfig(token="agent")
     auth.set_level(AgentLevel.ASSIST)
     return auth
 

@@ -51,7 +51,7 @@ command takes control of the microscope while it runs: when a workflow, a script
 another command is in control it gets `409 microscope_busy`, naming who.
 The **operator token** (Tools → Host → Copy operator token; one per
 install, kept in `~/.fibsem/operator-token.json`) is the operator from outside
-the window. It reads what the dashboard reads and reaches the operator's routes,
+the window. It reads the monitoring routes and reaches the operator's routes,
 whatever the level: `GET /app/agent` (level, last heard, the waiting request),
 `POST /app/agent/messages` `{"text"}`, `PUT /app/agent/level` `{"level"}`,
 `POST /app/agent/stop`, and `POST /app/agent/requests/{id}/approve` or

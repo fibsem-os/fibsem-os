@@ -22,8 +22,10 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install what a user installs
+        # setuptools is not a fibsem dependency; it is whatever version the runner's
+        # Python ships with, so upgrade it here or the audit reports the runner.
         run: |
-          python -m pip install --upgrade pip
+          python -m pip install --upgrade pip setuptools
           python -m pip install ".[ui,agent]" pip-audit
       - name: Audit
         id: audit

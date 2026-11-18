@@ -337,6 +337,9 @@ export interface components {
             synced_tasks: string[] | null;
         };
         DisplayImages: {
+            devices: {
+                [key: string]: components["schemas"]["ImagePayload"];
+            };
             fib: components["schemas"]["ImagePayload"] | null;
             fm: components["schemas"]["ImagePayload"] | null;
             /** @default false */

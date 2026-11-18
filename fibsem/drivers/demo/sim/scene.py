@@ -34,7 +34,7 @@ import math
 import zlib
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 from scipy.ndimage import binary_dilation as ndi_binary_dilation
@@ -179,6 +179,11 @@ CENTRE_MARK_SIZE = 2.4
 # thicknesses that take away about two-thirds of the SEM charging
 GIS_RATE = 0.04e-6  # m/s with the valve open
 SPUTTER_RATE = 0.5e-9  # m/s
+# FIB charging (see ion_charge_up): how far (px at 1024) the scan lines
+# wander and jump, and how often a line jumps
+ION_WANDER = 3.0
+ION_STEP = 3.0
+ION_JUMP = 0.004
 SPUTTER_DISCHARGE = 5e-9  # m
 GIS_DISCHARGE = 1e-6  # m
 
@@ -254,6 +259,25 @@ class SceneGrid:
     radius: float  # m, the usable film area
     seed: int
     extent: float  # m, content is grown over +/- extent/2 about the centre
+    # what the grid is like (see GRID_QUALITY): its name, the ice over and
+    # above the usual sheet (um), the share of its squares torn (None is the
+    # scene's `rip_fraction`) and how many of the usual cells grew on it
+    quality: str = "good"
+    ice: float = 0.0
+    rips: Optional[float] = None
+    cells: float = 1.0
+
+
+# the kinds of grid a session meets: one worth milling, one whose ice buries
+# the cells, one with the film torn out of many squares, one with few cells
+# on it, and one with none
+GRID_QUALITY = {
+    "good": {},
+    "thick_ice": {"ice": 4.0},
+    "torn": {"rips": 0.4},
+    "sparse": {"cells": 0.15},
+    "empty": {"cells": 0.0},
+}
 
 
 def _lamella_gap(pass_corners, all_corners):
@@ -313,7 +337,15 @@ class MilledRegion:
 
 
 DAMAGE_CURRENT = 60e-12  # A; a usual polishing current
+# m: how far from a milled region's outline a cut can reach a point: a cut
+# along a grazing beam runs sideways under the surface by several times its
+# depth, so this is well past the deepest cut at the shallowest angle
+RECORD_REACH = 100e-6
 ION_YIELD = 10.0  # um^3 of ice a nC of ions takes away
+# how much deeper than its set depth a pattern cuts in a configured scene:
+# enough for a protocol's polishing pass (1 um set) to reach the film under
+# the tallest cells
+MILL_DEPTH_SCALE = 10.0
 IMAGING_STEP = 20e-9  # m; what imaging wears away shows in steps this deep
 MILL_DEPTH = 90.0  # how dark a trench reads in the FM reflection (canvas scale)
 # A spot burn: what a 60 pA, 10 s exposure leaves on a real grid. The mark is
@@ -437,6 +469,10 @@ class SampleScene:
     broken_hole_fraction: float = 0.006
     # a seeded fraction of squares with the film torn away (a rip)
     rip_fraction: float = 0.03
+    # what each grid is like, from GRID_QUALITY: one name for every grid, a
+    # list for the holder's grids in slot order (repeated if it is short),
+    # or a mapping from a grid's name; a grid not named is "good"
+    grid_quality: Any = None
     # ice crystals: flat bright plates with a bright rim, per 100 x 100 um
     ice_density: float = 0.4
     ice_size: Tuple[float, float] = (6e-6, 16e-6)  # m, plate radius
@@ -457,6 +493,11 @@ class SampleScene:
     # how strongly the SEM charges an uncoated grid (cells, ice): bright
     # patches and streaks along the scan, worse with a longer dwell; 0 = never
     charging: float = 1.0
+    # how strongly the FIB charges the sample while it images: what stands
+    # up off the film goes dark with a bright edge, the ice blotches, and the
+    # scan lines slip sideways, a little differently every frame. 0 = never;
+    # on for a scene from the configuration
+    fib_charging: float = 0.0
     # milling is not perfect: each pass drifts by a seeded offset (m, sigma)
     # and a pattern cuts a little past its edges (m, up to)
     mill_drift: float = 20e-9
@@ -466,6 +507,11 @@ class SampleScene:
     # thicker at its bottom; a cut face carries vertical curtaining stripes
     mill_kerf: bool = True
     mill_taper: float = 1.5
+    # how much deeper a pattern cuts into the sample than its set depth: the
+    # depth is set for silicon, and ice at the milling angle goes far
+    # faster, so a protocol's trenches and polishing passes reach through
+    # the cells to the film. On for a scene from the configuration
+    mill_depth_scale: float = 1.0
     curtaining: float = 1.0
     # a thin lamella can be damaged: below a seeded thickness (m, range) each
     # polishing pass has this chance of starting damage (a ragged front face,
@@ -550,6 +596,17 @@ class SampleScene:
     # frames, dose (nC/um^2) and the depth worn away (m); see `expose`
     exposures: Dict[tuple, dict] = field(default_factory=dict, repr=False)
     _cuts: List[np.ndarray] = field(default_factory=list, repr=False)
+    # a file the sample's state is kept in, so a later session with the same
+    # sample carries on from it (see `fibsem.drivers.demo.sim.state`); None
+    # starts fresh at every connect. `on_change` is called after each change to
+    # the sample, `on_grids_placed` after the holder's grids are laid out
+    state_file: Optional[str] = None
+    on_change: Optional[Callable[[], None]] = field(
+        default=None, repr=False, compare=False
+    )
+    on_grids_placed: Optional[Callable[[], None]] = field(
+        default=None, repr=False, compare=False
+    )
     # the grids on the holder. With no calibrated, occupied slot handed in
     # (`holder_slots`, set by the simulator from its sample holder before
     # each acquisition) there is one grid, centred on the world anchor -
@@ -631,15 +688,45 @@ class SampleScene:
 
     def _default_grid(self) -> SceneGrid:
         """The one grid at the world anchor: the scene as it always was."""
-        return SceneGrid(
-            name="default",
-            x=0.0,
-            y=0.0,
-            rotation=float(self.grid_rotation or 0.0),
-            radius=self.grid_radius,
-            seed=self.seed,
-            extent=self.extent or 2 * self.grid_radius,
+        return self._graded(
+            SceneGrid(
+                name="default",
+                x=0.0,
+                y=0.0,
+                rotation=float(self.grid_rotation or 0.0),
+                radius=self.grid_radius,
+                seed=self.seed,
+                extent=self.extent or 2 * self.grid_radius,
+            ),
+            0,
         )
+
+    def _graded(self, grid: SceneGrid, index: int) -> SceneGrid:
+        """`grid`, the `index`-th on the holder, as `grid_quality` says it is."""
+        wanted = self.grid_quality
+        if isinstance(wanted, dict):
+            wanted = wanted.get(grid.name)
+        elif isinstance(wanted, (list, tuple)):
+            wanted = wanted[index % len(wanted)] if wanted else None
+        name = str(wanted or "good")
+        if name not in GRID_QUALITY:
+            raise ValueError(
+                f"grid_quality must be from {sorted(GRID_QUALITY)}, got {name!r}"
+            )
+        return replace(grid, quality=name, **GRID_QUALITY[name])
+
+    def ice_over(self, xs_world: np.ndarray, ys_world: np.ndarray):
+        """The ice a thick grid carries over the usual sheet, at each world
+        point (um), or None when no grid in reach carries any."""
+        thick = [g for g in self.grids if g.ice > 0]
+        if not thick:
+            return None
+        xs_world, ys_world = np.broadcast_arrays(xs_world, ys_world)
+        extra = np.zeros(xs_world.shape, dtype=np.float32)
+        for grid in thick:
+            on = np.hypot(xs_world - grid.x, ys_world - grid.y) <= grid.radius
+            extra[on] = grid.ice
+        return extra if extra.any() else None
 
     def _populate(self, rng: Optional[np.random.Generator] = None) -> None:
         """Grow every grid's content from its own seed (`rng` for the first
@@ -661,7 +748,7 @@ class SampleScene:
         if self.preparation in sim_solid.SLABS:
             self._generate_suspended(grid, half)
         else:
-            self._generate_cells(rng, half)
+            self._generate_cells(rng, half, grid.cells)
         # fiducial-like cross at the grid centre: a dense line of small
         # blobs along each arm, so it goes through the same projection as
         # every other feature
@@ -952,9 +1039,15 @@ class SampleScene:
             depth[idx] = np.maximum(depth[idx], inside.astype(np.float32))
         return depth
 
+    def _changed(self) -> None:
+        """The sample was changed: tell whoever keeps it (`on_change`)."""
+        if self.on_change is not None:
+            self.on_change()
+
     def deposit(self, seconds: float) -> None:
         """A GIS deposition with the valve open *seconds*: a thicker coat."""
         self.gis_thickness += GIS_RATE * max(float(seconds), 0.0)
+        self._changed()
         logger.debug(
             {"msg": "sample_scene_deposited", "gis_thickness": self.gis_thickness}
         )
@@ -962,6 +1055,7 @@ class SampleScene:
     def sputter(self, seconds: float) -> None:
         """A sputter coat of *seconds*: a thin metal layer."""
         self.sputter_thickness += SPUTTER_RATE * max(float(seconds), 0.0)
+        self._changed()
         logger.debug(
             {
                 "msg": "sample_scene_sputtered",
@@ -981,6 +1075,56 @@ class SampleScene:
         dwell = float(np.clip(np.sqrt(dwell_time / 1e-6), 0.0, 2.5))
         return float(self.charging * coat * dwell)
 
+    def ion_charge_strength(self, dwell_time: Optional[float]) -> float:
+        """How much the FIB charges the sample now: the scene's
+        `fib_charging`, less what a coat carries away, more the longer each
+        pixel dwells. 0 with no dwell given."""
+        if not dwell_time or self.fib_charging <= 0:
+            return 0.0
+        coat = np.exp(-self.sputter_thickness / SPUTTER_DISCHARGE) / (
+            1.0 + self.gis_thickness / GIS_DISCHARGE
+        )
+        dwell = float(np.clip(np.sqrt(dwell_time / 1e-6), 0.3, 2.5))
+        return float(self.fib_charging * coat * dwell)
+
+    @staticmethod
+    def ion_charge_up(
+        data: np.ndarray, charge: np.ndarray, strength: float, rng
+    ) -> np.ndarray:
+        """FIB charging on a grey-level image, different every frame: the
+        ions leave the insulating parts (`charge`, 0..1 per pixel: what
+        stands up, and patches of the ice) positive, so they go dark with a
+        bright edge, and the charge deflects the beam, so the scan lines slip
+        sideways as it builds and jump where it lets go."""
+        if strength <= 0:
+            return data
+        height, width = data.shape
+        size = max(data.shape) / 1024.0
+        bias = rng.uniform(0.85, 1.15)  # how charged this frame is
+        k = np.clip(strength * bias * sim_view.gauss(charge, 4.0 * size), 0, 1)
+        edge = np.clip(
+            sim_view.gauss(charge, 1.5 * size) - sim_view.gauss(charge, 6.0 * size),
+            0,
+            None,
+        )
+        out = data * (1 - 0.55 * k) + 90.0 * strength * edge
+        # the scan lines slip: a slow wander, and a jump where charge lets go
+        walk = np.cumsum(rng.normal(0, 1, height))
+        walk = ndi_gaussian(walk - walk.mean(), 6.0 * size)
+        walk = walk / (np.abs(walk).max() or 1.0)
+        jumps = np.cumsum((rng.random(height) < ION_JUMP) * rng.normal(0, 1, height))
+        load = 0.3 + k.mean(axis=1)
+        shift = strength * size * load * (ION_WANDER * walk + ION_STEP * jumps)
+        # it bends the frame rather than moving it: the rows slip about where
+        # the frame is
+        shift = shift - np.median(shift)
+        cols = np.clip(np.arange(width)[None, :] - shift[:, None], 0, width - 1)
+        c0 = np.floor(cols).astype(np.int64)
+        c1 = np.minimum(c0 + 1, width - 1)
+        f = cols - c0
+        r = np.arange(height)[:, None]
+        return out[r, c0] * (1 - f) + out[r, c1] * f
+
     @staticmethod
     def charge_up(data: np.ndarray, charge: np.ndarray, strength: float) -> np.ndarray:
         """SEM charging on a grey-level image: the insulating parts (`charge`,
@@ -989,10 +1133,10 @@ class SampleScene:
         if strength <= 0 or not charge.any():
             return data
         size = max(data.shape) / 1024.0
-        reach = ndi_gaussian(charge, 25.0 * size)
+        reach = sim_view.gauss(charge, 25.0 * size)
         halo = np.clip(reach - charge, 0, None)
         k = np.clip(strength * charge, 0, 1)
-        blurred = ndi_gaussian(data, 2.0 * size)
+        blurred = sim_view.gauss(data, 2.0 * size)
         out = data + 0.6 * k * (blurred - data)
         out = out + 40.0 * strength * np.tanh(1.5 * charge) - 60.0 * strength * halo
         return out
@@ -1040,24 +1184,25 @@ class SampleScene:
                         -self.grid_rotation_range, self.grid_rotation_range
                     )
                 )
-                grids.append(
-                    SceneGrid(
-                        name=name,
-                        x=float(px),
-                        y=float(py) / fs,
-                        rotation=rotation,
-                        radius=float(radius),
-                        seed=seed,
-                        # a holder grid is populated edge to edge
-                        extent=2 * float(radius),
-                    )
+                grid = SceneGrid(
+                    name=name,
+                    x=float(px),
+                    y=float(py) / fs,
+                    rotation=rotation,
+                    radius=float(radius),
+                    seed=seed,
+                    # a holder grid is populated edge to edge
+                    extent=2 * float(radius),
                 )
+                grids.append(self._graded(grid, len(grids)))
         self.grids = grids
         self._populate()
         # trenches were cut in grids that are no longer where they were
         self.milled = []
         self.mill_passes, self._cuts, self.damage_started = [], [], None
         self.exposures = {}
+        if self.on_grids_placed is not None:
+            self.on_grids_placed()
         logger.debug(
             {
                 "msg": "sample_scene_grids_placed",
@@ -1214,7 +1359,7 @@ class SampleScene:
         actual: List[np.ndarray] = []
         regions: List[MilledRegion] = []
         for p in patterns:
-            depth = float(getattr(p, "depth", 1e-6) or 1e-6)
+            depth = float(getattr(p, "depth", 1e-6) or 1e-6) * self.mill_depth_scale
             drawn = len(planned)
             if hasattr(p, "start_x"):  # a line: a thin rectangle along it
                 half = float(getattr(p, "width", 0.5e-6) or 0.5e-6) / 2
@@ -1266,7 +1411,9 @@ class SampleScene:
         record["current"] = beam_current
         record["kerf"] = kerf
         if record.get("gap") is not None:
-            depth = min(float(getattr(p, "depth", 1e-6) or 1e-6) for p in patterns)
+            depth = self.mill_depth_scale * min(
+                float(getattr(p, "depth", 1e-6) or 1e-6) for p in patterns
+            )
             lean = np.tan(np.deg2rad(self.mill_taper))
             record["gap_at_depth"] = record["gap"] + 2 * lean * depth
         damage = self._damage(record, rng)
@@ -1277,6 +1424,7 @@ class SampleScene:
             points = np.array([world(x, y) for x, y in corners])
             regions.append(MilledRegion(points=points, beam_cut=cut(corners)))
         self.milled.extend(regions)
+        self._changed()
         logger.debug(
             {
                 "msg": "sample_scene_milled",
@@ -1345,6 +1493,7 @@ class SampleScene:
             self.milled = [r for r in self.milled if r is not seen["region"]]
             self.milled.append(region)
             seen["depth"], seen["region"] = depth, region
+            self._changed()
         return seen
 
     @staticmethod
@@ -1534,6 +1683,7 @@ class SampleScene:
                 pts = pts + (0.0, self._along_beam_to_surface(pts.mean(axis=0), frame))
             regions.append(MilledRegion(points=pts, depth=diameter, halo=halo))
         self.milled.extend(regions)
+        self._changed()
         logger.debug(
             {
                 "msg": "sample_scene_burned",
@@ -1746,13 +1896,14 @@ class SampleScene:
         # orientation, where it starts (usually at a bar, running inward)
         # and how ragged its outline is. Rips cluster: a square beside a
         # ripped one rips more readily
-        torn = square_draw < self.rip_fraction
+        rip_fraction = self.rip_fraction
+        if grid.rips is not None and self.preparation != "carrier":
+            rip_fraction = grid.rips
+        torn = square_draw < rip_fraction
         beside_torn = np.zeros_like(torn)
         for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-            beside_torn |= (
-                _lattice_draw(sq_i + di, sq_j + dj, grid.seed) < self.rip_fraction
-            )
-        torn |= beside_torn & (square_draw < 3 * self.rip_fraction)
+            beside_torn |= _lattice_draw(sq_i + di, sq_j + dj, grid.seed) < rip_fraction
+        torn |= beside_torn & (square_draw < 3 * rip_fraction)
         torn &= ~bars
         rips = np.zeros_like(bars)
         if torn.any():
@@ -1843,7 +1994,9 @@ class SampleScene:
         self._broken_last = (key, out.copy())
         return out
 
-    def _generate_cells(self, rng: np.random.Generator, half: float) -> None:
+    def _generate_cells(
+        self, rng: np.random.Generator, half: float, share: float = 1.0
+    ) -> None:
         kinds = {
             "yeast": [("yeast", 1.0)],
             "mammalian": [("mammalian", 1.0)],
@@ -1860,6 +2013,7 @@ class SampleScene:
         fields = (2 * half / 150e-6) ** 2  # how many 150 um fields the extent is
         next_id = 0
         for kind, fraction in kinds[self.cell_type]:
+            fraction *= share  # a sparse grid grew fewer of them
             if kind == "yeast":
                 next_id = self._generate_yeast(rng, half, fraction, next_id)
             elif kind == "mammalian":
@@ -2660,6 +2814,7 @@ class SampleScene:
         "hole_pitch",  # m
         "broken_hole_fraction",
         "rip_fraction",  # of squares
+        "grid_quality",  # what each grid is like (see GRID_QUALITY)
         "ice_density",  # per 100 x 100 um
         "ice_size",  # [min, max] m
         "frost_density",  # frost patches per 100 x 100 um
@@ -2672,6 +2827,7 @@ class SampleScene:
         "mill_overcut",  # m, how far past its edges a pattern may cut
         "mill_kerf",  # a higher current cuts wider
         "mill_taper",  # degrees the trench walls lean in going down
+        "mill_depth_scale",  # how much deeper than its set depth a pattern cuts
         "curtaining",  # strength of the stripes down a cut face (0 = none)
         "damage_below",  # [min, max] m, the seeded thickness damage can start below
         "damage_chance",  # per polishing pass below it
@@ -2685,10 +2841,27 @@ class SampleScene:
         "fm_cilium_fraction",  # of the target cells, those with a cilium
         "fm_hot_pixels",  # fraction of FM camera pixels that are hot
         "charging",  # SEM charging strength on an uncoated grid (0 = never)
+        "fib_charging",  # FIB charging strength on an uncoated grid (0 = never)
         "gis_thickness",  # m, a GIS coat the grid comes in with
         "sputter_thickness",  # m, a sputter coat the grid comes in with
         "centre_mark",  # the orientation square at the grid's centre
+        "red_fraction",  # of cells carrying the subset dye
+        "fm_blur_px_per_um",  # FM defocus blur
+        "state_file",  # where the sample's state is kept between sessions
     )
+
+    @classmethod
+    def config_defaults(cls) -> dict:
+        """The keys a `sim: sample:` block starts with that a scene built
+        directly does not: the effects a configured simulator has on."""
+        return {
+            "beam_optics": True,
+            "imaging_damage": 1.0,
+            "surface_grain": 1.0,
+            "damage_current": DAMAGE_CURRENT,
+            "mill_depth_scale": MILL_DEPTH_SCALE,
+            "fib_charging": 1.0,
+        }
 
     @classmethod
     def from_config(cls, config: dict) -> "SampleScene":
@@ -2698,10 +2871,8 @@ class SampleScene:
         if unknown:
             raise ValueError(f"Unknown sim.sample keys: {sorted(unknown)}")
         kwargs = {k: v for k, v in config.items() if k in cls.CONFIG_KEYS}
-        kwargs.setdefault("beam_optics", True)
-        kwargs.setdefault("imaging_damage", 1.0)
-        kwargs.setdefault("surface_grain", 1.0)
-        kwargs.setdefault("damage_current", DAMAGE_CURRENT)
+        for key, value in cls.config_defaults().items():
+            kwargs.setdefault(key, value)
         if kwargs.get("fm_camera_mount") is not None:
             mount_transform_from_name(kwargs["fm_camera_mount"])  # or it raises
         sim_faults.Faults(kwargs.get("faults"))  # or it raises
@@ -2810,6 +2981,8 @@ class SampleScene:
         charge = 0.0
         if beam_type is BeamType.ELECTRON:
             charge = self.charge_strength(dwell_time)
+        else:
+            charge = self.ion_charge_strength(dwell_time)
         return sim_view.render(
             self,
             beam,
@@ -2820,6 +2993,41 @@ class SampleScene:
             charge,
             sim_solid.canvas,
             self._optics_here(optics, stage_position, projection, frame),
+        )
+
+    def _fm_anchor(self, stage_position, projection):
+        """Where the FM sees the world: the anchor on its image plane (m),
+        the foreshortening, the half-turn, and how far a height shifts a
+        point down the view."""
+        reference = self.reference_position
+        if self.tilt_axis_offset:
+            reference = self._non_eucentric_reference(stage_position, projection)
+        # the FM's projection has no half-turn flip: reflect the anchor as the
+        # beams' does, then turn the world about it (see _turn)
+        reference = BeamStageProjection._compucentric_corrected(
+            reference, stage_position, projection.geometry.rotation_centre
+        )
+        ax, ay = projection.to_plane(reference, stage_position)
+        fs = max(surface_foreshortening(projection, stage_position), MIN_FORESHORTENING)
+        turn = self._turn(stage_position)
+        # a tilted view: a height shifts a point down the view the way a
+        # stage raise does, and the plane is nearer the objective at one edge
+        lift = 0.0
+        if fs < 0.9995:
+            raised = replace(stage_position, z=(stage_position.z or 0.0) + 1e-6)
+            _, ay_up = projection.to_plane(reference, raised)
+            lift = float(np.copysign(np.sqrt(1 - fs * fs), ay_up - ay))
+        return ax, ay, fs, turn, lift
+
+    def fm_frame(self, stage_position, projection):
+        """How the FM sees the world, as the beams' views are described
+        (see `view_frame`): the FM's image is not rotated."""
+        if self.reference_position is None:
+            self.anchor(stage_position)
+        self.place_grids(projection)
+        ax, ay, fs, turn, lift = self._fm_anchor(stage_position, projection)
+        return sim_view.ViewFrame(
+            anchor=(ax * 1e6, ay * 1e6), theta=0.0, turn=turn, fs=float(fs), k=lift
         )
 
     def render_fm(
@@ -2859,24 +3067,7 @@ class SampleScene:
             self.anchor(stage_position)
         self.place_grids(projection)
 
-        reference = self.reference_position
-        if self.tilt_axis_offset:
-            reference = self._non_eucentric_reference(stage_position, projection)
-        # the FM's projection has no half-turn flip: reflect the anchor as the
-        # beams' does, then turn the world about it (see _turn)
-        reference = BeamStageProjection._compucentric_corrected(
-            reference, stage_position, projection.geometry.rotation_centre
-        )
-        ax, ay = projection.to_plane(reference, stage_position)
-        fs = max(surface_foreshortening(projection, stage_position), MIN_FORESHORTENING)
-        turn = self._turn(stage_position)
-        # a tilted view: a height shifts a point down the view the way a
-        # stage raise does, and the plane is nearer the objective at one edge
-        lift = 0.0
-        if fs < 0.9995:
-            raised = replace(stage_position, z=(stage_position.z or 0.0) + 1e-6)
-            _, ay_up = projection.to_plane(reference, raised)
-            lift = float(np.copysign(np.sqrt(1 - fs * fs), ay_up - ay))
+        ax, ay, fs, turn, lift = self._fm_anchor(stage_position, projection)
         self._fm_tilt = (float(fs), lift, pixel_size)
 
         bars, cells, red, fiducial = weights[:4]
@@ -3484,6 +3675,8 @@ class SampleScene:
     def _milled_away(self, x: float, y: float, z: float) -> bool:
         """`milled_through`, from the sample round the point as it is now,
         whatever view was drawn last."""
+        if not self.milled:
+            return False  # nothing to build the sample round the point for
         um = sim_view.UM
         near = np.arange(-16, 17) * 0.25  # wide enough to level a floor
         here = sim_solid.Plan(self, x * um + near, y * um + near)
@@ -3524,15 +3717,22 @@ class SampleScene:
                 return v.item()
             return v
 
+        # the sample is built round a point only where some region was
+        # milled near it: a whole grid's targets would take seconds a pass
+        boxes = [
+            (r.points.min(axis=0) - RECORD_REACH, r.points.max(axis=0) + RECORD_REACH)
+            for r in self.milled
+        ]
+
+        def milled(x, y, z):
+            near = any(lo[0] <= x <= hi[0] and lo[1] <= y <= hi[1] for lo, hi in boxes)
+            return near and self._milled_away(x, y, z)
+
         targets = []
         for n, t in enumerate(self.fm_targets()):
             x, y, z = t["midpoint"]
             targets.append(
-                {
-                    "target": n,
-                    "midpoint": [x, y, z],
-                    "milled": self._milled_away(x, y, z),
-                }
+                {"target": n, "midpoint": [x, y, z], "milled": milled(x, y, z)}
             )
         return plain(
             {
@@ -3555,7 +3755,7 @@ class SampleScene:
                 ],
                 "targets": targets,
                 "points": {
-                    name: {"point": list(p), "milled": self._milled_away(*p)}
+                    name: {"point": list(p), "milled": milled(*p)}
                     for name, p in (points or {}).items()
                 },
             }

@@ -140,8 +140,8 @@ def build_record_router(
 
     @router.post("/experiment/notes", response_model=Recorded)
     def add_note(request: Request, body: NoteBody):
-        # Observations for the record. A POST the dashboard token is refused:
-        # a watching agent notes what it sees, and a note changes nothing.
+        # Observations for the record: a watching agent notes what it sees,
+        # and a note changes nothing.
         text, item_name = _note_body(body)
         cited = cited_evidence(source, request)
         result = source.add_note(

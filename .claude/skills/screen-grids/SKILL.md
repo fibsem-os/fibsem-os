@@ -76,6 +76,11 @@ When you pick sites (cells, squares):
 - The film under the site has to be intact. A broken, sheeted or covered
   square is not a site. Check each site in the FIB and SEM (bars, torn or
   curled film) before spending FM time on it.
+- What rules a site out up close, and what doesn't. A crack or tear in the
+  film within about 20 µm of the cell does: it runs through the lamella or
+  its trenches, and the film can tear while milling. Contamination specks or
+  clusters on the film or the cell don't, and neither do the regular holes
+  of a holey film. Say what you saw, but keep the site.
 - Methods that worked on an uncoated grid: GrabCut on the holey film, tracing
   the grid bars by hand where shading defeats a threshold, and a piece of
   debris as an anchor to find the same place again. GrabCut needs code you

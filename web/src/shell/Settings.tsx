@@ -224,7 +224,7 @@ function SlackCard() {
     onSuccess: () => client.invalidateQueries({ queryKey: ["app/notifications"] }),
   });
   const agent = useAgentReleased();
-  // Not the operator (a dashboard, an agent), or a host without the routes.
+  // Not the operator (an agent), or a host without the routes.
   if (!slack.data) return null;
   const { settings: s, token_set, token_from } = slack.data;
   const set = (change: Partial<Slack>) => {

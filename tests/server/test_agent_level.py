@@ -42,12 +42,12 @@ _NUDGE = {
         }
     }
 }
-DASHBOARD = {"Authorization": "Bearer dashboard"}
+OPERATOR = {"Authorization": "Bearer operator"}
 
 
 @pytest.fixture
 def auth():
-    auth = AuthConfig(token="agent", dashboard_token="dashboard")
+    auth = AuthConfig(token="agent", operator_token="operator")
     auth.set_level(AgentLevel.WATCH)
     return auth
 
@@ -174,7 +174,7 @@ def test_stop_agent_takes_hardware_with_the_rest(client, auth):
     assert moved.status_code == 403
 
 
-def test_off_refuses_the_agent_everything_but_not_the_dashboard(client, auth):
+def test_off_refuses_the_agent_everything_but_not_the_operator(client, auth):
     auth.set_level(AgentLevel.OFF)
     for method, path in (
         ("GET", "/capabilities"),
@@ -188,8 +188,8 @@ def test_off_refuses_the_agent_everything_but_not_the_dashboard(client, auth):
     # The agent is still heard from: the operator can see it is knocking.
     assert auth.seconds_since_seen() is not None
 
-    assert client.get("/app/workflow/status", headers=DASHBOARD).status_code == 200
-    assert client.get("/capabilities", headers=DASHBOARD).status_code == 200
+    assert client.get("/app/workflow/status", headers=OPERATOR).status_code == 200
+    assert client.get("/capabilities", headers=OPERATOR).status_code == 200
 
 
 def test_back_from_off_to_watch(client, auth):
@@ -343,12 +343,8 @@ def test_a_refused_action_is_recorded_and_a_refused_read_is_not(
         assert _error(vent) == "not_allowed"
         auth.set_level(AgentLevel.OFF)
         assert client.get("/app/workflow/status", headers=AGENT).status_code == 403
-        # Not the agent: no token, or the dashboard's.
+        # Not the agent: no token.
         assert client.post(MOVE_RELATIVE, json=_NUDGE).status_code == 401
-        assert (
-            client.post(MOVE_RELATIVE, headers=DASHBOARD, json=_NUDGE).status_code
-            == 403
-        )
     finally:
         microscope.session.record_signal.disconnect(record)
     refusals = [(p, actor) for kind, p, actor in recorded if kind == "action"]

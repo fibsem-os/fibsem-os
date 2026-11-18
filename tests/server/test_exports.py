@@ -31,7 +31,6 @@ from tests.run_state import stub_session
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
-DASHBOARD = {"Authorization": "Bearer dashboard-token"}
 
 
 @pytest.fixture
@@ -71,7 +70,7 @@ def client(microscope, experiment):
     app = build_server(
         microscope,
         app_context=AutoLamellaAppContext(host),
-        auth=AuthConfig(token=TOKEN, dashboard_token="dashboard-token"),
+        auth=AuthConfig(token=TOKEN),
     )
     with TestClient(app, raise_server_exceptions=False) as client:
         yield client
@@ -97,13 +96,6 @@ def test_the_image_form_starts_from_the_dialog_s_defaults(client, experiment):
     assert [f["key"] for f in body["fields"]] == image.field_keys()
     assert (body["width"], body["height"]) == (96, 64)
     assert body["adjustable"] is True
-    # The dashboard looks: the form is a GET.
-    watched = client.get(
-        "/app/experiment/export/image/options",
-        params={"path": path},
-        headers=DASHBOARD,
-    )
-    assert watched.status_code == 200
 
 
 def test_an_image_exports_as_the_dialog_renders_it(client, experiment):
@@ -147,11 +139,6 @@ def test_an_export_refuses_as_the_files_routes_do(client, experiment):
             headers=AUTH,
         )
         assert bad.status_code == 422, options
-    # The dashboard only looks: an export is a POST.
-    watched = client.post(
-        "/app/experiment/export/image", json={"path": path}, headers=DASHBOARD
-    )
-    assert watched.status_code == 403
 
 
 def test_an_image_exports_with_the_web_viewer_s_looks(client, experiment):

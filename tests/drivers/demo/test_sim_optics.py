@@ -8,7 +8,11 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.autofunctions.autofocus import AutoFocusSettings, run_auto_focus
+from fibsem.autofunctions.autofocus import (
+    AutoFocusSettings,
+    FocusSweepPass,
+    run_auto_focus,
+)
 from fibsem.autofunctions.metrics import tenengrad_focus_measure
 from fibsem.drivers.demo.sim import optics as sim_optics
 from fibsem.drivers.demo.sim.optics import Optics
@@ -135,6 +139,30 @@ def test_the_default_focus_sweep_finds_the_focus_of_a_noisy_surface():
         microscope.disconnect()
 
 
+@pytest.mark.slow
+@pytest.mark.parametrize("hfw", [80e-6, 150e-6])
+def test_a_focus_sweep_finds_the_ion_beam_focus_of_a_noisy_surface(hfw):
+    """The ion beam converges a quarter as fast as the electron beam, so its
+    focus shows over hundreds of microns, not tens: the sweep that finds it
+    is a millimetre wide. Its score peaks at focus because the surface's
+    texture is strong in the ion image and the image is less noisy."""
+    microscope, _ = utils.setup_session(manufacturer="Demo", config_path=CONFIG)
+    microscope.system.sim["sample"] = {"enabled": True, "seed": 3, "charging": 0.0}
+    microscope._connection.setup_sample_scene()
+    beam_type = BeamType.ION
+    try:
+        focus = microscope._connection.scene_focus(beam_type, here=True)
+        microscope.set_working_distance(focus + 300e-6, beam_type)
+        settings = AutoFocusSettings(
+            passes=[FocusSweepPass(1e-3, 100e-6), FocusSweepPass(100e-6, 10e-6)]
+        )
+        result = run_auto_focus(microscope, beam_type, hfw=hfw, settings=settings)
+        assert abs(result.working_distance - focus) <= 150e-6
+        assert not result.at_edge
+    finally:
+        microscope.disconnect()
+
+
 def test_stigmation_stretches_the_blur_one_way(microscope):
     beam_type = BeamType.ELECTRON
     _focus(microscope, beam_type)
@@ -160,8 +188,11 @@ def test_a_high_current_is_a_bigger_probe_and_less_noise(microscope):
     high = _detail(_image(microscope, beam_type, hfw=20e-6))
     assert high < 0.9 * low
     quiet, noisy = Optics(current=7.6e-9), Optics(current=1e-12)
-    assert quiet.dose(1) == sim_optics.DOSE[1] and noisy.dose(1) == sim_optics.DOSE[0]
-    assert Optics(current=20e-12).dose(1) == 1.0
+    gain = sim_optics.YIELD[1]  # an ion frees more secondaries than an electron
+    assert quiet.dose(1) == gain * sim_optics.DOSE[1]
+    assert noisy.dose(1) == gain * sim_optics.DOSE[0]
+    assert Optics(current=20e-12).dose(1) == gain
+    assert Optics(current=100e-12).dose(0) == 1.0
 
 
 def test_noise_falls_as_the_current_rises(microscope):

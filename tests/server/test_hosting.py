@@ -196,7 +196,6 @@ def test_the_token_is_never_logged(host, microscope, caplog):
     with caplog.at_level(logging.DEBUG):
         assert host.start()
     assert host.auth.token not in caplog.text
-    assert host.auth.dashboard_token not in caplog.text
 
 
 def test_a_host_with_no_microscope_serves_and_follows_a_connect(tmp_path, monkeypatch):

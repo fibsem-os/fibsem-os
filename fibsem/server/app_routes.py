@@ -33,7 +33,6 @@ from fibsem.server.agent.record import build_record_router, cited_evidence
 from fibsem.server.agent.record import described as _with_text
 from fibsem.server.auth import (
     refusal_error,
-    refuse_dashboard,
     require_operator,
     take_control,
 )
@@ -748,7 +747,6 @@ def build_app_router(context: "AppContext") -> APIRouter:
         experiment: Optional[str] = None,
     ):
         if raw:
-            refuse_dashboard(request)
             # The file as it is, its experiment's folder name and its path in
             # it in the headers: where a fetch keeps it.
             root = _files_answer(experiment, lambda root: root)

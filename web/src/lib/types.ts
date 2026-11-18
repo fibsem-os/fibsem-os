@@ -18,6 +18,8 @@ export interface Capabilities {
   // whether this install serves an agent at all (fibsem.unreleased)
   agent?: boolean;
   connected?: boolean;
+  // the kind of each instrument served now, the microscope's first ("fibsem")
+  instruments?: string[];
   // the optional /app parts the app serves (fibsem.server.parts)
   parts?: string[];
   fibsem?: { version: string; path: string };
@@ -74,7 +76,12 @@ export type ImagePayload = Narrow<S["ImagePayload"], { info: ImageInfo | null }>
 
 export type DisplayImages = Narrow<
   S["DisplayImages"],
-  { sem: ImagePayload | null; fib: ImagePayload | null; fm: ImagePayload | null }
+  {
+    sem: ImagePayload | null;
+    fib: ImagePayload | null;
+    fm: ImagePayload | null;
+    devices?: Record<string, ImagePayload>;
+  }
 >;
 
 export interface PairedComputer {

@@ -100,13 +100,10 @@ def test_the_server_takes_the_install_token(server, tmp_path):
     )
 
 
-@pytest.mark.parametrize(
-    "who, status", [("agent", 403), ("dashboard", 403), ("nobody", 401)]
-)
+@pytest.mark.parametrize("who, status", [("agent", 403), ("nobody", 401)])
 def test_only_the_operator_reaches_the_operator_routes(server, who, status):
     headers = {
         "agent": server.agent,
-        "dashboard": _bearer(server.config.dashboard_token),
         "nobody": _bearer("wrong"),
     }[who]
     answer = server.put("/app/agent/level", headers=headers, json={"level": "drive"})
