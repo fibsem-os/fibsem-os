@@ -220,6 +220,18 @@ def write_case(
                 },
                 {"tool": "item_add", "arguments": {"name": ITEM}},
                 {"prepare": "fibsem.ai.evals.tasks.correlation.make_live:burn"},
+                # the FM handed over in focus, as an operator would: the
+                # objective in where the stage stands (the FM looks where the
+                # FIB does) and at the lamella's stored focus
+                {
+                    "tool": "item_set_objective_position",
+                    "arguments": {"item_name": ITEM},
+                },
+                {"tool": "fm_insert_objective", "arguments": {}},
+                {
+                    "tool": "item_move_to_objective_position",
+                    "arguments": {"item_name": ITEM},
+                },
             ],
         },
         "brief": BRIEF.format(
