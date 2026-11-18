@@ -84,6 +84,9 @@ export interface components {
             facts: string[][];
             last_heard_s: number | null;
             level: string | null;
+            /** @default false */
+            level_expired: boolean;
+            level_until: string | null;
             levels: components["schemas"]["LevelOption"][];
             now: string | null;
             pictures: {
@@ -1197,9 +1200,11 @@ export interface components {
         LendEnded: {
             ended: boolean;
         };
-        /** @description PUT /app/agent/level. */
+        /** @description PUT /app/agent/level. ``until``, an ISO 8601 time, limits Assist or
+         *     Drive: at that time the level drops to Watch. Without it, no limit. */
         LevelBody: {
             level: string;
+            until?: string | null;
         };
         LevelOption: {
             level: string;
@@ -1209,6 +1214,7 @@ export interface components {
         };
         LevelSet: {
             level: string;
+            until: string | null;
         };
         /** @description PUT /app/library/{kind}/{name}: the file's ``text``, or its ``data``
          *     for the library to write. */

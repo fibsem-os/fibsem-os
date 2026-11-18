@@ -369,7 +369,7 @@ class _Auth:
     def __init__(self, level):
         self.level = level
 
-    def set_level(self, level):
+    def set_level(self, level, until=None, on_expired=None):
         self.level = level
 
     def stop_agent(self):

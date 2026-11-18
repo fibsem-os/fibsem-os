@@ -522,7 +522,13 @@ def _level_line(p: typed.LevelSet):
         return None
     if level is AgentLevel.OFF:
         return None
-    return f"LEVEL {level.value} (was {p.previous}): the operator set the agent level"
+    if p.expired:
+        return (
+            f"LEVEL {level.value} (was {p.previous}): the time limit the operator "
+            "gave the level ran out"
+        )
+    line = f"LEVEL {level.value} (was {p.previous}): the operator set the agent level"
+    return f"{line} until {p.until}" if p.until else line
 
 
 # The levels from least to most the agent may do.
