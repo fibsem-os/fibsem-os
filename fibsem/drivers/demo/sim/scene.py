@@ -333,6 +333,10 @@ class MilledRegion:
 
 DAMAGE_CURRENT = 60e-12  # A; a usual polishing current
 ION_YIELD = 10.0  # um^3 of ice a nC of ions takes away
+# how much deeper than its set depth a pattern cuts in a configured scene:
+# enough for a protocol's polishing pass (1 um set) to reach the film under
+# the tallest cells
+MILL_DEPTH_SCALE = 10.0
 IMAGING_STEP = 20e-9  # m; what imaging wears away shows in steps this deep
 MILL_DEPTH = 90.0  # how dark a trench reads in the FM reflection (canvas scale)
 # A spot burn: what a 60 pA, 10 s exposure leaves on a real grid. The mark is
@@ -489,6 +493,11 @@ class SampleScene:
     # thicker at its bottom; a cut face carries vertical curtaining stripes
     mill_kerf: bool = True
     mill_taper: float = 1.5
+    # how much deeper a pattern cuts into the sample than its set depth: the
+    # depth is set for silicon, and ice at the milling angle goes far
+    # faster, so a protocol's trenches and polishing passes reach through
+    # the cells to the film. On for a scene from the configuration
+    mill_depth_scale: float = 1.0
     curtaining: float = 1.0
     # a thin lamella can be damaged: below a seeded thickness (m, range) each
     # polishing pass has this chance of starting damage (a ragged front face,
@@ -1286,7 +1295,7 @@ class SampleScene:
         actual: List[np.ndarray] = []
         regions: List[MilledRegion] = []
         for p in patterns:
-            depth = float(getattr(p, "depth", 1e-6) or 1e-6)
+            depth = float(getattr(p, "depth", 1e-6) or 1e-6) * self.mill_depth_scale
             drawn = len(planned)
             if hasattr(p, "start_x"):  # a line: a thin rectangle along it
                 half = float(getattr(p, "width", 0.5e-6) or 0.5e-6) / 2
@@ -1338,7 +1347,9 @@ class SampleScene:
         record["current"] = beam_current
         record["kerf"] = kerf
         if record.get("gap") is not None:
-            depth = min(float(getattr(p, "depth", 1e-6) or 1e-6) for p in patterns)
+            depth = self.mill_depth_scale * min(
+                float(getattr(p, "depth", 1e-6) or 1e-6) for p in patterns
+            )
             lean = np.tan(np.deg2rad(self.mill_taper))
             record["gap_at_depth"] = record["gap"] + 2 * lean * depth
         damage = self._damage(record, rng)
@@ -2752,6 +2763,7 @@ class SampleScene:
         "mill_overcut",  # m, how far past its edges a pattern may cut
         "mill_kerf",  # a higher current cuts wider
         "mill_taper",  # degrees the trench walls lean in going down
+        "mill_depth_scale",  # how much deeper than its set depth a pattern cuts
         "curtaining",  # strength of the stripes down a cut face (0 = none)
         "damage_below",  # [min, max] m, the seeded thickness damage can start below
         "damage_chance",  # per polishing pass below it
@@ -2782,6 +2794,7 @@ class SampleScene:
             "imaging_damage": 1.0,
             "surface_grain": 1.0,
             "damage_current": DAMAGE_CURRENT,
+            "mill_depth_scale": MILL_DEPTH_SCALE,
         }
 
     @classmethod

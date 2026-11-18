@@ -615,6 +615,7 @@ are in degrees, ranges are two-element lists, lengths in metres.
 | `mill_overcut` | 3e-08 | how far past its edges a pattern may cut (m) |
 | `mill_kerf` | true | a higher current cuts wider |
 | `mill_taper` | 1.5 | degrees the trench walls lean in going down |
+| `mill_depth_scale` | 10 | how much deeper than its set depth a pattern cuts |
 | `curtaining` | 1 | strength of the stripes down a cut face (0 = none) |
 | `damage_below` | [1.5e-07, 3e-07] | the seeded thickness below which damage can start (m) |
 | `damage_chance` | 0.4 | chance per pass below it that damage starts |
