@@ -95,9 +95,11 @@ def test_an_answer_without_a_yes_or_no_is_invalid(tmp_path):
 
 
 @pytest.mark.slow
-def test_a_scripted_run_makes_a_site_coincident_end_to_end(tmp_path):
-    """The case's microscope on a real App Server, set up off coincidence,
-    the scripted agent at it, and the run scored from what it saved."""
+def test_a_naive_scripted_run_is_scored_end_to_end_and_misses(tmp_path):
+    """The case's microscope on a real App Server, set up far off
+    coincidence, the scripted agent at it, and the run scored from what it
+    saved. The script checks only at a site's field width, where the two
+    views share nothing, so it misses: the case is not won by a loop."""
     from fibsem.ai.evals.live import runs as live_runs
     from fibsem.ai.evals.live import sim_correction
     from fibsem.ai.evals.runner import RunConfig, run_case
@@ -113,5 +115,6 @@ def test_a_scripted_run_makes_a_site_coincident_end_to_end(tmp_path):
     result = run_case(case, 1, config)
     assert result["status"] == "answered", (tmp_path / "runs").as_posix()
     details = result["scores"][0]["details"]
-    assert details["start_off_um"] > 5 and details["saved"]
-    assert details["final_off_um"] < details["start_off_um"]
+    assert details["start_off_um"] > 30 and details["saved"]
+    assert details["on_cell"]
+    assert result["scores"][0]["result"] == "miss"
