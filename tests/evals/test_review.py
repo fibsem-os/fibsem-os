@@ -5,9 +5,9 @@ import json
 import yaml
 from fastapi.testclient import TestClient
 
-from fibsem.ai.evals import review, visual
-from fibsem.ai.evals.cases import load_case
-from fibsem.ai.evals.serve import build_app
+from fibsem.ai.evals.core import review, visual
+from fibsem.ai.evals.core.cases import load_case
+from fibsem.ai.evals.core.serve import build_app
 from tests.evals.test_visual import run  # noqa: F401  (the fixture)
 
 EXTRA = {"x_px": 400, "y_px": 300, "reason": "two cells, clear of the bars"}

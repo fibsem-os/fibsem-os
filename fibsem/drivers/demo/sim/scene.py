@@ -337,6 +337,10 @@ class MilledRegion:
 
 
 DAMAGE_CURRENT = 60e-12  # A; a usual polishing current
+# m: how far from a milled region's outline a cut can reach a point: a cut
+# along a grazing beam runs sideways under the surface by several times its
+# depth, so this is well past the deepest cut at the shallowest angle
+RECORD_REACH = 100e-6
 ION_YIELD = 10.0  # um^3 of ice a nC of ions takes away
 # how much deeper than its set depth a pattern cuts in a configured scene:
 # enough for a protocol's polishing pass (1 um set) to reach the film under
@@ -3713,15 +3717,22 @@ class SampleScene:
                 return v.item()
             return v
 
+        # the sample is built round a point only where some region was
+        # milled near it: a whole grid's targets would take seconds a pass
+        boxes = [
+            (r.points.min(axis=0) - RECORD_REACH, r.points.max(axis=0) + RECORD_REACH)
+            for r in self.milled
+        ]
+
+        def milled(x, y, z):
+            near = any(lo[0] <= x <= hi[0] and lo[1] <= y <= hi[1] for lo, hi in boxes)
+            return near and self._milled_away(x, y, z)
+
         targets = []
         for n, t in enumerate(self.fm_targets()):
             x, y, z = t["midpoint"]
             targets.append(
-                {
-                    "target": n,
-                    "midpoint": [x, y, z],
-                    "milled": self._milled_away(x, y, z),
-                }
+                {"target": n, "midpoint": [x, y, z], "milled": milled(x, y, z)}
             )
         return plain(
             {
@@ -3744,7 +3755,7 @@ class SampleScene:
                 ],
                 "targets": targets,
                 "points": {
-                    name: {"point": list(p), "milled": self._milled_away(*p)}
+                    name: {"point": list(p), "milled": milled(*p)}
                     for name, p in (points or {}).items()
                 },
             }

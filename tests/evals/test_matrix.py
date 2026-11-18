@@ -2,8 +2,8 @@ import json
 
 import pytest
 
-from fibsem.ai.evals import matrix
-from fibsem.ai.evals.runner import CASE_PLAYBOOK
+from fibsem.ai.evals.core import matrix
+from fibsem.ai.evals.core.runner import CASE_PLAYBOOK
 
 from .test_runner import STOP_AT_P3, case, config, home  # noqa: F401 (fixtures)
 

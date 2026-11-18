@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import glob
+import json
 import logging
 import os
 import random
@@ -46,6 +47,10 @@ if TYPE_CHECKING:
     from fibsem.drivers.demo.sim.scene import SampleScene
 
 logger = logging.getLogger(__name__)
+
+# Where the sample scene's record is written after each milling pass, when
+# set (a live eval's run reads it; see `write_scene_record`).
+SIM_RECORD_ENV = "FIBSEM_SIM_RECORD"
 
 ######################## SIMULATOR ########################
 
@@ -1033,6 +1038,21 @@ class DemoSimulator:
                 fired["mill_drift"].amount if "mill_drift" in fired else 0.0,
             ),
         )
+        self.write_scene_record()
+
+    def write_scene_record(self) -> None:
+        """Write what was done to the sample scene (its record: each pass's
+        true gap, the damage) to the file ``FIBSEM_SIM_RECORD`` names, when
+        it is set: how a live eval learns the truth of a run it can't see
+        into. Rewritten whole after every pass."""
+        path = os.environ.get(SIM_RECORD_ENV)
+        scene = self.sample_scene
+        if not path or scene is None:
+            return
+        part = f"{path}.part"
+        with open(part, "w") as handle:
+            json.dump(scene.record(), handle)
+        os.replace(part, path)
 
     def burn_into_sample_scene(self, beam_type: BeamType) -> None:
         """Commit the parked beam's spot to the sample scene, when there is
