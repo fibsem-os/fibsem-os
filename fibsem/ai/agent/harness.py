@@ -1765,6 +1765,29 @@ def find_checkout(given: Optional[str] = None) -> Optional[Path]:
     return sources.find_root(given, BASE_SKILL)
 
 
+def mcp_names(
+    playbook: Optional[playbooks.Playbook], extras: Dict[str, extra_mcp.Server]
+) -> List[str]:
+    """The MCP servers *playbook* names (``mcp``): ``fibsem``, the sidecar,
+    and any of the lab's (*extras*). Without a playbook, the sidecar alone.
+    Raises `SetupRefused` for a server that isn't there, and for a playbook
+    without ``fibsem``: the agent's wake-ups and its record go through the
+    App Server, so it can't run without it yet."""
+    names = list(playbook.mcp) if playbook is not None and playbook.mcp else [SERVER]
+    missing = [n for n in names if n != SERVER and n not in extras]
+    if missing:
+        raise SetupRefused(
+            f"The {playbook.name} playbook uses the MCP server(s) "
+            f"{', '.join(missing)}, which {extra_mcp.path()} doesn't set up."
+        )
+    if SERVER not in names:
+        raise SetupRefused(
+            f"The {playbook.name} playbook's mcp has no {SERVER}: the agent "
+            "hears from the app and keeps its record through it, so it needs it."
+        )
+    return names
+
+
 def sidecar_command() -> List[str]:
     """``fibsem-mcp`` of this environment, by absolute path. Failing that,
     ``python -I -m``, which keeps the current folder off the path, so another
@@ -1797,8 +1820,9 @@ def build_options(
     words: Optional[instruments.Texts] = None,
     extras: Optional[Dict[str, extra_mcp.Server]] = None,
 ):
-    """The SDK session: the sidecar as the only MCP server, besides the lab's
-    extra ones (*extras*, else read; `extra_mcp`), the *loaded* skills and
+    """The SDK session: the MCP servers the *playbook* names (``mcp``; the
+    sidecar alone without one), then the lab's other extra ones (*extras*,
+    else read; `extra_mcp`), the *loaded* skills and
     subagents (`session_names`) and nothing else of the user's Claude Code
     config. Settings left None are the base playbook's. With ``work``, code
     mode: the code tools, sandboxed, in ``work`` (``code_mode.prepare`` has
@@ -1838,11 +1862,17 @@ def build_options(
         allowed = granted + code_mode.allowed_tools(work, code)
         denied = [tool for tool in DENIED_TOOLS if tool not in given]
         settings = code_mode.settings_json(work, {**os.environ, **env}, code)
-    servers = {SERVER: server}
+    servers = {}
+    lab = extra_mcp.definitions(extras)
+    # The playbook's servers, in its order: the sidecar and the lab's it names.
+    for name in mcp_names(playbook, extras):
+        servers[name] = server if name == SERVER else lab[name]
     if alarm is not None:
         servers[HARNESS_SERVER] = wake_server(alarm, control)
-    # The lab's: their entries carry no token, so the command line is fine.
-    servers.update(extra_mcp.definitions(extras))
+    # The rest of the lab's: on for every playbook. Their entries carry no
+    # token, so the command line is fine.
+    for name, entry in lab.items():
+        servers.setdefault(name, entry)
     return ClaudeAgentOptions(
         # Its .claude holds the session's skills (`sources.assemble`; CLAUDE.md
         # is off, see CLI_ENV), and none of ~/.claude: the user's own
@@ -2127,6 +2157,7 @@ def _setup(args, checkout: Path) -> Setup:
         extra_mcp.tokens(extras)
     except extra_mcp.ExtraMcpError as error:
         raise SetupRefused(str(error)) from None
+    mcp_names(playbook, extras)
     try:
         for name in loaded.agents:
             subagents.check_file(name, checkout, EFFORTS, extras)
@@ -2463,6 +2494,8 @@ def show_config(
         "deadline_warn_min": playbook.session.deadline_warn_min,
         "quiet_min": playbook.session.quiet_min,
         "instrument": words.kind if words else playbook.instrument,
+        # The playbook's servers; the lab's others are on too (extra_mcp).
+        "mcp": mcp_names(playbook, extras),
         "mode": ("code" if code else "files") if work is not None else "none",
         "folder": str(work) if work is not None else None,
         "checkout": str(checkout),

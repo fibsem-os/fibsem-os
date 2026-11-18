@@ -253,3 +253,49 @@ def test_a_playbook_names_its_plan_headings_or_has_the_default(lab, checkout):
     write(lab, "bad-plan", "plan: ['## Brief']\n")
     with pytest.raises(playbooks.PlaybookError, match="headings"):
         playbooks.load("bad-plan", checkout)
+
+
+def test_the_mcp_servers_a_playbook_uses_are_named_and_the_base_names_fibsem(
+    lab, checkout
+):
+    for name in playbooks.available(checkout):
+        assert playbooks.load(name, checkout).mcp[0] == SERVER
+    write(lab, "with-notebook", "extends: autolamella\nmcp: [notebook]\n")
+    found = playbooks.load("with-notebook", checkout)
+    assert found.mcp == [SERVER, "notebook"]
+    assert found.summary()["mcp"] == [SERVER, "notebook"]
+    write(lab, "bad-name", "mcp: [notebook/search]\n")
+    with pytest.raises(playbooks.PlaybookError, match="mcp lists servers by name"):
+        playbooks.load("bad-name", checkout)
+
+
+def _notebook(name="notebook"):
+    from fibsem.ai.agent import extra_mcp
+
+    return {
+        name: extra_mcp.Server(name, ["search"], url="https://notebook.example/mcp")
+    }
+
+
+def test_a_server_the_playbook_names_must_be_set_up_and_fibsem_is_needed(lab, checkout):
+    write(lab, "with-notebook", "mcp: [notebook]\n")
+    playbook = playbooks.load("with-notebook", checkout)
+    with pytest.raises(harness_mod.SetupRefused, match="notebook.*doesn't set up"):
+        harness_mod.mcp_names(playbook, {})
+    assert harness_mod.mcp_names(playbook, _notebook()) == [SERVER, "notebook"]
+    # Without a playbook, the sidecar alone, as before.
+    assert harness_mod.mcp_names(None, {}) == [SERVER]
+    playbook.mcp = ["notebook"]
+    with pytest.raises(harness_mod.SetupRefused, match="has no fibsem"):
+        harness_mod.mcp_names(playbook, _notebook())
+
+
+def test_the_session_gets_the_playbooks_servers_and_the_labs_others(lab, checkout):
+    pytest.importorskip("claude_agent_sdk")
+    write(lab, "with-notebook", "mcp: [notebook]\n")
+    playbook = playbooks.load("with-notebook", checkout)
+    extras = {**_notebook(), **_notebook("library")}
+    options = harness_mod.build_options(checkout, playbook=playbook, extras=extras)
+    # The playbook's first, in its order; the lab's others are on as well.
+    assert list(options.mcp_servers) == [SERVER, "notebook", "library"]
+    assert options.mcp_servers["notebook"]["url"] == "https://notebook.example/mcp"
