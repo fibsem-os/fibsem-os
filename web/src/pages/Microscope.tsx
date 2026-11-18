@@ -259,7 +259,7 @@ const CONNECTING_EVERY_MS = 1000;
 const FIELD = "min-w-0 flex-1 rounded border border-input bg-background px-2 py-1.5 text-[13px] text-foreground";
 
 /** Connect and disconnect the microscope: the operator's, so a token that may
- * not (the agent's, the dashboard's) gets no card. The gateway's page passes
+ * not (the agent's) gets no card. The gateway's page passes
  * its own routes to the host's (`base` "/gateway"). */
 export function ConnectionCard({ base = "", title = "Connection" }: { base?: string; title?: string }) {
   const client = useQueryClient();

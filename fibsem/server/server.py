@@ -886,7 +886,7 @@ def build_server(
     if app_context is not None:
         # The gate applied here so auth stays in one place; the router itself
         # is a thin pass-through over the context's JSON-able snapshots. These
-        # are the monitoring routes, so the dashboard token may GET them too.
+        # are the monitoring routes.
         app.include_router(
             build_app_router(app_context),
             dependencies=[Depends(require_monitoring())],

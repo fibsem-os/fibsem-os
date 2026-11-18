@@ -239,7 +239,7 @@ def test_a_load_after_an_unload_step_doesn_t_say_the_unload_again():
 def test_assist_asks_for_an_exchange_and_the_operator_reads_it(arctis, tmp_path):
     host = stub_session()
     host.microscope = arctis
-    auth = AuthConfig(token=TOKEN, dashboard_token="dashboard")
+    auth = AuthConfig(token=TOKEN)
     auth.set_level(AgentLevel.ASSIST)
     app = build_server(arctis, app_context=RecordingContext(host), auth=auth)
     arctis.sample_handling.ensure_loaded("G1")
@@ -302,7 +302,7 @@ def test_a_request_s_next_step_waits_for_a_long_command_to_end(arctis, monkeypat
     _slowed(monkeypatch, arctis.sample_handling, "ensure_loaded")
     host = stub_session()
     host.microscope = arctis
-    auth = AuthConfig(token=TOKEN, dashboard_token="dashboard")
+    auth = AuthConfig(token=TOKEN)
     auth.set_level(AgentLevel.ASSIST)
     context = RecordingContext(host)
     app = build_server(arctis, app_context=context, auth=auth)
@@ -335,7 +335,7 @@ def test_a_failed_run_fails_its_request_step(arctis):
     the steps after it do not run."""
     host = stub_session()
     host.microscope = arctis
-    auth = AuthConfig(token=TOKEN, dashboard_token="dashboard")
+    auth = AuthConfig(token=TOKEN)
     auth.set_level(AgentLevel.ASSIST)
     app = build_server(arctis, app_context=RecordingContext(host), auth=auth)
     arctis.sample_handling.magazine.device.fail_next_exchange = True
