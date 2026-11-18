@@ -13,22 +13,22 @@ import yaml
 
 from fibsem import paths
 from fibsem.ai.agent import playbooks, sources
-from fibsem.ai.evals import matrix as matrix_mod
-from fibsem.ai.evals import replay as replay_mod
-from fibsem.ai.evals import report as report_mod
-from fibsem.ai.evals import serve as serve_mod
 from fibsem.ai.evals import tasks as eval_tasks
-from fibsem.ai.evals import trace as trace_mod
-from fibsem.ai.evals import visual
-from fibsem.ai.evals.cases import check_case, find_cases, load_case
-from fibsem.ai.evals.runner import (
+from fibsem.ai.evals.core import matrix as matrix_mod
+from fibsem.ai.evals.core import replay as replay_mod
+from fibsem.ai.evals.core import report as report_mod
+from fibsem.ai.evals.core import serve as serve_mod
+from fibsem.ai.evals.core import trace as trace_mod
+from fibsem.ai.evals.core import visual
+from fibsem.ai.evals.core.cases import check_case, find_cases, load_case
+from fibsem.ai.evals.core.runner import (
     CASE_PLAYBOOK,
     RunConfig,
     RunnerError,
     code_version,
     run_cases,
 )
-from fibsem.ai.evals.scoring import score_case
+from fibsem.ai.evals.core.scoring import score_case
 
 
 def _sims() -> list:
@@ -105,7 +105,7 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--scripted",
         action="store_true",
-        help="run the scripted agent (fibsem.ai.evals.live.scripted) in "
+        help="run the scripted agent (fibsem.ai.evals.sim.scripted) in "
         "fibsem-agent's place, on the live cases it knows: no model, no usage",
     )
     matrix = sub.add_parser(
@@ -243,7 +243,7 @@ def main(argv=None) -> int:
         return 0
 
     if args.command == "make-sim":
-        from fibsem.ai.evals import sim_cases
+        from fibsem.ai.evals.sim import grid as sim_cases
 
         overrides = {}
         for item in args.set:
@@ -339,11 +339,10 @@ def main(argv=None) -> int:
     config.playbook = args.playbook
     config.model = args.model
     if args.scripted:
-        from fibsem.ai.evals.live import runs as live_runs
-        from fibsem.ai.evals.live.scripted import AGENTS
+        from fibsem.ai.evals.sim import live_runs
 
         config.agent_command = live_runs.scripted_command()
-        keyed = [c for c in keyed if c.task in AGENTS]
+        keyed = [c for c in keyed if getattr(eval_tasks.get(c.task), "scripted", None)]
         print(f"{len(keyed)} cases x {args.repeats} repeats, scripted, into {args.out}")
     else:
         missing = _missing_playbooks(keyed, args.playbook)

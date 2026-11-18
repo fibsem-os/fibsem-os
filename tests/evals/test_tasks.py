@@ -2,6 +2,7 @@
 evals need, so a new task can't be half added."""
 
 import inspect
+from pathlib import Path
 
 import pytest
 
@@ -43,3 +44,20 @@ def test_each_sim_generator_is_named_once_and_has_a_writer():
     for sim in sims:
         module = __import__(sim.module, fromlist=["write_case"])
         assert "seed" in inspect.signature(module.write_case).parameters
+
+
+def test_every_task_in_every_folder_is_found():
+    folders = Path(tasks.__file__).parent
+    modules = [p for p in folders.glob("*/task*.py")]
+    assert len(NAMES) == len(modules) == 14
+
+
+def test_each_scripted_baseline_resolves_to_a_function():
+    from fibsem.ai.evals.sim.scripted import agents
+
+    found = agents()
+    assert set(found) == {
+        name for name, task in tasks.all_tasks().items() if task.scripted
+    }
+    assert all(callable(run) for run in found.values())
+    assert {n for n in NAMES if n.startswith("live_")} == set(found)

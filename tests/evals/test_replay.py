@@ -5,7 +5,7 @@ import json
 import numpy as np
 import tifffile
 
-from fibsem.ai.evals import replay
+from fibsem.ai.evals.core import replay
 
 
 def _event(t, kind, payload, actor="agent"):

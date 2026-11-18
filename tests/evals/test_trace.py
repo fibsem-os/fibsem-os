@@ -1,7 +1,7 @@
 import json
 
-from fibsem.ai.evals import trace
 from fibsem.ai.evals.__main__ import main
+from fibsem.ai.evals.core import trace
 
 LOG = """\
 13:50:03 Model:    Claude Code's default

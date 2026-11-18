@@ -7,19 +7,17 @@ import numpy as np
 import pytest
 import tifffile
 
-from fibsem.ai.evals import (
-    report,
-    sim_cases,
-    sim_coincidence,
-    sim_correlation,
-    sim_fm_target,
-    sim_placement,
-    sim_polishing,
-    sim_rough,
-)
 from fibsem.ai.evals.__main__ import main
-from fibsem.ai.evals.cases import check_case, load_case
-from fibsem.ai.evals.scoring import score_case
+from fibsem.ai.evals.core import report
+from fibsem.ai.evals.core.cases import check_case, load_case
+from fibsem.ai.evals.core.scoring import score_case
+from fibsem.ai.evals.sim import grid as sim_cases
+from fibsem.ai.evals.tasks.correlation import make as sim_correlation
+from fibsem.ai.evals.tasks.fm_target import make as sim_fm_target
+from fibsem.ai.evals.tasks.polishing import make as sim_polishing
+from fibsem.ai.evals.tasks.rough_milling import make as sim_rough
+from fibsem.ai.evals.tasks.setup_placement import make as sim_placement
+from fibsem.ai.evals.tasks.target_present import make as sim_coincidence
 
 SMALL = {"resolution": (768, 512), "hfw": 520e-6}
 # a bare grid: film, bars and nothing else, so a pixel says which it is
