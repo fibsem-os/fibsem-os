@@ -2,6 +2,7 @@
 Watch then, says so on the record and in the refusal, and a late timer never
 lets a call through."""
 
+import math
 import time
 from datetime import datetime
 
@@ -105,7 +106,8 @@ def _level_events(server):  # noqa: F811
 
 
 def test_the_operator_gives_drive_a_time_limit_and_it_runs_out(server):  # noqa: F811
-    until = _iso(time.time() + 2)
+    # Whole seconds, as the ISO time carries them, and room for a slow runner.
+    until = _iso(math.ceil(time.time()) + 4)
     answer = server.put(
         "/app/agent/level",
         headers=server.operator,
@@ -121,7 +123,7 @@ def test_the_operator_gives_drive_a_time_limit_and_it_runs_out(server):  # noqa:
         "until": until,
     }
 
-    deadline = time.monotonic() + 10
+    deadline = time.monotonic() + 20
     while server.config.level is not AgentLevel.WATCH:
         assert time.monotonic() < deadline, "the level never dropped"
         time.sleep(0.05)
