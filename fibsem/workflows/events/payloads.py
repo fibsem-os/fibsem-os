@@ -132,6 +132,18 @@ class LevelSet(Payload):
 
 
 @dataclass(frozen=True)
+class InstrumentEvent(Payload):
+    """An instrument's server telling the agent host what happened
+    (`fibsem.server.agent.host`): ``what`` in a word or two (halted, phase,
+    done, state), ``text`` in a sentence, and whether it is ``urgent``: news
+    that makes the agent's current work wrong."""
+
+    what: Optional[str] = None
+    text: Optional[str] = None
+    urgent: Optional[bool] = None
+
+
+@dataclass(frozen=True)
 class PlanEdited(Payload):
     """The operator edited sections of the agent's plan."""
 
@@ -190,6 +202,7 @@ PAYLOADS: Dict[str, Type[Payload]] = {
     k.COMMAND_ENDED: CommandRun,
     k.AGENT_LEVEL_SET: LevelSet,
     k.AGENT_PLAN_EDITED: PlanEdited,
+    k.INSTRUMENT_EVENT: InstrumentEvent,
     k.MILLING_STAGE_STARTED: MillingStageStarted,
     k.MILLING: Milling,
 }

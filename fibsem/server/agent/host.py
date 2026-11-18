@@ -29,6 +29,7 @@ gateway, the hub). Its tokens are an :class:`~fibsem.server.auth.AuthConfig`,
 made by whoever builds it and never passed on a command line.
 """
 
+import hmac
 import logging
 import sys
 import threading
@@ -38,7 +39,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
-from fastapi import APIRouter, Depends, FastAPI
+from fastapi import APIRouter, Depends, FastAPI, Request
 
 from fibsem import __version__, paths
 from fibsem.acting import AGENT, OPERATOR
@@ -49,6 +50,7 @@ from fibsem.ai.agent.levels import (
     AgentLevel,
     chip_text,
 )
+from fibsem.ai.agent.recent import RecentActions
 from fibsem.ai.agent.session import (
     MESSAGE_LIMIT,
     budget_low,
@@ -69,6 +71,7 @@ from fibsem.server.auth import (
     require_operator,
 )
 from fibsem.server.bodies import (
+    STRICT,
     LevelBody,
     MessageBody,
     NoteBody,
@@ -79,10 +82,12 @@ from fibsem.server.discovery import API_VERSION, fibsem_folder
 from fibsem.server.responses import (
     AgentStopped,
     AgentView,
+    ConnectText,
     Events,
     LevelOption,
     LevelSet,
     MessageSent,
+    RecentRows,
     Recorded,
     answer,
 )
@@ -93,6 +98,24 @@ from fibsem.workflows.events.recording import EventFileWriter, read_events_after
 from fibsem.workflows.events.text import note_asked, with_text
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class InstrumentEventBody:
+    """POST /app/instrument/events: what the instrument's server says
+    happened. ``what`` in a word or two (halted, phase, done, state), ``text``
+    in a sentence; ``urgent`` cuts the agent's turn short."""
+
+    __pydantic_config__ = STRICT
+
+    what: str
+    text: str = ""
+    urgent: bool = False
+
+
+# How long an instrument event's words may be.
+MAX_WHAT = 40
+MAX_TEXT = 2000
 
 EVENTS_FILENAME = "events.jsonl"
 # The long-poll's ceiling, as the App Server's: a parked poll holds a worker.
@@ -112,13 +135,19 @@ RELAY_RETRY_S = 5.0
 class InstrumentLink:
     """The instrument server the agent works on, as the host reaches it: its
     address, the operator's token there (from the PC's key store, never a
-    file or a command line) and the routes for its events and its Stop."""
+    file or a command line) and the routes for its events and its Stop.
 
-    url: str
-    token: str
+    An instrument whose server keeps no event stream tells the host instead
+    (``POST /app/instrument/events``), with *push_token*: then
+    ``events_path`` is None. A ``stop_path`` of None is a server with no
+    Stop of its own; the host's Stop then holds at the host alone."""
+
+    url: Optional[str]
+    token: Optional[str]
     name: str = "instrument"
-    events_path: str = INSTRUMENT_EVENTS
-    stop_path: str = INSTRUMENT_STOP
+    events_path: Optional[str] = INSTRUMENT_EVENTS
+    stop_path: Optional[str] = INSTRUMENT_STOP
+    push_token: Optional[str] = None
 
     def client(self, timeout: float) -> httpx.Client:
         return httpx.Client(
@@ -232,7 +261,12 @@ class AgentHost:
         # No experiment: each session's files stay in its own folder.
         self.files = AgentFiles(lambda: None)
         self.plan = PlanStore(lambda: None, files=self.files)
-        self._relay = _Relay(self, instrument) if instrument is not None else None
+        follows = (
+            instrument is not None
+            and instrument.url is not None
+            and instrument.events_path is not None
+        )
+        self._relay = _Relay(self, instrument) if follows else None
         if self._relay is not None:
             self._relay.start()
 
@@ -296,6 +330,16 @@ class AgentHost:
             envelope={**record, "instrument": source},
         )
 
+    def pushed(self, what: str, text: str, urgent: bool) -> None:
+        """What the instrument's server says happened, on the record as an
+        ``instrument_event`` the watch wakes the agent on."""
+        name = self.instrument.name if self.instrument is not None else None
+        self.buffer.append(
+            event_kinds.INSTRUMENT_EVENT,
+            {"what": what, "text": text, "urgent": urgent},
+            envelope={"instrument": name} if name else None,
+        )
+
     # --- the operator's side ---------------------------------------------------
 
     def message(self, text: str) -> str:
@@ -353,6 +397,11 @@ class AgentHost:
         """(what it stopped, None) once the instrument has its Stop, or
         (None, why not)."""
         link = self.instrument
+        if link.url is None or link.stop_path is None:
+            return (
+                None,
+                f"{link.name} has no Stop the host can press, so press it there",
+            )
         try:
             with link.client(10.0) as client:
                 response = client.post(link.stop_path)
@@ -554,12 +603,57 @@ def build_agent_host(
         host.set_level(level)
         return answer(LevelSet(level.value))
 
+    @operator.get("/recent", response_model=RecentRows)
+    def recent():
+        """The Agent page's rows: the conversation and the agent's actions,
+        oldest first, from the host's record."""
+        rows = RecentActions()
+        for record in host.buffer.events_since(0).get("events", []):
+            rows.add(record)
+        return answer(RecentRows(rows.rows))
+
+    @operator.get("/connect", response_model=ConnectText)
+    def connect():
+        """None: an agent reaches the host through ``fibsem-agent --host``,
+        not a setup pasted into it."""
+        return answer(ConnectText(None))
+
+    @operator.get("/pictures/{kind}")
+    def get_picture(kind: str):
+        """The host draws no pictures: a request or a suggestion is the
+        instrument's."""
+        raise refusal_error(404, "not_found", f"No {kind} picture is drawn.")
+
     @operator.post("/stop", response_model=AgentStopped)
     def stop_agent():
         stopped = host.stop()
         return answer(AgentStopped(stopped, auth.level.value))
 
     app.include_router(operator)
+
+    # What an instrument's server with no event stream of its own says
+    # happened: its token only, the one the host was given for it.
+    @app.post("/app/instrument/events", status_code=201)
+    def instrument_event(request: Request, body: InstrumentEventBody):
+        link = host.instrument
+        expected = link.push_token if link is not None else None
+        given = request.headers.get("Authorization", "")
+        if not expected or not hmac.compare_digest(given, f"Bearer {expected}"):
+            raise refusal_error(
+                401, "unauthorized", "Only the instrument's server tells the host."
+            )
+        what = " ".join(body.what.split())
+        if not what or len(what) > MAX_WHAT:
+            raise refusal_error(
+                422, "invalid", f"what is a word or two, at most {MAX_WHAT} characters."
+            )
+        if len(body.text) > MAX_TEXT:
+            raise refusal_error(
+                422, "too_long", f"text is at most {MAX_TEXT} characters."
+            )
+        host.pushed(what, body.text.strip(), bool(body.urgent))
+        return {"recorded": True}
+
     return app
 
 
@@ -571,6 +665,10 @@ HOST_TOKEN = HOST_TOKEN_ENV
 HOST_OPERATOR_TOKEN = "FIBSEM_HOST_OPERATOR_TOKEN"
 # The instrument's operator token, by default: the App Server's.
 INSTRUMENT_TOKEN = "FIBSEM_OPERATOR_TOKEN"
+# The token an instrument's server presents to tell the host its events.
+INSTRUMENT_PUSH_TOKEN = "FIBSEM_HOST_INSTRUMENT_TOKEN"
+# A route the instrument's server doesn't have.
+NONE = "none"
 DEFAULT_PORT = 8030
 
 
@@ -608,6 +706,29 @@ def main(argv: Optional[List[str]] = None) -> int:
         help="the key (environment or key store) holding the operator's token "
         f"at the instrument (default {INSTRUMENT_TOKEN})",
     )
+    parser.add_argument(
+        "--instrument-events",
+        default=INSTRUMENT_EVENTS,
+        metavar="PATH",
+        help=f"its events long-poll (default {INSTRUMENT_EVENTS}); '{NONE}' for "
+        "a server that tells the host its events instead "
+        "(POST /app/instrument/events)",
+    )
+    parser.add_argument(
+        "--instrument-stop",
+        default=INSTRUMENT_STOP,
+        metavar="PATH",
+        help=f"the route Stop presses there (default {INSTRUMENT_STOP}); "
+        f"'{NONE}' for a server with no Stop of its own",
+    )
+    parser.add_argument(
+        "--instrument-push-token",
+        default=INSTRUMENT_PUSH_TOKEN,
+        metavar="NAME",
+        help="the key holding the token the instrument's server presents to "
+        f"tell the host its events (default {INSTRUMENT_PUSH_TOKEN}); unset, "
+        "it can't",
+    )
     args = parser.parse_args(argv)
 
     token, operator = get_secret(HOST_TOKEN), get_secret(HOST_OPERATOR_TOKEN)
@@ -626,7 +747,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     instrument = None
     if args.instrument:
         instrument_token = get_secret(args.instrument_token)
-        if not instrument_token:
+        follows = args.instrument_events != NONE or args.instrument_stop != NONE
+        if follows and not instrument_token:
             print(
                 f"fibsem-agent-host: --instrument needs the operator's token "
                 f"there in {args.instrument_token}.",
@@ -634,7 +756,14 @@ def main(argv: Optional[List[str]] = None) -> int:
             )
             return 1
         instrument = InstrumentLink(
-            args.instrument, instrument_token, name=args.instrument_name
+            args.instrument,
+            instrument_token,
+            name=args.instrument_name,
+            events_path=None
+            if args.instrument_events == NONE
+            else args.instrument_events,
+            stop_path=None if args.instrument_stop == NONE else args.instrument_stop,
+            push_token=get_secret(args.instrument_push_token),
         )
     auth = AuthConfig(token=token, operator_token=operator)
     folder = Path(args.folder).expanduser() if args.folder else None

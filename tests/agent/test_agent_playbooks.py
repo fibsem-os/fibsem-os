@@ -332,3 +332,49 @@ def test_with_an_agent_host_the_record_tools_go_to_it(lab, checkout):
     assert options.env["FIBSEM_HOST_TOKEN"] == "host-secret"
     assert "host-secret" not in json.dumps(options.mcp_servers)
     assert f"mcp__{harness_mod.RECORD_SERVER}__*" in options.allowed_tools
+
+
+def test_an_instrument_with_servers_of_its_own_runs_through_a_host(lab, checkout):
+    # A plugin's instrument kind, its microscope server over loopback HTTP and
+    # an analysis server it starts, and no fibsem: the shipped cryo-fm kind
+    # stands in for the plugin's.
+    pytest.importorskip("claude_agent_sdk")
+    from fibsem.ai.agent import extra_mcp, instruments
+
+    write(lab, "own-servers", "instrument: cryo-fm\nmcp: [scope, analysis]\n")
+    playbook = playbooks.load("own-servers", checkout)
+    playbook.mcp = ["scope", "analysis"]
+    extras = {
+        "scope": extra_mcp.Server(
+            "scope", ["image"], url="http://127.0.0.1:8765/mcp", about="the scope"
+        ),
+        "analysis": extra_mcp.Server(
+            "analysis", ["measure"], command=["analysis-server"], about="analysis"
+        ),
+    }
+    options = harness_mod.build_options(
+        checkout,
+        playbook=playbook,
+        extras=extras,
+        host="http://127.0.0.1:8030",
+        host_token="t",
+        words=instruments.load("cryo-fm", checkout),
+    )
+    assert list(options.mcp_servers)[:2] == ["scope", "analysis"]
+    assert SERVER not in options.mcp_servers
+    assert harness_mod.RECORD_SERVER in options.mcp_servers
+    # The harness's tool line names its own servers' tools, not the fibsem
+    # sidecar's; the rest of the prompt is the instrument kind's own words.
+    prompt = options.system_prompt["append"]
+    assert (
+        "Your tools are the mcp__scope__*, mcp__analysis__*, "
+        "mcp__fibsem_record__* tools" in prompt
+    )
+    assert "matching mcp__fibsem__ tool" not in prompt
+
+
+def test_without_a_host_the_prompt_names_the_fibsem_tools_as_before(checkout):
+    assert harness_mod._name_servers(harness_mod.NO_CODE, None) == harness_mod.NO_CODE
+    assert harness_mod._name_servers(harness_mod.NO_CODE, [SERVER]) == (
+        harness_mod.NO_CODE
+    )

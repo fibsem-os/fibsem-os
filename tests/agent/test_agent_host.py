@@ -332,3 +332,75 @@ def test_stop_holds_here_when_the_instrument_does_not_answer(tmp_path, monkeypat
         assert "fib-1 did not answer" in stop["payload"]["reason"]
     finally:
         host.state.host.close()
+
+
+# --- an instrument that tells the host its events ---------------------------------
+
+
+@pytest.fixture
+def told(tmp_path, monkeypatch):
+    """A host whose instrument keeps no event stream and has no Stop route:
+    it posts its events, with a token of its own."""
+    monkeypatch.setenv("FIBSEM_HOME", str(tmp_path / "home"))
+    link = InstrumentLink(
+        "http://127.0.0.1:9",
+        None,
+        name="scope-1",
+        events_path=None,
+        stop_path=None,
+        push_token="its-push",
+    )
+    auth = AuthConfig(token=AGENT, operator_token=OPERATOR)
+    app = build_agent_host(auth, tmp_path / "host", instrument=link)
+    yield app
+    app.state.host.close()
+
+
+def test_only_the_instrument_tells_the_host(told):
+    event = {"what": "halted", "text": "Column valve closed", "urgent": True}
+    for token in (None, AGENT, OPERATOR, "other"):
+        client = TestClient(told, headers=_as(token) if token else {})
+        assert client.post("/app/instrument/events", json=event).status_code == 401
+    told_by = TestClient(told, headers=_as("its-push"))
+    assert told_by.post("/app/instrument/events", json=event).status_code == 201
+    (record,) = _kinds(told, "instrument_event")
+    assert record["instrument"] == "scope-1"
+    assert record["payload"] == {
+        "what": "halted",
+        "text": "Column valve closed",
+        "urgent": True,
+    }
+    bad = {"what": " ", "text": "x"}
+    assert told_by.post("/app/instrument/events", json=bad).status_code == 422
+
+
+def test_what_the_instrument_tells_is_a_wake(told):
+    from fibsem.ai.agent.harness import is_urgent
+
+    told.state.host.pushed("phase", "Tilt series started", False)
+    told.state.host.pushed("halted", "Column valve closed", True)
+    lines = []
+    events = told.state.host.buffer.events_since(0)["events"]
+    watch_mod._print_events(events, 0, lines.append)
+    assert lines == [
+        "INSTRUMENT phase on scope-1: Tilt series started",
+        "INSTRUMENT halted on scope-1: Column valve closed",
+    ]
+    assert [is_urgent(line) for line in lines] == [False, True]
+
+
+def test_stop_with_no_stop_there_holds_here_and_says_so(told):
+    told.state.auth.set_level(AgentLevel.DRIVE)
+    TestClient(told, headers=_as(OPERATOR)).post("/app/agent/stop")
+    assert told.state.auth.level is AgentLevel.WATCH
+    (stop,) = _kinds(told, "action")
+    assert "scope-1 has no Stop the host can press" in stop["payload"]["reason"]
+
+
+def test_the_agent_page_s_other_reads(host, operator, agent):
+    operator.post("/app/agent/messages", json={"text": "hello"})
+    rows = operator.get("/app/agent/recent").json()["rows"]
+    assert any("hello" in json.dumps(row) for row in rows)
+    assert operator.get("/app/agent/connect").json() == {"text": None}
+    assert operator.get("/app/agent/pictures/request").status_code == 404
+    assert agent.get("/app/agent/recent").status_code == 403

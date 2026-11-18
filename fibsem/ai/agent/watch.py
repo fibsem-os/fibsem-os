@@ -112,6 +112,10 @@ ALIGNMENT = "alignment"
 NOTE = "note"
 MESSAGE = "message"
 PLAN_EDITED = "plan_edited"
+# What an instrument's server told the agent host (`instrument_event`); an
+# urgent one cuts the agent's turn short.
+INSTRUMENT = "instrument"
+INSTRUMENT_URGENT = "instrument_urgent"
 LEVEL = "level"
 LEVEL_LOWERED = "level_lowered"
 # The operator stopped the agent, a run or a mill.
@@ -298,6 +302,11 @@ def _print_events(events, since, say, marked=None):
             out(NOTE, f"NOTE from the operator on {data.get('item_name')}: {text}")
         elif _is_message(event):
             say(_message_line(data, marked))
+        elif kind == event_kinds.INSTRUMENT_EVENT:
+            out(
+                INSTRUMENT_URGENT if p.urgent else INSTRUMENT,
+                _instrument_line(event, p),
+            )
         elif kind == event_kinds.AGENT_PLAN_EDITED:
             sections = ", ".join(str(s) for s in p.sections or [])
             out(PLAN_EDITED, f"PLAN EDITED by the operator: {sections}")
@@ -537,6 +546,16 @@ def _lowered(p: typed.LevelSet) -> bool:
     except ValueError:
         return False
     return _RANK[level] < _RANK[previous]
+
+
+def _instrument_line(event, p):
+    """``INSTRUMENT <what> on <instrument>: <text>``, from an instrument's
+    server through the agent host."""
+    what = " ".join(str(p.what or "event").split())
+    where = event.get("instrument")
+    text = " ".join(str(p.text or "").split())
+    line = f"INSTRUMENT {what}" + (f" on {where}" if where else "")
+    return f"{line}: {text}" if text else line
 
 
 def _operator_stop_line(data):

@@ -393,15 +393,17 @@ def build_sidecar(client, capabilities, instrument=None, record=None):
     from mcp.types import ToolAnnotations
 
     every = {"routers": {"app": True, "services": True}}
-    offered = {
-        t.name
-        for t in tools_for_capabilities(
-            capabilities or every, _devices(instrument) if instrument else None
-        )
-    }
     if record is True:
+        # The host has no devices: the instrument kind is not read.
         offered = set(RECORD_TOOLS)
-    elif record is False:
+    else:
+        offered = {
+            t.name
+            for t in tools_for_capabilities(
+                capabilities or every, _devices(instrument) if instrument else None
+            )
+        }
+    if record is False:
         offered -= RECORD_TOOLS
     by_name = {t.name: t for t in CATALOG}
     # The open experiment's files as resources, beside the tools that read them.

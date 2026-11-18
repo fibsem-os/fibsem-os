@@ -182,17 +182,34 @@ def harness_prompt(
     words: Optional[instruments.Texts] = None,
     deadline_warn_min: Optional[float] = None,
     extras: Optional[Dict[str, extra_mcp.Server]] = None,
+    servers: Optional[List[str]] = None,
 ) -> str:
     """What the harness tells the agent about itself; with a work folder (code
     mode, or files only), about it too; and about the lab's extra MCP servers
-    (*extras*, else read), if any."""
+    (*extras*, else read), if any. *servers*, the session's MCP servers, are
+    named in place of the fibsem sidecar's when they are others."""
     words = words or texts()
     tools = NO_CODE if work is None else code_mode.prompt(work, code)
+    tools = _name_servers(tools, servers)
     more = extra_mcp.prompt_lines(extra_mcp.load() if extras is None else extras)
     if more:
         tools += "\n" + more
     warn = deadline_warn_min or defaults().deadline_warn_min
     return words.prompt.format(tools=tools, deadline_warn_min=f"{warn:g}")
+
+
+def _name_servers(tools: str, servers: Optional[List[str]]) -> str:
+    """*tools*, the prompt's tool line, naming *servers* where it names the
+    fibsem sidecar, when the session's servers are others (an agent host)."""
+    if not servers or servers == [SERVER]:
+        return tools
+    named = ", ".join(f"mcp__{name}__*" for name in servers)
+    return (
+        tools.replace("the mcp__fibsem__* tools", f"the {named} tools")
+        .replace("the matching mcp__fibsem__ tool", "the matching tool")
+        .replace("so the mcp__fibsem__* tools", "so those tools")
+        .replace("can't reach the App Server or", "can't reach your servers or")
+    )
 
 
 def system_prompt(
@@ -201,11 +218,12 @@ def system_prompt(
     playbook: Optional[playbooks.Playbook] = None,
     words: Optional[instruments.Texts] = None,
     extras: Optional[Dict[str, extra_mcp.Server]] = None,
+    servers: Optional[List[str]] = None,
 ) -> str:
     """The harness's prompt, and the rules of the playbook the session
     started on after it, so they are read every turn."""
     warn = playbook.session.deadline_warn_min if playbook is not None else None
-    prompt = harness_prompt(work, code, words, warn, extras)
+    prompt = harness_prompt(work, code, words, warn, extras, servers)
     if playbook is not None and playbook.rules:
         prompt += (
             f"\n\nRules of the {playbook.name} playbook you started on:\n"
@@ -333,6 +351,8 @@ URGENT = frozenset(
         # stop is OPERATOR_STOP above.
         watch_mod.WORKFLOW_FAILED,
         "task_failed",
+        # The instrument's server said its news can't wait.
+        watch_mod.INSTRUMENT_URGENT,
         watch_mod.COMMAND_FAILED,
         watch_mod.MILL_FAILED,
         # A milling monitor's stop rule fired.
@@ -1890,7 +1910,8 @@ def build_options(
     servers = {}
     lab = extra_mcp.definitions(extras)
     # The playbook's servers, in its order: the sidecar and the lab's it names.
-    for name in mcp_names(playbook, extras, host is not None):
+    names = mcp_names(playbook, extras, host is not None)
+    for name in names:
         servers[name] = server if name == SERVER else lab[name]
     if host:
         # The address goes on the command line; its token, by name only.
@@ -1925,7 +1946,14 @@ def build_options(
         system_prompt={
             "type": "preset",
             "preset": "claude_code",
-            "append": system_prompt(work, code, playbook, words, extras),
+            "append": system_prompt(
+                work,
+                code,
+                playbook,
+                words,
+                extras,
+                names + [RECORD_SERVER] if host else None,
+            ),
         },
         # With a playbook control, the reminders on now, asked at each call.
         hooks=(
@@ -2537,6 +2565,9 @@ def show_config(
     loaded = loaded or session_names(checkout, playbook)
     extras = extra_mcp.load() if extras is None else extras
     host = getattr(args, "host", None)
+    servers = mcp_names(playbook, extras, host is not None) + (
+        [RECORD_SERVER] if host else []
+    )
     granted = granted_tools(loaded, extras, host is not None)
     tools, allowed, denied = BUILT_IN_TOOLS, granted, DENIED_TOOLS
     if work is not None:
@@ -2556,8 +2587,7 @@ def show_config(
         "quiet_min": playbook.session.quiet_min,
         "instrument": words.kind if words else playbook.instrument,
         # The playbook's servers; the lab's others are on too (extra_mcp).
-        "mcp": mcp_names(playbook, extras, host is not None)
-        + ([RECORD_SERVER] if host else []),
+        "mcp": servers,
         # The agent host its record and wake-ups go through; None for the
         # App Server.
         "host": host,
@@ -2575,7 +2605,9 @@ def show_config(
             "path": str(playbook.path),
             "hash": playbook.hash,
         },
-        "system_prompt": system_prompt(work, code, playbook, words, extras),
+        "system_prompt": system_prompt(
+            work, code, playbook, words, extras, servers if host else None
+        ),
     }
     if extras:
         config["extra_mcp"] = {

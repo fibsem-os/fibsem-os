@@ -1498,6 +1498,8 @@ def test_the_urgent_lines_are_the_four_the_operator_chose():
         watch_mod.MILL_FAILED,
         # a stop rule firing
         watch_mod.STOP_RULE,
+        # an instrument's server, through the agent host, saying it can't wait
+        watch_mod.INSTRUMENT_URGENT,
     }
     assert harness_mod.is_urgent(watch_mod.NO_END_EVENT_LINE)
     for line in (
