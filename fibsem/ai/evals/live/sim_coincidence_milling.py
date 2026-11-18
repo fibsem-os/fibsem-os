@@ -20,6 +20,8 @@ import yaml
 from fibsem.ai.evals.cases import FORMAT
 from fibsem.ai.evals.live import sim_polish, sim_sites
 from fibsem.ai.evals.sim_cases import TIER
+from fibsem.ai.evals.sim_correlation import FIB_HFW, _FibMap
+from fibsem.structures.settings import BeamType, FibsemStagePosition
 
 TASK = "live_coincidence_milling"
 # the scene's FM labels: red on cilia, green on centrin; every cell a target
@@ -33,6 +35,9 @@ FM = {
 # how far the lamella is rough milled off the cilium, across it (m), on the
 # off-target seeds: past half the rough lamella, so it is milled away
 OFF = 1.2e-6
+# the FIB view the cilium is centred in, and how near its centre (m)
+FIB_VIEW = (1536, 1024)
+CENTRED = 0.1e-6
 
 BRIEF = (
     "Lamella {item} has been rough milled at the milling angle through a cell "
@@ -51,9 +56,16 @@ def off_target(seed: int) -> bool:
     return int(seed) % 3 == 0
 
 
-def _cilium(config_path: Path, rng: np.random.Generator) -> Dict[str, Any]:
+def _cilium(
+    config_path: Path, rng: np.random.Generator, off: float = 0.0
+) -> Dict[str, Any]:
     """A cilium near the stage's middle, reachable: where it is in the world
-    (its midpoint, for the record) and at the SEM orientation's stage x, y."""
+    (its midpoint, for the record), and the stage pose at the milling
+    orientation that puts it at the centre of the FIB's view, where the rough
+    lamella is milled. The cilium sits microns above the film, and the
+    lamella is cut at the milling angle, so the pose is found in the FIB's own
+    view rather than from the cilium's x, y at the SEM orientation. *off* (m)
+    moves the pose across the lamella, off the cilium."""
     microscope = sim_sites._session(config_path)
     try:
         scene = microscope._connection.sample_scene
@@ -69,11 +81,32 @@ def _cilium(config_path: Path, rng: np.random.Generator) -> Dict[str, Any]:
         found.sort(key=lambda f: f[0])
         _, sx, sy, mid = found[int(rng.integers(0, min(5, len(found))))]
         optics = sim_sites.optics_key(microscope, sx, sy)
+        microscope.move_to_orientation("SEM")
+        microscope.move_stage_absolute(
+            FibsemStagePosition(x=sx, y=sy, z=optics["coincident_z"], r=0, t=0)
+        )
+        microscope.move_to_orientation("MILLING")
+        x, y, above = mid
+        seen = None
+        for _ in range(6):
+            fib = _FibMap(microscope, scene, FIB_VIEW, FIB_HFW)
+            seen = fib.view(x, y, above + scene._fm_film())
+            if np.hypot(*seen) <= CENTRED:
+                break
+            microscope.stable_move(dx=seen[0], dy=-seen[1], beam_type=BeamType.ION)
+        if seen is None or np.hypot(*seen) > CENTRED:
+            raise ValueError("could not centre the cilium in the FIB's view")
+        if off:
+            microscope.stable_move(dx=0.0, dy=off, beam_type=BeamType.ION)
+        pose = microscope.get_stage_position()
     finally:
         microscope.disconnect()
     return {
         "midpoint": [float(v) for v in mid],
         "stage": {"x": round(sx, 9), "y": round(sy, 9)},
+        "milling_pose": {
+            k: round(float(getattr(pose, k)), 9) for k in ("x", "y", "z", "r", "t")
+        },
         "optics": optics,
     }
 
@@ -88,11 +121,11 @@ def write_case(
     config = sim_sites.microscope_config(seed, {**FM, **(overrides or {})})
     (folder / sim_sites.MICROSCOPE).write_text(yaml.safe_dump(config, sort_keys=False))
     rng = np.random.default_rng([int(seed), 5])
-    cilium = _cilium(folder / sim_sites.MICROSCOPE, rng)
     off = OFF * (1 if rng.random() < 0.5 else -1) if off_target(seed) else 0.0
+    cilium = _cilium(folder / sim_sites.MICROSCOPE, rng, off)
     at = {
         "x": cilium["stage"]["x"],
-        "y": round(cilium["stage"]["y"] + off, 9),
+        "y": cilium["stage"]["y"],
         "z": cilium["optics"]["coincident_z"],
         "r": 0.0,
         "t": 0.0,
@@ -120,6 +153,11 @@ def write_case(
                 {
                     "tool": "stage_move_to_orientation",
                     "arguments": {"orientation": "MILLING"},
+                },
+                # the cilium at the centre of the FIB's view (or off it)
+                {
+                    "tool": "stage_move_absolute",
+                    "arguments": cilium["milling_pose"],
                 },
                 {"tool": "item_add", "arguments": {"name": item}},
                 {"prepare": "fibsem.ai.evals.live.sim_polish:rough_mill"},
