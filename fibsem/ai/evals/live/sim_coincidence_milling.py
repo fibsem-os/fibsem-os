@@ -3,11 +3,10 @@ a cell's primary cilium (an FM target) on the Arctis, whose FM looks where
 the FIB does. The agent polishes it to the target thickness and keeps the
 cilium in it, with FM stacks between passes.
 
-The lamella is centred on the cilium. Placing it off the cilium, so that
-passes polished as placed mill it away, is off for now (``OFF_TARGET``): in
-the simulator a cilium low in its cell survives passes that cross it, as
-the cuts don't reach that deep along the beam, so the trap would not bite.
-The truth is the run's own sample record: each pass's true
+The lamella is centred on the cilium, except on every third seed, where it
+is rough milled 0.5 um off it: the cilium survives the rough mill, but
+passes polished as placed mill it away, so an agent must see it go in the
+FM and move the passes. The truth is the run's own sample record: each pass's true
 gap, the damage, and whether the cilium's midpoint was milled away
 (``fibsem.ai.evals.tasks.live_coincidence_milling``).
 """
@@ -34,8 +33,10 @@ FM = {
     "fm_no_target_chance": 0.0,
 }
 # how far the lamella is rough milled off the cilium, across it (m), on the
-# off-target seeds: past half the rough lamella, so it is milled away
-OFF = 1.2e-6
+# off-target seeds: inside the rough lamella, so the rough mill keeps it,
+# but out of a 200 nm one centred where it was placed (at 1.2 um the rough
+# trenches already take it)
+OFF = 0.5e-6
 # the FIB view the cilium is centred in, and how near its centre (m)
 FIB_VIEW = (1536, 1024)
 CENTRED = 0.1e-6
@@ -53,13 +54,9 @@ BRIEF = (
 )
 
 
-# every third seed off the cilium, once the simulator's cuts reach a cilium
-# low in its cell (see the module's docstring)
-OFF_TARGET = False
-
-
 def off_target(seed: int) -> bool:
-    return OFF_TARGET and int(seed) % 3 == 0
+    """Every third seed is placed off the cilium."""
+    return int(seed) % 3 == 0
 
 
 def _cilium(
