@@ -292,15 +292,35 @@ def test_a_server_the_playbook_names_must_be_set_up_and_fibsem_is_needed(lab, ch
         harness_mod.mcp_names(playbook, _notebook())
 
 
-def test_the_session_gets_the_playbooks_servers_and_the_labs_others(lab, checkout):
+def test_the_session_gets_the_playbooks_servers_and_no_other_of_the_labs(lab, checkout):
     pytest.importorskip("claude_agent_sdk")
     write(lab, "with-notebook", "mcp: [notebook]\n")
     playbook = playbooks.load("with-notebook", checkout)
     extras = {**_notebook(), **_notebook("library")}
     options = harness_mod.build_options(checkout, playbook=playbook, extras=extras)
-    # The playbook's first, in its order; the lab's others are on as well.
-    assert list(options.mcp_servers) == [SERVER, "notebook", "library"]
+    # The playbook's, in its order; the lab's library it doesn't name is off.
+    assert list(options.mcp_servers) == [SERVER, "notebook"]
     assert options.mcp_servers["notebook"]["url"] == "https://notebook.example/mcp"
+    assert not any("library" in tool for tool in options.allowed_tools)
+    assert "mcp__library__" not in options.system_prompt["append"]
+
+
+def test_show_config_names_the_lab_servers_a_playbook_leaves_off(lab, checkout):
+    import argparse
+
+    write(lab, "with-notebook", "mcp: [notebook]\n")
+    playbook = playbooks.load("with-notebook", checkout)
+    extras = {**_notebook(), **_notebook("library")}
+    args = argparse.Namespace(
+        model=None, effort=None, max_budget_usd=1.0, max_turns=1, host=None
+    )
+    config = harness_mod.show_config(
+        args, checkout, None, False, playbook, extras=extras
+    )
+    assert config["mcp"] == [SERVER, "notebook"]
+    assert config["mcp_unused"] == ["library"]
+    assert list(config["extra_mcp"]) == ["notebook"]
+    assert "MCP off" in harness_mod._config_text(config)
 
 
 def test_with_an_agent_host_fibsem_is_one_server_among_others(lab, checkout):

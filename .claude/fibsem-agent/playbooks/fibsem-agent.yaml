@@ -9,7 +9,8 @@ description: General microscope work, for when no workflow fits.
 instrument: fibsem
 # The MCP servers the agent uses, by name: fibsem is the sidecar to the App
 # Server, built in; any other is an entry in the lab's ~/.fibsem/agent/mcp.yaml.
-# A playbook adds its own; every server in the lab's mcp.yaml is on as well.
+# A playbook adds its own; a server in the lab's mcp.yaml is on only for a
+# playbook that names it.
 mcp: [fibsem]
 session:
   effort: high

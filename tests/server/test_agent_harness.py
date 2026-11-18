@@ -20,6 +20,7 @@ import httpx
 import pytest
 
 from fibsem.ai.agent import harness as harness_mod
+from fibsem.ai.agent import playbooks
 from fibsem.ai.agent import watch as watch_mod
 from fibsem.ai.agent.harness import Harness, TurnEnd, Wakes, kickoff
 from fibsem.ai.agent.levels import AgentLevel
@@ -463,6 +464,7 @@ def test_a_labs_extra_mcp_server_is_added_and_its_token_is_never_shown(
     tmp_path, monkeypatch, capsys
 ):
     pytest.importorskip("claude_agent_sdk")
+    import dataclasses
     import json
 
     from claude_agent_sdk._internal.transport.subprocess_cli import (
@@ -481,10 +483,18 @@ def test_a_labs_extra_mcp_server_is_added_and_its_token_is_never_shown(
         "  tools: [search, append_entry]\n  subagents: [search]\n",
         encoding="utf-8",
     )
+    # On for a playbook that names it.
+    playbooks_dir = tmp_path / "home" / "knowledge" / "playbooks"
+    playbooks_dir.mkdir(parents=True)
+    (playbooks_dir / "with-notebook.yaml").write_text(
+        "mcp: [notebook]\n", encoding="utf-8"
+    )
     checkout = harness_mod.find_checkout()
-    without = harness_mod.build_options(checkout, token="t0k", extras={})
+    playbook = playbooks.load("with-notebook", checkout)
+    bare = dataclasses.replace(playbook, mcp=[harness_mod.SERVER])
+    without = harness_mod.build_options(checkout, token="t0k", extras={}, playbook=bare)
     options = harness_mod.build_options(
-        checkout, token="t0k", transcript=tmp_path / "session"
+        checkout, token="t0k", transcript=tmp_path / "session", playbook=playbook
     )
 
     assert options.allowed_tools == without.allowed_tools + [
@@ -514,7 +524,10 @@ def test_a_labs_extra_mcp_server_is_added_and_its_token_is_never_shown(
     assert command.count("--mcp-config") == 1
     assert not any(secret in part for part in command)
 
-    assert harness_mod.main(["--show-config", "--json"]) == 0
+    assert (
+        harness_mod.main(["--show-config", "--json", "--playbook", "with-notebook"])
+        == 0
+    )
     printed = capsys.readouterr().out
     config = json.loads(printed)
     shown = config["extra_mcp"]["notebook"]
@@ -522,7 +535,7 @@ def test_a_labs_extra_mcp_server_is_added_and_its_token_is_never_shown(
     assert shown["where"] == "https://notebook.example/mcp"
     assert shown["token"] == "NOTEBOOK_TOKEN"
     assert "mcp__notebook__append_entry" in config["allowed_tools"]
-    assert harness_mod.main(["--show-config"]) == 0
+    assert harness_mod.main(["--show-config", "--playbook", "with-notebook"]) == 0
     printed += capsys.readouterr().out
     assert (
         "MCP notebook (https://notebook.example/mcp, token NOTEBOOK_TOKEN): "
@@ -839,7 +852,8 @@ def test_a_specialist_copied_for_a_session_gets_the_extra_servers_tools(
     # No file tools: the session runs in its run/.
     (tmp_path / "home" / "knowledge" / "playbooks").mkdir(parents=True)
     (tmp_path / "home" / "knowledge" / "playbooks" / "plain.yaml").write_text(
-        "agents: [autolamella-verifier]\nsession:\n  mode: none\n", encoding="utf-8"
+        "agents: [autolamella-verifier]\nmcp: [notebook]\nsession:\n  mode: none\n",
+        encoding="utf-8",
     )
     shipped = sources.agent_file("autolamella-verifier", harness_mod.find_checkout())
     before = shipped.read_bytes()
@@ -847,7 +861,9 @@ def test_a_specialist_copied_for_a_session_gets_the_extra_servers_tools(
     run_id = str(uuid.uuid4())
     plain = ["--session-id", run_id, "--playbook", "plain"]
     try:
-        for more in (plain, ["--files", str(tmp_path / "w")]):
+        # The playbook names the notebook: its specialists get its tools.
+        named = ["--playbook", "plain", "--files", str(tmp_path / "w")]
+        for more in (plain, named):
             code = harness_mod.main(
                 ["--url", "http://127.0.0.1:9", "--server-wait", "0"] + more
             )

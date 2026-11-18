@@ -1838,6 +1838,14 @@ def mcp_names(
     return names
 
 
+def used_servers(
+    extras: Dict[str, extra_mcp.Server], names: List[str]
+) -> Dict[str, extra_mcp.Server]:
+    """The lab's servers (*extras*) the session's *names* name: a lab server
+    is on only for a playbook that names it in ``mcp``."""
+    return {name: extras[name] for name in names if name in extras}
+
+
 def granted_tools(
     loaded: Loaded, extras, host: bool = False, fibsem: bool = True
 ) -> List[str]:
@@ -1887,8 +1895,8 @@ def build_options(
     host_token: Optional[str] = None,
 ):
     """The SDK session: the MCP servers the *playbook* names (``mcp``; the
-    sidecar alone without one), then the lab's other extra ones (*extras*,
-    else read; `extra_mcp`), the *loaded* skills and
+    sidecar alone without one), among them the lab's (*extras*, else read;
+    `extra_mcp`) and no other of the lab's, the *loaded* skills and
     subagents (`session_names`) and nothing else of the user's Claude Code
     config. With an agent *host*, its own sidecar offers the record tools
     there, and the instrument's sidecar offers the rest. Settings left None are the base playbook's. With ``work``, code
@@ -1920,13 +1928,15 @@ def build_options(
     kind = playbook.instrument if playbook is not None else None
     if kind:
         env[INSTRUMENT_ENV] = kind
+    # The playbook's servers, in its order: the sidecar and the lab's it
+    # names. The lab's others are off.
+    names = mcp_names(playbook, extras, host is not None)
+    extras = used_servers(extras, names)
     # The extra servers' tokens: their entries name them, ${NAME}, and the
     # CLI fills them in from here (`extra_mcp.definitions`).
     env.update(extra_mcp.tokens(extras))
     if host_token:
         env[HOST_TOKEN_ENV] = host_token
-    # The playbook's servers, in its order: the sidecar and the lab's it names.
-    names = mcp_names(playbook, extras, host is not None)
     granted = granted_tools(loaded, extras, host is not None, SERVER in names)
     tools, allowed, denied = BUILT_IN_TOOLS, granted, DENIED_TOOLS
     settings = None
@@ -1951,10 +1961,6 @@ def build_options(
         }
     if alarm is not None:
         servers[HARNESS_SERVER] = wake_server(alarm, control)
-    # The rest of the lab's: on for every playbook. Their entries carry no
-    # token, so the command line is fine.
-    for name, entry in lab.items():
-        servers.setdefault(name, entry)
     return ClaudeAgentOptions(
         # Its .claude holds the session's skills (`sources.assemble`; CLAUDE.md
         # is off, see CLI_ENV), and none of ~/.claude: the user's own
@@ -2256,10 +2262,12 @@ def _setup(args, checkout: Path) -> Setup:
         extra_mcp.tokens(extras)
     except extra_mcp.ExtraMcpError as error:
         raise SetupRefused(str(error)) from None
-    mcp_names(playbook, extras, getattr(args, "host", None) is not None)
+    names = mcp_names(playbook, extras, getattr(args, "host", None) is not None)
+    # A specialist gets only the lab servers its session has.
+    used = used_servers(extras, names)
     try:
         for name in loaded.agents:
-            subagents.check_file(name, checkout, EFFORTS, extras)
+            subagents.check_file(name, checkout, EFFORTS, used)
     except subagents.SubagentError as error:
         raise SetupRefused(str(error)) from None
     work = None
@@ -2389,7 +2397,11 @@ def main(argv=None) -> int:
     # The specialists' tools on the extra servers go on their copies in the
     # folder just assembled; with nothing assembled (run is the checkout),
     # the files are the shipped ones and stay as they are.
-    extra_tools = extra_mcp.subagent_allowed(extras)
+    extra_tools = extra_mcp.subagent_allowed(
+        used_servers(
+            extras, mcp_names(playbook, extras, getattr(args, "host", None) is not None)
+        )
+    )
     if work is not None:
         code_mode.prepare(work, checkout, loaded.skills, loaded.agents)
         subagents.add_tools(work, loaded.agents, extra_tools)
@@ -2593,9 +2605,11 @@ def show_config(
     loaded = loaded or session_names(checkout, playbook)
     extras = extra_mcp.load() if extras is None else extras
     host = getattr(args, "host", None)
-    servers = mcp_names(playbook, extras, host is not None) + (
-        [RECORD_SERVER] if host else []
-    )
+    named = mcp_names(playbook, extras, host is not None)
+    # The lab's servers this playbook leaves off, so none goes unnoticed.
+    unused = sorted(set(extras) - set(named))
+    extras = used_servers(extras, named)
+    servers = named + ([RECORD_SERVER] if host else [])
     granted = granted_tools(loaded, extras, host is not None, SERVER in servers)
     tools, allowed, denied = BUILT_IN_TOOLS, granted, DENIED_TOOLS
     if work is not None:
@@ -2614,8 +2628,9 @@ def show_config(
         "deadline_warn_min": playbook.session.deadline_warn_min,
         "quiet_min": playbook.session.quiet_min,
         "instrument": words.kind if words else playbook.instrument,
-        # The playbook's servers; the lab's others are on too (extra_mcp).
+        # The playbook's servers, and the lab's it doesn't name (off).
         "mcp": servers,
+        "mcp_unused": unused,
         # The agent host its record and wake-ups go through; None for the
         # App Server.
         "host": host,
@@ -2724,6 +2739,11 @@ def _config_text(config: dict) -> str:
         f"{', '.join(each['subagents']) or 'none'}"
         for name, each in config.get("extra_mcp", {}).items()
     ]
+    if config.get("mcp_unused"):
+        lines.append(
+            f"MCP off (the lab's, not named in this playbook's mcp): "
+            f"{', '.join(config['mcp_unused'])}"
+        )
     lines.append(f"Playbook skills: {', '.join(playbook['skills']) or 'none'}")
     lines += [f"  When needed: {o['skill']}, {o['when']}" for o in playbook["optional"]]
     lines.append("Reminders:")

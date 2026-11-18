@@ -13,8 +13,9 @@ call and the ones a specialist may list:
 
 The token is in no file and on no command line: the server's entry names it
 as ``${NOTEBOOK_TOKEN}``, which the CLI fills in from its environment, where
-the harness puts it (`tokens`). Without the file the agent has the fibsem
-tools only.
+the harness puts it (`tokens`). A server here is on only for a playbook that
+names it in its ``mcp`` list (`fibsem.ai.agent.playbooks`); ``fibsem-agent
+--show-config`` lists the ones a playbook leaves off.
 """
 
 import re
