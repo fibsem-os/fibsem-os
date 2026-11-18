@@ -40,6 +40,7 @@ def microscope():
     scene.rip_fraction = 0.0
     scene.noise_sigma = 0.0
     scene.noise_fraction = 0.0
+    scene.fib_charging = 0.0
     scene.features = []
     scene.__post_init__()
     scene.grids_from_holder = True
@@ -204,6 +205,7 @@ def _arctis(grid_position=GRID_POSITION, captured=None):
     scene.rip_fraction = 0.0
     scene.noise_sigma = 0.0
     scene.noise_fraction = 0.0
+    scene.fib_charging = 0.0
     scene.features = []
     scene.__post_init__()
     scene.grids_from_holder = True

@@ -917,6 +917,40 @@ def test_a_target_in_a_waffle_is_inside_its_cell_and_gone_with_it(microscope):
     assert scene._milled_away(0.0, 0.0, z)
 
 
+@pytest.mark.parametrize("scale, through", [(1.0, False), (10.0, True)])
+def test_a_pattern_reaches_a_target_low_in_its_cell_only_when_scaled(
+    microscope, scale, through
+):
+    """A pattern's depth is set for silicon: a configured scene scales it, so
+    a 1 um pass reaches a target near the film under a cell."""
+    _face(microscope, "FIB")
+    scene = _use(microscope, fm_no_target_chance=0.0, mill_depth_scale=scale)
+    film = sim_solid.film_top(scene)
+    targets = [t for t in scene.fm_targets() if t["midpoint"][2] * 1e6 < 1.5]
+    target = min(targets, key=lambda t: np.hypot(*t["midpoint"][:2]))
+    x, y, z = target["midpoint"]
+    for f in scene.features:
+        f.x -= x
+        f.y -= y
+    object.__setattr__(scene, "_solid_cache", None)
+    near = np.arange(-4, 4, 0.25)
+    level = sim_solid.Plan(scene, near, near).col["level"][16, 16]
+    assert level - film - z * 1e6 > 2.0  # more than twice the set depth down
+    microscope.draw_pattern(
+        FibsemRectangleSettings(
+            width=4e-6, height=4e-6, depth=1e-6, centre_x=0.0, centre_y=0.0
+        )
+    )
+    microscope.run_milling()
+    assert scene.milled[-1].depth == pytest.approx(scale * 1e-6)
+    assert scene._milled_away(0.0, 0.0, z) is through
+
+
+def test_a_configured_scene_scales_the_depth_a_pattern_cuts():
+    assert SampleScene.from_config({}).mill_depth_scale > 1.0
+    assert SampleScene().mill_depth_scale == 1.0
+
+
 HEXAGONAL = {**PLAIN, "grid_mesh": "hexagonal", "grid_rotation": 0.0}
 
 

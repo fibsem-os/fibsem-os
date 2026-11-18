@@ -20,6 +20,7 @@ PLAIN = {
     "rip_fraction": 0.0,
     "noise_sigma": 0.0,
     "noise_fraction": 0.0,
+    "fib_charging": 0.0,
 }
 
 
