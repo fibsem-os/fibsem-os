@@ -27,14 +27,15 @@ SITE = "Site-01"
 OFF_Z = (30e-6, 60e-6)
 # Coincident within this (m): what placing a lamella needs, not what
 # picking a site does
-TOLERANCE = 1e-6
+TOLERANCE = 2e-6
 
 BRIEF = (
     "Grid {grid} is loaded and the stage is at the SEM orientation, over a "
     "cell that is a good site for a lamella. The stage is not at the right "
     "height: the FIB is not looking at the point the SEM is. Make the site "
-    "coincident (the FIB centred on the same point as the SEM), check that "
-    "it is, and save it there as a lamella named {site} (item_add). Say "
+    "coincident (the FIB centred on the same point as the SEM, within "
+    "{tolerance:g} um: this site is for a lamella, not just a pick), check "
+    "that it is, and save it there as a lamella named {site} (item_add). Say "
     "whether it is coincident, and how you know."
 )
 
@@ -111,7 +112,9 @@ def write_case(
                 {"tool": "stage_move_absolute", "arguments": start},
             ],
         },
-        "brief": BRIEF.format(grid=sim_sites.GRID, site=SITE),
+        "brief": BRIEF.format(
+            grid=sim_sites.GRID, site=SITE, tolerance=TOLERANCE * 1e6
+        ),
         "scoring": {"tolerance_um": TOLERANCE * 1e6},
         "key": {
             "status": "keyed",
