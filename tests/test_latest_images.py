@@ -107,3 +107,24 @@ def test_the_session_keeps_the_microscope_s_images_without_a_window():
     session.microscope = None
     microscope.imaging.show(_image(BeamType.ION))
     assert session.images.get(BeamType.ION) is frame
+
+
+def test_each_device_s_images_are_kept_by_its_name_until_unfollowed():
+    from fibsem import utils
+    from fibsem.instrument import DeviceInstrument
+
+    microscope, _ = utils.setup_session(manufacturer="Demo")
+    beam = microscope.beams[BeamType.ELECTRON]
+    images = LatestImages()
+    images.follow(DeviceInstrument({"camera": beam}))
+
+    taken, live = _image(BeamType.ELECTRON), _image(BeamType.ELECTRON)
+    beam.image_acquired.emit(taken)
+    assert images.by_device() == {"camera": taken}
+    beam.live_frame.emit(live)
+    assert images.by_device() == {"camera": live}
+
+    images.follow(None)
+    assert images.by_device() == {}
+    beam.image_acquired.emit(_image(BeamType.ELECTRON))
+    assert images.by_device() == {}

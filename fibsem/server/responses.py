@@ -546,6 +546,9 @@ class DisplayImages:
     # microscope without an FM
     fm: Optional[ImagePayload] = None
     fm_available: bool = False
+    # each imaging device's latest image, by the device's name: the beams',
+    # and those of an instrument with no FIB/SEM
+    devices: Dict[str, ImagePayload] = field(default_factory=dict)
 
 
 @dataclass

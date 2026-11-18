@@ -88,8 +88,8 @@ function genericRows(spec: DeviceSpec, v: Values): Row[] {
   return rows;
 }
 
-// The cards, in this order; the first six show "Not Available" when the
-// instrument has none. A device of another type gets a card after these.
+// The cards, in this order; on a FIB/SEM the ones marked always show "Not
+// Available" when it has none. A device of another type gets a card after these.
 const KNOWN: { title: string; match: (s: DeviceSpec) => boolean; always: boolean }[] = [
   { title: "Electron Beam", match: (s) => s.type === "beam" && /electron/i.test(s.name), always: true },
   { title: "Ion Beam", match: (s) => s.type === "beam" && /ion/i.test(s.name), always: true },
@@ -107,7 +107,8 @@ interface Slot {
   spec?: DeviceSpec;
 }
 
-function slots(listing: DeviceListing): Slot[] {
+/** *fibsem*: whether a FIB/SEM is served, whose missing parts still get a card. */
+function slots(listing: DeviceListing, fibsem: boolean): Slot[] {
   const specs = Object.values(listing).filter((s) => !SKIPPED.has(s.type));
   const used = new Set<string>();
   const out: Slot[] = [];
@@ -116,7 +117,7 @@ function slots(listing: DeviceListing): Slot[] {
     found.forEach((s) => used.add(s.name));
     if (found.length === 1) out.push({ title: known.title, spec: found[0] });
     else if (found.length > 1) found.forEach((s) => out.push({ title: `${known.title} (${s.name})`, spec: s }));
-    else if (known.always) out.push({ title: known.title });
+    else if (known.always && fibsem) out.push({ title: known.title });
   }
   for (const s of specs) if (!used.has(s.name)) out.push({ title: words(s.name), spec: s });
   return out;
@@ -131,7 +132,17 @@ function staleness(read?: Reading<DeviceValues>, error?: unknown): string | null
   return null;
 }
 
-function DeviceCard({ slot, read, error }: { slot: Slot; read?: Reading<DeviceValues>; error?: unknown }) {
+function DeviceCard({
+  slot,
+  read,
+  error,
+  fibsem,
+}: {
+  slot: Slot;
+  read?: Reading<DeviceValues>;
+  error?: unknown;
+  fibsem: boolean;
+}) {
   const values = read?.value;
   const stale = staleness(read, error);
   if (!slot.spec)
@@ -142,11 +153,13 @@ function DeviceCard({ slot, read, error }: { slot: Slot; read?: Reading<DeviceVa
       </Card>
     );
   const v = values?.values ?? {};
+  // A FIB/SEM's beams and stage read as their own rows; any other instrument's
+  // devices as they describe themselves.
   const rows = !values
     ? []
-    : slot.spec.type === "beam"
+    : fibsem && slot.spec.type === "beam"
       ? beamRows(v)
-      : slot.spec.type === "stage"
+      : fibsem && slot.spec.type === "stage"
         ? stageRows(v)
         : genericRows(slot.spec, v);
   const sub = slot.spec.type === "beam" && values ? (v.on === false ? "Off" : v.blanked ? "Blanked" : "On") : "";
@@ -180,19 +193,28 @@ function Shown({ image, alt, height }: { image: ImagePayload; alt: string; heigh
   );
 }
 
-function LastAcquired() {
+/** The latest image of each view: a FIB/SEM's SEM, FIB and FM, always; any
+ * other instrument's, one for each device that has sent one. */
+function LastAcquired({ fibsem }: { fibsem: boolean }) {
   const images = useQuery({
     queryKey: ["app/experiment/images"],
     queryFn: () => api<DisplayImages>("/app/experiment/images"),
   });
   const [shown, setShown] = useState<string | null>(null);
   const keys = images.data?.fm_available ? (["sem", "fib", "fm"] as const) : (["sem", "fib"] as const);
-  const pairs = keys.map((key) => [key, images.data?.[key] ?? null] as [string, ImagePayload | null]);
+  const pairs: [string, ImagePayload | null][] = fibsem
+    ? keys.map((key) => [key, images.data?.[key] ?? null])
+    : Object.entries(images.data?.devices ?? {});
+  const label = (key: string) => (fibsem ? IMAGE_LABEL[key] : words(key));
+  // A device's image is named by its device; a beam's by its metadata.
+  const infoOf = (key: string, image: ImagePayload) =>
+    fibsem || !image.info ? image.info : { ...image.info, kind: label(key) };
   const big = pairs.find(([key]) => key === shown)?.[1];
   return (
     <Card className="flex flex-col gap-3">
       <CardTitle>Last acquired</CardTitle>
-      <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 ${keys.length > 2 ? "lg:grid-cols-3" : ""}`}>
+      {pairs.length === 0 && <span className="text-[13px] text-muted-foreground">None yet</span>}
+      <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 ${pairs.length > 2 ? "lg:grid-cols-3" : ""}`}>
         {pairs.map(([key, image]) =>
           image ? (
             <button
@@ -202,28 +224,28 @@ function LastAcquired() {
             >
               {/* A 3:2 frame, the image fitted inside it: the scalebar needs the whole image. */}
               <div className="flex aspect-[3/2] w-full items-center justify-center bg-black [container-type:inline-size]">
-                <Shown image={image} alt={`Last ${IMAGE_LABEL[key]}`} height="(100cqw * 2 / 3)" />
+                <Shown image={image} alt={`Last ${label(key)}`} height="(100cqw * 2 / 3)" />
               </div>
-              <ImageInfoBar info={image.info} />
+              <ImageInfoBar info={infoOf(key, image)} />
             </button>
           ) : (
             <div key={key} className="flex flex-col gap-1.5">
               <div className="flex aspect-[3/2] w-full items-center justify-center rounded-sm bg-panel text-[13px] text-muted-foreground">
                 None yet
               </div>
-              <span className="text-[13px]">{IMAGE_LABEL[key]}</span>
+              <span className="text-[13px]">{label(key)}</span>
             </div>
           ),
         )}
       </div>
       <Dialog open={!!big} onOpenChange={(open) => !open && setShown(null)}>
         {big && shown && (
-          <DialogContent title={IMAGE_LABEL[shown]} className="w-[min(1100px,calc(100vw-32px))]">
+          <DialogContent title={label(shown)} className="w-[min(1100px,calc(100vw-32px))]">
             <div className="flex flex-col p-3.5">
               <div className="flex items-center justify-center bg-black">
-                <Shown image={big} alt={IMAGE_LABEL[shown]} height="70vh" />
+                <Shown image={big} alt={label(shown)} height="70vh" />
               </div>
-              <ImageInfoBar info={big.info} />
+              <ImageInfoBar info={infoOf(shown, big)} />
             </div>
           </DialogContent>
         )}
@@ -276,11 +298,13 @@ export function ConnectionCard({ base = "", title = "Connection" }: { base?: str
       {data.connected && c ? (
         <>
           <Facts
-            rows={[
-              ["Configuration", c.name ?? c.path ?? ""],
-              ["Microscope", [c.manufacturer, c.model].filter(Boolean).join(" ")],
-              ["Address", c.address ?? ""],
-            ]}
+            rows={(
+              [
+                ["Configuration", c.name ?? c.path ?? ""],
+                ["Microscope", [c.manufacturer, c.model].filter(Boolean).join(" ")],
+                ["Address", c.address ?? ""],
+              ] as [string, string][]
+            ).filter(([, value]) => value)}
           />
           <div className="flex justify-end">
             <Button disabled={busy} onClick={() => act.mutate("/microscope/disconnect")}>
@@ -344,18 +368,23 @@ function MicroscopePanel({ info }: { info: MicroscopeInfo }) {
 
 export function MicroscopePage() {
   const caps = useQuery({ queryKey: ["capabilities"], queryFn: () => api<Capabilities>("/capabilities") });
-  const served = caps.data?.routers.microscope && caps.data?.connected !== false;
+  // Devices with no microscope are served too, though no microscope is connected.
+  const served = caps.data?.routers.microscope && (caps.data.connected !== false || !!caps.data.instruments?.length);
+  // What is served first: a FIB/SEM ("fibsem"), or devices with no microscope.
+  // A server that does not say serves a FIB/SEM.
+  const kind = caps.data?.instruments?.[0];
+  const fibsem = kind === undefined || kind === "fibsem";
   const info = useQuery({
     queryKey: ["microscope"],
     queryFn: () => api<MicroscopeInfo>("/microscope"),
-    enabled: !!served,
+    enabled: !!served && fibsem,
   });
   const listing = useQuery({
     queryKey: ["microscope/devices"],
     queryFn: () => api<DeviceListing>("/microscope/devices"),
     enabled: !!served,
   });
-  const cards = listing.data ? slots(listing.data) : [];
+  const cards = listing.data ? slots(listing.data, fibsem) : [];
   const readings = useQueries({
     queries: cards
       .filter((slot) => slot.spec)
@@ -370,7 +399,7 @@ export function MicroscopePage() {
   return (
     <div className="mx-auto flex w-full max-w-[1400px] flex-wrap gap-5 p-5">
       <main className="flex min-w-0 flex-[999_1_640px] flex-col gap-5">
-        <LastAcquired />
+        <LastAcquired fibsem={fibsem} />
         {caps.data && !caps.data.routers.microscope && (
           <Card>
             <p className="m-0 text-[13px] text-muted-foreground">
@@ -386,13 +415,14 @@ export function MicroscopePage() {
               slot={slot}
               read={slot.spec ? readOf.get(slot.spec.name)?.data : undefined}
               error={slot.spec ? readOf.get(slot.spec.name)?.error : undefined}
+              fibsem={fibsem}
             />
           ))}
         </div>
       </main>
       <aside className="flex min-w-0 flex-[1_1_300px] flex-col gap-5 lg:max-w-[400px]">
         <ConnectionCard />
-        {info.data && <MicroscopePanel info={info.data} />}
+        {fibsem && info.data && <MicroscopePanel info={info.data} />}
       </aside>
     </div>
   );

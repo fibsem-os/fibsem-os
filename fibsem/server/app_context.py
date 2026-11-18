@@ -879,18 +879,24 @@ class AppContext:
                 return None
             return decode(ImagePayload, {**payload, "info": image_info(image)})
 
+        devices = {
+            name: shown
+            for name, image in images.by_device().items()
+            if (shown := preview(image)) is not None
+        }
         return DisplayImages(
             sem=preview(images.get(BeamType.ELECTRON)),
             fib=preview(images.get(BeamType.ION)),
             fm=preview(images.get_fm()),
             fm_available=getattr(self._microscope, "fm", None) is not None,
+            devices=devices,
         )
 
     @property
     def _latest_images(self):
-        """The session's latest image of each beam, window or not; None
-        until a microscope connects."""
-        if self._microscope is None:
+        """The session's latest images, window or not; None until a
+        microscope or devices connect."""
+        if self._session.instrument is None:
             return None
         return self._session.images
 
