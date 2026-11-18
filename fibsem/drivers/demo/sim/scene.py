@@ -179,6 +179,11 @@ CENTRE_MARK_SIZE = 2.4
 # thicknesses that take away about two-thirds of the SEM charging
 GIS_RATE = 0.04e-6  # m/s with the valve open
 SPUTTER_RATE = 0.5e-9  # m/s
+# FIB charging (see ion_charge_up): how far (px at 1024) the scan lines
+# wander and jump, and how often a line jumps
+ION_WANDER = 3.0
+ION_STEP = 3.0
+ION_JUMP = 0.004
 SPUTTER_DISCHARGE = 5e-9  # m
 GIS_DISCHARGE = 1e-6  # m
 
@@ -333,6 +338,10 @@ class MilledRegion:
 
 DAMAGE_CURRENT = 60e-12  # A; a usual polishing current
 ION_YIELD = 10.0  # um^3 of ice a nC of ions takes away
+# how much deeper than its set depth a pattern cuts in a configured scene:
+# enough for a protocol's polishing pass (1 um set) to reach the film under
+# the tallest cells
+MILL_DEPTH_SCALE = 10.0
 IMAGING_STEP = 20e-9  # m; what imaging wears away shows in steps this deep
 MILL_DEPTH = 90.0  # how dark a trench reads in the FM reflection (canvas scale)
 # A spot burn: what a 60 pA, 10 s exposure leaves on a real grid. The mark is
@@ -480,6 +489,11 @@ class SampleScene:
     # how strongly the SEM charges an uncoated grid (cells, ice): bright
     # patches and streaks along the scan, worse with a longer dwell; 0 = never
     charging: float = 1.0
+    # how strongly the FIB charges the sample while it images: what stands
+    # up off the film goes dark with a bright edge, the ice blotches, and the
+    # scan lines slip sideways, a little differently every frame. 0 = never;
+    # on for a scene from the configuration
+    fib_charging: float = 0.0
     # milling is not perfect: each pass drifts by a seeded offset (m, sigma)
     # and a pattern cuts a little past its edges (m, up to)
     mill_drift: float = 20e-9
@@ -489,6 +503,11 @@ class SampleScene:
     # thicker at its bottom; a cut face carries vertical curtaining stripes
     mill_kerf: bool = True
     mill_taper: float = 1.5
+    # how much deeper a pattern cuts into the sample than its set depth: the
+    # depth is set for silicon, and ice at the milling angle goes far
+    # faster, so a protocol's trenches and polishing passes reach through
+    # the cells to the film. On for a scene from the configuration
+    mill_depth_scale: float = 1.0
     curtaining: float = 1.0
     # a thin lamella can be damaged: below a seeded thickness (m, range) each
     # polishing pass has this chance of starting damage (a ragged front face,
@@ -1052,6 +1071,56 @@ class SampleScene:
         dwell = float(np.clip(np.sqrt(dwell_time / 1e-6), 0.0, 2.5))
         return float(self.charging * coat * dwell)
 
+    def ion_charge_strength(self, dwell_time: Optional[float]) -> float:
+        """How much the FIB charges the sample now: the scene's
+        `fib_charging`, less what a coat carries away, more the longer each
+        pixel dwells. 0 with no dwell given."""
+        if not dwell_time or self.fib_charging <= 0:
+            return 0.0
+        coat = np.exp(-self.sputter_thickness / SPUTTER_DISCHARGE) / (
+            1.0 + self.gis_thickness / GIS_DISCHARGE
+        )
+        dwell = float(np.clip(np.sqrt(dwell_time / 1e-6), 0.3, 2.5))
+        return float(self.fib_charging * coat * dwell)
+
+    @staticmethod
+    def ion_charge_up(
+        data: np.ndarray, charge: np.ndarray, strength: float, rng
+    ) -> np.ndarray:
+        """FIB charging on a grey-level image, different every frame: the
+        ions leave the insulating parts (`charge`, 0..1 per pixel: what
+        stands up, and patches of the ice) positive, so they go dark with a
+        bright edge, and the charge deflects the beam, so the scan lines slip
+        sideways as it builds and jump where it lets go."""
+        if strength <= 0:
+            return data
+        height, width = data.shape
+        size = max(data.shape) / 1024.0
+        bias = rng.uniform(0.85, 1.15)  # how charged this frame is
+        k = np.clip(strength * bias * sim_view.gauss(charge, 4.0 * size), 0, 1)
+        edge = np.clip(
+            sim_view.gauss(charge, 1.5 * size) - sim_view.gauss(charge, 6.0 * size),
+            0,
+            None,
+        )
+        out = data * (1 - 0.55 * k) + 90.0 * strength * edge
+        # the scan lines slip: a slow wander, and a jump where charge lets go
+        walk = np.cumsum(rng.normal(0, 1, height))
+        walk = ndi_gaussian(walk - walk.mean(), 6.0 * size)
+        walk = walk / (np.abs(walk).max() or 1.0)
+        jumps = np.cumsum((rng.random(height) < ION_JUMP) * rng.normal(0, 1, height))
+        load = 0.3 + k.mean(axis=1)
+        shift = strength * size * load * (ION_WANDER * walk + ION_STEP * jumps)
+        # it bends the frame rather than moving it: the rows slip about where
+        # the frame is
+        shift = shift - np.median(shift)
+        cols = np.clip(np.arange(width)[None, :] - shift[:, None], 0, width - 1)
+        c0 = np.floor(cols).astype(np.int64)
+        c1 = np.minimum(c0 + 1, width - 1)
+        f = cols - c0
+        r = np.arange(height)[:, None]
+        return out[r, c0] * (1 - f) + out[r, c1] * f
+
     @staticmethod
     def charge_up(data: np.ndarray, charge: np.ndarray, strength: float) -> np.ndarray:
         """SEM charging on a grey-level image: the insulating parts (`charge`,
@@ -1286,7 +1355,7 @@ class SampleScene:
         actual: List[np.ndarray] = []
         regions: List[MilledRegion] = []
         for p in patterns:
-            depth = float(getattr(p, "depth", 1e-6) or 1e-6)
+            depth = float(getattr(p, "depth", 1e-6) or 1e-6) * self.mill_depth_scale
             drawn = len(planned)
             if hasattr(p, "start_x"):  # a line: a thin rectangle along it
                 half = float(getattr(p, "width", 0.5e-6) or 0.5e-6) / 2
@@ -1338,7 +1407,9 @@ class SampleScene:
         record["current"] = beam_current
         record["kerf"] = kerf
         if record.get("gap") is not None:
-            depth = min(float(getattr(p, "depth", 1e-6) or 1e-6) for p in patterns)
+            depth = self.mill_depth_scale * min(
+                float(getattr(p, "depth", 1e-6) or 1e-6) for p in patterns
+            )
             lean = np.tan(np.deg2rad(self.mill_taper))
             record["gap_at_depth"] = record["gap"] + 2 * lean * depth
         damage = self._damage(record, rng)
@@ -2752,6 +2823,7 @@ class SampleScene:
         "mill_overcut",  # m, how far past its edges a pattern may cut
         "mill_kerf",  # a higher current cuts wider
         "mill_taper",  # degrees the trench walls lean in going down
+        "mill_depth_scale",  # how much deeper than its set depth a pattern cuts
         "curtaining",  # strength of the stripes down a cut face (0 = none)
         "damage_below",  # [min, max] m, the seeded thickness damage can start below
         "damage_chance",  # per polishing pass below it
@@ -2765,6 +2837,7 @@ class SampleScene:
         "fm_cilium_fraction",  # of the target cells, those with a cilium
         "fm_hot_pixels",  # fraction of FM camera pixels that are hot
         "charging",  # SEM charging strength on an uncoated grid (0 = never)
+        "fib_charging",  # FIB charging strength on an uncoated grid (0 = never)
         "gis_thickness",  # m, a GIS coat the grid comes in with
         "sputter_thickness",  # m, a sputter coat the grid comes in with
         "centre_mark",  # the orientation square at the grid's centre
@@ -2782,6 +2855,8 @@ class SampleScene:
             "imaging_damage": 1.0,
             "surface_grain": 1.0,
             "damage_current": DAMAGE_CURRENT,
+            "mill_depth_scale": MILL_DEPTH_SCALE,
+            "fib_charging": 1.0,
         }
 
     @classmethod
@@ -2902,6 +2977,8 @@ class SampleScene:
         charge = 0.0
         if beam_type is BeamType.ELECTRON:
             charge = self.charge_strength(dwell_time)
+        else:
+            charge = self.ion_charge_strength(dwell_time)
         return sim_view.render(
             self,
             beam,
