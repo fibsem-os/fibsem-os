@@ -43,6 +43,7 @@ from fibsem import diagnostics
 from fibsem.ai.agent import (
     code_mode,
     extra_mcp,
+    host_link,
     instruments,
     mirror,
     playbooks,
@@ -2055,8 +2056,18 @@ def status(
 
     rows = [
         ("fibsem", __version__),
-        ("Server", args.url or "this computer's App Server"),
-        *([("Host", args.host)] if getattr(args, "host", None) else []),
+        *(
+            [
+                ("Host", args.host),
+                (
+                    "Server",
+                    args.url
+                    or "this computer's App Server, if the playbook names fibsem",
+                ),
+            ]
+            if getattr(args, "host", None)
+            else [("Server", args.url or "this computer's App Server")]
+        ),
         ("Playbook", getattr(args, "playbook", None) or "none"),
         ("Model", args.model or "Claude Code's default"),
         ("Goal", args.goal or "none: the skills decide"),
@@ -2100,11 +2111,15 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--host",
+        nargs="?",
+        const="",
         default=None,
         metavar="URL",
         help="an agent host (fibsem-agent-host) to hear from and keep the "
-        "agent's record through, in place of the App Server; its token goes "
-        f"in {HOST_TOKEN_ENV} (environment or key store). The instrument's "
+        "agent's record through, in place of the App Server: the one running "
+        "on this PC, or at URL. It asks the operator to allow this agent, and "
+        "keeps the token it is given; or set the token in "
+        f"{HOST_TOKEN_ENV} (environment or key store). The instrument's "
         "server is then one of the playbook's mcp servers, or none",
     )
     parser.add_argument("--model", default=None, help="model (default: the CLI's)")
@@ -2342,6 +2357,13 @@ def main(argv=None) -> int:
         parser.error("--session-id starts a new session: --resume carries one on")
     if args.list_hooks:
         return _print(reminders.hook_rows(), args.json, _hook_text)
+    if args.host is not None:
+        # --host alone: the host running on this PC, from its discovery file.
+        url = host_link.host_url(args.host)
+        if url is None and not args.show_config:
+            print(host_link.NO_HOST, file=sys.stderr)
+            return 1
+        args.host = url or host_link.ON_THIS_PC
 
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -2373,15 +2395,14 @@ def main(argv=None) -> int:
         return 1
     # From the environment, so it is not in the process list or shell history.
     token = server_env()[1]
-    # The agent host's, from the environment or the key store.
-    host_token = get_secret(HOST_TOKEN_ENV) if args.host else None
-    if args.host and not host_token:
-        print(
-            f"fibsem-agent: --host needs the agent's token there in {HOST_TOKEN_ENV} "
-            "(the environment or the key store).",
-            file=sys.stderr,
-        )
-        return 1
+    # The agent's token at the host: set, kept from an Allow there, or asked for.
+    host_token = None
+    if args.host:
+        try:
+            host_token = host_link.host_token(args.host)
+        except (LookupError, PermissionError) as why:
+            print(f"fibsem-agent: {why}", file=sys.stderr)
+            return 1
     # The CLI reads the key from its environment, which it inherits from here.
     key = get_secret(API_KEY)
     if key:

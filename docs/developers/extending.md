@@ -139,7 +139,10 @@ Each group contributes one kind of object:
   kind for a lab's own instrument but never replaces a shipped one. A
   playbook for another kind than `fibsem` names its own MCP servers (`mcp:`);
   one with no instrument at all sets `instrument: none` and runs through an
-  agent host (`fibsem-agent --host`).
+  agent host: start `fibsem-agent-host`, then `fibsem-agent --host`. The host
+  makes its own tokens and writes a discovery file, as the App Server does, so
+  the agent finds it and asks to connect; the operator allows it on the host's
+  Agent page (`/ui/agent`).
 
 When a built-in, a runtime registration and a plugin claim the same name, the
 built-in is used, then the runtime registration, then the plugin.

@@ -39,6 +39,11 @@ LEGACY_DISCOVERY_FILE = (
     DISCOVERY_FILE if _OVERRIDE else DISCOVERY_DIR / "agent-server.json"
 )
 
+# The agent host's (`fibsem.server.agent.host`), run on its own: the same
+# shape, so the same functions write and read it. A host and an App Server
+# may run on one PC.
+HOST_DISCOVERY_FILE = DISCOVERY_DIR / "agent-host.json"
+
 # The version of the App Server's routes. A change that an older client can't
 # work with (a route or a field removed or renamed, an answer that changes
 # meaning) raises the minor number, and clients built for another minor refuse

@@ -405,3 +405,149 @@ def test_the_agent_page_reads_the_host_s_record(host, operator):
     # Nothing is drawn: no request or suggestion waits here.
     assert operator.get("/app/agent/pictures/request").status_code == 404
     assert operator.get("/app/agent/customisation").status_code == 200
+
+
+# --- run on its own: its own tokens, found and asked ----------------------------
+
+
+def _free_port() -> int:
+    import socket
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+@pytest.fixture
+def on_its_own(tmp_path, monkeypatch):
+    """fibsem-agent-host's main with no tokens set, its files in *tmp_path*."""
+    from fibsem.client import pairing as client_pairing
+    from fibsem.server import discovery
+    from fibsem.server.agent import host as host_mod
+
+    monkeypatch.setenv("FIBSEM_HOME", str(tmp_path / "home"))
+    for name in (host_mod.HOST_TOKEN, host_mod.HOST_OPERATOR_TOKEN):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(host_mod, "get_secret", lambda name: None)
+    monkeypatch.setattr("fibsem.ai.agent.host_link.get_secret", lambda name: None)
+    monkeypatch.setattr(host_mod, "load_operator_token", lambda: OPERATOR)
+    monkeypatch.setattr(host_mod, "HOST_PAIRED_FILE", tmp_path / "paired.json")
+    monkeypatch.setattr(discovery, "HOST_DISCOVERY_FILE", tmp_path / "agent-host.json")
+    monkeypatch.setattr(client_pairing, "AGENT_DIR", tmp_path / "agent")
+    return tmp_path / "agent-host.json"
+
+
+def _serving(app, port):
+    server = uvicorn.Server(
+        uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
+    )
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    while not server.started:
+        assert thread.is_alive(), "the host failed to start"
+        time.sleep(0.01)
+    return server, thread
+
+
+def test_on_its_own_it_makes_its_tokens_and_the_operator_allows_the_agent(
+    on_its_own, tmp_path, monkeypatch
+):
+    from fibsem.ai.agent import host_link
+    from fibsem.server.agent import host as host_mod
+
+    port = _free_port()
+    seen = {}
+
+    def run(app, host, port, log_level):
+        found = json.loads(on_its_own.read_text())
+        seen["file"] = found
+        url = found["url"]
+        assert host_link.host_url("") == url
+        server, thread = _serving(app, port)
+        try:
+            operator = TestClient(app, headers=_as(OPERATOR))
+            # The connect token only asks.
+            asks = TestClient(app, headers=_as(found["connect_token"]))
+            assert asks.get("/app/events").json()["detail"]["error_type"] == (
+                "connect_first"
+            )
+            # The web app, for the operator's Agent page.
+            assert TestClient(app).get("/ui/agent").status_code == 200
+            got = {}
+            asking = threading.Thread(
+                target=lambda: got.update(token=host_link.host_token(url, wait_s=20)),
+                daemon=True,
+            )
+            asking.start()
+            deadline = time.monotonic() + 20
+            while asking.is_alive() and time.monotonic() < deadline:
+                ask = operator.get("/app/agent").json().get("asking")
+                if ask:
+                    operator.post(f"/app/agent/connections/{ask['id']}/allow")
+                time.sleep(0.05)
+            asking.join(timeout=5)
+            token = got["token"]
+            assert token not in (found["connect_token"], OPERATOR)
+            assert (
+                TestClient(app, headers=_as(token)).get("/app/events").status_code
+                == 200
+            )
+            # Kept: the next start (a resumed session's) doesn't ask again.
+            assert host_link.host_token(url, wait_s=0) == token
+            seen["token"] = token
+        finally:
+            server.should_exit = True
+            thread.join(timeout=5)
+
+    monkeypatch.setattr(uvicorn, "run", run)
+    assert host_mod.main(["--folder", str(tmp_path / "host"), "--port", str(port)]) == 0
+    assert "token" not in seen["file"]
+    assert seen["file"]["url"] == f"http://127.0.0.1:{port}"
+    # Gone when it stops; the agent it allowed is still allowed next time.
+    assert not on_its_own.exists()
+    assert seen["token"] and (tmp_path / "paired.json").exists()
+
+
+def test_a_second_host_on_the_pc_is_refused(on_its_own, tmp_path, monkeypatch):
+    import os
+
+    from fibsem.server.agent import host as host_mod
+
+    on_its_own.write_text(
+        json.dumps(
+            {"url": "http://127.0.0.1:1", "connect_token": "x", "pid": os.getpid()}
+        )
+    )
+    monkeypatch.setattr(uvicorn, "run", lambda *a, **k: pytest.fail("served"))
+    assert host_mod.main(["--folder", str(tmp_path / "host")]) == 1
+
+
+def test_set_tokens_write_no_discovery_file(on_its_own, tmp_path, monkeypatch):
+    from fibsem.server.agent import host as host_mod
+
+    secrets = {host_mod.HOST_TOKEN: AGENT, host_mod.HOST_OPERATOR_TOKEN: OPERATOR}
+    monkeypatch.setattr(host_mod, "get_secret", secrets.get)
+    seen = {}
+
+    def run(app, **kwargs):
+        seen["file"] = on_its_own.exists()
+        seen["auth"] = app.state.auth
+
+    monkeypatch.setattr(uvicorn, "run", run)
+    assert host_mod.main(["--folder", str(tmp_path / "host")]) == 0
+    assert seen["file"] is False
+    assert seen["auth"].token == AGENT and seen["auth"].pairing is None
+
+
+def test_only_one_set_token_is_refused(on_its_own, tmp_path, monkeypatch):
+    from fibsem.server.agent import host as host_mod
+
+    monkeypatch.setattr(host_mod, "get_secret", {host_mod.HOST_TOKEN: AGENT}.get)
+    assert host_mod.main(["--folder", str(tmp_path / "host")]) == 1
+
+
+def test_the_agent_says_when_no_host_runs_on_the_pc(on_its_own, capsys):
+    from fibsem.ai.agent import harness
+
+    assert harness.main(["--host"]) == 1
+    assert "no agent host is running" in capsys.readouterr().err
