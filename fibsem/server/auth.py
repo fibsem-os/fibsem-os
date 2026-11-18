@@ -95,6 +95,12 @@ class AuthConfig:
     # Set by stop_agent, cleared by the next set_level: the operator braked, so a
     # refusal says so rather than only naming the level.
     stopped: bool = False
+    # When the level the operator set runs out (epoch seconds), dropping to
+    # Watch; None for no limit.
+    level_until: Optional[float] = None
+    # Set when that limit ran out, cleared by the next set_level: a refusal
+    # says the time ran out rather than only naming the level.
+    expired: bool = False
     # Monotonic time of the last request that presented the valid token; None
     # until one arrives. The connected agent's proof of life: its event
     # long-poll alone touches the server every half-minute, so staleness here
@@ -114,6 +120,13 @@ class AuthConfig:
     # Called after each level change and on Stop agent (on_level_change).
     _listeners: List[Callable[[], Optional[Callable]]] = field(
         default_factory=list, repr=False, compare=False
+    )
+    _expiry: Optional[threading.Timer] = field(default=None, repr=False, compare=False)
+    _on_expired: Optional[Callable[[], None]] = field(
+        default=None, repr=False, compare=False
+    )
+    _expiry_lock: threading.RLock = field(
+        default_factory=threading.RLock, repr=False, compare=False
     )
 
     def mark_seen(
@@ -139,15 +152,68 @@ class AuthConfig:
             return None
         return max(0.0, time.monotonic() - seen)
 
-    def set_level(self, level: AgentLevel) -> None:
-        """Set the agent level, effective for the next request."""
-        self._set_level(AgentLevel(level), stopped=False)
+    def set_level(
+        self,
+        level: AgentLevel,
+        until: Optional[float] = None,
+        on_expired: Optional[Callable[[], None]] = None,
+    ) -> None:
+        """Set the agent level, effective for the next request. With *until*
+        (epoch seconds), an acting level (Assist, Drive) drops to Watch then,
+        and *on_expired* is called after it has.
+
+        Raises:
+            ValueError: *until* is given for Watch or Off, or is not in the future.
+        """
+        level = AgentLevel(level)
+        if until is not None:
+            if level not in (AgentLevel.ASSIST, AgentLevel.DRIVE):
+                raise ValueError("A time limit is only for Assist or Drive.")
+            if until <= time.time():
+                raise ValueError("The time limit has already passed.")
+        self._cancel_expiry()
+        self.expired = False
+        self._set_level(level, stopped=False)
+        if until is not None and self.level is level:
+            self.level_until, self._on_expired = until, on_expired
+            timer = threading.Timer(until - time.time(), self.expire_if_due)
+            timer.daemon = True
+            self._expiry = timer
+            timer.start()
 
     def stop_agent(self) -> None:
         """The operator's Stop agent: down to Watch at once. The agent still
         sees, so it can say what happened; its next action is refused as
         stopped."""
+        self._cancel_expiry()
+        self.expired = False
         self._set_level(AgentLevel.WATCH, stopped=True)
+
+    def expire_if_due(self) -> bool:
+        """Drop to Watch when the level's time limit has run out; True if it
+        dropped now. The timer calls it at the limit, and every gated request
+        before it is decided, so a late timer never lets a call through."""
+        with self._expiry_lock:
+            until = self.level_until
+            if until is None or time.time() < until:
+                return False
+            on_expired = self._on_expired
+            self.level_until, self._on_expired, self._expiry = None, None, None
+            self._set_level(AgentLevel.WATCH, stopped=False)
+            self.expired = True
+        logger.info("The agent level's time limit ran out: down to Watch")
+        if on_expired is not None:
+            try:
+                on_expired()
+            except Exception:  # noqa: BLE001 - the level has dropped either way
+                logger.exception("Agent level expiry listener failed")
+        return True
+
+    def _cancel_expiry(self) -> None:
+        with self._expiry_lock:
+            if self._expiry is not None:
+                self._expiry.cancel()
+            self.level_until, self._on_expired, self._expiry = None, None, None
 
     def on_level_change(self, callback: Callable[[AgentLevel, bool], None]) -> None:
         """Call ``callback(level, stopped)`` after the level changes, and on
@@ -325,6 +391,14 @@ def _level_detail(
             "message": "The operator stopped the agent and set it to Watch: it "
             "can look and add notes, but not act, until they raise the level.",
         }
+    if auth.expired and auth.level is AgentLevel.WATCH:
+        return {
+            "error_type": "level",
+            "level": AgentLevel.WATCH.value,
+            "message": "The time limit the operator gave the agent level ran "
+            "out, and it dropped to Watch: the agent can look and add notes, but "
+            f"not act, until they raise the level from the Agent chip in {app_name}.",
+        }
     if (
         auth.level is AgentLevel.ASSIST
         and needed is AgentLevel.DRIVE
@@ -379,6 +453,7 @@ def require_level(needed: AgentLevel):
         # is the app's doing, not the agent's.
         if not lent:
             auth.mark_seen(request.headers.get("User-Agent"), token)
+        auth.expire_if_due()
         if auth.level is AgentLevel.OFF:
             raise refusal_error(
                 403,

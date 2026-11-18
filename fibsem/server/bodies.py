@@ -97,11 +97,13 @@ class MessageBody:
 
 @dataclass
 class LevelBody:
-    """PUT /app/agent/level."""
+    """PUT /app/agent/level. ``until``, an ISO 8601 time, limits Assist or
+    Drive: at that time the level drops to Watch. Without it, no limit."""
 
     __pydantic_config__ = STRICT
 
     level: str
+    until: Optional[str] = None
 
 
 @dataclass

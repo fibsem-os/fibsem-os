@@ -1491,6 +1491,10 @@ class AgentView:
     budget_low: bool = False
     # the chip's word: what it asks for or is applying, or its level
     chip: str = ""
+    # when the level drops to Watch, as ISO 8601; None for no limit
+    level_until: Optional[str] = None
+    # whether the last time limit ran out, dropping the level to Watch
+    level_expired: bool = False
 
 
 @dataclass
@@ -1602,6 +1606,8 @@ class MessageSent:
 @dataclass
 class LevelSet:
     level: str
+    # when the level drops to Watch, as ISO 8601; None for no limit
+    until: Optional[str] = None
 
 
 @dataclass

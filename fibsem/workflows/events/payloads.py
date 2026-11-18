@@ -125,10 +125,13 @@ class CommandRun(Payload):
 
 @dataclass(frozen=True)
 class LevelSet(Payload):
-    """The operator set the agent's level."""
+    """The operator set the agent's level: ``until`` when it drops to Watch
+    (ISO 8601), or ``expired`` when that time ran out and it dropped."""
 
     level: Optional[str] = None
     previous: Optional[str] = None
+    until: Optional[str] = None
+    expired: Optional[bool] = None
 
 
 @dataclass(frozen=True)

@@ -36,6 +36,15 @@ REQUEST_REFRESH_S = 15.0
 BUDGET_WARNING = 0.8
 
 
+def _iso(epoch: float) -> str:
+    """*epoch* as a local ISO 8601 time with its offset."""
+    return datetime.fromtimestamp(epoch).astimezone().isoformat(timespec="seconds")
+
+
+def _clock(epoch: float) -> str:
+    return datetime.fromtimestamp(epoch).strftime("%H:%M")
+
+
 def _no_suggestion(verb: str) -> DecisionResult:
     return DecisionResult(
         applied=False,
@@ -187,9 +196,10 @@ class AgentControl:
 
     # --- level ---------------------------------------------------------------
 
-    def set_level(self, level: Any) -> Optional[str]:
+    def set_level(self, level: Any, until: Optional[float] = None) -> Optional[str]:
         """Set the agent's level, effective for its next request; returns why
-        not, or None when it is set.
+        not, or None when it is set. With *until* (epoch seconds), Assist or
+        Drive drops to Watch then, on the record as the operator's.
 
         Assist and Drive act, so they need an experiment to record what is
         done: the open one, or else the session's plain one, made now. Watch
@@ -210,10 +220,25 @@ class AgentControl:
                     "Open or create an experiment first."
                 )
         previous = auth.level
-        auth.set_level(level)
-        logger.info("Agent level set to %s by the operator", level.value)
-        self._record("agent_level_set", previous=previous, level=level)
+        try:
+            auth.set_level(level, until=until, on_expired=lambda: self._expired(level))
+        except ValueError as exc:
+            return str(exc)
+        logger.info(
+            "Agent level set to %s by the operator%s",
+            level.value,
+            f" until {_clock(until)}" if until is not None else "",
+        )
+        extra = {"until": _iso(until)} if until is not None else {}
+        self._record("agent_level_set", previous=previous, level=level, **extra)
         return None
+
+    def _expired(self, previous: AgentLevel) -> None:
+        """The level's time limit ran out: on the record, so the agent's
+        watch says it and the card shows it."""
+        self._record(
+            "agent_level_set", previous=previous, level=AgentLevel.WATCH, expired=True
+        )
 
     def stop(self) -> Optional[str]:
         """The brake: down to Watch at once, without asking, and stop what the
