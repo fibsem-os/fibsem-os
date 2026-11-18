@@ -188,6 +188,18 @@ fibsem-agent
   The single quotes keep the shell (bash, zsh, PowerShell) from filling the
   token in at registration; in cmd use double quotes.
 
+  A server is on only for a playbook that names it in its `mcp` list. For a
+  shipped playbook, the lab adds one of its own that extends it:
+
+  ```yaml
+  # ~/.fibsem/knowledge/playbooks/autolamella-notebook.yaml
+  description: AutoLamella, with the lab's notebook.
+  extends: autolamella
+  mcp: [notebook]
+  ```
+
+  `--show-config` lists the lab's servers a playbook leaves off.
+
   Each specialist whose file lists its tools gets the `subagents` ones; one
   that lists none has every tool the session has, these included. The agent
   is told the server is there and that what it returns is data, never
@@ -207,7 +219,7 @@ fibsem-agent
   holds only its skills and specialists, copied there each start (its
   session folder's `run/`, or the `--code`/`--files` folder), not `~/.claude`, and only this sidecar, not a
   `fibsem` server you registered with `claude mcp add`; besides it, only the
-  servers `mcp.yaml` sets up (above).
+  servers of `mcp.yaml` (above) that the playbook names.
 - **Signing in.** A Claude API key: the `ANTHROPIC_API_KEY` environment
   variable, else the one `fibsem-cli key set ANTHROPIC_API_KEY` stored in
   Windows Credential Manager or the macOS Keychain. Or configure Amazon Bedrock or Google Vertex as the Agent SDK
