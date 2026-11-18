@@ -61,17 +61,23 @@ class Camera(Device):
         unit="s",
         limits=RangeLimit(1e-3, 10.0),
         display=Display("Exposure Time", scale=1e3, step=1.0, decimals=1),
+        risk="optics",
     )
-    binning = DeviceParameter(int, choices=(1, 2, 4, 8), display=Display("Binning"))
+    binning = DeviceParameter(
+        int, choices=(1, 2, 4, 8), display=Display("Binning"), risk="optics"
+    )
     gain = DeviceParameter(
         float,
         limits=RangeLimit(0.0, 1.0),
         doc="A fraction of the camera's gain range, 0 to 1.",
         display=Display("Gain", scale=100, unit="%", step=1.0, decimals=1),
+        risk="optics",
     )
-    offset = DeviceParameter(float)
+    offset = DeviceParameter(float, risk="optics")
     pixel_size = DeviceParameter(tuple, unit="m", doc="(x, y), after binning.")
-    resolution = DeviceParameter(tuple, doc="(width, height) in pixels, after binning.")
+    resolution = DeviceParameter(
+        tuple, doc="(width, height) in pixels, after binning.", risk="optics"
+    )
     mount_transform = DeviceParameter(
         str,
         doc="The flip that puts the camera's frames into the stage's axes, from how "
@@ -84,6 +90,7 @@ class Camera(Device):
         doc="The flip the user views frames under: none, flip-x, flip-y or flip-xy. "
         "A display preference, applied after mount_transform; a move by a "
         "displacement seen in the displayed image undoes it.",
+        risk="local",
     )
 
     _mount_transform: CameraImageTransform = CameraImageTransform.NONE
@@ -97,7 +104,7 @@ class Camera(Device):
         config = config or {}
         self._mount_transform = mount_transform_from_name(config.get("mount_transform"))
 
-    @command
+    @command(risk="acquires")
     def acquire(self) -> np.ndarray:
         """One frame with the current settings, as the camera gives it. ``acquire``
         returns the sensor's frame; ``mount_transform`` is applied by whoever builds
@@ -130,6 +137,7 @@ class LightSource(Device):
         limits=RangeLimit(0.0, 1.0),
         doc="A fraction of the source's maximum, 0 to 1.",
         display=Display("Power", scale=100, unit="%", step=1.0, decimals=1),
+        risk="optics",
     )
 
 
@@ -149,10 +157,12 @@ class FilterSet(Device):
         nearest=True,
         doc="The excitation band, by its centre in nm: a wavelength between bands "
         "selects the nearest band.",
+        risk="optics",
     )
     emission_filter = DeviceParameter(
         EmissionFilter,
         doc="The emission filter in the light path; the choices are this filter set's.",
+        risk="optics",
     )
 
 
@@ -169,7 +179,7 @@ class Objective(Device):
     magnification = DeviceParameter(float)
     numerical_aperture = DeviceParameter(float)
     limit_position = DeviceParameter(
-        float, unit="m", doc="The furthest a move may go in."
+        float, unit="m", doc="The furthest a move may go in.", risk="never"
     )
     insert_position = DeviceParameter(
         float,
@@ -189,6 +199,7 @@ class Objective(Device):
         doc="The saved focus position: where the objective focuses on the sample, "
         "for a move or an overview to start from. None until one is saved.",
         display=Display("Focus Position", scale=1e6, step=1.0, decimals=1),
+        risk="optics",
     )
 
     # The saved focus is the session's, not the hardware's: every driver keeps it
@@ -205,7 +216,7 @@ class Objective(Device):
         else:
             logger.info(f"Objective focus position set to: {value * 1e3:.3f} mm")
 
-    @command
+    @command(risk="optics")
     def save_focus_position(self) -> float:
         """Save where the objective is now as its focus position. Answers it, in
         metres."""
@@ -213,7 +224,7 @@ class Objective(Device):
         self.focus_position.set_value(position)
         return position
 
-    @command
+    @command(risk="optics")
     def clear_focus_position(self) -> None:
         """Forget the saved focus position."""
         self._clear_focus_position()
@@ -221,7 +232,7 @@ class Objective(Device):
     def _clear_focus_position(self) -> None:
         self.focus_position.write_through(None)
 
-    @command
+    @command(risk="moves_hardware")
     def insert(self) -> Optional[bool]:
         """Move the objective in, to its imaging position.
 
@@ -229,7 +240,7 @@ class Objective(Device):
         knows; otherwise None."""
         return self._insert()
 
-    @command
+    @command(risk="moves_hardware")
     def retract(self) -> Optional[bool]:
         """Move the objective out, clear of the sample.
 
@@ -237,12 +248,12 @@ class Objective(Device):
         knows; otherwise None."""
         return self._retract()
 
-    @command
+    @command(risk="moves_hardware")
     def move_absolute(self, position: float) -> None:
         """Move the objective to a position, in metres."""
         self._move_absolute(position)
 
-    @command
+    @command(risk="moves_hardware")
     def move_relative(self, delta: float) -> None:
         """Move the objective by a distance, in metres (positive is towards the sample)."""
         self._move_relative(delta)
@@ -333,7 +344,7 @@ class FM(Device):
     # (odemis: the stream active, light on), and each `acquire_frame` returns the next
     # frame from it. The viewer asks only when it is ready, so it never falls behind.
 
-    @command
+    @command(risk="acquires")
     def start_live(self, channel: Optional[Dict[str, Any]] = None) -> None:
         """Set up ``channel`` (or keep the current settings) and keep acquiring until
         `stop_live`, or until no frame has been asked for in ``live_timeout``."""
@@ -349,7 +360,7 @@ class FM(Device):
                 target=self._watch_live, name=f"{self.name}-live-watchdog", daemon=True
             ).start()
 
-    @command
+    @command(risk="stops")
     def stop_live(self) -> None:
         """Stop live view: the light off and the hardware idle. Safe when not live."""
         with self._live_lock:
@@ -403,7 +414,7 @@ class FM(Device):
             self._pulling += delta
             self._last_pull = time.monotonic()
 
-    @command
+    @command(risk="acquires")
     def acquire_channel(self, channel: Optional[Dict[str, Any]] = None) -> np.ndarray:
         """Set up one channel (``ChannelSettings.to_dict()``), then acquire a frame.
 
@@ -411,7 +422,7 @@ class FM(Device):
         """
         return self._acquire_channel(channel)
 
-    @command
+    @command(risk="acquires")
     def acquire_frame(self, channel: Optional[Dict[str, Any]] = None) -> Frame:
         """``acquire_channel``, with what the frame was taken with.
 
@@ -455,7 +466,7 @@ class FM(Device):
 
     # -- z-stack ------------------------------------------------------------------------
 
-    @command
+    @command(risk="acquires")
     def acquire_z_stack(
         self,
         channels: List[Dict[str, Any]],
@@ -480,7 +491,7 @@ class FM(Device):
         finally:
             self._report_progress({})
 
-    @command
+    @command(risk="stops")
     def cancel(self) -> None:
         """Stop a running z-stack before its next frame. Safe when none is running."""
         self._cancel.set()

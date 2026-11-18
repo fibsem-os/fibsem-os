@@ -41,21 +41,21 @@ class GasInjector(Device):
     def __init__(self, parent: Any = None, **kwargs: Any):
         super().__init__(name="gis", parent=parent, **kwargs)
 
-    @command
+    @command(risk="never")
     def insert(self, position: Optional[str] = None) -> InsertableDeviceState:
         """Insert, at a named position on a multichem. Returns the state afterwards."""
         with self.resources.claim(GIS_RESOURCE):
             self._insert(position)
             return self.state.get_value()
 
-    @command
+    @command(risk="never")
     def retract(self) -> InsertableDeviceState:
         """Retract. Returns the state afterwards."""
         with self.resources.claim(GIS_RESOURCE):
             self._retract()
             return self.state.get_value()
 
-    @command
+    @command(risk="never")
     def heater_on(self, gas: Optional[str] = None) -> bool:
         """Turn the heater on, for a gas on a multichem. Returns whether heated."""
         with self.resources.claim(GIS_RESOURCE):
@@ -63,7 +63,7 @@ class GasInjector(Device):
             self._read_temperature()
             return self.heated.get_value()
 
-    @command
+    @command(risk="never")
     def heater_off(self) -> bool:
         """Turn the heater off. Returns whether still heated."""
         with self.resources.claim(GIS_RESOURCE):
@@ -71,21 +71,21 @@ class GasInjector(Device):
             self._read_temperature()
             return self.heated.get_value()
 
-    @command
+    @command(risk="never")
     def open(self) -> bool:
         """Open the valve. Returns whether open."""
         with self.resources.claim(GIS_RESOURCE):
             self._open()
             return self.opened.get_value()
 
-    @command
+    @command(risk="never")
     def close(self) -> bool:
         """Close the valve. Returns whether still open."""
         with self.resources.claim(GIS_RESOURCE):
             self._close()
             return self.opened.get_value()
 
-    @command
+    @command(risk="never")
     def purge(self, seconds: float) -> bool:
         """Open the valve with the needle retracted for *seconds*, then close it.
         Refuses while the needle is inserted. Returns whether still open."""

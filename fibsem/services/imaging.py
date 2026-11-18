@@ -155,7 +155,7 @@ class Imaging(Service):
     # -- the beam commands, by beam type ------------------------------------------
     # One line each: the beam does the work, here or under /microscope/devices.
 
-    @command
+    @command(risk="acquires")
     def acquire(
         self,
         beam_type: BeamType = BeamType.ELECTRON,
@@ -194,7 +194,7 @@ class Imaging(Service):
         current = self.beam(beam_type).image_settings().to_dict()
         return decode_argument("image_settings", ImageSettings, {**current, **fields})
 
-    @command
+    @command(risk="acquires")
     def autocontrast(
         self,
         beam_type: BeamType = BeamType.ELECTRON,
@@ -204,13 +204,13 @@ class Imaging(Service):
         rectangle of the frame (0 to 1)."""
         self.beam(beam_type).autocontrast(reduced_area)
 
-    @command
+    @command(risk="acquires")
     def start_live(self, beam_type: BeamType = BeamType.ELECTRON) -> None:
         """Image continuously with ``beam_type``'s current settings until
         `stop_live`; the frames come on the beam's ``live_frame``."""
         self.beam(beam_type).start_live()
 
-    @command
+    @command(risk="stops")
     def stop_live(self, beam_type: BeamType = BeamType.ELECTRON) -> None:
         """Stop ``beam_type``'s live view. Safe when it isn't live."""
         self.beam(beam_type).stop_live()
@@ -224,7 +224,7 @@ class Imaging(Service):
 
     # -- images for the record -----------------------------------------------------
 
-    @command
+    @command(risk="acquires")
     def acquire_image(self, image_settings: ImageSettings) -> FibsemImage:
         """An image as a task takes one: autocontrast first when the settings ask,
         acquire with the settings, save to ``<path>/<filename>_eb`` (or ``_ib``)
@@ -242,7 +242,7 @@ class Imaging(Service):
         self.session.record("image_acquired", acquisition_record(image, path))
         return image
 
-    @command
+    @command(risk="acquires")
     def reference_images(
         self,
         image_settings: ImageSettings,
@@ -262,7 +262,7 @@ class Imaging(Service):
             images.append(self.acquire_image(settings))
         return images
 
-    @command
+    @command(risk="acquires")
     def reference_image_sets(
         self,
         image_settings: ImageSettings,
@@ -334,7 +334,7 @@ class Imaging(Service):
             stacked.save(image_save_path(image_settings))
         return stacked
 
-    @command(long=True)
+    @command(long=True, risk="acquires")
     def acquire_focus_stack(
         self,
         image_settings: ImageSettings,
@@ -360,7 +360,7 @@ class Imaging(Service):
 
     # -- overviews -----------------------------------------------------------------
 
-    @command(long=True)
+    @command(long=True, risk="moves_hardware")
     def acquire_overview(
         self,
         settings: OverviewAcquisitionSettings,
@@ -438,7 +438,7 @@ class Imaging(Service):
 
     # -- routines ------------------------------------------------------------------
 
-    @command
+    @command(risk="acquires")
     def auto_focus(
         self,
         beam_type: BeamType = BeamType.ELECTRON,
@@ -462,7 +462,7 @@ class Imaging(Service):
             beam_type=beam_type, settings=AutoFocusSettings(reduced_area=reduced_area)
         )
 
-    @command
+    @command(risk="acquires")
     def focus_sweep(
         self,
         beam_type: BeamType = BeamType.ELECTRON,
@@ -529,7 +529,7 @@ class Imaging(Service):
                 "(live view). Stop it first."
             )
 
-    @command(long=True, available=_has_fm)
+    @command(long=True, available=_has_fm, risk="acquires")
     def fm_auto_focus(
         self,
         settings: Optional[AutoFocusSettings] = None,
@@ -578,7 +578,7 @@ class Imaging(Service):
             return {"status": "no_focus", "message": NO_FOCUS, **result.to_dict()}
         return {"status": "completed", **result.to_dict()}
 
-    @command(long=True, available=_has_fm)
+    @command(long=True, available=_has_fm, risk="acquires")
     def fm_acquire_image(
         self,
         channels: List[ChannelSettings],
@@ -618,7 +618,7 @@ class Imaging(Service):
         answer = {"summary": _fm_image_summary(image), "path": saved}
         return {"status": "completed", "image": answer, **_substituted(channels, image)}
 
-    @command(long=True, available=_has_fm)
+    @command(long=True, available=_has_fm, risk="moves_hardware")
     def fm_acquire_overview(
         self,
         channels: List[ChannelSettings],
@@ -729,7 +729,7 @@ class Imaging(Service):
         finally:
             self._depth -= 1
 
-    @command
+    @command(risk="acquires")
     def auto_brightness_contrast(
         self,
         beam_type: BeamType = BeamType.ELECTRON,
@@ -918,7 +918,7 @@ class Imaging(Service):
         entries.append((current, controls, response.tolist()))
         self._last_brightness_contrast[key] = entries
 
-    @command
+    @command(risk="stops")
     def stop(self) -> None:
         """End the sweep or brightness and contrast run in progress, a beam's or
         the FM's, a tiled overview, beam or fluorescence, or a focus stack, as

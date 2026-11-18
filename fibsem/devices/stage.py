@@ -195,7 +195,7 @@ class Stage(Device):
 
     # -- commands -----------------------------------------------------------------
 
-    @command
+    @command(risk="never")
     def move_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
         """Move to a position. Axes that are None stay where they are.
 
@@ -208,7 +208,7 @@ class Stage(Device):
                 self._move_absolute(position)
                 return self.position.get_value()
 
-    @command
+    @command(risk="moves_hardware")
     def move_relative(self, delta: FibsemStagePosition) -> FibsemStagePosition:
         """Move by an offset. Axes that are None don't move."""
         with recording_move(self.session, self, "move_relative", position=delta):
@@ -217,14 +217,14 @@ class Stage(Device):
                 self._move_relative(delta)
                 return self.position.get_value()
 
-    @command(available=lambda stage: "homed" in stage.parameters)
+    @command(available=lambda stage: "homed" in stage.parameters, risk="never")
     def home(self) -> bool:
         """Home the stage. Returns whether it is homed afterwards."""
         with self.resources.claim(STAGE_RESOURCE):
             self._home()
             return self.homed.get_value()
 
-    @command(available=lambda stage: "linked" in stage.parameters)
+    @command(available=lambda stage: "linked" in stage.parameters, risk="never")
     def link(self) -> bool:
         """Link z to the working distance. Returns whether it is linked afterwards."""
         with self.resources.claim(STAGE_RESOURCE):

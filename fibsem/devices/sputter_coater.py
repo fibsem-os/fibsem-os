@@ -28,7 +28,7 @@ SPUTTER_COATER_RESOURCE = "sputter_coater"
 
 
 class SputterCoater(Device):
-    current = DeviceParameter(float, unit="A", doc="The sputter current.")
+    current = DeviceParameter(float, unit="A", doc="The sputter current.", risk="never")
     inserted = DeviceParameter(bool, doc="The coater is in its working position.")
 
     # Whether ``run`` takes the grids to coat: the instrument moves the stage to
@@ -38,7 +38,7 @@ class SputterCoater(Device):
     def __init__(self, parent: Any = None, **kwargs: Any):
         super().__init__(name="sputter_coater", parent=parent, **kwargs)
 
-    @command
+    @command(risk="never")
     def run(self, seconds: float, grids: Optional[Sequence[int]] = None) -> bool:
         """Sputter for *seconds*, on the numbered *grids* where the coater moves to
         each itself. Returns whether the coater is inserted afterwards."""

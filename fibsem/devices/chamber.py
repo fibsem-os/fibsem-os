@@ -68,14 +68,14 @@ class Chamber(Device):
     def __init__(self, parent: Any = None, **kwargs: Any):
         super().__init__(name="chamber", parent=parent, **kwargs)
 
-    @command
+    @command(risk="never")
     def pump(self) -> ChamberState:
         """Pump the chamber. Returns the state afterwards."""
         with self.resources.claim(CHAMBER_RESOURCE):
             self._pump()
             return self._read_back()
 
-    @command
+    @command(risk="never")
     def vent(self) -> ChamberState:
         """Vent the chamber. Returns the state afterwards."""
         with self.resources.claim(CHAMBER_RESOURCE):
