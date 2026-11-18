@@ -382,3 +382,14 @@ def test_the_agent_path_runs_a_pass_through_the_milling_service(
     assert said["facts"]["Target 1 fit"] == "ok"
     assert os.path.isfile(said["facts"]["Target stack"])
     assert said["facts"]["Pass data"].startswith(str(tmp_path))
+
+
+def test_a_target_channel_in_metres_is_refused_before_the_mill(fm_microscope, tmp_path):
+    """6.4e-07 is 640 nm given in metres: it would image the nearest band there
+    is, so the pass is refused before it mills."""
+    metres = ChannelSettings(name="red", excitation_wavelength=6.4e-07)
+    strategy = IterativePolishingStrategy(
+        IterativePolishingConfig(target_channel=metres)
+    )
+    with pytest.raises(ValueError, match="excitation_wavelength is in nm"):
+        strategy.run(fm_microscope, _task(tmp_path).stages[0])
