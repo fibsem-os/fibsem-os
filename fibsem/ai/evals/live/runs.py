@@ -79,6 +79,7 @@ def record(
                     "name": name,
                     "id": row.get("item_id"),
                     "poses": detail.get("poses") or {},
+                    "poi": detail.get("poi"),
                 }
             )
     return {

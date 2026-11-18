@@ -46,6 +46,7 @@ COINCIDENCE_TRIES = 3
 CORRECTION_TRIES = 6  # the coincidence case starts far off: more moves
 CORRECTION_SITE = "Site-01"
 POLISH_ITEM = "Lam-01"
+CORRELATION_HFW = 100e-6  # m, the field width the burns were placed at
 POLISH_IMAGE_HFW = 30e-6  # m, the FIB image a pass is judged on
 # each pass's gap between the trenches (m), and where to stop (nm measured:
 # a FIB band reads a few tens of nm wide of the true gap)
@@ -477,11 +478,33 @@ def coincidence_milling(client: LiveClient, work: Path) -> Dict[str, Any]:
     return answer
 
 
+def correlation(client: LiveClient, work: Path) -> Dict[str, Any]:
+    """A baseline with no correlation: it takes the FIB image the burns were
+    placed on and answers the image's centre, where an operator placing by
+    eye puts a lamella. The target is off the centre, so it should miss."""
+    shot = client.call(
+        "beam_acquire_image",
+        beam_type="ION",
+        image_settings={"hfw": CORRELATION_HFW, "resolution": [1536, 1024]},
+        path=POLISH_ITEM,
+        filename="burns",
+    )
+    return {
+        "item": POLISH_ITEM,
+        "fib_image": _image_path(shot),
+        "target_px": [768.0, 512.0],
+        "target_m": [0.0, 0.0],
+        "poi_set": False,
+        "reason": "no correlation in this baseline: the image's centre",
+    }
+
+
 AGENTS: Dict[str, Callable[[LiveClient, Path], Dict[str, Any]]] = {
     "live_site_selection": site_selection,
     "live_coincidence_correction": coincidence,
     "live_polishing": polishing,
     "live_coincidence_milling": coincidence_milling,
+    "live_correlation": correlation,
 }
 
 
