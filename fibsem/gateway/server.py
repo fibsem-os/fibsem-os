@@ -65,7 +65,6 @@ class GatewayAuth:
 
     token: str
     pairing: Pairing
-    dashboard_token: Optional[str] = None
     connections: Any = None
 
     def is_operator(self, token: Optional[str]) -> bool:

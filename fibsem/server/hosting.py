@@ -71,11 +71,11 @@ _START_TIMEOUT_S = 10.0
 
 
 def event_log_url(host) -> str:
-    """The web app's Events page with the read-only dashboard token, never
-    the agent's, in the URL *fragment* — the one part of a URL a browser
-    never sends anywhere, so it reaches the page's own script and nothing
-    else (no server log, no referrer)."""
-    return f"{host.url}/ui/events#token={host.auth.dashboard_token}"
+    """The web app's Events page with the operator token, never the agent's,
+    in the URL *fragment* — the one part of a URL a browser never sends
+    anywhere, so it reaches the page's own script and nothing else (no server
+    log, no referrer)."""
+    return f"{host.url}/ui/events#token={host.auth.operator_token}"
 
 
 def chat_url(host) -> str:

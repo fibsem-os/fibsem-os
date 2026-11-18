@@ -14,13 +14,6 @@ Fail closed: a server always has a token (generated when the hosting does not
 supply one), and starts at Watch unless the hosting says otherwise. Off
 refuses everything, reads included.
 
-A second, read-only **dashboard token** reaches the monitoring
-routes -- /capabilities and GETs of the app's read routes -- and nothing else:
-not the microscope, not a POST, whatever the level. It is carried in the
-dashboard link and never written to the discovery file, so the dashboard and
-the agent are told apart, and what governs the agent never cuts off the
-dashboard.
-
 An **operator token** is the operator from outside the window: the web page,
 or their own script, or their app on another computer. It reaches the
 operator's routes (`fibsem.server.agent.operator`): message the agent, set its
@@ -84,10 +77,6 @@ class AuthConfig:
     """
 
     token: str
-    # The dashboard's own token: monitoring reads only (require_monitoring).
-    # None means no dashboard access, which is what a bare AuthConfig(token=...)
-    # gets; generate() always makes one.
-    dashboard_token: Optional[str] = None
     # The operator's token: monitoring reads and the operator's routes
     # (require_operator). None means no operator access from outside the window.
     operator_token: Optional[str] = None
@@ -229,7 +218,6 @@ class AuthConfig:
     ) -> "AuthConfig":
         return cls(
             token=token or secrets.token_urlsafe(32),
-            dashboard_token=secrets.token_urlsafe(32),
             connect_token=secrets.token_urlsafe(32),
             level=AgentLevel(level) if agent_allowed else AgentLevel.OFF,
             agent_allowed=agent_allowed,
@@ -318,14 +306,6 @@ def _connect_first(app_name: str) -> HTTPException:
     )
 
 
-def _dashboard_refused() -> HTTPException:
-    return refusal_error(
-        403,
-        "dashboard_read_only",
-        "The dashboard token reads the monitoring routes only.",
-    )
-
-
 def _app_name(request: HTTPConnection) -> str:
     """The app the operator works in, as its window names it."""
     return getattr(request.app.state, "app_name", None) or "fibsemOS"
@@ -380,9 +360,7 @@ def require_level(needed: AgentLevel):
     at least *needed*, and refusing everything while the level is Off.
 
     The operator token passes at any level, Off included: the operator acting
-    from another computer, recorded as the operator. The dashboard token is
-    refused here (403), so it reaches nothing beyond the routes guarded by
-    :func:`require_monitoring`.
+    from another computer, recorded as the operator.
     """
     needed = AgentLevel(needed)
 
@@ -390,8 +368,6 @@ def require_level(needed: AgentLevel):
         auth: AuthConfig = request.app.state.auth
         token = _bearer_token(request)
         if not auth.is_agent(token):
-            if _matches(token, auth.dashboard_token):
-                raise _dashboard_refused()
             if auth.is_operator(token):
                 return
             if auth.is_connect(token):
@@ -433,36 +409,20 @@ def require_level(needed: AgentLevel):
 
 
 def require_monitoring():
-    """The monitoring routes' dependency: the agent token at Watch, the
-    operator token, or the dashboard token for a GET. Neither of the last two is
-    the agent, so neither counts as the agent being heard from."""
-    as_agent = require_level(AgentLevel.WATCH)
-
-    def dependency(request: Request) -> None:
-        auth: AuthConfig = request.app.state.auth
-        token = _bearer_token(request)
-        if _matches(token, auth.dashboard_token):
-            if request.method != "GET":
-                # The read router carries POSTs too (the workflow stop, the
-                # grid plan): the dashboard only looks.
-                raise _dashboard_refused()
-            return
-        as_agent(request)
-
-    return dependency
+    """The monitoring routes' dependency: the agent token at Watch, or the
+    operator token (which is not the agent, so not the agent being heard from)."""
+    return require_level(AgentLevel.WATCH)
 
 
 def require_token():
     """A valid agent or operator token at any level, Off included: for giving
-    control up, which, like a stop, is never refused. The dashboard's is refused."""
+    control up, which, like a stop, is never refused."""
 
     def dependency(request: Request) -> None:
         auth: AuthConfig = request.app.state.auth
         token = _bearer_token(request)
         if auth.is_agent(token) or auth.is_operator(token):
             return
-        if _matches(token, auth.dashboard_token):
-            raise _dashboard_refused()
         raise _unauthorized()
 
     return dependency
@@ -470,14 +430,14 @@ def require_token():
 
 def require_operator():
     """The operator's routes' dependency: the operator token, whatever the
-    agent's level. The agent's and the dashboard's tokens are refused (403)."""
+    agent's level. The agent's token is refused (403)."""
 
     def dependency(request: HTTPConnection) -> None:
         auth: AuthConfig = request.app.state.auth
         token = _bearer_token(request)
         if auth.is_operator(token):
             return
-        if auth.is_agent(token) or _matches(token, auth.dashboard_token):
+        if auth.is_agent(token):
             raise _operator_only()
         raise _unauthorized()
 
@@ -489,13 +449,6 @@ def is_operator_token(auth: AuthConfig, authorization: Optional[str]) -> bool:
     if authorization is None or not authorization.startswith("Bearer "):
         return False
     return auth.is_operator(authorization[len("Bearer ") :])
-
-
-def refuse_dashboard(request: Request) -> None:
-    """403 for the dashboard token: for a monitoring GET it may not make (a
-    raw file, which the event log never needs)."""
-    if _matches(_bearer_token(request), request.app.state.auth.dashboard_token):
-        raise _dashboard_refused()
 
 
 def action_name(request: Request) -> str:

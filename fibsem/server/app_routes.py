@@ -31,7 +31,6 @@ from fibsem.ai.agent.calls import current_call
 from fibsem.server import exports, files, planes
 from fibsem.server.auth import (
     refusal_error,
-    refuse_dashboard,
     require_operator,
     take_control,
 )
@@ -761,7 +760,6 @@ def build_app_router(context: "AppContext") -> APIRouter:
         experiment: Optional[str] = None,
     ):
         if raw:
-            refuse_dashboard(request)
             # The file as it is, its experiment's folder name and its path in
             # it in the headers: where a fetch keeps it.
             root = _files_answer(experiment, lambda root: root)
@@ -966,8 +964,8 @@ def build_app_router(context: "AppContext") -> APIRouter:
     @router.post("/experiment/notes", response_model=Recorded)
     def add_note(body: NoteBody):
         # Observations for the record — event stream + experiment log. On the
-        # read router, a POST the dashboard token is refused: a watching agent
-        # notes what it sees, and a note changes nothing.
+        # read router: a watching agent notes what it sees, and a note changes
+        # nothing.
         text, item_name = _note_body(body)
         cited = cited_evidence(context)
         result = context.add_note(
