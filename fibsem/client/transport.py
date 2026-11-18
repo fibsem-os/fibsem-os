@@ -111,6 +111,9 @@ class ServerError(RuntimeError):
 SERVER_URL_ENV = "FIBSEM_SERVER_URL"
 SERVER_TOKEN_ENV = "FIBSEM_SERVER_TOKEN"
 OPERATOR_TOKEN_ENV = "FIBSEM_OPERATOR_TOKEN"
+# The agent's token at an agent host (`fibsem.server.agent.host`): in the
+# environment or the key store, read by fibsem-agent --host and the host.
+HOST_TOKEN_ENV = "FIBSEM_HOST_TOKEN"
 
 
 def server_env() -> Tuple[Optional[str], Optional[str]]:

@@ -299,3 +299,36 @@ def test_the_session_gets_the_playbooks_servers_and_the_labs_others(lab, checkou
     # The playbook's first, in its order; the lab's others are on as well.
     assert list(options.mcp_servers) == [SERVER, "notebook", "library"]
     assert options.mcp_servers["notebook"]["url"] == "https://notebook.example/mcp"
+
+
+def test_with_an_agent_host_fibsem_is_one_server_among_others(lab, checkout):
+    write(lab, "notebook-only", "mcp: [notebook]\n")
+    playbook = playbooks.load("notebook-only", checkout)
+    playbook.mcp = ["notebook"]
+    # The record and wake-ups go through the host: no instrument is needed.
+    assert harness_mod.mcp_names(playbook, _notebook(), host=True) == ["notebook"]
+
+
+def test_with_an_agent_host_the_record_tools_go_to_it(lab, checkout):
+    pytest.importorskip("claude_agent_sdk")
+    playbook = playbooks.load("autolamella", checkout)
+    options = harness_mod.build_options(
+        checkout,
+        playbook=playbook,
+        extras={},
+        host="http://127.0.0.1:8030",
+        host_token="host-secret",
+    )
+    record = options.mcp_servers[harness_mod.RECORD_SERVER]
+    assert record["args"][-5:] == [
+        "--url",
+        "http://127.0.0.1:8030",
+        "--token-env",
+        "FIBSEM_HOST_TOKEN",
+        "--record-only",
+    ]
+    assert "--no-record" in options.mcp_servers[SERVER]["args"]
+    # The token in the environment, never on a command line.
+    assert options.env["FIBSEM_HOST_TOKEN"] == "host-secret"
+    assert "host-secret" not in json.dumps(options.mcp_servers)
+    assert f"mcp__{harness_mod.RECORD_SERVER}__*" in options.allowed_tools

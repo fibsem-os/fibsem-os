@@ -28,7 +28,7 @@ from fibsem import keystore, paths
 
 FILE = "mcp.yaml"
 # The harness's own servers (``harness.SERVER`` and ``HARNESS_SERVER``).
-RESERVED = ("fibsem", "fibsem_agent")
+RESERVED = ("fibsem", "fibsem_agent", "fibsem_record")
 FIELDS = ("url", "command", "token", "about", "tools", "subagents")
 # A server's or a tool's name, as it sits in mcp__<server>__<tool>: no wildcards.
 NAME = re.compile(r"^[A-Za-z][\w-]*$")

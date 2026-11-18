@@ -17,7 +17,7 @@ from fibsem.ai.agent import watch as watch_mod
 from fibsem.ai.agent.harness import _reachable
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.client.transport import Transport
-from fibsem.server.agent.host import EVENTS_FILENAME, build_agent_host
+from fibsem.server.agent.host import EVENTS_FILENAME, InstrumentLink, build_agent_host
 from fibsem.server.auth import AuthConfig
 
 AGENT = "agent-token"
@@ -231,3 +231,104 @@ def test_the_watch_wakes_on_the_operator_s_message_level_and_stop(host, served):
     assert "skip 03" in lines[0]
     assert "assist" in lines[1]
     assert lines[2].startswith("STOPPED by the operator: Stop the agent")
+
+
+# --- an instrument the host follows ----------------------------------------------
+# Another host stands in for the instrument's server: it answers the same
+# events and Stop routes as the App Server.
+
+
+def _serve(app):
+    server = uvicorn.Server(
+        uvicorn.Config(app, host="127.0.0.1", port=0, log_level="warning")
+    )
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    while not server.started:
+        assert thread.is_alive(), "the server failed to start"
+        time.sleep(0.01)
+    port = server.servers[0].sockets[0].getsockname()[1]
+    return server, thread, f"http://127.0.0.1:{port}"
+
+
+def _wait_for(check, timeout=10.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        found = check()
+        if found:
+            return found
+        time.sleep(0.05)
+    raise AssertionError("not seen in time")
+
+
+@pytest.fixture
+def linked(tmp_path, monkeypatch):
+    """(the host, the instrument), the host following the instrument."""
+    monkeypatch.setenv("FIBSEM_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr("fibsem.server.agent.host.RELAY_RETRY_S", 0.1)
+    monkeypatch.setattr("fibsem.server.agent.host.RELAY_POLL_S", 1.0)
+    instrument_auth = AuthConfig(token="its-agent", operator_token="its-operator")
+    instrument = build_agent_host(instrument_auth, tmp_path / "instrument")
+    server, thread, url = _serve(instrument)
+    link = InstrumentLink(url, "its-operator", name="fib-1")
+    auth = AuthConfig(token=AGENT, operator_token=OPERATOR)
+    host = build_agent_host(auth, tmp_path / "host", instrument=link)
+    # The relay holds its place before the test acts.
+    _wait_for(lambda: host.state.host.following)
+    yield host, instrument
+    host.state.host.close()
+    server.should_exit = True
+    thread.join(timeout=5)
+    instrument.state.host.close()
+
+
+def _kinds(host, kind):
+    return [
+        e for e in host.state.host.buffer.events_since(0)["events"] if e["kind"] == kind
+    ]
+
+
+def test_the_instrument_s_events_are_passed_on(linked):
+    host, instrument = linked
+    instrument.state.host.record("task_started", {"item_name": "01"}, actor="task")
+    relayed = _wait_for(lambda: _kinds(host, "task_started"))
+    assert relayed[0]["instrument"] == "fib-1"
+    assert relayed[0]["actor"] == "task"
+    assert relayed[0]["payload"] == {"item_name": "01"}
+
+
+def test_stop_here_presses_the_instrument_s_stop(linked):
+    host, instrument = linked
+    instrument.state.auth.set_level(AgentLevel.DRIVE)
+    TestClient(host, headers=_as(OPERATOR)).post("/app/agent/stop")
+
+    assert instrument.state.auth.level is AgentLevel.WATCH
+    assert instrument.state.auth.stopped
+    # The agent hears the instrument's Stop, once.
+    stops = _wait_for(lambda: _kinds(host, "action"))
+    time.sleep(0.3)
+    assert len(_kinds(host, "action")) == 1
+    assert stops[0]["instrument"] == "fib-1"
+
+
+def test_stop_at_the_instrument_lowers_the_level_here(linked):
+    host, instrument = linked
+    host.state.auth.set_level(AgentLevel.DRIVE)
+    TestClient(instrument, headers=_as("its-operator")).post("/app/agent/stop")
+
+    _wait_for(lambda: _kinds(host, "action"))
+    assert host.state.auth.level is AgentLevel.WATCH
+
+
+def test_stop_holds_here_when_the_instrument_does_not_answer(tmp_path, monkeypatch):
+    monkeypatch.setenv("FIBSEM_HOME", str(tmp_path / "home"))
+    link = InstrumentLink("http://127.0.0.1:9", "x", name="fib-1")
+    auth = AuthConfig(token=AGENT, operator_token=OPERATOR, level=AgentLevel.DRIVE)
+    host = build_agent_host(auth, tmp_path / "host", instrument=link)
+    try:
+        TestClient(host, headers=_as(OPERATOR)).post("/app/agent/stop")
+        assert auth.level is AgentLevel.WATCH
+        (stop,) = _kinds(host, "action")
+        assert "fib-1 did not answer" in stop["payload"]["reason"]
+    finally:
+        host.state.host.close()

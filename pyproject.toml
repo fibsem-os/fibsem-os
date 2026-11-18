@@ -141,6 +141,7 @@ fibsem-volume = "fibsem.applications.volume.launch:main"
 fibsem-volume-ui = "fibsem.tools.desktop_launch:volume"
 fibsem-autolamella-server = "fibsem.applications.autolamella.launch:main"
 fibsem-agent = "fibsem.ai.agent.harness:main"
+fibsem-agent-host = "fibsem.server.agent.host:main"
 fibsem-gateway = "fibsem.gateway.main:main"
 
 # No console: the "Agent Gateway" desktop shortcut runs it.

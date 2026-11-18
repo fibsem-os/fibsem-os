@@ -44,6 +44,7 @@ from fibsem.ai.agent.catalog import (
     CATALOG,
     EVIDENCE_PARAM,
     INSTRUMENT_ENV,
+    RECORD_TOOLS,
     tools_for_capabilities,
 )
 from fibsem.client import tools
@@ -376,7 +377,7 @@ def _devices(kind):
     return instruments.devices(kind, sources.find_root())
 
 
-def build_sidecar(client, capabilities, instrument=None):
+def build_sidecar(client, capabilities, instrument=None, record=None):
     """Build the MCP server over an httpx-compatible client.
 
     ``capabilities`` is the full /capabilities payload; a tool registers when
@@ -384,7 +385,9 @@ def build_sidecar(client, capabilities, instrument=None):
     application), whatever the agent's level. The server enforces the level.
     None (no server answered at start-up) registers every tool's router.
     *instrument*, an instrument kind, offers only the tools on what it has
-    (its ``devices.yaml``).
+    (its ``devices.yaml``). *record* True offers the agent's record tools
+    alone (`RECORD_TOOLS`), for an agent host; False offers every tool but
+    those, for an instrument whose agent keeps its record on a host.
     """
     from mcp.server.mcpserver import Image, MCPServer
     from mcp.types import ToolAnnotations
@@ -396,6 +399,10 @@ def build_sidecar(client, capabilities, instrument=None):
             capabilities or every, _devices(instrument) if instrument else None
         )
     }
+    if record is True:
+        offered = set(RECORD_TOOLS)
+    elif record is False:
+        offered -= RECORD_TOOLS
     by_name = {t.name: t for t in CATALOG}
     # The open experiment's files as resources, beside the tools that read them.
     files_offered = "experiment_read_file" in offered
@@ -1540,12 +1547,38 @@ def main(argv=None):
         help="offer only the tools on this instrument kind's devices (default every "
         "tool; fibsem-agent sets it from its playbook)",
     )
+    record = parser.add_mutually_exclusive_group()
+    record.add_argument(
+        "--record-only",
+        dest="record",
+        action="store_const",
+        const=True,
+        help="offer only the agent's record tools (plan, notes, messages): for "
+        "an agent host",
+    )
+    record.add_argument(
+        "--no-record",
+        dest="record",
+        action="store_const",
+        const=False,
+        help="offer every tool but the record tools: for an instrument whose "
+        "agent keeps its record on an agent host",
+    )
+    parser.add_argument(
+        "--token-env",
+        default=None,
+        metavar="NAME",
+        help="read the token from this environment variable, not --token: "
+        "for a second server, its token kept off the command line",
+    )
     parser.add_argument(
         "--check",
         action="store_true",
         help="print connection status and exit (does not start the MCP server)",
     )
     args = parser.parse_args(argv)
+    if args.token_env:
+        args.token = os.environ.get(args.token_env) or None
 
     if args.check:
         try:
@@ -1570,7 +1603,7 @@ def main(argv=None):
             args.url, args.token, wait_s, user_agent=client.named_user_agent
         )
     )
-    build_sidecar(client, capabilities, args.instrument).run()
+    build_sidecar(client, capabilities, args.instrument, args.record).run()
 
 
 if __name__ == "__main__":
