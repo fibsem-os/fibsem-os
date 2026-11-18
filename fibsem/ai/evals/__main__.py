@@ -14,6 +14,7 @@ import yaml
 from fibsem import paths
 from fibsem.ai.agent import playbooks, sources
 from fibsem.ai.evals import matrix as matrix_mod
+from fibsem.ai.evals import replay as replay_mod
 from fibsem.ai.evals import report as report_mod
 from fibsem.ai.evals import serve as serve_mod
 from fibsem.ai.evals import tasks as eval_tasks
@@ -271,8 +272,6 @@ def main(argv=None) -> int:
         return 0
 
     if args.command == "replay":
-        from fibsem.ai.evals import replay as replay_mod
-
         for path in replay_mod.write_replays(args.out, args.only):
             print(f"Wrote {path}")
         return 0
