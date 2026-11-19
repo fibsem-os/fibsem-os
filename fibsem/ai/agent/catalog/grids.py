@@ -1,6 +1,6 @@
 """The grid tools: the sample handling service's, and the experiment's grid records."""
 
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, List, Tuple
 
 from fibsem.ai.agent.catalog.spec import ToolSpec, arg, kwargs_body
 from fibsem.server.parts import GRIDS
@@ -73,6 +73,31 @@ def _grid_assign_items(a: Dict[str, Any], ctx: wording.ActionContext) -> Dict[st
     }
 
 
+# How many of a role's files grid_get lists before it gives their count.
+_LISTED_FILES = 3
+
+
+def _grid_files(answer: Dict[str, Any], a: Dict[str, Any]) -> Dict[str, Any]:
+    """grid_get's answer: a role with more than a few files (an overview's
+    tiles) as their count and its first and last file, unless files asks for
+    them all."""
+    if a.get("files"):
+        return answer
+
+    def cut(names: List[str]) -> Any:
+        if len(names) <= _LISTED_FILES:
+            return names
+        return {"count": len(names), "first": names[0], "last": names[-1]}
+
+    tasks = [
+        dict(task, files={role: cut(names) for role, names in task["files"].items()})
+        if isinstance(task.get("files"), dict)
+        else task
+        for task in answer.get("tasks") or []
+    ]
+    return dict(answer, tasks=tasks)
+
+
 TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="grid_list",
@@ -87,13 +112,20 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="grid_get",
         returns="GridDetail",
-        description="One grid: its summary plus every task run with the files it recorded by role, and the names of the items linked to it.",
+        description="One grid: its summary (description, quality, status, latest overviews and their paths) plus every task run with the files it recorded by role, and the names of the items linked to it. A role with more than 3 files (an overview's tiles) comes as their count and its first and last file; files=true lists them all.",
         method="GET",
         path="/app/experiment/grids/{grid_name}",
         level="watch",
         router="app",
         part=GRIDS,
-        params={"grid_name": "the grid name"},
+        params={
+            "grid_name": "the grid name",
+            "files": arg(
+                "optional: true lists every file of every run (default false)", bool
+            ),
+        },
+        optional=("files",),
+        shape=_grid_files,
     ),
     ToolSpec(
         name="grid_get_output_image",

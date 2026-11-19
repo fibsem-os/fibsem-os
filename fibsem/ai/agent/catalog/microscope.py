@@ -45,6 +45,91 @@ def _parameter_spec(info: Any) -> Optional["Parameter"]:
     return Parameter(unit=info.get("unit"), display=shown)
 
 
+def _index(listing: Dict[str, Any], a: Dict[str, Any]) -> Dict[str, Any]:
+    """device_list's and service_list's answer: each one's kind and the names
+    of its parameters, commands and queries; under ``agent_false`` the
+    parameters it may never set and the commands it may never run, and under
+    ``unavailable`` the commands and queries this microscope lacks."""
+    return {name: _indexed(entry) for name, entry in listing.items()}
+
+
+def _indexed(entry: Dict[str, Any]) -> Dict[str, Any]:
+    parameters = entry.get("parameters") or {}
+    commands = entry.get("commands") or {}
+    queries = entry.get("queries") or {}
+    index = {key: entry[key] for key in ("type", "class") if entry.get(key)}
+    index["parameters"] = list(parameters)
+    index["commands"] = list(commands)
+    if queries:
+        index["queries"] = list(queries)
+    never = {
+        kind: [name for name, info in found.items() if info.get("agent") is False]
+        for kind, found in (("parameters", parameters), ("commands", commands))
+    }
+    never = {kind: names for kind, names in never.items() if names}
+    if never:
+        index["agent_false"] = never
+    unavailable = [
+        name
+        for found in (commands, queries)
+        for name, info in found.items()
+        if info.get("available") is False
+    ]
+    if unavailable:
+        index["unavailable"] = unavailable
+    return index
+
+
+def _described(entry: Dict[str, Any], a: Dict[str, Any]) -> Dict[str, Any]:
+    """device_describe's and service_describe's answer: the description with
+    its empty fields left out, and each command and query by its signature,
+    the JSON Schema of its arguments only for the one *command* names."""
+    command = a.get("command")
+    names = {*(entry.get("commands") or {}), *(entry.get("queries") or {})}
+    if command and command not in names:
+        raise ValueError(
+            f"{entry.get('name')} has no command or query {command!r}; "
+            f"it has {sorted(names)}"
+        )
+
+    def kept(info: Dict[str, Any], name: str = "") -> Dict[str, Any]:
+        return {
+            key: value
+            for key, value in info.items()
+            if value is not None and (key != "arguments" or name == command)
+        }
+
+    described = kept(entry)
+    described["parameters"] = {
+        name: kept(info) for name, info in (entry.get("parameters") or {}).items()
+    }
+    for kind in ("commands", "queries"):
+        described[kind] = {
+            name: kept(info, name) for name, info in (entry.get(kind) or {}).items()
+        }
+    return described
+
+
+def _saved_positions_call(a: Dict[str, Any]) -> Tuple[Dict[str, Any], dict]:
+    """The saved_positions query with the names asked for, one name as a list
+    of one; none asks for every position."""
+    names = a.get("names")
+    if not names:
+        return {}, kwargs_body()
+    if isinstance(names, str):
+        names = [names]
+    return {}, kwargs_body(names=[str(n) for n in names])
+
+
+def _saved_position_names(answer: Dict[str, Any], a: Dict[str, Any]) -> Any:
+    """stage_get_saved_positions' answer without names: how many, and their
+    names; with names, the positions in full."""
+    if a.get("names"):
+        return answer
+    positions = answer.get("saved_positions") or []
+    return {"count": len(positions), "names": [p.get("name") for p in positions]}
+
+
 def _set_parameter(
     a: Dict[str, Any], owner_key: str, path: str, get: Callable[[str], Any]
 ) -> Dict[str, Any]:
@@ -343,14 +428,39 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="device_list",
         description=(
-            "Every device on the microscope (electron, ion, stage, manipulator, ...): "
-            "its parameters with type, unit, limits, choices and whether settable, "
-            "and its commands. agent: false marks a write or command you may never "
-            "use, at any level (403 not_allowed); its value stays readable."
+            "Every device on the microscope (electron, ion, stage, manipulator, ...) "
+            "by name: its type and the names of its parameters, commands and "
+            "queries. agent_false names the parameters you may never set and the "
+            "commands you may never run, at any level (403 not_allowed); their "
+            "values stay readable. unavailable names what this microscope lacks. "
+            "device_describe gives one device's parameters with type, unit, limits "
+            "and choices, and its command signatures: read it before using a "
+            "parameter or command you have not used, never write a value to find out."
         ),
         method="GET",
         path="/microscope/devices",
         level="watch",
+        shape=_index,
+    ),
+    ToolSpec(
+        name="device_describe",
+        description=(
+            "One device in full: each parameter's type, unit, limits, choices, "
+            "whether settable and agent (false: you may never set it), and each "
+            "command's and query's signature, return type, whether this "
+            "microscope has it, agent and long (answers at once with a run). "
+            "With command, that command's or query's arguments as JSON Schema too "
+            "(units, limits, choices of each)."
+        ),
+        method="GET",
+        path="/microscope/devices/{device}",
+        level="watch",
+        params={
+            "device": "device name from device_list",
+            "command": "optional: a command or query to give the argument schema of",
+        },
+        optional=("command",),
+        shape=_described,
     ),
     ToolSpec(
         name="device_get_parameter",
@@ -802,12 +912,19 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="stage_get_saved_positions",
-        description="The named stage positions saved with this microscope configuration, as the Saved Positions panel lists them (metres and radians).",
+        description="The named stage positions saved with this microscope configuration, as the Saved Positions panel lists them: how many and their names; with names, those positions in full (metres and radians).",
         method="POST",
         path="/microscope/services/stage_movement/queries/saved_positions",
         result_key="saved_positions",
         level="watch",
-        call=lambda a: ({}, kwargs_body()),
+        params={
+            "names": arg(
+                "optional: the saved positions to give in full, by name", List[str]
+            )
+        },
+        optional=("names",),
+        call=_saved_positions_call,
+        shape=_saved_position_names,
     ),
     ToolSpec(
         name="stage_save_position",
@@ -1096,14 +1213,39 @@ TOOLS: Tuple[ToolSpec, ...] = (
         name="service_list",
         description=(
             "Every service on the microscope (milling, stage_movement, spot_burn, "
-            "sample_handling, ...): what the instrument does with its devices over "
-            "time. Each lists its parameters (e.g. milling progress) and its commands "
-            "with their signatures and whether this microscope has them; agent: "
-            "false marks one you may never use."
+            "sample_handling, ...) by name: what the instrument does with its "
+            "devices over time. Each names its parameters (e.g. milling progress), "
+            "commands and queries; agent_false names the commands you may never "
+            "run and the parameters you may never set, and unavailable what this "
+            "microscope lacks. service_describe gives one service's parameters "
+            "and command signatures: read it before using a parameter or command "
+            "you have not used, never write a value to find out."
         ),
         method="GET",
         path="/microscope/services",
         level="watch",
+        shape=_index,
+    ),
+    ToolSpec(
+        name="service_describe",
+        description=(
+            "One service in full: each parameter's type, unit, limits, choices, "
+            "whether settable and agent (false: you may never set it), and each "
+            "command's and query's signature, return type, whether this "
+            "microscope has it, agent and long (answers at once with a run). "
+            "With command, that command's or query's arguments as JSON Schema too "
+            "(units, limits, choices of each; a milling stage's runs to tens of "
+            "thousands of characters, where the milling tools say the same)."
+        ),
+        method="GET",
+        path="/microscope/services/{service}",
+        level="watch",
+        params={
+            "service": "service name from service_list",
+            "command": "optional: a command or query to give the argument schema of",
+        },
+        optional=("command",),
+        shape=_described,
     ),
     ToolSpec(
         name="service_get_parameter",
@@ -1141,7 +1283,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         description=(
             "Run a service command listed by service_list, e.g. service=stage_movement "
             "command=move_to_orientation kwargs={'orientation': 'SEM'}. A long command "
-            "(listed with long: true: milling run, run_stage and run_task, spot burn "
+            "(long: true in service_describe: milling run, run_stage and run_task, spot burn "
             "run, alignment align_to_reference, imaging fm_auto_focus, "
             "fm_acquire_image, acquire_overview, fm_acquire_overview and "
             "acquire_focus_stack) answers at once with "

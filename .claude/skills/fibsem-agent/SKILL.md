@@ -90,6 +90,9 @@ Every launch starts at Watch; nothing in a file raises it.
 - **Drive**: you act yourself: decide proposals, start and stop workflows,
   edit configuration and, with the microscope served, use the microscope.
 
+A tool's description ends with the level it needs; one that names no level
+works at every level, Watch included.
+
 A refusal names its reason in `detail.error_type`:
 
 - `level`: the action needs a higher level. Say what you wanted and which
@@ -100,8 +103,9 @@ A refusal names its reason in `detail.error_type`:
   Stop acting at once, say where you left things, and keep watching. Don't
   ask to be raised again unless they ask you to continue.
 - `agent_off`: you are off. Report it once and stop.
-- `not_allowed`: you may never use that write or command, at any level (the
-  listings mark it `agent: false`), and no request makes it allowed. Say what
+- `not_allowed`: you may never use that write or command, at any level (`device_list` and
+  `service_list` name it under `agent_false`; the describe tools mark it
+  `agent: false`), and no request makes it allowed. Say what
   you wanted and that it is the operator's to do.
 
 Every other refusal is an HTTP error too, never a 200 answer: its `detail`

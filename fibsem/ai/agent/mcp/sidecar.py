@@ -1192,14 +1192,21 @@ def build_sidecar(client, capabilities, instrument=None, record=None):
 
     def _answered(spec):
         """A tool that answers its route's answer as it stands, or its
-        ``result`` under `ToolSpec.result_key`; a preview in it as an image."""
+        ``result`` under `ToolSpec.result_key`, as `ToolSpec.shape` shapes
+        it; a preview in it as an image."""
 
         def tool(**arguments):
             data, err = _route(spec.name, **arguments)
             if err:
                 return err
             key = spec.result_key
-            return _with_images({key: data["result"]} if key else data)
+            answer = {key: data["result"]} if key else data
+            if spec.shape is not None:
+                try:
+                    answer = spec.shape(answer, arguments)
+                except ValueError as exc:
+                    return _Failure(f"refused: {exc}")
+            return _with_images(answer)
 
         tool.__name__ = spec.name
         tool.__signature__ = spec.signature
