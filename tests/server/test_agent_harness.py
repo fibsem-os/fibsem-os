@@ -1161,6 +1161,86 @@ def test_an_operator_message_wakes_the_agent_and_it_answers(session):
     assert [n["payload"].get("reply_to") for n in notes] == [message_id]
 
 
+class AsideAgent(ScriptedAgent):
+    """The scripted agent with the CLI's side question stood in: it keeps
+    each question and answers it."""
+
+    def __init__(self, reply=None):
+        super().__init__(reply)
+        self.side_questions = []
+
+    async def side_question(self, question, history, timeout_s):
+        self.side_questions.append(question)
+        return "The ion beam was at 30 pA at the last image."
+
+
+def test_a_side_question_is_answered_beside_a_long_turn_and_never_reaches_it(
+    session,
+):
+    def notes():
+        return [
+            e
+            for e in session.recorder.buffer.events_since(0)["events"]
+            if e["kind"] == "note"
+        ]
+
+    async def reply(prompt):
+        if prompt != kickoff():
+            return None
+        # A long turn: it goes on until the side answer is on the record.
+        while not any(n.get("actor") != "operator" for n in notes()):
+            await asyncio.sleep(0.05)
+
+    agent = AsideAgent(reply)
+    running = _harness(session, agent)
+    assert wait_for(lambda: agent.prompts, timeout=20), "no kickoff"
+    side_id = AgentControl(session).message("/btw what current is the ion beam at?")
+    assert wait_for(
+        lambda: any(n.get("actor") != "operator" for n in notes()), timeout=20
+    ), "no side answer"
+    # Its turn sees the answer and ends.
+    time.sleep(0.5)
+    # An ordinary message after it still reaches the agent, as its next turn.
+    message_id = AgentControl(session).message("is 01 ok?")
+    assert wait_for(lambda: len(agent.prompts) >= 2, timeout=20), "no second turn"
+    time.sleep(2 * POLL_S)
+    assert running.stop() == 0
+
+    assert agent.interrupts == 0, "the side question cut the turn short"
+    assert agent.side_questions == [
+        harness_mod.aside.FRAME + "what current is the ion beam at?"
+    ]
+    assert len(agent.prompts) == 2
+    assert agent.prompts[1].startswith(
+        f"The watcher printed:\nMESSAGE id={message_id} from the operator: is 01 ok?"
+    )
+    for prompt in agent.prompts:
+        assert side_id not in prompt and "ion beam" not in prompt
+    # Both on the record: the question marked, the answer replying to it.
+    question, ordinary = [n for n in notes() if n.get("actor") == "operator"]
+    (answer,) = [n for n in notes() if n.get("actor") != "operator"]
+    assert question["payload"]["id"] == side_id
+    assert question["payload"][harness_mod.aside.MARK] is True
+    assert harness_mod.aside.MARK not in ordinary["payload"]
+    assert answer["payload"]["reply_to"] == side_id
+    assert answer["payload"]["text"] == (
+        harness_mod.aside.LEAD + "The ion beam was at 30 pA at the last image."
+    )
+
+
+def test_a_side_question_sent_before_the_agent_started_is_answered_beside_it(
+    session,
+):
+    side_id = AgentControl(session).message("/btw where is the report?")
+    agent = AsideAgent()
+    running = _harness(session, agent)
+    assert wait_for(lambda: agent.side_questions, timeout=20), "not answered"
+    time.sleep(2 * POLL_S)
+    assert running.stop() == 0
+    assert agent.prompts == [kickoff()]
+    assert all(side_id not in prompt for prompt in agent.prompts)
+
+
 def test_an_event_id_after_lines_already_taken_is_the_current_turn_s():
     # The watch says a poll's lines, then the id of its newest event: two
     # items. A turn can take the lines before the id arrives.
