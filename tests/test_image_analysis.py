@@ -1,16 +1,16 @@
-"""Measurements on saved images (`fibsem.imaging.analysis`): intensity at points
+"""Measurements on saved images (`fibsem.analysis`): intensity at points
 per plane, a line's profile and FWHM, and image quality."""
 
 import numpy as np
 import pytest
 
+from fibsem.analysis import measure as analysis
+from fibsem.analysis.images import Planes, load_planes
 from fibsem.fm.structures import (
     FluorescenceChannelMetadata,
     FluorescenceImage,
     FluorescenceImageMetadata,
 )
-from fibsem.imaging import analysis
-from fibsem.imaging.analysis import Planes
 
 
 def _spot(shape, x, y, sigma, amplitude):
@@ -148,8 +148,28 @@ def test_a_stack_on_disk_reads_as_its_channels_and_planes(tmp_path):
     )
     path = str(tmp_path / "stack.ome.tiff")
     FluorescenceImage(data=data, metadata=metadata).save(path)
-    planes = analysis.load_planes(path)
+    planes = load_planes(path)
     assert planes.names == ["GFP"] and planes.planes == 5
     assert planes.pixel_size == pytest.approx(1e-7)
     assert planes.z_step == pytest.approx(3e-7)
     assert planes.full_value == 65535
+
+
+def test_a_plain_picture_reads_as_one_plane_with_no_scale(tmp_path):
+    from PIL import Image
+
+    rgb = np.zeros((20, 30, 3), dtype=np.uint8)
+    rgb[5:10, 5:10] = 255
+    path = str(tmp_path / "figure.png")
+    Image.fromarray(rgb).save(path)
+    planes = load_planes(path)
+    assert planes.data.shape == (1, 1, 20, 30)
+    assert planes.names == ["Image"] and planes.pixel_size is None
+    assert planes.data[0, 0, 7, 7] == 255
+
+
+def test_a_format_no_reader_reads_is_refused_with_the_readers_named(tmp_path):
+    path = tmp_path / "notes.txt"
+    path.write_text("not an image")
+    with pytest.raises(ValueError, match="fluorescence stack, beam image, picture"):
+        load_planes(str(path))

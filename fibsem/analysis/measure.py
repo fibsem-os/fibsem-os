@@ -1,9 +1,9 @@
 """Measurements on a saved image, in its own values: what the agent's analysis
 tools answer, each with a figure to look at and cite as evidence.
 
-An image is read as `Planes`: a beam image is one layer of one plane, named by
-its kind (``SEM``, ``FIB``); a fluorescence stack is a layer per channel, a
-plane per z. Points and lines are in the image's pixels, as marks are.
+An image is read as `Planes` (`fibsem.analysis.images`): a beam image is one
+layer of one plane, named by its kind (``SEM``, ``FIB``); a fluorescence stack
+is a layer per channel, a plane per z. Points and lines are in the image's pixels, as marks are.
 
 - `measure_intensity`: the signal at points, per plane, against the ring
   around each, and as a ratio to a reference point.
@@ -16,96 +16,20 @@ plane per z. Points and lines are in the image's pixels, as marks are.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
+from fibsem.analysis.images import Planes
 from fibsem.fm.composite import auto_clim
-from fibsem.fm.preview import (
-    channel_look,
-    czyx,
-    is_fluorescence_image,
-    plane_sharpness,
-)
-from fibsem.fm.structures import FluorescenceImage
-from fibsem.imaging.export import fibsem_image_fields, saturation_value
+from fibsem.fm.preview import plane_sharpness
 from fibsem.imaging.marks import rgb_of
-from fibsem.structures.image import FibsemImage
 
 # A ring for a point's background: from this many radii out, to that many.
 RING = (2.0, 3.0)
 # The most planes a point's strip of crops shows.
 STRIP_PLANES = 9
 _DPI = 100
-
-
-@dataclass
-class Planes:
-    """An image's raw data as (layer, z, y, x), its layer names, and its pixel
-    size and z step in metres when known."""
-
-    data: np.ndarray
-    names: List[str]
-    pixel_size: Optional[float] = None
-    z_step: Optional[float] = None
-    full_value: Optional[float] = None
-    fluorescence: bool = False
-
-    @property
-    def planes(self) -> int:
-        return self.data.shape[1]
-
-    def layer(self, name: Optional[str]) -> Tuple[str, np.ndarray]:
-        """``(name, (z, y, x) data)`` of the layer *name*, the first when None.
-        ValueError names the layers there are."""
-        if name is None:
-            return self.names[0], self.data[0]
-        if name not in self.names:
-            raise ValueError(
-                f"no layer {name}: the image's layers are {', '.join(self.names)}"
-            )
-        return name, self.data[self.names.index(name)]
-
-    def plane_range(self, planes: Optional[Sequence[int]]) -> List[int]:
-        """*planes* checked against the stack, every plane when None."""
-        if planes is None:
-            return list(range(self.planes))
-        bad = [z for z in planes if not 0 <= z < self.planes]
-        if bad:
-            raise ValueError(
-                f"plane {bad[0]} is outside the stack's 0 to {self.planes - 1}"
-            )
-        return list(planes)
-
-
-def load_planes(path: str) -> Planes:
-    """The image at *path*, a beam image or a fluorescence stack, as `Planes`."""
-    if is_fluorescence_image(path):
-        image = FluorescenceImage.load(path)
-        data = czyx(image)
-        channels = list(image.metadata.channels)
-        names = [channel_look(channels, i, len(data))[0] for i in range(len(data))]
-        md = image.metadata
-        return Planes(
-            data=data,
-            names=names,
-            pixel_size=md.pixel_size_x,
-            z_step=md.pixel_size_z if data.shape[1] > 1 else None,
-            full_value=saturation_value(data),
-            fluorescence=True,
-        )
-    image = FibsemImage.load(path)
-    data = np.asarray(image.data)
-    if data.ndim != 2:
-        raise ValueError(f"{path} is not a single greyscale image")
-    md = image.metadata
-    return Planes(
-        data=data[None, None],
-        names=[fibsem_image_fields(image).kind if md is not None else "Image"],
-        pixel_size=md.pixel_size.x if md is not None and md.pixel_size else None,
-        full_value=saturation_value(data),
-    )
 
 
 # --- intensity at points -------------------------------------------------------

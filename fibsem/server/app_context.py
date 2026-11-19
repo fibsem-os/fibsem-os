@@ -14,11 +14,12 @@ from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
 from fibsem.acting import OPERATOR, WORKFLOW, Actor, current_actor, signer
+from fibsem.analysis import measure as analysis
+from fibsem.analysis.images import load_planes
 from fibsem.codec import decode, encode
 from fibsem.config import get_recent_experiments
 from fibsem.fm.preview import is_fluorescence_image
 from fibsem.geometry.saved_images import image_point_to_stage_position, stage_projector
-from fibsem.imaging import analysis
 from fibsem.imaging.cells import from_crop
 from fibsem.imaging.marks import (
     draw,
@@ -456,7 +457,7 @@ class AppContext:
         if refusal:
             return refusal
         try:
-            planes = analysis.load_planes(target)
+            planes = load_planes(target)
             result = measure(planes)
         except ValueError as exc:
             return refused("invalid", str(exc))
@@ -479,7 +480,7 @@ class AppContext:
         """The signal at *points* of a saved image, per plane: the mean in a
         disc of *radius_px* above the median of the ring about it, as a ratio
         to the *reference* point's. Saves a figure of each point's planes and
-        its signal against plane (`fibsem.imaging.analysis.measure_intensity`)."""
+        its signal against plane (`fibsem.analysis.measure.measure_intensity`)."""
         return self._measured(
             path,
             lambda image: analysis.measure_intensity(
@@ -500,7 +501,7 @@ class AppContext:
         dip: bool = False,
     ) -> Any:
         """A saved image's values along a line, and the FWHM of its peak (or
-        *dip*), with a figure (`fibsem.imaging.analysis.line_profile`)."""
+        *dip*), with a figure (`fibsem.analysis.measure.line_profile`)."""
         line = "-".join(str(round(v)) for v in (*start, *end))
         return self._measured(
             path,
@@ -515,7 +516,7 @@ class AppContext:
         self, path: str, channel: Optional[str] = None, plane: Optional[int] = None
     ) -> Any:
         """A saved image's clipping, histogram, focus and, for a stack, each
-        plane's sharpness (`fibsem.imaging.analysis.image_quality`)."""
+        plane's sharpness (`fibsem.analysis.measure.image_quality`)."""
         return self._measured(
             path,
             lambda image: analysis.image_quality(image, channel, plane),

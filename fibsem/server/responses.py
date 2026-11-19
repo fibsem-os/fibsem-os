@@ -1053,7 +1053,7 @@ class ImagePairDrawn:
 
 @dataclass
 class ImageMeasured:
-    """An analysis tool's answer (`fibsem.imaging.analysis`) on a saved image."""
+    """An analysis tool's answer (`fibsem.analysis.measure`) on a saved image."""
 
     image: str
     # intensity, profile or quality

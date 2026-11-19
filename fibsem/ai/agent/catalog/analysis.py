@@ -1,5 +1,5 @@
 """The analysis tools: measurements on a saved image in the experiment, in its
-own values, each with a figure to look at and cite (`fibsem.imaging.analysis`).
+own values, each with a figure to look at and cite (`fibsem.analysis.measure`).
 Nothing moves and no beam fires."""
 
 from typing import List
