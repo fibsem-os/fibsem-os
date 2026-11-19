@@ -5,6 +5,7 @@
     extends: fibsem-agent            # optional
     instrument: fibsem               # the instrument kind its prompts are for
     mcp: [notebook]                  # MCP servers it uses, by name (`extra_mcp`)
+    tools: [item_list]               # fibsem tools loaded from the first turn
     wakes: [decisions, run]          # what wakes the agent (`wake_lines.GROUPS`)
     session:                         # what a session STARTED on it runs with
       level: watch                   # the level the gateway's card picks first
@@ -41,6 +42,14 @@ first; ``session`` settings and ``instrument`` too, the child's winning.
 its instrument kind; a playbook for another kind names its own, and one with
 no instrument (``instrument: none``) names no ``fibsem``.
 
+``tools`` names fibsem tools (`catalog.CATALOG`) whose schemas the CLI
+loads from the first turn, where it otherwise defers every MCP tool until
+the agent finds it with ToolSearch: the sidecar marks them
+``anthropic/alwaysLoad``. They add up along ``extends``, under the base's
+for a playbook of its instrument kind, like skills. Each costs context from
+the first turn, so the list stays short. Only the playbook a session starts
+on counts: the sidecar lists its tools once.
+
 ``wakes`` names the watcher's lines that wake the agent, by group
 (`wake_lines.GROUPS`): the nearest playbook that names them wins, and one
 that names none lets every line wake it. A line that doesn't wake it goes in
@@ -70,6 +79,7 @@ from typing import Any, Callable, Dict, List, Optional
 import yaml
 
 from fibsem.ai.agent import instruments, reminders, sources, wake_lines
+from fibsem.ai.agent.catalog import CATALOG
 
 PLAYBOOK_DIR = Path(sources.CLAUDE) / "fibsem-agent" / "playbooks"
 # The playbook a session starts on when its launch names none.
@@ -79,6 +89,7 @@ FIELDS = (
     "extends",
     "instrument",
     "mcp",
+    "tools",
     "wakes",
     "session",
     "skills",
@@ -94,6 +105,8 @@ PLAN = ["Brief", "Playbook", "Rules", "Steps", "Progress", "Summary"]
 _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
 # An MCP server's name, as it sits in mcp__<server>__<tool> (`extra_mcp.NAME`).
 _SERVER = re.compile(r"[A-Za-z][\w-]*")
+# The fibsem tools a playbook's ``tools`` may name.
+_TOOL_NAMES = frozenset(spec.name for spec in CATALOG)
 SESSION = (
     "level",
     "model",
@@ -193,6 +206,8 @@ class Playbook:
     instrument: Optional[str] = None
     # The MCP servers it uses, by name: ``fibsem`` or a lab's (`extra_mcp`).
     mcp: List[str] = field(default_factory=list)
+    # The fibsem tools the CLI loads from the first turn, not deferred.
+    tools: List[str] = field(default_factory=list)
     # The groups of lines that wake the agent (`wake_lines.GROUPS`); None
     # for every line.
     wakes: Optional[List[str]] = None
@@ -216,6 +231,7 @@ class Playbook:
             "extends": self.chain[:-1],
             "instrument": self.instrument,
             "mcp": list(self.mcp),
+            "tools": list(self.tools),
             "wakes": list(self.wakes) if self.wakes is not None else None,
             "hooks": list(self.switched_on),
             "skills": list(self.skills),
@@ -286,6 +302,7 @@ def load(name: str, checkout: Optional[Path], efforts=()) -> Playbook:
         if playbook.instrument == base.instrument:
             playbook.skills = _merge(base.skills, playbook.skills)
             playbook.mcp = _merge(base.mcp, playbook.mcp)
+            playbook.tools = _merge(base.tools, playbook.tools)
         playbook.session = base.session.merged(playbook.session)
     if checkout is not None:
         kinds = instruments.kinds(checkout)
@@ -403,6 +420,13 @@ def _read(
             f"{path}: mcp lists servers by name, not {', '.join(bad)}: letters, "
             "digits, _ and -, letter first"
         )
+    tools = _names(data.get("tools"), "tools", path)
+    unknown = [t for t in tools if t not in _TOOL_NAMES]
+    if unknown:
+        raise PlaybookError(
+            f"{path}: tools names no fibsem tool {', '.join(unknown)}: a tool's "
+            "name without mcp__fibsem__, as fibsem-mcp lists it"
+        )
     wakes = None
     if data.get("wakes") is not None:
         wakes = _names(data.get("wakes"), "wakes", path)
@@ -460,6 +484,7 @@ def _read(
         session=(parent.session if parent else SessionSettings()).merged(session),
         instrument=instrument or (parent.instrument if parent else None),
         mcp=_merge(parent.mcp if parent else [], mcp),
+        tools=_merge(parent.tools if parent else [], tools),
         wakes=wakes if wakes is not None else (parent.wakes if parent else None),
     )
     return playbook

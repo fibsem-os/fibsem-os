@@ -60,6 +60,7 @@ from fibsem.ai.agent import manager as sessions
 from fibsem.ai.agent import watch as watch_mod
 from fibsem.ai.agent.catalog import INSTRUMENT_ENV
 from fibsem.ai.agent.report import SessionReport, plain
+from fibsem.ai.agent.session import BUDGET_WARNING
 from fibsem.ai.agent.wake_lines import fibsem as fibsem_lines
 from fibsem.client.transport import (
     HOST_TOKEN_ENV,
@@ -393,6 +394,14 @@ INTERRUPTED = (
 CARRY_ON = (
     "WAKE your last turn reached its step limit before you finished: carry on "
     "from where you were."
+)
+
+# Said once, in the next turn, when the run's spend first reaches
+# `BUDGET_WARNING` of its budget: the CLI is given no budget, so it says none.
+BUDGET_LOW = (
+    "Budget: ${spent:.2f} of this run's ${budget:g} is spent ({used:.0f}%). "
+    "fibsem-agent stops at the end of the turn that spends the rest: tell the "
+    "operator now if the work needs more."
 )
 
 
@@ -934,6 +943,14 @@ class Harness:
     spend, so the operator sees them in the app. While a turn goes on, its
     tokens and the context's fill are reported every ``report_every_s``; the
     spend is known only as a turn ends.
+
+    The budget is the harness's to keep, not the CLI's: a turn that ends with
+    this run's spend at or over it ends the run, so that last turn can go
+    over. The operator may set a new budget at the App Server
+    (``PUT /app/agent/budget``); the harness takes it from the answer to a
+    report, and asks again before it ends the run. *spent_before_usd* is the
+    session's spend when this run started (its record's, on a resume): the
+    CLI's running total carries earlier runs on, the budget counts this one.
     """
 
     def __init__(
@@ -946,6 +963,7 @@ class Harness:
         retry_s: Optional[float] = None,
         goal: Optional[str] = None,
         budget_usd: Optional[float] = None,
+        spent_before_usd: Optional[float] = None,
         about: Optional[dict] = None,
         alarm: Optional[Alarm] = None,
         playbook: Optional[PlaybookControl] = None,
@@ -997,6 +1015,13 @@ class Harness:
         # What it can do (code mode, effort, skills), sent with the first report.
         self._about = dict(about or {})
         self._budget_usd = budget_usd
+        # The CLI's running total when this run started: 0 for a new session;
+        # None for a resume whose record doesn't say, and then this run's
+        # first turn is not counted (`_count_spend`).
+        self._run_from_usd: Optional[float] = spent_before_usd if resumed else 0.0
+        # `BUDGET_LOW` is said once per crossing; it waits here for a turn.
+        self._budget_warned = False
+        self._budget_note: Optional[str] = None
         # The App Server's client, once one answers: the session is reported on it.
         self._client = None
         self._turns = 0
@@ -1203,7 +1228,7 @@ class Harness:
         self._turns += 1
         self._keep_given_cursor()
         if end.cost_usd is not None:
-            self._spent_usd = end.cost_usd
+            self._count_spend(end.cost_usd)
         if end.tokens is not None:
             self._tokens = usage.add(self._tokens or usage.zero(), end.tokens)
         if end.context is not None:
@@ -1223,15 +1248,21 @@ class Harness:
             )
             self._code = 1
             return False
-        if end.subtype == "error_max_budget_usd":
+        if self._over_budget():
+            # The operator may have raised it since the last report.
+            await self._reread_budget()
+        if self._over_budget():
             self._end_reason = "its budget is spent"
             log.error(
-                "The budget is spent (--max-budget-usd); fibsem-agent stops. "
-                "Raise it and --resume %s to carry on.",
+                "The budget is spent ($%.2f of $%g this run, --max-budget-usd); "
+                "fibsem-agent stops. Raise it and --resume %s to carry on.",
+                self._run_spent(),
+                self._budget_usd,
                 session,
             )
             self._code = 2
             return False
+        self._warn_budget()
         if end.subtype == "no_result":
             self._end_reason = "the agent's process ended"
             log.error(
@@ -1315,11 +1346,86 @@ class Harness:
                 return await loop.run_in_executor(None, post)
 
         reported = await asyncio.shield(send())
+        self._adopt_budget(reported)
         if isinstance(reported, dict) and self._keep_where is not None:
             self._keep_where(reported)
         if isinstance(reported, dict) and not ended:
             self._deadlines.set(reported.get("deadlines"))
         await self._send_transcript()
+
+    def _count_spend(self, total_usd: float) -> None:
+        """The CLI's running total after a turn: the session's spend."""
+        if self._run_from_usd is None:
+            # A resume whose earlier spend is unknown counts from here.
+            self._run_from_usd = total_usd
+        elif total_usd < self._run_from_usd:
+            # The CLI's total did not carry the earlier runs on.
+            self._run_from_usd = 0.0
+        self._spent_usd = total_usd
+
+    def _run_spent(self) -> Optional[float]:
+        """What this run has spent, as the last turn ended."""
+        if self._spent_usd is None:
+            return None
+        return self._spent_usd - (self._run_from_usd or 0.0)
+
+    def _over_budget(self) -> bool:
+        spent = self._run_spent()
+        return (
+            bool(self._budget_usd) and spent is not None and spent >= self._budget_usd
+        )
+
+    def _warn_budget(self) -> None:
+        """`BUDGET_LOW` for the next turn, once the spend first reaches
+        `BUDGET_WARNING` of the budget; again after a new budget takes it
+        back under."""
+        spent, budget = self._run_spent(), self._budget_usd
+        if spent is None or not budget:
+            return
+        low = spent >= BUDGET_WARNING * budget
+        if low and not self._budget_warned:
+            self._budget_note = BUDGET_LOW.format(
+                spent=spent, budget=budget, used=100 * spent / budget
+            )
+        elif not low:
+            self._budget_note = None
+        self._budget_warned = low
+
+    def _adopt_budget(self, reported) -> None:
+        """The budget the operator set at the App Server for this session
+        (``budget_set_usd``), if it set one."""
+        if not isinstance(reported, dict):
+            return
+        session_id = getattr(self._agent, "session_id", None)
+        if reported.get("session_id") not in (None, session_id):
+            return
+        budget = reported.get("budget_set_usd")
+        if isinstance(budget, (int, float)) and budget > 0:
+            if budget != self._budget_usd:
+                log.info(
+                    "The operator set this run's budget to $%g (it was $%g).",
+                    budget,
+                    self._budget_usd or 0,
+                )
+                self._budget_usd = float(budget)
+
+    async def _reread_budget(self) -> None:
+        """Ask the App Server for the session's budget, in case the operator
+        set a new one; a server that can't say leaves it as it is."""
+        client = self._client
+        if client is None:
+            return
+
+        def get():
+            try:
+                response = client.request("GET", "/app/agent/session", timeout=10.0)
+                if response.status_code == 200:
+                    return response.json().get("session")
+            except Exception:
+                log.debug("Reading the session's budget failed.", exc_info=True)
+            return None
+
+        self._adopt_budget(await asyncio.get_running_loop().run_in_executor(None, get))
 
     def _usage_now(self) -> dict:
         """The run's tokens and the context's fill: as the last turn ended,
@@ -1530,6 +1636,11 @@ class Harness:
                 if self._cut_short:
                     self._cut_short = False
                     prompt = f"{INTERRUPTED}\n\n{prompt}"
+                if self._budget_note:
+                    prompt, self._budget_note = (
+                        f"{prompt}\n\n{self._budget_note}",
+                        None,
+                    )
                 return prompt
 
     async def _rewatch(self, prompt: Optional[str]) -> Optional[str]:
@@ -2075,13 +2186,19 @@ def sidecar_command() -> List[str]:
     return [sys.executable, "-I", "-m", "fibsem.ai.agent.mcp.sidecar"]
 
 
+def always_loaded(playbook: Optional[playbooks.Playbook]) -> List[str]:
+    """The sidecar's arguments for the playbook's ``tools``: none without."""
+    if playbook is None or not playbook.tools:
+        return []
+    return ["--always-load", ",".join(playbook.tools)]
+
+
 def build_options(
     checkout: Path,
     url: Optional[str] = None,
     token: Optional[str] = None,
     model: Optional[str] = None,
     max_turns: Optional[int] = None,
-    max_budget_usd: Optional[float] = None,
     resume: Optional[str] = None,
     effort: Optional[str] = None,
     work: Optional[Path] = None,
@@ -2116,10 +2233,13 @@ def build_options(
     extras = extra_mcp.load() if extras is None else extras
     base = defaults()
     command = sidecar_command()
+    # The playbook's tools, which the CLI loads from the first turn; each
+    # sidecar marks those it offers.
+    always = always_loaded(playbook)
     server = {
         "type": "stdio",
         "command": command[0],
-        "args": command[1:] + (["--no-record"] if host else []),
+        "args": command[1:] + (["--no-record"] if host else []) + always,
     }
     # In the CLI's environment, which the sidecar inherits: the server entry
     # goes on the CLI's command line, where anyone can list it.
@@ -2163,7 +2283,8 @@ def build_options(
             "type": "stdio",
             "command": command[0],
             "args": command[1:]
-            + ["--url", host, "--token-env", HOST_TOKEN_ENV, "--record-only"],
+            + ["--url", host, "--token-env", HOST_TOKEN_ENV, "--record-only"]
+            + always,
         }
     if alarm is not None:
         servers[HARNESS_SERVER] = wake_server(alarm, control)
@@ -2209,8 +2330,9 @@ def build_options(
         ),
         # Watcher lines carry operator-typed text: never expand an @path in it.
         verbatim_prompts=True,
+        # No max_budget_usd: given one, the CLI puts the spend in a reminder
+        # on every model call. The harness keeps the budget (`Harness`).
         max_turns=max_turns or base.max_turns,
-        max_budget_usd=max_budget_usd or base.max_budget_usd,
         model=model,
         effort=effort or base.effort,
         resume=resume,
@@ -2354,7 +2476,10 @@ def _parser() -> argparse.ArgumentParser:
         "--max-budget-usd",
         type=float,
         default=None,
-        help="what this run may spend, after which fibsem-agent stops "
+        help="what this run may spend: fibsem-agent stops at the end of the "
+        "turn that spends it, so that turn can go over (by at most its "
+        "--max-turns model calls and the subagents it called); the operator "
+        "can set a new budget while it runs, PUT /app/agent/budget "
         "(default: the playbook's)",
     )
     parser.add_argument(
@@ -2706,7 +2831,6 @@ def _main(argv, opened: List["sessions.SessionFolder"]) -> int:
         token=token,
         model=args.model,
         max_turns=args.max_turns,
-        max_budget_usd=args.max_budget_usd,
         resume=args.resume,
         effort=args.effort,
         work=work,
@@ -2739,6 +2863,7 @@ def _main(argv, opened: List["sessions.SessionFolder"]) -> int:
         server_wait_s=args.server_wait,
         goal=args.goal,
         budget_usd=args.max_budget_usd,
+        spent_before_usd=_spent_before(record),
         playbook=control,
         words=words,
         deadline_warn_s=playbook.session.deadline_warn_min * 60,
@@ -2778,6 +2903,17 @@ def _main(argv, opened: List["sessions.SessionFolder"]) -> int:
         signal.signal(signal.SIGINT, previous)
     session.end(code, **(outcome or harness.outcome()))
     return code
+
+
+def _spent_before(record: dict) -> Optional[float]:
+    """What a resumed session had spent when its last run ended (the CLI's
+    running total, from its record); None when no run says."""
+    spent = [
+        run["spent_usd"]
+        for run in (record.get("runs") or [])[:-1]
+        if isinstance(run.get("spent_usd"), (int, float))
+    ]
+    return max(spent) if spent else None
 
 
 def _session_id(text: str) -> str:
@@ -2908,6 +3044,8 @@ def show_config(
         "skills": list(loaded.skills),
         "specialists": list(loaded.agents),
         "tools": list(tools),
+        # The fibsem tools loaded from the first turn; the CLI defers the rest.
+        "always_loaded": list(playbook.tools),
         "allowed_tools": list(allowed),
         "denied_tools": list(denied),
         # Its reminders are on from the start; the agent may propose another.
@@ -2998,6 +3136,8 @@ def _config_text(config: dict) -> str:
         f"Skills:   {', '.join(config['skills'])}",
         f"Agents:   {', '.join(config['specialists'])}",
         f"Tools:    {', '.join(config['tools'])}",
+        f"Loaded:   {', '.join(config['always_loaded']) or 'none'} (the other "
+        "fibsem tools wait for ToolSearch)",
         f"Allowed:  {', '.join(config['allowed_tools'])}",
         f"Denied:   {', '.join(config['denied_tools'])}",
     ]

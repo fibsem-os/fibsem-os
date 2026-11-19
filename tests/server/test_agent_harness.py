@@ -431,7 +431,9 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
     assert options.resume == "abc"
     assert options.verbatim_prompts
     assert options.max_turns == harness_mod.defaults().max_turns
-    assert options.max_budget_usd == harness_mod.defaults().max_budget_usd
+    # The harness keeps the budget: given one, the CLI says the spend in a
+    # reminder on every model call.
+    assert options.max_budget_usd is None
     # A tool result with an image in it is more than the SDK's 1 MB default.
     assert options.max_buffer_size >= 16 * 1024 * 1024
     # No developer CLAUDE.md or auto memory in an operator's agent.
@@ -1789,13 +1791,82 @@ def test_stopping_interrupts_the_turn_and_closes_the_session(session):
     assert agent.closed
 
 
-def test_a_spent_budget_ends_the_run(session):
+def test_a_spent_budget_ends_the_run_at_the_end_of_its_turn(session, caplog):
     async def reply(prompt):
-        return TurnEnd("error_max_budget_usd", 5.01, "scripted")
+        return TurnEnd(cost_usd=5.01, session_id="scripted")
 
     agent = ScriptedAgent(reply)
-    assert _harness(session, agent).ended() == 2
+    running = _harness(session, agent, budget_usd=5.0)
+    assert running.ended() == 2
     assert agent.closed and len(agent.prompts) == 1
+    assert running.harness.outcome()["reason"] == "its budget is spent"
+    assert any("The budget is spent ($5.01 of $5 " in m for m in caplog.messages)
+    ended = AgentControl(session).reported_session()
+    assert ended["ended"] and ended["reason"] == "its budget is spent"
+    assert (ended["budget_usd"], ended["spent_usd"]) == (5.0, 5.01)
+
+
+def test_a_budget_the_operator_raises_keeps_the_run_going(session):
+    session.agent_auth.operator_token = "op-token"
+    spent = iter([1.0, 4.5, 5.5, 12.0])
+
+    async def reply(prompt):
+        cost = next(spent)
+        if cost == 5.5:
+            # The operator raises it while the turn that spends it goes on.
+            with httpx.Client(
+                base_url=session.app_server.url,
+                headers={"Authorization": "Bearer op-token"},
+                timeout=30,
+            ) as http:
+                raised = http.put("/app/agent/budget", json={"budget_usd": 10})
+            assert raised.status_code == 200, raised.text
+        return TurnEnd(cost_usd=cost, session_id="scripted")
+
+    agent = ScriptedAgent(reply)
+    running = _harness(session, agent, budget_usd=5.0)
+    control = AgentControl(session)
+    for turn in range(1, 4):
+        assert wait_for(lambda: len(agent.prompts) == turn, timeout=20)
+        control.message(f"carry on {turn}")
+    assert running.ended() == 2
+    assert len(agent.prompts) == 4
+    # Said once, in the turn after the spend first reached 80% of the budget.
+    said = [harness_mod.BUDGET_LOW[:8] in prompt for prompt in agent.prompts]
+    assert said == [False, False, True, False]
+    assert "$4.50 of this run's $5 is spent (90%)" in agent.prompts[2]
+    ended = control.reported_session()
+    assert (ended["budget_usd"], ended["budget_set_usd"]) == (10.0, 10.0)
+
+
+def test_a_resumed_run_counts_its_own_spend_against_the_budget():
+    def resumed(before=None):
+        return Harness(
+            ScriptedAgent(),
+            lambda: None,
+            resumed=True,
+            budget_usd=5.0,
+            spent_before_usd=before,
+        )
+
+    # The CLI's running total carries the earlier runs on.
+    harness = resumed(40.0)
+    harness._count_spend(44.0)
+    assert harness._run_spent() == 4.0 and not harness._over_budget()
+    harness._count_spend(45.5)
+    assert harness._over_budget()
+    # A total that did not carry them on is all this run's.
+    harness = resumed(40.0)
+    harness._count_spend(3.0)
+    assert harness._run_spent() == 3.0
+    # Not known: the run's first turn is not counted.
+    harness = resumed()
+    harness._count_spend(44.0)
+    harness._count_spend(46.0)
+    assert harness._run_spent() == 2.0
+    record = {"runs": [{"spent_usd": 12.5}, {"spent_usd": 40.0}, {}]}
+    assert harness_mod._spent_before(record) == 40.0
+    assert harness_mod._spent_before({"runs": [{"spent_usd": 3.0}]}) is None
 
 
 def test_a_model_that_cannot_sign_in_ends_the_run(session):

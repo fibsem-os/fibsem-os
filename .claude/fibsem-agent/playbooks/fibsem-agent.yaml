@@ -12,6 +12,24 @@ instrument: fibsem
 # A playbook adds its own; a server in the lab's mcp.yaml is on only for a
 # playbook that names it.
 mcp: [fibsem]
+# The fibsem tools loaded from the first turn: the CLI defers the rest until
+# the agent finds them with ToolSearch. The ones every session uses; each
+# costs context from the start, so a playbook adds only its own few.
+tools:
+  - server_get_capabilities
+  - app_get_status
+  - proposal_list
+  - plan_get
+  - plan_set_section
+  - experiment_message_operator
+  - experiment_add_note
+  - workflow_get_queue
+  - knowledge_list
+  - stage_get_position
+  - microscope_get_state
+  - beam_acquire_image
+  - analysis_crop_image
+  - analysis_draw_image
 session:
   effort: high
   max_budget_usd: 500
