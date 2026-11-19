@@ -878,7 +878,7 @@ export interface components {
             scalebar_locations: string[];
             width: number;
         };
-        /** @description An analysis tool's answer (`fibsem.imaging.analysis`) on a saved image. */
+        /** @description An analysis tool's answer (`fibsem.analysis.measure`) on a saved image. */
         ImageMeasured: {
             image: string;
             measurement: string;
@@ -1005,6 +1005,19 @@ export interface components {
             /** @default false */
             save: boolean;
             scan_interlacing: number | null;
+        };
+        /** @description The shift of *image* from *reference*, as an alignment measures it
+         *     (`fibsem.alignment.AlignmentIteration.to_dict`), and with every method
+         *     when asked (`fibsem.alignment.AlignmentDifferential.to_dict`). */
+        ImageShift: {
+            comparison: {
+                [key: string]: unknown;
+            } | null;
+            image: string;
+            reference: string;
+            shift: {
+                [key: string]: unknown;
+            };
         };
         /** @description Who is in control, doing what, since when (epoch seconds). */
         InControl: {
@@ -2193,6 +2206,15 @@ export interface components {
         ScheduleBody: {
             scheduled_at?: string | null;
             task_name: string;
+        };
+        /** @description POST /app/experiment/analysis/shift: two saved beam images; *compare*
+         *     measures by every method too. */
+        ShiftBody: {
+            agreement_px?: number | null;
+            compare?: boolean | null;
+            image: string;
+            method?: string | null;
+            reference: string;
         };
         SkillRow: {
             description: string;
