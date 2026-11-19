@@ -197,3 +197,23 @@ def test_the_tools_work_over_any_folder_and_refuse_paths_outside_it(tmp_path):
     with pytest.raises(ImageRefused) as closed:
         ImageTools(lambda: None).image_quality("ramp.png")
     assert closed.value.error_type == "no_experiment"
+
+
+def test_a_shift_is_measured_between_two_files_with_no_microscope(tmp_path):
+    from fibsem.analysis.tools import ImageRefused, ImageTools
+    from fibsem.structures.image import FibsemImage
+    from fibsem.structures.settings import MicroscopeState
+
+    image = FibsemImage.generate_blank_image(resolution=(256, 192), random=True)
+    image.metadata.microscope_state = MicroscopeState()
+    image.save(str(tmp_path / "reference.tif"))
+    image.data = np.roll(image.data, 6, axis=1)
+    image.save(str(tmp_path / "moved.tif"))
+    tools = ImageTools(lambda: str(tmp_path))
+
+    answer = tools.measure_shift("reference.tif", "moved.tif", compare=True)
+    assert abs(abs(answer.shift["shift_px"]["x"]) - 6) < 1
+    assert set(answer.comparison) >= {"shifts_px", "agreement"}
+
+    with pytest.raises(ImageRefused, match="method is one of"):
+        tools.measure_shift("reference.tif", "moved.tif", method="guess")

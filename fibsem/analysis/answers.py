@@ -79,3 +79,15 @@ class ImageMeasured:
     # its preview, when the measurement draws one.
     path: Optional[str] = None
     plot: Optional[Dict[str, str]] = None
+
+
+@dataclass
+class ImageShift:
+    """The shift of *image* from *reference*, as an alignment measures it
+    (`fibsem.alignment.AlignmentIteration.to_dict`), and with every method
+    when asked (`fibsem.alignment.AlignmentDifferential.to_dict`)."""
+
+    reference: str
+    image: str
+    shift: Dict[str, Any]
+    comparison: Optional[Dict[str, Any]] = None

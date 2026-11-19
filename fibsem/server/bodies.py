@@ -637,6 +637,20 @@ class ProfileBody:
 
 
 @dataclass
+class ShiftBody:
+    """POST /app/experiment/analysis/shift: two saved beam images; *compare*
+    measures by every method too."""
+
+    __pydantic_config__ = STRICT
+
+    reference: str
+    image: str
+    method: Optional[str] = None
+    compare: Optional[Flag] = None
+    agreement_px: Optional[float] = None
+
+
+@dataclass
 class MillingDrawnBody:
     """POST .../items/{item_name}/milling/drawn: the milling tasks to draw,
     the first in colour; ``background`` is related or none."""

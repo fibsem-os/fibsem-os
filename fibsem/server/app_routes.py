@@ -74,6 +74,7 @@ from fibsem.server.bodies import (
     RunPlanBody,
     SaveProtocolBody,
     ScheduleBody,
+    ShiftBody,
     StageOrderBody,
     StopBody,
     StopTaskBody,
@@ -114,6 +115,7 @@ from fibsem.server.responses import (
     ImageExportForm,
     ImageMeasured,
     ImagePairDrawn,
+    ImageShift,
     ItemDetail,
     ItemEdit,
     ItemHistory,
@@ -445,6 +447,14 @@ def build_analysis_router(tools: ImageTools) -> APIRouter:
         options = _given(body, "width_px", "channel", "plane", "dip")
         start, end = list(body.start), list(body.end)
         return _image_answer(lambda: tools.line_profile(path, start, end, **options))
+
+    @router.post("/experiment/analysis/shift", response_model=ImageShift)
+    def measure_shift(body: ShiftBody):
+        # A POST to match the other measurements; it saves nothing.
+        reference = _required_text(body, "reference", saved_image)
+        image = _required_text(body, "image", saved_image)
+        options = _given(body, "method", "compare", "agreement_px")
+        return _image_answer(lambda: tools.measure_shift(reference, image, **options))
 
     @router.get("/experiment/analysis/quality", response_model=ImageMeasured)
     def image_quality(

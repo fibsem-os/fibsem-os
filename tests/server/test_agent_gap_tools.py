@@ -614,8 +614,9 @@ def test_alignment_methods_are_compared_on_saved_images(driving, arctis):  # noq
             image_path=second,
         )
     )
-    result = answer["result"]
+    result = answer["comparison"]
     assert set(result) >= {"shifts_px", "max_disagreement_px", "agreement"}
+    assert set(answer["shift"]) >= {"shift_px", "score", "success"}
 
 
 # --- what the operator reads ---------------------------------------------------------

@@ -9,11 +9,19 @@ server answers as its HTTP status."""
 import os
 from typing import Any, Callable, Dict, List, Optional
 
+import numpy as np
+
+from fibsem.alignment import (
+    AlignmentMethod,
+    _calculate_shift,
+    compare_alignment_methods,
+)
 from fibsem.analysis import measure
 from fibsem.analysis.answers import (
     ImageDrawn,
     ImageMeasured,
     ImagePairDrawn,
+    ImageShift,
     PixelPoint,
     SavedImageMetadata,
     SavedImagePixels,
@@ -213,6 +221,43 @@ class ImageTools:
             right.layers,
         )
 
+    def measure_shift(
+        self,
+        reference: str,
+        image: str,
+        method: str = "cross-correlation",
+        compare: bool = False,
+        agreement_px: float = 2.0,
+    ) -> ImageShift:
+        """The shift of the saved beam image *image* from *reference*, as an
+        alignment to that reference measures it: metres and pixels, the score
+        (higher is better) and whether it cleared the minimum. With *compare*,
+        by every method too, how far apart they are in pixels and whether they
+        agree within *agreement_px*: the check an alignment validates with.
+        Reads the files and moves nothing."""
+        try:
+            chosen = AlignmentMethod(method)
+        except ValueError:
+            names = ", ".join(m.value for m in AlignmentMethod)
+            raise ImageRefused("invalid", f"method is one of {names}") from None
+        first, second = (
+            _beam_image(self.image(reference), reference),
+            _beam_image(self.image(image), image),
+        )
+        if first.data.shape != second.data.shape:
+            raise ImageRefused(
+                "invalid",
+                f"{reference} is {first.data.shape} and {image} is "
+                f"{second.data.shape}: a shift is measured between images of one size",
+            )
+        shift = _calculate_shift(first, second, chosen).to_dict()
+        comparison = None
+        if compare:
+            comparison = compare_alignment_methods(
+                first, second, agreement_threshold_px=agreement_px
+            ).to_dict()
+        return ImageShift(reference, image, shift, comparison)
+
     def _measured(self, path: str, run, figure=None, name: str = "") -> ImageMeasured:
         """*run* (and its *figure*, saved as ``drawn/<image>-<name>.png``) on
         the saved image *path*."""
@@ -281,6 +326,20 @@ class ImageTools:
             lambda image: measure.image_quality(image, channel, plane),
             name="quality",
         )
+
+
+def _beam_image(target: str, path: str) -> FibsemImage:
+    """The beam image at *target* (*path* as given), or the refusal."""
+    if is_fluorescence_image(target):
+        raise ImageRefused(
+            "invalid", f"{path} is a fluorescence stack; a shift is between beam images"
+        )
+    image = FibsemImage.load(target)
+    if image.metadata is None or np.asarray(image.data).ndim != 2:
+        raise ImageRefused(
+            "invalid", f"{path} is not a saved beam image with its pixel size"
+        )
+    return image
 
 
 def _uncropped_point(target: str, crop: Any, px, fraction):

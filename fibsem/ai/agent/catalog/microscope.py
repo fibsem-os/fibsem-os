@@ -429,14 +429,16 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="alignment_measure_shift",
         description=(
-            "The shift of one saved image from another, as alignment_align_to_reference "
+            "The shift of one saved beam image from another, as alignment_align_to_reference "
             "measures it: metres and pixels, a score (higher is better) and "
             "whether it cleared the minimum. Both paths inside the open "
-            "experiment. Reads the files and moves nothing."
+            "experiment, and both images one size. Works with no microscope "
+            "connected. Reads the files and moves nothing."
         ),
         method="POST",
-        path="/microscope/services/alignment/queries/measure_shift",
-        result_key="shift",
+        path="/app/experiment/analysis/shift",
+        router="app",
+        returns="ImageShift",
         level="watch",
         params={
             "reference_path": "the saved reference image",
@@ -449,25 +451,27 @@ TOOLS: Tuple[ToolSpec, ...] = (
         optional=("method",),
         call=lambda a: (
             {},
-            kwargs_body(
-                reference_path=str(a["reference_path"]),
-                image_path=str(a["image_path"]),
-                method=str(a.get("method") or "cross-correlation"),
-            ),
+            {
+                "reference": str(a["reference_path"]),
+                "image": str(a["image_path"]),
+                "method": str(a.get("method") or "cross-correlation"),
+            },
         ),
     ),
     ToolSpec(
         name="alignment_compare_methods",
         description=(
-            "The shift of one saved image from another by every alignment method, "
+            "The shift of one saved beam image from another by every alignment method, "
             "how far apart the methods are in pixels, and whether they agree: the "
             "check alignment_align_to_reference validates with. A disagreement "
             "means the measurement is not to be trusted. Both paths inside the "
-            "open experiment. Reads the files and moves nothing."
+            "open experiment, and both images one size. Works with no microscope "
+            "connected. Reads the files and moves nothing."
         ),
         method="POST",
-        path="/microscope/services/alignment/queries/compare_methods",
-        result_key="comparison",
+        path="/app/experiment/analysis/shift",
+        router="app",
+        returns="ImageShift",
         level="watch",
         params={
             "reference_path": "the saved reference image",
@@ -481,11 +485,12 @@ TOOLS: Tuple[ToolSpec, ...] = (
         optional=("agreement_px",),
         call=lambda a: (
             {},
-            kwargs_body(
-                reference_path=str(a["reference_path"]),
-                image_path=str(a["image_path"]),
-                agreement_px=float(a.get("agreement_px") or 2.0),
-            ),
+            {
+                "reference": str(a["reference_path"]),
+                "image": str(a["image_path"]),
+                "compare": True,
+                "agreement_px": float(a.get("agreement_px") or 2.0),
+            },
         ),
     ),
     ToolSpec(

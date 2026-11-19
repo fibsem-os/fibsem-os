@@ -18,6 +18,7 @@ from fibsem.analysis.answers import (  # noqa: F401 - route models, by name too
     ImageDrawn,
     ImageMeasured,
     ImagePairDrawn,
+    ImageShift,
     PixelPoint,
     SavedImageMetadata,
     SavedImagePixels,

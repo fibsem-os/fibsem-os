@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
-from fibsem.microscope import FibsemMicroscope
 from fibsem.services.imaging import acquisition_record
 from fibsem.structures.image import FibsemImage
 from fibsem.structures.settings import BeamType, ImageSettings
+
+if TYPE_CHECKING:
+    from fibsem.microscope import FibsemMicroscope
 
 
 def acquire_image(microscope: FibsemMicroscope, settings: ImageSettings) -> FibsemImage:
