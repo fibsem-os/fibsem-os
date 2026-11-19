@@ -132,9 +132,9 @@ Use it only when the operator gives you stage coordinates. Before a large
 stable move, `service_call_query` `project_stable_move` with the same offset
 answers where the stage would go without moving it.
 
-Measure on a preview with its own scale: `hfw / width` per preview pixel. The
-`pixelsize` in an image answer is per pixel of the full image, which is
-larger than the preview.
+Measure on a preview with its own scale: its `preview_pixelsize` (metres per
+preview pixel). The summary's `pixel_size` is per pixel of the full image,
+which is larger than the preview.
 
 The other moves, by when to use them:
 
