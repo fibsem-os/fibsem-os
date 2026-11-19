@@ -88,6 +88,55 @@ def test_the_agent_judges_notes_and_removes_a_grid(driving):
     assert experiment.get_grid_by_name("G2") is None
 
 
+def test_the_agent_puts_existing_lamellae_on_a_grid(driving):
+    _ok(_call(driving, "grid_add"))
+    _ok(_call(driving, "item_add"))
+    _ok(_call(driving, "item_add"))
+    experiment = driving.host.experiment
+    first, second = experiment.positions
+    first.grid_id = second.grid_id = None  # marked before the grid had a record
+    g2 = experiment.get_grid_by_name("G2")
+
+    answer = _ok(
+        _call(
+            driving,
+            "grid_assign_items",
+            grid_name="G2",
+            item_names=[first.name, second.name],
+        )
+    )
+    assert answer["assigned"] == [first.name, second.name]
+    assert experiment.get_lamellae_for_grid(g2) == [first, second]
+    # Saved: a reload has them on it.
+    from fibsem.applications.autolamella.structures import Experiment
+
+    reloaded = Experiment.load(os.path.join(experiment.path, "experiment.yaml"))
+    assert {p.grid_id for p in reloaded.positions} == {g2.id}
+
+    again = _ok(
+        _call(driving, "grid_assign_items", grid_name="G2", item_names=[first.name])
+    )
+    assert again["assigned"] == []
+
+    # The grid has to exist first; so does every lamella.
+    no_grid = _call(
+        driving, "grid_assign_items", grid_name="G9", item_names=[first.name]
+    )
+    assert no_grid.status_code == 404
+    no_item = _call(driving, "grid_assign_items", grid_name="G1", item_names=["nope"])
+    assert no_item.status_code == 404
+    assert experiment.get_lamellae_for_grid(g2) == [first, second]
+
+    from tests.run_state import run_working_on
+
+    with run_working_on(driving.host.runner, first.name):
+        busy = _call(
+            driving, "grid_assign_items", grid_name="G1", item_names=[first.name]
+        )
+    assert busy.status_code == 409
+    assert first.grid_id == g2.id
+
+
 def test_the_agent_s_grid_note_is_its_note_on_the_record(driving):
     from fibsem.acting import AGENT
     from fibsem.workflows.actions import ACTION, NOTE
