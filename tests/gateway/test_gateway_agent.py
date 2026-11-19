@@ -554,3 +554,10 @@ def test_the_shipped_playbooks_and_a_configuration_read_in_process():
     with pytest.raises(GatewayRefused) as refused:
         read_configuration("no-such-playbook")
     assert refused.value.error_type == "bad_playbook"
+
+
+def test_with_no_api_key_it_starts_on_this_pcs_claude_login(made, tmp_path):
+    agent, _, _ = made(key=None)
+    agent.start("default", None, "watch", "operator", "page", login=True)
+    assert until(lambda: _record(tmp_path).get("args"))
+    assert agent.state().running is not None

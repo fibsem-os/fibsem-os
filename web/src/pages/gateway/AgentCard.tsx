@@ -209,6 +209,8 @@ export interface AgentDefaults {
   playbook: string | null;
   level: string | null;
   budget_usd: number | null;
+  /** Start on this PC's Claude login when no API key is stored. */
+  login?: boolean;
 }
 
 /** Why an agent can't start or resume yet; null when it can. */
@@ -216,10 +218,11 @@ export function notReady(
   state: AgentState | undefined,
   appRunning: boolean,
   appStarting?: boolean,
+  login?: boolean,
 ): string | null {
   if (appStarting) return "Waiting for the app to start…";
   if (!appRunning) return "Start the app first: the agent acts through it.";
-  if (!state?.api_key) return "No API key on this PC.";
+  if (!state?.api_key && !login) return "No API key on this PC.";
   return null;
 }
 
@@ -248,6 +251,8 @@ function Start({
   const [budget, setBudget] = useState<string | null>(null);
   const [goal, setGoal] = useState("");
   const [shown, setShown] = useState(false);
+  // With no API key stored: start on this PC's Claude login instead.
+  const [login, setLogin] = useState(!!defaults?.login);
   const chosen =
     playbook ||
     usable.find((p) => p.name === defaults?.playbook)?.name ||
@@ -283,6 +288,7 @@ function Start({
           level,
           ...(sentBudget ? { budget_usd: sentBudget } : {}),
           replace,
+          ...(!state.api_key && login ? { login: true } : {}),
         }),
       }),
     onSuccess: (answer) => client.setQueryData(["gateway/agent"], answer),
@@ -294,10 +300,16 @@ function Start({
     <>
       {state.connected && <ConnectedAgent connected={state.connected} />}
       {!state.api_key && (
-        <p className="m-0 text-[13px] text-[var(--fibsem-semantic-warning-color)]">
-          No API key on this PC, so the agent can't start. Run fibsem-cli key
-          set ANTHROPIC_API_KEY on this PC.
-        </p>
+        <div className="flex flex-col gap-1.5">
+          <p className="m-0 text-[13px] text-[var(--fibsem-semantic-warning-color)]">
+            No API key on this PC. Run fibsem-cli key set ANTHROPIC_API_KEY on
+            this PC, or start the agent on this PC's Claude login.
+          </p>
+          <label className="flex items-center gap-2 text-[13px]">
+            <input type="checkbox" checked={login} onChange={(event) => setLogin(event.target.checked)} />
+            Use this PC's Claude login
+          </label>
+        </div>
       )}
       <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
         <Field label="Playbook">
@@ -403,7 +415,13 @@ function Start({
               <span className="text-xs text-muted-foreground">
                 Start the app first: the agent acts through it.
               </span>
-            ) : !state.api_key ? null : (
+            ) : !state.api_key ? (
+              login && (
+                <span className="text-xs text-muted-foreground">
+                  Uses this PC's Claude login.
+                </span>
+              )
+            ) : (
               <span className="text-xs text-muted-foreground">
                 Uses ANTHROPIC_API_KEY on this PC.
               </span>
@@ -413,7 +431,7 @@ function Start({
               disabled={
                 start.isPending ||
                 !appRunning ||
-                !state.api_key ||
+                (!state.api_key && !login) ||
                 !chosen
               }
               onClick={() => start.mutate(false)}
@@ -671,7 +689,7 @@ export function AgentCard({
             {last && (
               <LastSession
                 session={last}
-                ready={notReady(state, appRunning, appStarting)}
+                ready={notReady(state, appRunning, appStarting, !!defaults?.login)}
               />
             )}
           </>

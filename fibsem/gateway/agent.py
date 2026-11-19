@@ -311,11 +311,13 @@ class GatewayAgent:
         via: str,
         budget_usd: Optional[float] = None,
         replace: bool = False,
+        login: bool = False,
     ) -> AgentState:
         """Pair, set the level, start ``fibsem-agent``; each failure undoes
-        what came before it. Raises `GatewayRefused`."""
+        what came before it. *login*: with no API key stored, the agent runs on
+        this PC's Claude login. Raises `GatewayRefused`."""
         with self._lock:
-            level, url = self._ready(level, playbook, replace)
+            level, url = self._ready(level, playbook, replace, login=login)
             env = self._pair()
             try:
                 self._level(url, level)
@@ -359,6 +361,7 @@ class GatewayAgent:
         via: str,
         budget_usd: Optional[float] = None,
         replace: bool = False,
+        login: bool = False,
     ) -> AgentState:
         """Carry on an ended session, started here or with ``fibsem-agent`` by
         hand, as it ran: its playbook, mode and folder from its record, with a
@@ -377,7 +380,7 @@ class GatewayAgent:
             started = read_json(folder / MANAGED).get("about") or {}
             playbook = _playbook(record)[0] or started.get("playbook")
             mode = record.get("mode")
-            level, url = self._ready(level, playbook, replace, mode)
+            level, url = self._ready(level, playbook, replace, mode, login=login)
             env = self._pair()
             try:
                 self._level(url, level)
@@ -427,6 +430,7 @@ class GatewayAgent:
         playbook: Optional[str],
         replace: bool,
         mode: Optional[str] = None,
+        login: bool = False,
     ) -> Tuple[str, str]:
         """Start's and Resume's checks, before anything is done: the level
         and the App Server's url. *mode* is a resumed session's own."""
@@ -449,11 +453,12 @@ class GatewayAgent:
             raise GatewayRefused(
                 409, "agent_running", "The agent is already running: end it first."
             )
-        if not self._api_key():
+        if not login and not self._api_key():
             raise GatewayRefused(
                 409,
                 "no_api_key",
-                f"No API key: run fibsem-cli key set {API_KEY} on this PC.",
+                f"No API key: run fibsem-cli key set {API_KEY} on this PC, or "
+                "start the agent with this PC's Claude login.",
             )
         config = self.configuration(playbook) if playbook else {}
         if "code" in (config.get("mode"), mode) and self._platform == "win32":

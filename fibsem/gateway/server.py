@@ -110,6 +110,16 @@ class Caller:
     may_switch: bool
 
 
+def _settings(body: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """A start's app settings, ``{name: value}``; refused when not a dict."""
+    settings = body.get("settings")
+    if settings is None:
+        return None
+    if not isinstance(settings, dict):
+        raise _refused(422, "bad_setting", "settings is {name: value}.")
+    return settings
+
+
 def _refused(status: int, error_type: str, message: str) -> HTTPException:
     return HTTPException(status, detail={"error_type": error_type, "message": message})
 
@@ -183,7 +193,7 @@ def build_gateway_app(
     @app.post("/gateway/start", response_model=GatewayState)
     def start(body: Dict[str, Any], found: Caller = Depends(switcher)):
         """``{app, window, experiment | last, create, force, connect,
-        configuration}``:
+        configuration, settings}``:
         stop the running app and start this one, with its window at this PC
         (the default) or without, connecting *configuration* (the default one)
         as it starts when *connect*."""
@@ -201,6 +211,7 @@ def build_gateway_app(
                 connect=None if body.get("connect") is None else bool(body["connect"]),
                 configuration=body.get("configuration"),
                 create=bool(body.get("create", False)),
+                settings=_settings(body),
             ),
         )
 
@@ -296,9 +307,10 @@ def build_gateway_app(
 
         @app.post("/gateway/agent/start", response_model=AgentState)
         def start_agent(body: Dict[str, Any], found: Caller = Depends(switcher)):
-            """``{playbook, goal, level, budget_usd, replace}``: pair the agent,
-            set the level, start it. ``replace`` disconnects an agent paired
-            some other way."""
+            """``{playbook, goal, level, budget_usd, replace, login}``: pair the
+            agent, set the level, start it. ``replace`` disconnects an agent
+            paired some other way; ``login`` starts it with this PC's Claude
+            login when no API key is stored."""
             budget = _budget(body)
             playbook = str(body.get("playbook") or DEFAULT_PLAYBOOK)
             return _act(
@@ -312,14 +324,23 @@ def build_gateway_app(
                     via=via,
                     budget_usd=budget,
                     replace=bool(body.get("replace", False)),
+                    login=bool(body.get("login", False)),
                 ),
             )
 
         @app.post("/gateway/agent/resume", response_model=AgentState)
         def resume_agent(body: Dict[str, Any], found: Caller = Depends(switcher)):
-            """``{session_id, level, budget_usd, replace}``: carry on an ended
-            session as its record says, with Start's checks."""
+            """``{session_id, level, budget_usd, replace, login}``: carry on an
+            ended session as its record says, with Start's checks. *login*
+            left out is the running app's saved choice."""
             budget = _budget(body)
+            login = body.get("login")
+            if login is None:
+                login = (
+                    read_defaults(defaults_file)
+                    .for_app(gateway.state().app or "")
+                    .login
+                )
             session_id = str(body.get("session_id") or "")
             if not session_id:
                 raise _refused(422, "no_session", "Say which session to resume.")
@@ -333,6 +354,7 @@ def build_gateway_app(
                     via=via,
                     budget_usd=budget,
                     replace=bool(body.get("replace", False)),
+                    login=bool(login),
                 ),
             )
 
@@ -378,13 +400,15 @@ def build_gateway_app(
     @app.put("/gateway/defaults", response_model=GatewayDefaults)
     def put_defaults(body: Dict[str, Any], found: Caller = Depends(caller)):
         """``{configuration, connect, app, window, playbook, level,
-        budget_usd}``: the operator only."""
+        budget_usd, settings, login, apps}``: the operator only. Saved as
+        *app*'s own choices too (`apps`), the other apps' kept."""
         if not found.operator:
             raise _refused(403, "operator_only", "Only the operator sets defaults.")
         try:
             defaults = GatewayDefaults.checked(body)
         except GatewayRefused as refusal:
             raise _refused(refusal.status, refusal.error_type, str(refusal)) from None
+        defaults = defaults.merged(read_defaults(defaults_file))
         save_defaults(defaults, defaults_file)
         return defaults
 

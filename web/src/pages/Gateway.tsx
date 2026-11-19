@@ -15,7 +15,7 @@ import {
   notReady,
 } from "@/pages/gateway/AgentCard";
 import { History } from "@/pages/gateway/History";
-import { type Defaults, Settings } from "@/pages/gateway/Settings";
+import { type AppFacts, type Defaults, forApp, Settings } from "@/pages/gateway/Settings";
 // The same icon as the gateway's window and its Desktop shortcut.
 import gatewayIcon from "../../../fibsem/ui/icons/gateway.svg?raw";
 
@@ -43,7 +43,7 @@ interface GatewayState {
     killed: boolean;
     log: string | null;
   } | null;
-  apps: { key: string; name: string; headless: boolean }[];
+  apps: AppFacts[];
   last_experiment: string | null;
   recent_experiments: { name: string; folder: string; app: string | null }[];
   experiments_folder: string | null;
@@ -99,25 +99,34 @@ function Starting({
   busy,
   microscope,
   defaults,
+  app,
+  setApp,
 }: {
   state: GatewayState;
   start: (body: unknown) => void;
   busy: boolean;
   microscope: Record<string, unknown>;
+  /** The chosen app's own saved choices. */
   defaults?: Defaults;
+  app: string;
+  setApp: (app: string) => void;
 }) {
-  const [app, setApp] = useState(
-    state.apps.find((a) => a.key === defaults?.app)?.key ??
-      state.apps[0]?.key ??
-      "",
-  );
   const [window, setWindow] = useState(defaults?.window ?? true);
+  const [settings, setSettings] = useState<Record<string, string>>(defaults?.settings ?? {});
+  // Another app's own choices when the app changes.
+  useEffect(() => {
+    setWindow(defaults?.window ?? true);
+    setSettings(defaults?.settings ?? {});
+  }, [app, defaults]);
   const [creating, setCreating] = useState(false);
   const [experiment, setExperiment] = useState(state.last_experiment ?? "");
   const [name, setName] = useState("");
   const chosen = state.apps.find((a) => a.key === app);
-  // Only an app with a host (a headless command) opens an experiment as it starts.
-  const host = !!chosen?.headless;
+  // Only an app with a host (a headless command) opens an experiment as it
+  // starts, and only one that opens experiments at all.
+  const host = !!chosen?.headless && chosen?.opens_experiments !== false;
+  // An app with no window of its own runs its headless command.
+  const windowed = chosen?.has_window !== false;
   // This app's recent experiments (one that doesn't say which app wrote it too).
   const recent = state.recent_experiments.filter(
     (r) =>
@@ -142,6 +151,7 @@ function Starting({
         ? { experiment }
         : {};
   const ready = !host || !creating || !!newFolder;
+  const given = Object.fromEntries(Object.entries(settings).filter(([, v]) => v.trim()));
   return (
     <>
       <label className="flex flex-col gap-1 text-xs text-muted-foreground">
@@ -218,15 +228,32 @@ function Starting({
           )}
         </div>
       )}
-      <label className="flex items-center gap-2 text-[13px]">
-        <input
-          type="checkbox"
-          checked={window}
-          onChange={(event) => setWindow(event.target.checked)}
-        />
-        Show the window on this PC
-      </label>
-      {!window && !host && (
+      {(chosen?.settings ?? []).map((setting) => (
+        <label key={setting.name} className="flex flex-col gap-1 text-xs text-muted-foreground">
+          {setting.label}
+          <input
+            value={settings[setting.name] ?? ""}
+            onChange={(event) => setSettings({ ...settings, [setting.name]: event.target.value })}
+            placeholder={setting.default || "Unset"}
+            className={cn(FIELD, "sm:w-80")}
+          />
+        </label>
+      ))}
+      {windowed ? (
+        <label className="flex items-center gap-2 text-[13px]">
+          <input
+            type="checkbox"
+            checked={window}
+            onChange={(event) => setWindow(event.target.checked)}
+          />
+          Show the window on this PC
+        </label>
+      ) : (
+        <p className="m-0 text-xs text-muted-foreground">
+          {chosen?.name} has no window of its own: it runs here, and its pages are its window.
+        </p>
+      )}
+      {windowed && !window && !chosen?.headless && (
         <p className="m-0 text-xs text-muted-foreground">
           {chosen?.name} runs only with its window.
         </p>
@@ -234,9 +261,15 @@ function Starting({
       <div className="flex justify-end">
         <Button
           variant="primary"
-          disabled={busy || !chosen || (!window && !host) || !ready}
+          disabled={busy || !chosen || (windowed && !window && !chosen?.headless) || !ready}
           onClick={() =>
-            start({ app, window, ...microscope, ...experimentBody })
+            start({
+              app,
+              window: windowed && window,
+              ...microscope,
+              ...experimentBody,
+              ...(Object.keys(given).length ? { settings: given } : {}),
+            })
           }
         >
           {busy ? "Starting…" : "Start the app"}
@@ -615,15 +648,29 @@ function AppCard({
     },
   });
   const busy = state.switching || act.isPending;
+  const [app, setApp] = useState(
+    state.apps.find((a) => a.key === defaults?.app)?.key ?? state.apps[0]?.key ?? "",
+  );
+  const chosen = state.apps.find((a) => a.key === app);
+  const own = forApp(defaults, app);
+  const connects = chosen?.connects_microscope !== false;
   const [choice, setChoice] = useState<MicroscopeChoice>({
-    connect: defaults?.connect ?? true,
+    connect: own?.connect ?? true,
     configuration:
-      state.configurations.find((c) => c.name === defaults?.configuration)
+      state.configurations.find((c) => c.name === own?.configuration)
         ?.name ?? "",
   });
+  // Each app's own microscope choice.
+  useEffect(() => {
+    setChoice({
+      connect: own?.connect ?? true,
+      configuration:
+        state.configurations.find((c) => c.name === own?.configuration)?.name ?? "",
+    });
+  }, [app, own, state.configurations]);
   // The gateway's own flags stand when it has some; else the page's choice.
   const microscope: Record<string, unknown> =
-    state.connection.length > 0
+    state.connection.length > 0 || !connects
       ? {}
       : choice.connect
         ? {
@@ -642,18 +689,24 @@ function AppCard({
             <Dot colour="off" />
             <CardTitle>Nothing is running</CardTitle>
           </div>
-          <SubHeading first>Microscope</SubHeading>
-          <MicroscopeStart
-            state={state}
-            choice={choice}
-            setChoice={setChoice}
-          />
-          <SubHeading>App</SubHeading>
+          {connects && (
+            <>
+              <SubHeading first>Microscope</SubHeading>
+              <MicroscopeStart
+                state={state}
+                choice={choice}
+                setChoice={setChoice}
+              />
+            </>
+          )}
+          <SubHeading first={!connects}>App</SubHeading>
           <Starting
             state={state}
             busy={busy}
             microscope={microscope}
-            defaults={defaults}
+            defaults={own}
+            app={app}
+            setApp={setApp}
             start={(body) => act.mutate({ path: "/gateway/start", body })}
           />
         </>
@@ -913,14 +966,14 @@ function Gateway({
               <AgentCard
                 appRunning={appUp}
                 appStarting={appStarting}
-                defaults={defaults.data}
+                defaults={forApp(defaults.data, state.app) ?? defaults.data}
               />
             </>
           )}
           {tab === "history" && (
             <History
               apps={state?.apps ?? []}
-              ready={notReady(agent.data, appUp, appStarting)}
+              ready={notReady(agent.data, appUp, appStarting, !!(forApp(defaults.data, state?.app) ?? defaults.data)?.login)}
             />
           )}
           {tab === "pairing" && (
