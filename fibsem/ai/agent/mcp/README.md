@@ -151,7 +151,8 @@ fibsem-agent
   the command that starts it (`command`, the program then its arguments),
   the name its token is stored under (`token`, optional), and the tools the
   agent may call and the ones a specialist may list (`about` and `subagents`
-  are optional; tools are named one by one):
+  are optional; tools are named one by one, or `tools: all` for every tool
+  the server offers):
 
   ```yaml
   notebook:
@@ -187,6 +188,12 @@ fibsem-agent
 
   The single quotes keep the shell (bash, zsh, PowerShell) from filling the
   token in at registration; in cmd use double quotes.
+
+  A tool needs the agent at Drive unless it is marked `watch` (`- search:
+  watch`), or its server is (`level: watch`); below that the harness refuses
+  it. The agent never sees a tool the server offers that isn't listed. With
+  `tools: all`, every tool the server offers is allowed, at the server's
+  level, including tools it adds later.
 
   A server is on only for a playbook that names it in its `mcp` list. For a
   shipped playbook, the lab adds one of its own that extends it:
@@ -255,6 +262,15 @@ fibsem-agent
   picks first. Flags on the command line win over it; the API key is never in
   it. `--show-config` prints what the agent would run with and starts nothing,
   `--list-playbooks` lists them, and `--json` gives either as JSON.
+- **What wakes it.** A playbook's `wakes` names the lines that wake the
+  agent, by group: `decisions` (proposals, suggestions, requests), `run`
+  (workflows, tasks, long commands), `checks` (autofocus, alignment, mills)
+  and `notes` (the operator's notes and plan edits). The
+  nearest playbook that names them wins; with none, every line wakes it, as
+  the shipped playbooks do. A line left out goes in the agent's next turn.
+  The operator's messages, the level, Stop, the watch's own state and the
+  agent's own wake-ups always wake it, so `wakes: []` gives an agent that
+  waits for the operator. `--show-config` shows the list.
 - **Defaults.** The shipped `fibsem-agent` playbook is the one place the
   defaults live, and it stays under every playbook, a lab's copy of it
   included: its skill, its `session:` settings (with the timers

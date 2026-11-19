@@ -27,6 +27,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import shutil
 import signal
 import sys
@@ -398,8 +399,12 @@ class Wakes:
         self,
         remind: Optional[Callable[[List[str]], List[str]]] = None,
         words: Optional[instruments.Texts] = None,
+        waking: Optional[Callable[[], Optional[frozenset]]] = None,
     ) -> None:
         self.off = False
+        # The line kinds the playbook lets wake the agent (`wake_lines.waking`),
+        # read at each line: None for every line.
+        self._waking = waking
         self._held: List[str] = []
         # The operator's messages in the turns given, until they are read.
         self.unread: List[str] = []
@@ -419,13 +424,28 @@ class Wakes:
                     continue
                 self.off = False
             self._held.append(line)
-        if self.off or not self._held:
+        if self.off or not self._held or not self._wakes_now():
             return None
         lines, self._held = self._held, []
         for line in lines:
             self.unread += getattr(line, "message_ids", ())
         remind = self._remind(lines) if self._remind else None
         return turn_prompt(lines, remind, self._words)
+
+    def _wakes_now(self) -> bool:
+        """Whether a held line wakes the agent: any, unless the playbook names
+        its ``wakes``; then one of those, an urgent one or one that always does
+        (`wake_lines.ALWAYS`). The rest wait for the next turn."""
+        kinds = self._waking() if self._waking is not None else None
+        if kinds is None:
+            return True
+        for line in self._held:
+            kind = getattr(line, "kind", None)
+            if kind is None or kind in kinds or kind in wake_lines.ALWAYS:
+                return True
+            if kind in URGENT:
+                return True
+        return False
 
     def read(self) -> List[str]:
         """The ids of the operator's messages in the turns given since the
@@ -997,7 +1017,13 @@ class Harness:
     def _new_wakes(self) -> Wakes:
         playbook = self._playbook
         remind = playbook.reminders.for_lines if playbook is not None else None
-        return Wakes(remind, self._words)
+
+        def waking():
+            # The playbook now: playbook_set may change it mid session.
+            current = playbook.reminders.playbook if playbook is not None else None
+            return wake_lines.waking(current.wakes if current is not None else None)
+
+        return Wakes(remind, self._words, waking)
 
     def outcome(self) -> dict:
         """How the run ended, for its session's record."""
@@ -1917,6 +1943,59 @@ def granted_tools(
     return granted
 
 
+def _hidden(extras, secrets: Dict[str, str]) -> List[str]:
+    """The lab servers' tools that mcp.yaml doesn't list, kept from the
+    model. A server that can't be listed is warned about: its other tools stay
+    in sight, and the level gate still refuses them."""
+    if not extras:
+        return []
+    try:
+        return extra_mcp.hidden(extras, secrets)
+    except extra_mcp.ExtraMcpError as error:
+        log.warning(f"{error}; the agent may see tools mcp.yaml doesn't list")
+        return []
+
+
+def level_gate(extras, url: Optional[str], token: Optional[str]):
+    """The PreToolUse hook that refuses a lab server's tool the agent level
+    doesn't reach (`extra_mcp.refusal`), reading the level from the App
+    Server at each call, so the operator's change holds at once."""
+
+    async def hook(hook_input, tool_use_id, context):
+        tool = str(hook_input.get("tool_name") or "")
+        why = await asyncio.to_thread(
+            extra_mcp.refusal, extras, tool, lambda: extra_mcp.read_level(url, token)
+        )
+        if why is None:
+            return {}
+        log.info(f"refused {tool}: {why}")
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": why,
+            }
+        }
+
+    return hook
+
+
+def _with_level_gate(hooks: Optional[dict], extras, url, token) -> Optional[dict]:
+    """*hooks* with the level gate on every lab server's tools."""
+    if not extras:
+        return hooks
+    from claude_agent_sdk import HookMatcher
+
+    names = "|".join(re.escape(name) for name in extras)
+    hooks = dict(hooks or {})
+    hooks["PreToolUse"] = [
+        HookMatcher(
+            matcher=f"mcp__({names})__.*", hooks=[level_gate(extras, url, token)]
+        )
+    ] + list(hooks.get("PreToolUse", []))
+    return hooks
+
+
 def sidecar_command() -> List[str]:
     """``fibsem-mcp`` of this environment, by absolute path. Failing that,
     ``python -I -m``, which keeps the current folder off the path, so another
@@ -1991,7 +2070,8 @@ def build_options(
     extras = used_servers(extras, names)
     # The extra servers' tokens: their entries name them, ${NAME}, and the
     # CLI fills them in from here (`extra_mcp.definitions`).
-    env.update(extra_mcp.tokens(extras))
+    secrets = extra_mcp.tokens(extras)
+    env.update(secrets)
     if host_token:
         env[HOST_TOKEN_ENV] = host_token
     granted = granted_tools(loaded, extras, host is not None, SERVER in names)
@@ -2004,6 +2084,7 @@ def build_options(
         allowed = granted + code_mode.allowed_tools(work, code)
         denied = [tool for tool in DENIED_TOOLS if tool not in given]
         settings = code_mode.settings_json(work, {**os.environ, **env}, code)
+    denied = denied + _hidden(extras, secrets)
     servers = {}
     lab = extra_mcp.definitions(extras)
     for name in names:
@@ -2046,13 +2127,17 @@ def build_options(
                 names + [RECORD_SERVER] if host else None,
             ),
         },
-        # With a playbook control, the reminders on now, asked at each call.
-        hooks=(
+        # With a playbook control, the reminders on now, asked at each call;
+        # and the lab servers' tools gated by the agent level.
+        hooks=_with_level_gate(
             control.reminders.sdk_hooks(SERVER)
             if control is not None
             else reminders.sdk_hooks(playbook.hooks, SERVER)
             if playbook
-            else None
+            else None,
+            extras,
+            url,
+            token,
         ),
         # Watcher lines carry operator-typed text: never expand an @path in it.
         verbatim_prompts=True,
@@ -2708,6 +2793,8 @@ def show_config(
         # The playbook's servers, and the lab's it doesn't name (off).
         "mcp": servers,
         "mcp_unused": unused,
+        # The lines that wake the agent, by group; None for every line.
+        "wakes": playbook.wakes,
         # The agent host its record and wake-ups go through; None for the
         # App Server.
         "host": host,
@@ -2735,7 +2822,8 @@ def show_config(
                 "where": s.url or " ".join(s.command),
                 "token": s.token,
                 "about": s.about,
-                "tools": s.tools,
+                "tools": [extra_mcp.ALL] if s.every else s.tools,
+                "watch": ([extra_mcp.ALL] if s.every and s.at_watch("") else s.watch),
                 "subagents": s.subagents,
             }
             for name, s in extras.items()
@@ -2812,7 +2900,8 @@ def _config_text(config: dict) -> str:
     lines += [
         f"MCP {name} ({each['where']}"
         + (f", token {each['token']}" if each["token"] else "")
-        + f"): {', '.join(each['tools'])}; specialists: "
+        + f"): {', '.join(each['tools'])}; at Watch: "
+        f"{', '.join(each.get('watch', [])) or 'none'}, the rest at Drive; specialists: "
         f"{', '.join(each['subagents']) or 'none'}"
         for name, each in config.get("extra_mcp", {}).items()
     ]
@@ -2820,6 +2909,12 @@ def _config_text(config: dict) -> str:
         lines.append(
             f"MCP off (the lab's, not named in this playbook's mcp): "
             f"{', '.join(config['mcp_unused'])}"
+        )
+    if config.get("wakes") is not None:
+        lines.append(
+            "Wakes on: "
+            + (", ".join(config["wakes"]) or "nothing")
+            + " (and always messages, the level, Stop and its own wake-ups)"
         )
     lines.append(f"Playbook skills: {', '.join(playbook['skills']) or 'none'}")
     lines += [f"  When needed: {o['skill']}, {o['when']}" for o in playbook["optional"]]
