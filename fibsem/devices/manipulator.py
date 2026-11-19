@@ -57,6 +57,9 @@ class ManipulatorLimitError(AxisLimitError):
 
 
 class Manipulator(Device):
+    # Every move and the insert, stop included: the operator's for now, to revisit.
+    operator_only = "the manipulator is the operator's for now"
+
     position = DeviceParameter(FibsemManipulatorPosition, doc="Raw needle coordinates.")
     state = DeviceParameter(InsertableDeviceState, doc="Where the needle is.")
     stage = Role(

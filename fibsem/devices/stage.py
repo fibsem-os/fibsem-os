@@ -195,7 +195,7 @@ class Stage(Device):
 
     # -- commands -----------------------------------------------------------------
 
-    @command
+    @command(operator_only="the raw move; move with stage_move_absolute, the safe one")
     def move_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
         """Move to a position. Axes that are None stay where they are.
 
@@ -217,14 +217,20 @@ class Stage(Device):
                 self._move_relative(delta)
                 return self.position.get_value()
 
-    @command(available=lambda stage: "homed" in stage.parameters)
+    @command(
+        available=lambda stage: "homed" in stage.parameters,
+        operator_only="homing is the operator's",
+    )
     def home(self) -> bool:
         """Home the stage. Returns whether it is homed afterwards."""
         with self.resources.claim(STAGE_RESOURCE):
             self._home()
             return self.homed.get_value()
 
-    @command(available=lambda stage: "linked" in stage.parameters)
+    @command(
+        available=lambda stage: "linked" in stage.parameters,
+        operator_only="the stage link is the operator's",
+    )
     def link(self) -> bool:
         """Link z to the working distance. Returns whether it is linked afterwards."""
         with self.resources.claim(STAGE_RESOURCE):

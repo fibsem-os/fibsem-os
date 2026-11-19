@@ -46,6 +46,10 @@ class CryoCompartment:
 
 
 class Chamber(Device):
+    # Pumping and venting: the operator's, at the microscope. State and pressure
+    # stay readable.
+    operator_only = "pumping and venting are the operator's, at the microscope"
+
     state = DeviceParameter(ChamberState, doc="The vacuum state.")
     pressure = DeviceParameter(float, unit="Pa", doc="Chamber pressure.")
     touch_alarm = DeviceParameter(

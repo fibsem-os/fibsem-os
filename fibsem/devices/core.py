@@ -140,10 +140,15 @@ class DeviceParameter(Parameter):
     ``display`` says how to show it (a ``fibsem.structures.params.Display``, or one per field for
     a composite value). Like the type and unit it means the same on every backend: a
     subclass that redeclares the parameter keeps it, and can't give another.
+
+    ``operator_only`` says why an agent may never set it, at any level: the App Server
+    refuses the write and the value stays readable (`operator_only_reason`). A
+    subclass that redeclares the parameter keeps it.
     """
 
     depends_on: Sequence[str] = ()
     nearest: Union[bool, str] = False
+    operator_only: str = ""
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "depends_on", tuple(self.depends_on))
@@ -504,6 +509,7 @@ def command(
     available: Optional[Callable[[Any], bool]] = None,
     long: bool = False,
     line: Optional[Callable[..., Dict[str, Any]]] = None,
+    operator_only: str = "",
 ) -> Any:
     """Mark a device method as a command. It stays a plain method.
 
@@ -514,6 +520,8 @@ def command(
     (`fibsem.devices.runs`), and the App Server answers a call to it at once
     with the run's id and lets it run on. ``line`` says a call to it in an
     agent's request, as the operator approves it (`fibsem.util.wording.Line`).
+    ``operator_only`` says why an agent may never run it, at any level
+    (`operator_only_reason`); a subclass overriding the method keeps it.
 
     A numpy value among its arguments reaches the method as the plain Python it
     holds (`fibsem.util.plain`), so no driver is handed numpy.
@@ -527,6 +535,8 @@ def command(
         method.__device_command__ = available  # type: ignore[attr-defined]
         if line is not None:
             method.__command_line__ = line  # type: ignore[attr-defined]
+        if operator_only:
+            method.__operator_only__ = operator_only  # type: ignore[attr-defined]
         return method
 
     return mark(fn) if fn is not None else mark
@@ -575,6 +585,28 @@ def query(
         return method
 
     return mark(fn) if fn is not None else mark
+
+
+def operator_only_reason(controllable: Any, kind: str, name: str) -> Optional[str]:
+    """Why an agent may never use *name* on *controllable* (a device or a
+    service), at any level, or None when it may: a parameter's write when *kind*
+    is "write", a command when "command". The mark is the class's
+    (``operator_only``), the parameter's or the command's (``operator_only=``), on the
+    device's own class or any it inherits from, so a backend can't drop one by
+    overriding."""
+    for klass in type(controllable).__mro__:
+        whole = vars(klass).get("operator_only")
+        if whole:
+            return whole
+    if kind == "write":
+        spec = type(controllable).declared_parameters().get(name)
+        return (spec.operator_only or None) if spec is not None else None
+    if kind == "command":
+        for klass in type(controllable).__mro__:
+            reason = getattr(vars(klass).get(name), "__operator_only__", None)
+            if reason:
+                return reason
+    return None
 
 
 class ResourceBusy(RuntimeError):
@@ -781,6 +813,11 @@ class _Controllable:
     remote_properties: Mapping[str, str] = MappingProxyType({})
     """Properties a remote client reads with a query, by name: the query's name."""
 
+    operator_only: str = ""
+    """Why an agent may never set any parameter or run any command of this kind
+    of device, at any level (venting is the operator's), or empty. Its values
+    stay readable. A subclass can't take it back (`operator_only_reason`)."""
+
     def __init__(
         self,
         name: str,
@@ -901,6 +938,8 @@ class _Controllable:
                     f"{base_param.unit!r}; a backend can't change a parameter's type "
                     f"or unit"
                 )
+            if base_param.operator_only and not attr.operator_only:
+                object.__setattr__(attr, "operator_only", base_param.operator_only)
             if attr.display is None:
                 object.__setattr__(attr, "display", base_param.display)
             elif attr.display != base_param.display:
