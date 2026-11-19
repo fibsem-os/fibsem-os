@@ -8,7 +8,7 @@ mill. The server is the security boundary: the sidecar registers every tool,
 whatever the agent's level, and the server refuses what the level doesn't allow
 with a 403 that says so. The microscope's tools are registered even while the
 microscope isn't served; until it is, each answers 404 `microscope_off`. Only
-the app's tools depend on the server hosting the application. Each tool's description names the level it needs. If the server
+the app's tools depend on the server hosting the application. Each tool's description names the level it needs, unless it works at every level. If the server
 restarts with a new token, the sidecar re-reads the discovery file and carries
 on.
 
