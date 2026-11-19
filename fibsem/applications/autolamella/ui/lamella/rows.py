@@ -296,7 +296,9 @@ class LamellaRow(QWidget):
     def _title_grid_menu(self) -> None:
         count = self.assign_count()
         self.grid_menu.setTitle(
-            f"Assign {count} Ticked to Grid" if count > 1 else "Assign to Grid"
+            f"Assign {count} Selected Lamella to Grid"
+            if count > 1
+            else "Assign to Grid"
         )
 
     def _fill_grid_menu(self) -> None:

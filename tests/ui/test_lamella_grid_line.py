@@ -340,7 +340,7 @@ class TestAssignToGrid:
             row._title_grid_menu()
             return row.grid_menu.title()
 
-        assert title(widget._row(2)) == "Assign 2 Ticked to Grid"
+        assert title(widget._row(2)) == "Assign 2 Selected Lamella to Grid"
         assert title(widget._row(1)) == "Assign to Grid"
 
         widget._row(2).grid_assign_requested.emit(lamellae["unlinked"], elm.id)
