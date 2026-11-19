@@ -1,6 +1,8 @@
 """Measurements on saved images (`fibsem.analysis`): intensity at points
 per plane, a line's profile and FWHM, and image quality."""
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -188,7 +190,7 @@ def test_the_tools_work_over_any_folder_and_refuse_paths_outside_it(tmp_path):
 
     answer = tools.line_profile("ramp.png", [0, 16], [63, 16])
     assert answer.measurement == "profile-0-16-63-16"
-    assert answer.path.endswith("drawn/ramp-profile-0-16-63-16.png")
+    assert Path(answer.path).parts[-2:] == ("drawn", "ramp-profile-0-16-63-16.png")
     assert answer.result["values"][0] < answer.result["values"][-1]
 
     with pytest.raises(ImageRefused) as outside:
