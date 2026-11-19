@@ -103,7 +103,11 @@ from fibsem.workflows.actions import NOTE
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.config_patch import PatchError, apply_patch, check_patch
 from fibsem.workflows.events import to_plain
-from fibsem.workflows.grid.edits import keep_grid_note, remove_grid_record
+from fibsem.workflows.grid.edits import (
+    assign_lamellae_to_grid,
+    keep_grid_note,
+    remove_grid_record,
+)
 from fibsem.workflows.grid.imaging import BeamOverviewGridTaskConfig
 from fibsem.workflows.grid.manager import plan_grid_run
 from fibsem.workflows.grid.naming import (
@@ -1134,6 +1138,39 @@ class AutoLamellaAppContext(AppContext):
 
         orphaned = self._agent_call(remove)
         return {"applied": True, "grid_name": grid_name, "items_without_grid": orphaned}
+
+    def assign_items_to_grid(
+        self, grid_name: str, item_names: List[str]
+    ) -> Dict[str, Any]:
+        """Record lamellae as on a grid the experiment already records, as a
+        lamella row's Assign to Grid does. Refused for a lamella the run is on,
+        or one on a grid the run is on. Saved."""
+        experiment, grid, refusal = self._grid_record(grid_name)
+        if refusal:
+            return refusal
+        lamellae = []
+        for name in item_names:
+            lamella, refusal = find_item(experiment, name)
+            if refusal:
+                return refusal
+            if lamella not in experiment.positions:
+                return refused("invalid", f"{name} is not a lamella.")
+            refusal = self._busy(
+                lamella_edit_refusal(
+                    self._runner, experiment, lamella, "move it to another grid"
+                )
+            )
+            if refusal:
+                return refusal
+            lamellae.append(lamella)
+
+        def assign():
+            moved = assign_lamellae_to_grid(experiment, grid, lamellae)
+            self._grids_changed()
+            return moved
+
+        moved = self._agent_call(assign)
+        return {"applied": True, "grid_name": grid_name, "assigned": moved}
 
     def move_to_item_pose(self, item_name: str, pose_name: str) -> Dict[str, Any]:
         """Move the stage to one of a lamella's poses, as the tab's Move to does,

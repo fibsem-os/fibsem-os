@@ -149,6 +149,10 @@ class Grids(Protocol):
 
     def remove_grid(self, grid_name: str) -> Dict[str, Any]: ...
 
+    def assign_items_to_grid(
+        self, grid_name: str, item_names: List[str]
+    ) -> Dict[str, Any]: ...
+
     def grid_task_config(self, task_name: str) -> Dict[str, Any]: ...
 
     def apply_grid_task_config_patch(

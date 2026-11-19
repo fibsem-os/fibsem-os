@@ -65,6 +65,14 @@ def _grid_remove(a: Dict[str, Any], ctx: wording.ActionContext) -> Dict[str, Any
     }
 
 
+def _grid_assign_items(a: Dict[str, Any], ctx: wording.ActionContext) -> Dict[str, Any]:
+    names = [str(n) for n in a.get("item_names") or []]
+    return {
+        "what": ", ".join(names) or "No lamellae",
+        "change": f"Record as on grid '{a.get('grid_name')}'",
+    }
+
+
 TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="grid_list",
@@ -219,6 +227,21 @@ TOOLS: Tuple[ToolSpec, ...] = (
         part=GRIDS,
         params={"grid_name": "the grid name, from grid_list"},
         line=_grid_remove,
+    ),
+    ToolSpec(
+        name="grid_assign_items",
+        returns="GridEdit",
+        description="Record lamellae as on a grid, as a lamella row's Assign to Grid does: for lamellae marked before the grid had a record (no grid, or the wrong one). The grid must already have a record (grid_add makes them from the inventory); nothing moves. Answers the lamellae that changed grid (assigned). Refused for a lamella the run is on, or one on a grid the run is on.",
+        method="POST",
+        path="/app/experiment/grids/{grid_name}/items",
+        level="drive",
+        router="app",
+        part=GRIDS,
+        params={
+            "grid_name": "the grid name, from grid_list",
+            "item_names": arg("the lamellae to put on it, by name", list),
+        },
+        line=_grid_assign_items,
     ),
     # The grids on the hardware: the sample handling service, which loads them
     # onto the stage and names them where the loader keeps names.
