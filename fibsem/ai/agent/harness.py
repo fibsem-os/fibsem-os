@@ -153,6 +153,9 @@ TRANSCRIPT_SOON_S = 1.0
 TRANSCRIPT_EVERY_S = 10.0
 TRANSCRIPT_BATCH = 200
 TRANSCRIPT_KEEP = 2000
+# While a turn goes on, its tokens and the context's fill are reported this
+# often (when they changed), not only as it ends: a turn can run for an hour.
+REPORT_EVERY_S = 30.0
 RETRY_MAX_S = 60.0
 
 NO_CODE = """\
@@ -898,7 +901,9 @@ class Harness:
 
     After every turn, and as it ends, the harness reports the session to the
     App Server (``POST /app/agent/session``): its id, model, goal, budget and
-    spend, so the operator sees them in the app.
+    spend, so the operator sees them in the app. While a turn goes on, its
+    tokens and the context's fill are reported every ``report_every_s``; the
+    spend is known only as a turn ends.
     """
 
     def __init__(
@@ -921,8 +926,16 @@ class Harness:
         after: Optional[str] = None,
         keep_cursor: Optional[Callable[[str], None]] = None,
         keep_where: Optional[Callable[[dict], None]] = None,
+        report_every_s: float = REPORT_EVERY_S,
     ) -> None:
         self._agent = agent
+        self._report_every_s = report_every_s
+        # A turn is going on: its tokens so far are the agent's to say.
+        self._in_turn = False
+        # Reports go one at a time, in order: (its loop, the lock).
+        self._reporting: Optional[Tuple[Any, asyncio.Lock]] = None
+        # The tokens and context last reported while a turn went on.
+        self._live_sent: Optional[tuple] = None
         # Stores the instrument and experiment the App Server names in its
         # answer to a report, in the session's own record.
         self._keep_where = keep_where
@@ -1141,12 +1154,16 @@ class Harness:
         interrupter = asyncio.ensure_future(self._interrupt_on_stop())
         cutter = asyncio.ensure_future(self._interrupt_on_urgent())
         sender = asyncio.ensure_future(self._send_transcript_every())
+        self._in_turn, self._live_sent = True, None
+        reporter = asyncio.ensure_future(self._report_every())
         try:
             end = await self._agent.turn(prompt)
         finally:
+            self._in_turn = False
             interrupter.cancel()
             cutter.cancel()
             sender.cancel()
+            reporter.cancel()
         self._turns += 1
         self._keep_given_cursor()
         if end.cost_usd is not None:
@@ -1215,8 +1232,7 @@ class Harness:
             "goal": None if self._goal_sent else self._goal,
             "budget_usd": self._budget_usd,
             "spent_usd": self._spent_usd,
-            "tokens": self._tokens,
-            "context": self._context,
+            **self._usage_now(),
             "turns": self._turns,
             **({} if self._goal_sent else self._about),
         }
@@ -1250,12 +1266,49 @@ class Harness:
                 log.debug("Reporting the session failed.", exc_info=True)
             return None
 
-        reported = await asyncio.get_running_loop().run_in_executor(None, post)
+        loop = asyncio.get_running_loop()
+        if self._reporting is None or self._reporting[0] is not loop:
+            self._reporting = (loop, asyncio.Lock())
+        lock = self._reporting[1]
+
+        async def send():
+            # In order: a report made while a turn went on never lands after
+            # the one made as it ended. Shielded, so a report that has started
+            # holds the lock until its answer, even when its turn ends.
+            async with lock:
+                return await loop.run_in_executor(None, post)
+
+        reported = await asyncio.shield(send())
         if isinstance(reported, dict) and self._keep_where is not None:
             self._keep_where(reported)
         if isinstance(reported, dict) and not ended:
             self._deadlines.set(reported.get("deadlines"))
         await self._send_transcript()
+
+    def _usage_now(self) -> dict:
+        """The run's tokens and the context's fill: as the last turn ended,
+        or, while a turn goes on, with what it has used so far."""
+        tokens, context = self._tokens, self._context
+        calls = getattr(self._agent, "calls", None)
+        if self._in_turn and calls is not None:
+            tokens = usage.add(tokens or usage.zero(), calls.so_far())
+            used = calls.reading()
+            if used:
+                # The window and where it compacts, as the CLI last said.
+                context = {**(context or {}), "used": used}
+        return {"tokens": tokens, "context": context}
+
+    async def _report_every(self) -> None:
+        """While a turn goes on: the session, every `REPORT_EVERY_S` that its
+        tokens or the context's fill changed."""
+        while True:
+            await asyncio.sleep(self._report_every_s)
+            now = self._usage_now()
+            seen = (now["tokens"], now["context"])
+            if seen == self._live_sent or seen == (self._tokens, self._context):
+                continue
+            self._live_sent = seen
+            await self._report()
 
     async def _report_read(self) -> None:
         """The operator's messages this turn carries are read: the web page
@@ -1580,8 +1633,10 @@ class SdkAgent:
                     message.subtype, message.total_cost_usd, message.session_id
                 )
         end.error = error
-        end.tokens = self.calls.end_turn()
+        # The context first: while the CLI is asked, the turn's tokens are
+        # still its own, for a report made meanwhile (`Harness._usage_now`).
         end.context = await self._context()
+        end.tokens = self.calls.end_turn()
         if result is not None:
             log.info("%s", self._turn_line(result, end))
             if result.total_cost_usd is not None:
@@ -1591,7 +1646,8 @@ class SdkAgent:
     async def _context(self) -> Optional[Dict[str, int]]:
         """How full the context is, from the CLI; the last call's size, if
         the CLI can't say."""
-        context = {"used": self.calls.context} if self.calls.context else None
+        used = self.calls.reading()
+        context = {"used": used} if used else None
         try:
             reply = await asyncio.wait_for(
                 self._client.get_context_usage(), CONTEXT_WAIT_S
