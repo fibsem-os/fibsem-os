@@ -839,6 +839,80 @@ def test_each_session_has_a_folder_with_its_record_and_log(tmp_path, monkeypatch
     assert "Session:" in (folder / manager.LOG).read_text(encoding="utf-8")
 
 
+def _main_kept_apart(argv):
+    """`harness.main`, its log handlers taken off again after."""
+    handlers = list(harness_mod.log.handlers)
+    try:
+        return harness_mod.main(argv)
+    finally:
+        for handler in harness_mod.log.handlers[len(handlers) :]:
+            handler.close()
+            harness_mod.log.removeHandler(handler)
+
+
+def test_a_failure_outside_the_run_is_said_and_recorded(tmp_path, monkeypatch, capsys):
+    """An error after the session opened, here in rebuilding its folder, says
+    why on the console and in the log, and ends the run in its record."""
+    pytest.importorskip("claude_agent_sdk")
+    import uuid
+
+    from fibsem.ai.agent import manager, sources
+
+    monkeypatch.setattr(harness_mod.Path, "home", lambda: tmp_path)
+    monkeypatch.delenv("FIBSEM_SERVER_TOKEN", raising=False)
+
+    def assemble(*args, **kwargs):
+        raise FileExistsError("run/.claude/skills was made meanwhile")
+
+    monkeypatch.setattr(sources, "assemble", assemble)
+    session_id = str(uuid.uuid4())
+    code = _main_kept_apart(
+        ["--url", "http://127.0.0.1:9", "--server-wait", "0"]
+        + ["--session-id", session_id]
+    )
+    assert code == 1
+    why = "fibsem-agent failed: FileExistsError: run/.claude/skills was made meanwhile"
+    assert why in capsys.readouterr().out
+    folder = manager.find_folder(session_id)
+    logged = (folder / manager.LOG).read_text(encoding="utf-8")
+    assert why in logged and "Traceback" in logged
+    assert f"--resume {session_id} carries the session on." in logged
+    (run,) = manager.read_json(folder / manager.RECORD)["runs"]
+    assert run["exit_code"] == 1 and run["reason"] == why
+
+
+def test_a_session_running_already_is_not_run_again(tmp_path, monkeypatch, capsys):
+    """A second resume of a session still running says so, and leaves the
+    running one's record alone."""
+    pytest.importorskip("claude_agent_sdk")
+    import subprocess
+    import sys
+    import uuid
+
+    from fibsem.ai.agent import manager
+
+    monkeypatch.setattr(harness_mod.Path, "home", lambda: tmp_path)
+    monkeypatch.delenv("FIBSEM_SERVER_TOKEN", raising=False)
+    session_id = str(uuid.uuid4())
+    session = manager.SessionFolder.open(session_id, {})
+    other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        record = session.record()
+        record["runs"][-1]["pid"] = other.pid
+        manager.write_json(session.folder / manager.RECORD, record)
+        code = _main_kept_apart(
+            ["--url", "http://127.0.0.1:9", "--server-wait", "0"]
+            + ["--resume", session_id]
+        )
+    finally:
+        other.kill()
+        other.wait(10)
+    assert code == 1
+    err = capsys.readouterr().err
+    assert f"Session {session_id} is already running (process {other.pid})" in err
+    assert manager.read_json(session.folder / manager.RECORD) == record
+
+
 def test_a_specialist_copied_for_a_session_gets_the_extra_servers_tools(
     tmp_path, monkeypatch
 ):
