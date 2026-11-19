@@ -103,7 +103,8 @@ class Imaging(Service):
     """Imaging over the beams: the beam commands by ``beam_type`` (``acquire``,
     ``autocontrast``, ``start_live``, ``stop_live``); a saved, recorded image
     (``acquire_image``) and reference images of both beams (``reference_images``,
-    ``reference_image_sets``) and a focus stacked one (``acquire_focus_stack``); tiled
+    ``reference_image_sets``), an SEM and FIB pair to check a site
+    (``acquire_pair``) and a focus stacked one (``acquire_focus_stack``); tiled
     overviews (``acquire_overview``, ``estimate_overview``) and fluorescence
     ones (``fm_acquire_overview``, ``fm_estimate_overview``); ``auto_focus``
     (the instrument's own where the beam has one, else the sweep),
@@ -241,6 +242,65 @@ class Imaging(Service):
         )
         self.session.record("image_acquired", acquisition_record(image, path))
         return image
+
+    @command
+    def acquire_pair(
+        self,
+        hfw: float,
+        path: str,
+        filename: Optional[str] = None,
+        autocontrast: Optional[List[BeamType]] = None,
+        experiment_path: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """An SEM and a FIB image of where the stage is, at field of view
+        ``hfw`` and each beam's other settings as they are, to check a site:
+        each beam in ``autocontrast`` runs its routine first. Saved in the
+        folder ``path`` as ``<filename>_eb`` and ``_ib`` (``filename``
+        defaults to when it was taken), each recorded as ``image_acquired``,
+        and shown in the app's views. Answers both images' facts and one
+        side-by-side picture of them (`pair_picture`), saved beside the SEM
+        image; paths relative to ``experiment_path`` when given. The field of
+        view stays set on both beams. Refused, before anything is imaged,
+        when either beam is not enabled or is off. Moves nothing and judges
+        nothing: whether the two are coincident is the caller's to say."""
+        beams = (BeamType.ELECTRON, BeamType.ION)
+        for beam_type in beams:
+            beam = self.beam(beam_type)
+            if "on" in beam.parameters and beam.on.get_value() is False:
+                raise ValueError(
+                    f"The {_BEAM_ROLES[beam_type]} beam is off: the operator "
+                    "switches it on (beam_turn_on), then check again."
+                )
+        name = filename or f"site-{timestamps.now():%Y%m%d-%H%M%S}"
+        contrasted = set(autocontrast or ())
+        images = {}
+        for beam_type in beams:
+            if beam_type in contrasted:
+                # the field of view first: contrast at the view it images
+                self.beam(beam_type).hfw.set_value(hfw)
+                self.autocontrast(beam_type)
+            image = self.acquire(beam_type, {"hfw": hfw}, path=path, filename=name)
+            self.show(image)
+            images[beam_type] = image
+        sem, fib = images[BeamType.ELECTRON], images[BeamType.ION]
+        root = experiment_path
+
+        def shown(file: str) -> str:
+            return os.path.relpath(file, root).replace(os.sep, "/") if root else file
+
+        picture = pair_picture(
+            sem.filepath, fib.filepath, (sem.data.shape, fib.data.shape)
+        )
+        picture["path"] = shown(picture["path"])
+        return {
+            "sem": _pair_image(
+                sem, shown(sem.filepath), BeamType.ELECTRON in contrasted
+            ),
+            "fib": _pair_image(fib, shown(fib.filepath), BeamType.ION in contrasted),
+            "hfw": hfw,
+            "stage_position": _stage_position(sem),
+            "picture": picture,
+        }
 
     @command
     def reference_images(
@@ -936,6 +996,117 @@ def _overview_answer(result: "OverviewResult", image: Any) -> Dict[str, Any]:
         "image": image,
         "tile_paths": result.tile_paths,
         "overview": result.summary(),
+    }
+
+
+def _stage_position(image: FibsemImage) -> Optional[Dict[str, Any]]:
+    """Where *image* was taken: metres, and degrees named so."""
+    try:
+        position = image.metadata.microscope_state.stage_position
+    except AttributeError:
+        return None
+    if position is None:
+        return None
+
+    def degrees(value: Optional[float]) -> Optional[float]:
+        return None if value is None else round(math.degrees(value), 3)
+
+    def metres(value: Optional[float]) -> Optional[float]:
+        return None if value is None else round(value, 9)
+
+    return {
+        "x": metres(position.x),
+        "y": metres(position.y),
+        "z": metres(position.z),
+        "r_deg": degrees(position.r),
+        "t_deg": degrees(position.t),
+    }
+
+
+def _pair_image(image: FibsemImage, path: str, contrasted: bool) -> Dict[str, Any]:
+    """One image of `Imaging.acquire_pair`: where it is saved, its size and
+    scale, and whether it is fit to judge, as auto brightness/contrast judges
+    an image (clipped fractions, centre and spread on its range, problems in
+    words, unusable), with its focus score (the mean Laplacian: comparable only
+    between images of one scene at one field of view)."""
+    from fibsem.autofunctions.metrics import calculate_focus_quality
+
+    data = image.data
+    settings = BrightnessContrastSettings()
+    stats = measure(data, settings)
+    pixel_size = image.metadata.pixel_size.x if image.metadata is not None else None
+    return {
+        "path": path,
+        "resolution": [int(data.shape[1]), int(data.shape[0])],
+        "pixel_size": None if pixel_size is None else float(f"{pixel_size:.4g}"),
+        "autocontrast": contrasted,
+        "quality": {
+            "clipped_black": round(stats.black, 4),
+            "clipped_white": round(stats.white, 4),
+            "centre": round(stats.centre, 3),
+            "spread": round(stats.spread, 3),
+            "problems": problems(stats, settings),
+            "unusable": unusable(stats, settings),
+            "focus": round(calculate_focus_quality(data.astype(float)), 4),
+        },
+    }
+
+
+def pair_picture(
+    sem_path: str, fib_path: str, shapes: Sequence[Sequence[int]]
+) -> Dict[str, Any]:
+    """The saved images *sem_path* and *fib_path* (their data's *shapes*,
+    rows first) side by side at one scale, as `analysis_draw_pair` draws them
+    (`fibsem.imaging.marks.draw_pair`), saved beside the SEM image as
+    ``drawn/<sem>-<fib>.png``. Answers its path,
+    its preview (``image_b64_jpeg``) and the preview's ``size``, and for each
+    half where its image sits in the preview: ``origin`` (its top left) and
+    ``scale`` (the image's full-resolution pixels per preview pixel, x and y),
+    so a point read off the preview is ``(point - origin) * scale`` in that
+    image. The metadata bar under each half is outside it."""
+    import base64
+    import io
+
+    from PIL import Image
+
+    from fibsem.imaging.marks import (
+        PAIR_GAP,
+        draw_pair,
+        drawn_path,
+        image_stem,
+        save_drawn,
+        side_by_side,
+    )
+
+    left, right = draw_pair(sem_path, fib_path, None)
+    composite = side_by_side(left.rgb, right.rgb)
+    saved = drawn_path(sem_path, f"{image_stem(sem_path)}-{image_stem(fib_path)}")
+    preview = save_drawn(composite, saved, sem_path)
+    with Image.open(io.BytesIO(base64.b64decode(preview["image_b64_jpeg"]))) as jpeg:
+        width, height = jpeg.size
+    fx, fy = width / composite.shape[1], height / composite.shape[0]
+
+    def half(shape: Sequence[int], drawn: Any, x0: int) -> Dict[str, Any]:
+        full_height, full_width = shape[0], shape[1]
+        # The image fills the half's width; its height keeps the image's shape,
+        # and the metadata bar is drawn below it.
+        drawn_width = drawn.shape[1]
+        drawn_height = max(1, round(full_height * drawn_width / full_width))
+        return {
+            "origin": [round(x0 * fx, 2), 0],
+            "size": [round(drawn_width * fx, 1), round(drawn_height * fy, 1)],
+            "scale": [
+                round(full_width / (drawn_width * fx), 4),
+                round(full_height / (drawn_height * fy), 4),
+            ],
+        }
+
+    return {
+        "path": saved,
+        "size": [width, height],
+        "sem": half(shapes[0], left.rgb, 0),
+        "fib": half(shapes[1], right.rgb, left.rgb.shape[1] + PAIR_GAP),
+        **preview,
     }
 
 

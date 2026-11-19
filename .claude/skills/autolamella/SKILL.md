@@ -189,8 +189,9 @@ Before you decide or place either:
 1. Choose a target you can name: a cell, or the feature the operator asked
    for. The image centre is not a target; a grid-square edge with no cell
    on it is not one either.
-2. At the position proposal, take fresh SEM and FIB images
-   (`beam_acquire_image`). Check both are in focus and their brightness and
+2. At the position proposal, take fresh SEM and FIB images with
+   `beam_acquire_pair`, saved in the lamella's folder: one picture of both,
+   with each image's quality. Check both are in focus and their brightness and
    contrast let you read them; fix them first if not (fibsem-microscope,
    *Don't judge a poor image*), and check what Setup's own autofocus did.
    Read the milling angle (`stage_get_current_milling_angle`) against the
