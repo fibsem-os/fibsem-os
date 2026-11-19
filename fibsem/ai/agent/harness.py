@@ -37,7 +37,7 @@ import threading
 import time
 import traceback
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -57,6 +57,7 @@ from fibsem.ai.agent import (
     usage,
     wake_lines,
 )
+from fibsem.ai.agent import handoff as handoff_mod
 from fibsem.ai.agent import manager as sessions
 from fibsem.ai.agent import watch as watch_mod
 from fibsem.ai.agent.catalog import INSTRUMENT_ENV
@@ -94,11 +95,16 @@ PLAYBOOK_TOOLS = [
     f"mcp__{HARNESS_SERVER}__{name}"
     for name in ("playbook_list", "playbook_set", "skill_done")
 ]
+# The fresh-context tool (`handoff`), on the same in-process server.
+HANDOFF_TOOL = f"mcp__{HARNESS_SERVER}__{handoff_mod.TOOL}"
 # The server's level gate decides what the fibsem tools may do, so they need no
 # prompt; ToolSearch only finds them. The session's subagents are added
 # (`subagent_tools`).
 ALLOWED_TOOLS = (
-    [f"mcp__{SERVER}__*", "ToolSearch", "SendMessage"] + [WAKE_TOOL] + PLAYBOOK_TOOLS
+    [f"mcp__{SERVER}__*", "ToolSearch", "SendMessage"]
+    + [WAKE_TOOL]
+    + PLAYBOOK_TOOLS
+    + [HANDOFF_TOOL]
 )
 # The only built-in tools the agent has: reading its skills, finding the
 # sidecar's tools when the CLI defers them, calling a specialist or carrying
@@ -686,10 +692,25 @@ class PlaybookControl:
         return rows
 
 
-def wake_server(alarm: Alarm, control: Optional[PlaybookControl] = None):
+def wake_server(
+    alarm: Alarm,
+    control: Optional[PlaybookControl] = None,
+    handoff: Optional[handoff_mod.Handoff] = None,
+):
     """The harness's in-process MCP server: the ``wake_after`` tool on
-    *alarm*, and with *control* the playbook tools."""
+    *alarm*, with *control* the playbook tools, and with *handoff* the
+    ``context_reset`` tool."""
     from claude_agent_sdk import create_sdk_mcp_server, tool
+
+    more = []
+    if handoff is not None:
+
+        @tool(handoff_mod.TOOL, handoff_mod.DESCRIPTION, handoff_mod.SCHEMA)
+        async def context_reset(args):
+            said = handoff.request(args or {})
+            return {"content": [{"type": "text", "text": said}]}
+
+        more.append(context_reset)
 
     @tool(
         "wake_after",
@@ -705,7 +726,7 @@ def wake_server(alarm: Alarm, control: Optional[PlaybookControl] = None):
         return {"content": [{"type": "text", "text": said}]}
 
     if control is None:
-        return create_sdk_mcp_server(HARNESS_SERVER, tools=[wake_after])
+        return create_sdk_mcp_server(HARNESS_SERVER, tools=[wake_after] + more)
 
     def text(said: str) -> dict:
         return {"content": [{"type": "text", "text": said}]}
@@ -752,7 +773,8 @@ def wake_server(alarm: Alarm, control: Optional[PlaybookControl] = None):
         )
 
     return create_sdk_mcp_server(
-        HARNESS_SERVER, tools=[wake_after, playbook_list, playbook_set, skill_done]
+        HARNESS_SERVER,
+        tools=[wake_after, playbook_list, playbook_set, skill_done] + more,
     )
 
 
@@ -952,6 +974,14 @@ class Harness:
     report, and asks again before it ends the run. *spent_before_usd* is the
     session's spend when this run started (its record's, on a resume): the
     CLI's running total carries earlier runs on, the budget counts this one.
+
+    With *handoff*, the agent may start a fresh context (`handoff`): when the
+    turn that asked for one ends, the agent's ``new_context()`` starts a new
+    CLI conversation under the same session id, *keep_context* records it,
+    and the next turn starts with the handoff prompt. Lines that came in
+    meanwhile wait in the queue for that turn. The CLI's running total starts
+    again with each conversation: *spent_carried_usd* is the session's spend
+    before the current one, added to it.
     """
 
     def __init__(
@@ -976,8 +1006,15 @@ class Harness:
         keep_cursor: Optional[Callable[[str], None]] = None,
         keep_where: Optional[Callable[[dict], None]] = None,
         report_every_s: float = REPORT_EVERY_S,
+        handoff: Optional[handoff_mod.Handoff] = None,
+        keep_context: Optional[Callable[[str, float], None]] = None,
+        spent_carried_usd: float = 0.0,
     ) -> None:
         self._agent = agent
+        # Fresh contexts (`handoff`); None for a session that can't start one.
+        self._handoff = handoff
+        self._keep_context = keep_context
+        self._carried_usd = spent_carried_usd
         self._report_every_s = report_every_s
         # A turn is going on: its tokens so far are the agent's to say.
         self._in_turn = False
@@ -1123,6 +1160,7 @@ class Harness:
                 self._alarm.cancel()
             self._deadlines.cancel()
             # Before the watcher stops: stopping it closes the client.
+            await self._keep_unstarted_handoff()
             await self._report(ended=True)
             if self._watcher is not None:
                 self._watcher.stop()
@@ -1239,12 +1277,17 @@ class Harness:
             reporter.cancel()
         self._turns += 1
         self._keep_given_cursor()
+        spent_before = self._spent_usd
         if end.cost_usd is not None:
-            self._count_spend(end.cost_usd)
+            self._count_spend(end.cost_usd + self._carried_usd)
         if end.tokens is not None:
             self._tokens = usage.add(self._tokens or usage.zero(), end.tokens)
         if end.context is not None:
             self._context = end.context
+        if self._handoff is not None:
+            known = end.cost_usd is not None and spent_before is not None
+            cost = self._spent_usd - spent_before if known else None
+            self._handoff.measure(end.context, cost)
         if self._stopping.is_set():
             return False
         session = end.session_id or getattr(self._agent, "session_id", None)
@@ -1284,7 +1327,8 @@ class Harness:
             )
             self._code = 1
             return False
-        if end.subtype == "error_max_turns":
+        fresh = self._handoff is not None and self._handoff.pending is not None
+        if end.subtype == "error_max_turns" and not fresh:
             # The limit is a checkpoint, not a stop: the next turn starts at
             # once, with any lines that came in. Waiting for a line instead
             # stalls a run nobody is watching.
@@ -1294,8 +1338,78 @@ class Harness:
             self._put(self._watcher, watch_mod.Wake(ALARM, CARRY_ON))
         elif end.subtype != "success":
             log.warning("The turn ended with %s.", end.subtype)
+        if fresh:
+            await self._fresh_context()
         await self._report()
         return True
+
+    async def _keep_unstarted_handoff(self) -> None:
+        """A handoff note the agent wrote in the turn the run ended on: kept
+        with the others, though no fresh context started from it."""
+        note = self._handoff.take() if self._handoff is not None else None
+        if note is None:
+            return
+        self._handoff.keep(note)
+        session_id = getattr(self._agent, "session_id", None)
+        if self._client is not None and session_id:
+            await asyncio.get_running_loop().run_in_executor(
+                None, handoff_mod.post, self._client, session_id, note.markdown()
+            )
+
+    async def _fresh_context(self) -> None:
+        """The agent asked for a fresh context this turn: keep its note, start
+        a new conversation under the same session, and wake it with the note.
+        If the new conversation can't start, the agent carries on in this one."""
+        handoff = self._handoff
+        note = handoff.take()
+        playbook = self._playbook.reminders if self._playbook is not None else None
+        skills, read = handoff_mod.skills_to_read(
+            playbook.playbook if playbook is not None else None,
+            playbook.skills if playbook is not None else {},
+            list(getattr(self._agent, "skills_read", None) or []),
+            # Every instrument's session reads the base skill first.
+            None if self._words.kind == instruments.NONE else BASE_SKILL,
+        )
+        handoff.keep(note)
+        session_id = getattr(self._agent, "session_id", None)
+        kept = None
+        if self._client is not None and session_id:
+            kept = await asyncio.get_running_loop().run_in_executor(
+                None, handoff_mod.post, self._client, session_id, note.markdown()
+            )
+        spent = self._spent_usd or 0.0
+        try:
+            conversation = await self._agent.new_context()
+        except Exception as error:  # noqa: BLE001 - the old context carries on
+            log.warning("The fresh context could not start: %s", error, exc_info=True)
+            handoff.failed(str(error) or type(error).__name__)
+            return
+        # The new conversation's running total starts at 0.
+        self._carried_usd = spent
+        if self._keep_context is not None:
+            try:
+                self._keep_context(conversation, spent)
+            except Exception:  # noqa: BLE001 - the session goes on
+                log.debug("Keeping the new context failed.", exc_info=True)
+        where = (
+            f"{kept} in the experiment"
+            if kept
+            else "handoff.md in the session's folder on the agent's PC"
+        )
+        handoff.started(note, skills, read, where)
+        log.info(
+            "Fresh context %d (conversation %s): the agent carries on from its "
+            "handoff note.",
+            handoff.contexts,
+            conversation,
+        )
+        _line(
+            self._agent,
+            "context",
+            f"Fresh context: the agent started context {handoff.contexts} of "
+            f"this session here, from its plan and its handoff note ({where})",
+        )
+        self._put(self._watcher, watch_mod.Wake(ALARM, handoff_mod.WAKE))
 
     async def _report(self, ended: bool = False) -> None:
         """The session as it stands, to the App Server; a refusal or a server
@@ -1315,6 +1429,8 @@ class Harness:
             "turns": self._turns,
             **({} if self._goal_sent else self._about),
         }
+        if self._handoff is not None and self._handoff.contexts > 1:
+            body["contexts"] = self._handoff.contexts
         skills = list(getattr(self._agent, "skills_read", None) or [])
         if skills != self._skills_sent:
             body["skills"] = skills
@@ -1653,6 +1769,8 @@ class Harness:
                         f"{prompt}\n\n{self._budget_note}",
                         None,
                     )
+                if self._handoff is not None:
+                    prompt = self._handoff.into(prompt)
                 return prompt
 
     async def _rewatch(self, prompt: Optional[str]) -> Optional[str]:
@@ -1730,13 +1848,25 @@ class Harness:
 class SdkAgent:
     """The agent: one ``ClaudeSDKClient`` session, its messages logged."""
 
-    def __init__(self, options, usage_path: Optional[Path] = None) -> None:
+    def __init__(
+        self,
+        options,
+        usage_path: Optional[Path] = None,
+        session_id: Optional[str] = None,
+        client_factory: Optional[Callable[[Any], Any]] = None,
+    ) -> None:
         self._options = options
         self._client = None
+        # Makes the ClaudeSDKClient for *options*; the SDK's own when None.
+        self._client_factory = client_factory
         # Each model call's tokens, a line each in the session's usage file.
         self.calls = usage.Calls(usage_path)
         self._cost_usd: Optional[float] = None
-        self.session_id: Optional[str] = options.resume or options.session_id
+        # The CLI conversation now: the session's id until a fresh context
+        # (`new_context`) starts another.
+        self.conversation_id: Optional[str] = options.resume or options.session_id
+        # The fibsem session's id, which a fresh context keeps.
+        self.session_id: Optional[str] = session_id or self.conversation_id
         self.model: Optional[str] = options.model
         self.introduced = False
         # The context was compacted: the next turn asks for the plan again.
@@ -1770,10 +1900,55 @@ class SdkAgent:
         return self._seq
 
     async def start(self) -> None:
-        from claude_agent_sdk import ClaudeSDKClient
+        self._client = await self._connect(self._options)
 
-        self._client = ClaudeSDKClient(self._options)
-        await self._client.connect()
+    async def _connect(self, options):
+        if self._client_factory is not None:
+            client = self._client_factory(options)
+        else:
+            from claude_agent_sdk import ClaudeSDKClient
+
+            client = ClaudeSDKClient(options)
+        await client.connect()
+        return client
+
+    async def new_context(self) -> str:
+        """A new CLI conversation under the same session, between turns: the
+        new client is connected before the old one goes, so a side question
+        always has one, and a new one that can't start leaves the old one.
+        Its id."""
+        conversation = str(uuid.uuid4())
+        options = replace(
+            self._options,
+            resume=None,
+            continue_conversation=False,
+            session_id=conversation,
+        )
+        store = options.session_store
+        mirrored = isinstance(store, mirror.TranscriptMirror)
+        if mirrored:
+            # Its lines go on in transcript.jsonl, after the earlier context's.
+            before, store.session_id = store.session_id, conversation
+        try:
+            client = await self._connect(options)
+        except BaseException:
+            if mirrored:
+                store.session_id = before
+            raise
+        old, self._client, self._options = self._client, client, options
+        self.conversation_id = conversation
+        self.introduced = False
+        self.compacted = False
+        self.skills_read = []
+        self._steps = {}
+        self._cost_usd = None
+        self.calls.new_context()
+        if old is not None:
+            try:
+                await old.disconnect()
+            except Exception:  # noqa: BLE001 - the old CLI is done with
+                log.debug("Closing the earlier context failed.", exc_info=True)
+        return conversation
 
     async def turn(self, prompt: str) -> TurnEnd:
         from claude_agent_sdk import AssistantMessage, ResultMessage, ToolUseBlock
@@ -1935,6 +2110,10 @@ def step(name: str, arguments: dict, cwd: Optional[Path] = None) -> tuple:
         return "Set", _clip(
             f"a wake-up in {minutes} min: {arguments.get('reason', '')}", 200
         )
+    if name == HANDOFF_TOOL:
+        return "Asked", _clip(
+            f"for a fresh context, to carry on with: {arguments.get('next', '')}", 200
+        )
     if short == "experiment_fetch_file":
         return "Fetched", _clip(arguments.get("path", ""), 160)
     text = json.dumps(arguments, ensure_ascii=False) if arguments else ""
@@ -2009,9 +2188,17 @@ def _show(message, agent: SdkAgent) -> None:
         # Every turn starts with one; the first says it all.
         if message.subtype == "init" and not agent.introduced:
             agent.introduced = True
-            agent.session_id = data.get("session_id") or agent.session_id
+            conversation = data.get("session_id")
+            # The session's id stays as it started; a fresh context is a new
+            # conversation in it.
+            agent.session_id = agent.session_id or conversation
+            if hasattr(agent, "conversation_id"):
+                agent.conversation_id = conversation or agent.conversation_id
             agent.model = data.get("model") or agent.model
-            log.info("Session %s", agent.session_id)
+            if conversation and conversation != agent.session_id:
+                log.info("Session %s, conversation %s", agent.session_id, conversation)
+            else:
+                log.info("Session %s", agent.session_id)
             tools = data.get("tools") or []
             ours = [tool for tool in tools if tool.startswith(f"mcp__{SERVER}__")]
             others = [tool for tool in tools if tool not in ours]
@@ -2235,6 +2422,7 @@ def build_options(
     extras: Optional[Dict[str, extra_mcp.Server]] = None,
     host: Optional[str] = None,
     host_token: Optional[str] = None,
+    handoff: Optional[handoff_mod.Handoff] = None,
 ):
     """The SDK session: the MCP servers the *playbook* names (``mcp``; the
     sidecar alone without one), among them the lab's (*extras*, else read;
@@ -2247,12 +2435,18 @@ def build_options(
     *playbook* the session starts on puts its rules in the prompt, and its
     reminders hold when there is no *control* to ask. With
     *transcript*, a folder, the CLI's transcript is copied there as it is
-    written (`mirror.TranscriptMirror`)."""
+    written (`mirror.TranscriptMirror`). With *handoff*, the agent has the
+    ``context_reset`` tool. The CLI's compaction is always asked to keep what
+    the instrument kind's ``handoff.md`` says, and the playbook's
+    ``compact_window`` sets where it compacts."""
     from claude_agent_sdk import ClaudeAgentOptions
 
     loaded = loaded or session_names(checkout, playbook)
     extras = extra_mcp.load() if extras is None else extras
     base = defaults()
+    compact = (
+        words or texts(playbook.instrument if playbook is not None else None)
+    ).handoff_compact
     command = sidecar_command()
     # The playbook's tools, which the CLI loads from the first turn; each
     # sidecar marks those it offers.
@@ -2265,6 +2459,8 @@ def build_options(
     # In the CLI's environment, which the sidecar inherits: the server entry
     # goes on the CLI's command line, where anyone can list it.
     env = dict(CLI_ENV)
+    settings_now = playbook.session if playbook is not None else base
+    env.update(handoff_mod.compact_env(settings_now.compact_window))
     if url:
         env[SERVER_URL_ENV] = url
     if token:
@@ -2308,7 +2504,7 @@ def build_options(
             + always,
         }
     if alarm is not None:
-        servers[HARNESS_SERVER] = wake_server(alarm, control)
+        servers[HARNESS_SERVER] = wake_server(alarm, control, handoff)
     return ClaudeAgentOptions(
         # Its .claude holds the session's skills (`sources.assemble`; CLAUDE.md
         # is off, see CLI_ENV), and none of ~/.claude: the user's own
@@ -2339,15 +2535,19 @@ def build_options(
         },
         # With a playbook control, the reminders on now, asked at each call;
         # and the lab servers' tools gated by the agent level.
-        hooks=_with_level_gate(
-            control.reminders.sdk_hooks(SERVER)
-            if control is not None
-            else reminders.sdk_hooks(playbook.hooks, SERVER)
-            if playbook
-            else None,
-            extras,
-            url,
-            token,
+        # And what the CLI's compaction keeps, should it run.
+        hooks=handoff_mod.compact_hooks(
+            _with_level_gate(
+                control.reminders.sdk_hooks(SERVER)
+                if control is not None
+                else reminders.sdk_hooks(playbook.hooks, SERVER)
+                if playbook
+                else None,
+                extras,
+                url,
+                token,
+            ),
+            compact,
         ),
         # Watcher lines carry operator-typed text: never expand an @path in it.
         verbatim_prompts=True,
@@ -2844,6 +3044,14 @@ def _main(argv, opened: List["sessions.SessionFolder"]) -> int:
         session.keep_playbook(control.reminders.state())
     if control.reminders.playbook is not None:
         log.info("Playbook: %s", control.reminders.playbook.name)
+    # Fresh contexts: a resume carries on the newest one's conversation.
+    handoff = handoff_mod.Handoff(
+        words,
+        playbook.session.context_marks,
+        keep=session.keep_handoff,
+        contexts=1 + len(record.get(sessions.CONTEXTS) or []),
+    )
+    conversation = sessions.conversation(record) if args.resume else None
     options = build_options(
         checkout,
         alarm=alarm,
@@ -2852,7 +3060,7 @@ def _main(argv, opened: List["sessions.SessionFolder"]) -> int:
         token=token,
         model=args.model,
         max_turns=args.max_turns,
-        resume=args.resume,
+        resume=conversation or args.resume,
         effort=args.effort,
         work=work,
         session_id=None if args.resume else session_id,
@@ -2865,8 +3073,12 @@ def _main(argv, opened: List["sessions.SessionFolder"]) -> int:
         extras=extras,
         host=args.host,
         host_token=host_token,
+        handoff=handoff,
     )
-    agent = SdkAgent(options, usage_path=session.folder / usage.FILE)
+    agent = SdkAgent(
+        options, usage_path=session.folder / usage.FILE, session_id=session_id
+    )
+    agent.calls.segment = handoff.contexts
     agent.playbook = control
     control.say = lambda text: _line(agent, "context", text)
     if named:
@@ -2892,6 +3104,9 @@ def _main(argv, opened: List["sessions.SessionFolder"]) -> int:
         after=record.get(sessions.EVENT_AFTER),
         keep_cursor=session.keep_event_cursor,
         keep_where=session.keep_where,
+        handoff=handoff,
+        keep_context=session.keep_context,
+        spent_carried_usd=sessions.context_spend(record),
         about={
             "harness": "fibsem-agent",
             "code": work is not None and code,

@@ -185,6 +185,17 @@ class TranscriptBody:
 
 
 @dataclass
+class HandoffBody:
+    """POST /app/agent/handoff: a handoff note fibsem-agent keeps as the agent
+    starts a fresh context."""
+
+    __pydantic_config__ = STRICT
+
+    session_id: str
+    text: str
+
+
+@dataclass
 class MessagesReadBody:
     """POST /app/agent/read: the operator's messages the agent has read."""
 

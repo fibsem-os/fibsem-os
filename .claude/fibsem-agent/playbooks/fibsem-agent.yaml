@@ -41,6 +41,13 @@ session:
   deadline_warn_min: 30
   # A running workflow this many minutes without an event wakes the agent once.
   quiet_min: 20
+  # The agent is told once, in its next wake-up, when its context first passes
+  # each of these sizes (tokens): each turn re-reads all of it, so it may
+  # choose a fresh context (context_reset) at a good stopping point.
+  context_marks: [300000, 500000, 700000]
+  # The CLI compacts the context near the model's window unless this sets
+  # its auto-compact window (tokens, 100000 to 1000000). Unset by default.
+  # compact_window: 600000
 # Read first, every session.
 skills: [fibsem-agent, fibsem-microscope]
 reminders:

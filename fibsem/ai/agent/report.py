@@ -105,6 +105,9 @@ class SessionReport:
     budget_usd: Optional[Dollars] = None
     spent_usd: Optional[Dollars] = None
     turns: Optional[Count] = None
+    # How many contexts the session has had: 1, and one more for each fresh
+    # context it started (`fibsem.ai.agent.handoff`).
+    contexts: Optional[Count] = None
     tokens: Optional[Tokens] = None
     context: Optional[ContextUse] = None
     code: Optional[Flag] = None
