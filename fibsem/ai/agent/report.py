@@ -138,6 +138,9 @@ class ReportedSession(SessionReport):
     started: Optional[str] = None
     # Read from its plan, when it keeps one.
     deadlines: Optional[List[Deadline]] = None
+    # The budget the operator set (``PUT /app/agent/budget``), which
+    # fibsem-agent keeps to; a report can't set it.
+    budget_set_usd: Optional[float] = None
     # The instrument it is connected to and the experiment open there, as the
     # server knows them: ids, which a rename does not change. The serial
     # number is what the microscope reports, when it reports one.

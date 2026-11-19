@@ -7,6 +7,18 @@ instrument: cryo-fm
 # Its devices are served by the App Server, through its fibsem sidecar.
 mcp: [fibsem]
 skills: [fibsem-agent, cryo-fm]
+# The base's tools are a FIB-SEM's: its own, loaded from the first turn.
+tools:
+  - server_get_capabilities
+  - app_get_status
+  - plan_get
+  - plan_set_section
+  - experiment_message_operator
+  - experiment_add_note
+  - knowledge_list
+  - stage_get_position
+  - device_list
+  - device_call_command
 reminders:
   hardware_error: Stop. Don't retry. Message the operator with the error word for word.
 rules:

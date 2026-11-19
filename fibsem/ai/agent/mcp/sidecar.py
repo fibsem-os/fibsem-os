@@ -383,7 +383,12 @@ def _devices(kind):
     return instruments.devices(kind, sources.find_root())
 
 
-def build_sidecar(client, capabilities, instrument=None, record=None):
+# A tool's _meta key that has Claude Code load it from the first turn, where
+# it otherwise defers MCP tools until the agent searches for them.
+ALWAYS_LOAD = "anthropic/alwaysLoad"
+
+
+def build_sidecar(client, capabilities, instrument=None, record=None, always_load=()):
     """Build the MCP server over an httpx-compatible client.
 
     ``capabilities`` is the full /capabilities payload; a tool registers when
@@ -395,6 +400,8 @@ def build_sidecar(client, capabilities, instrument=None, record=None):
     (`RECORD_TOOLS`), and the image and file tools when the host serves a
     data folder, for an agent host; False offers every tool but
     those, for an instrument whose agent keeps its record on a host.
+    *always_load* names tools Claude Code loads from the first turn rather
+    than deferring them behind its tool search (``anthropic/alwaysLoad``).
     """
     from mcp.server.mcpserver import Image, MCPServer
     from mcp.types import ToolAnnotations
@@ -1339,6 +1346,7 @@ def build_sidecar(client, capabilities, instrument=None, record=None):
                     idempotent_hint=spec.idempotent,
                     open_world_hint=False,
                 ),
+                meta={ALWAYS_LOAD: True} if name in always_load else None,
             )
     return mcp
 
@@ -1619,6 +1627,13 @@ def main(argv=None):
         "agent keeps its record on an agent host",
     )
     parser.add_argument(
+        "--always-load",
+        default="",
+        metavar="TOOL,...",
+        help="tools Claude Code loads from the first turn rather than finding "
+        "them with its tool search (fibsem-agent sets them from its playbook)",
+    )
+    parser.add_argument(
         "--token-env",
         default=None,
         metavar="NAME",
@@ -1657,7 +1672,8 @@ def main(argv=None):
             args.url, args.token, wait_s, user_agent=client.named_user_agent
         )
     )
-    build_sidecar(client, capabilities, args.instrument, args.record).run()
+    always_load = {n.strip() for n in args.always_load.split(",") if n.strip()}
+    build_sidecar(client, capabilities, args.instrument, args.record, always_load).run()
 
 
 if __name__ == "__main__":

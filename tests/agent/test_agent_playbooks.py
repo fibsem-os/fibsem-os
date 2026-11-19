@@ -271,6 +271,77 @@ def test_the_mcp_servers_a_playbook_uses_are_named_and_the_base_names_fibsem(
         playbooks.load("bad-name", checkout)
 
 
+def test_the_tools_loaded_from_the_start_add_up_and_name_fibsem_tools(lab, checkout):
+    base = playbooks.load("fibsem-agent", checkout)
+    assert "experiment_message_operator" in base.tools
+    autolamella = playbooks.load("autolamella-correlative", checkout)
+    assert autolamella.tools[: len(base.tools)] == base.tools
+    assert "item_list" in autolamella.tools
+    assert autolamella.summary()["tools"] == autolamella.tools
+    # A lab's playbook gets the base's under its own, once each.
+    write(lab, "mine", "tools: [item_get, app_get_status]\n")
+    assert playbooks.load("mine", checkout).tools == base.tools + ["item_get"]
+    # Another instrument kind's names its own.
+    cryo = playbooks.load("cryo-fm", checkout)
+    assert "beam_acquire_image" not in cryo.tools and "device_list" in cryo.tools
+    write(lab, "bad-tool", "tools: [mcp__fibsem__app_get_status, no_such]\n")
+    with pytest.raises(playbooks.PlaybookError, match="no fibsem tool .*no_such"):
+        playbooks.load("bad-tool", checkout)
+
+
+def test_the_sidecars_mark_the_playbooks_tools_and_show_config_lists_them(
+    lab, checkout
+):
+    pytest.importorskip("claude_agent_sdk")
+    playbook = playbooks.load("autolamella", checkout)
+    options = harness_mod.build_options(
+        checkout, playbook=playbook, extras={}, host="http://host:1"
+    )
+    flag = ["--always-load", ",".join(playbook.tools)]
+    for name in (SERVER, harness_mod.RECORD_SERVER):
+        args = options.mcp_servers[name]["args"]
+        assert args[args.index("--always-load") :][:2] == flag
+    bare = harness_mod.build_options(checkout, extras={})
+    assert "--always-load" not in bare.mcp_servers[SERVER]["args"]
+    import argparse
+
+    args = argparse.Namespace(
+        model=None, effort=None, max_budget_usd=1.0, max_turns=1, host=None
+    )
+    config = harness_mod.show_config(args, checkout, None, False, playbook, extras={})
+    assert config["always_loaded"] == playbook.tools
+    assert "Loaded:   server_get_capabilities" in harness_mod._config_text(config)
+
+
+def test_the_sidecar_marks_the_tools_it_is_told_to_have_loaded_first():
+    pytest.importorskip("mcp")
+    from fibsem.ai.agent.mcp.sidecar import ALWAYS_LOAD, build_sidecar
+
+    sidecar = build_sidecar(None, None, always_load={"app_get_status", "no_such"})
+    listed = asyncio.run(sidecar.list_tools())
+    marked = [
+        t.name
+        for t in listed
+        if (t.model_dump(by_alias=True).get("_meta") or {}).get(ALWAYS_LOAD) is True
+    ]
+    assert marked == ["app_get_status"]
+
+
+def test_each_shipped_playbooks_tools_are_on_its_instrument(lab, checkout):
+    # A tool its instrument kind hides would be marked for nothing.
+    pytest.importorskip("mcp")
+    from fibsem.ai.agent.mcp.sidecar import build_sidecar
+
+    offered = {}
+    for name in playbooks.available(checkout):
+        playbook = playbooks.load(name, checkout)
+        kind = playbook.instrument
+        if kind not in offered:
+            listed = asyncio.run(build_sidecar(None, None, kind).list_tools())
+            offered[kind] = {t.name for t in listed}
+        assert set(playbook.tools) <= offered[kind], name
+
+
 def _notebook(name="notebook"):
     from fibsem.ai.agent import extra_mcp
 
@@ -342,7 +413,7 @@ def test_with_an_agent_host_the_record_tools_go_to_it(lab, checkout):
         host_token="host-secret",
     )
     record = options.mcp_servers[harness_mod.RECORD_SERVER]
-    assert record["args"][-5:] == [
+    assert record["args"][-7:-2] == [
         "--url",
         "http://127.0.0.1:8030",
         "--token-env",
