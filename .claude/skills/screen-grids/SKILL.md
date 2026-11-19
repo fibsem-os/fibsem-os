@@ -79,6 +79,11 @@ When you pick sites (cells, squares):
   10 µm from any bar, with room for the trenches, fiducial and stress relief;
   (2) within 10 µm of a bar, only if the square has no cell in the middle, and
   ranked below every square that has; (3) on a bar: never mill it.
+- `analysis_find_grid_squares` helps with the bars and square centres:
+  pass your candidates as `points` for each one's distance to the nearest
+  bar edge, and `box` or `pitch_um` when you know them. It is a fit: check
+  its overlay against the image. When it accepts no lattice or warns, weigh
+  its candidate and your own reading, and say which you relied on.
 - The film under the site has to be intact. A broken, sheeted or covered
   square is not a site. Check each site in the FIB and SEM (bars, torn or
   curled film) before spending FM time on it.
