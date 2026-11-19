@@ -22,6 +22,7 @@ import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella import config as cfg
 from fibsem.applications.autolamella.experiment_setup import load_for_adoption
 from fibsem.applications.autolamella.poses import remove_lamella
+from fibsem.applications.autolamella.run_edits import lamella_edit_refusal
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     AutoLamellaWorkflowConfig,
@@ -61,6 +62,7 @@ from fibsem.ui.run.run_refusal import refused_during_run
 from fibsem.ui.run.view import RunView
 from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
 from fibsem.ui.widgets.microscope_panel import MicroscopePanel, add_microscope_tab
+from fibsem.workflows.grid.edits import assign_lamellae_to_grid
 from fibsem.workflows.grid.naming import (
     grid_rename_refusal,
     record_inventoried_grids,
@@ -928,8 +930,6 @@ class AutoLamellaWindow(AppWindow):
 
     def _on_lamella_remove_requested(self, lamella: "Lamella"):
         """Remove the given lamella from the experiment after the list widget has already removed its row."""
-        from fibsem.applications.autolamella.run_edits import lamella_edit_refusal
-
         if self.experiment is None:
             return
         why = lamella_edit_refusal(
@@ -947,9 +947,6 @@ class AutoLamellaWindow(AppWindow):
     def _on_lamella_grid_assign_requested(self, lamellae: list, grid_id: str):
         """Record *lamellae* as on the grid *grid_id*: a lamella row's Assign
         to Grid, the same edit as the App Server's."""
-        from fibsem.applications.autolamella.run_edits import lamella_edit_refusal
-        from fibsem.workflows.grid.edits import assign_lamellae_to_grid
-
         experiment = self.experiment
         grid = experiment.get_grid_by_id(grid_id) if experiment else None
         if grid is None:
