@@ -99,6 +99,11 @@ labelling = [
 # Empty: the server is in the base install. Kept so `pip install fibsem[server]` works.
 server = []
 
+# Voice input in the agent's message box, transcribed on this PC.
+voice = [
+    "faster-whisper>=1.0",
+]
+
 # The MCP sidecar (fibsem-mcp). The fibsem package itself never imports mcp.
 mcp = [
     "mcp>=2,<3",

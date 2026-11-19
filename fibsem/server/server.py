@@ -37,6 +37,7 @@ from fibsem.microscope import FibsemMicroscope
 from fibsem.server.agent.operator import build_operator_router
 from fibsem.server.agent.requests import turned_away
 from fibsem.server.agent.routes import mount_agent_routes
+from fibsem.server.agent.voice import build_voice_router
 from fibsem.server.app_routes import (
     build_app_config_router,
     build_app_control_router,
@@ -935,6 +936,7 @@ def build_server(
         )
     if operator is not None:
         app.include_router(build_operator_router(operator))
+        app.include_router(build_voice_router())
         app.include_router(build_notifications_router())
     return app
 

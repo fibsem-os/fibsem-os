@@ -1,4 +1,4 @@
-import { ChevronDown, Paperclip, Square } from "lucide-react";
+import { ChevronDown, Loader2, Mic, Paperclip, Square } from "lucide-react";
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Facts } from "@/components/ui/card";
@@ -268,6 +268,89 @@ function AttachLong({
   );
 }
 
+interface Transcribed {
+  text: string;
+  seconds: number;
+}
+
+function base64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",", 2)[1] ?? "");
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+
+// The mic records in this browser; the App Server turns the clip into words,
+// which go into the box for the operator to read and send.
+function Voice({ onText, onError }: { onText: (text: string) => void; onError: (message: string) => void }) {
+  const [state, setState] = useState<"idle" | "recording" | "transcribing">("idle");
+  const recorder = useRef<MediaRecorder | null>(null);
+  const start = async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      onError("This browser can't use a microphone here: open the page on localhost or HTTPS.");
+      return;
+    }
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      onError("No microphone, or the browser wasn't allowed to use it.");
+      return;
+    }
+    const chunks: Blob[] = [];
+    const rec = new MediaRecorder(stream);
+    rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+    rec.onstop = async () => {
+      stream.getTracks().forEach((t) => t.stop());
+      const cancelled = recorder.current === null;
+      recorder.current = null;
+      if (cancelled || !chunks.length) return setState("idle");
+      setState("transcribing");
+      try {
+        const audio = await base64(new Blob(chunks, { type: rec.mimeType }));
+        const said = await api<Transcribed>("/app/agent/transcribe", {
+          method: "POST",
+          body: JSON.stringify({ audio }),
+        });
+        if (said.text) onText(said.text);
+        else onError("Heard nothing.");
+      } catch (e) {
+        onError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setState("idle");
+      }
+    };
+    recorder.current = rec;
+    rec.start();
+    setState("recording");
+  };
+  const stop = (keep: boolean) => {
+    const rec = recorder.current;
+    if (!rec) return;
+    if (!keep) recorder.current = null;
+    rec.stop();
+  };
+  return (
+    <button
+      className={cn(plain, state === "recording" && "text-destructive")}
+      title={state === "recording" ? "Stop and transcribe (Esc cancels)" : "Speak a message"}
+      aria-label={state === "recording" ? "Stop recording" : "Speak a message"}
+      disabled={state === "transcribing"}
+      onClick={() => (state === "recording" ? stop(true) : start())}
+      onKeyDown={(e) => e.key === "Escape" && stop(false)}
+    >
+      {state === "transcribing" ? (
+        <Loader2 className="size-4 animate-spin" />
+      ) : (
+        <Mic className={cn("size-4", state === "recording" && "animate-pulse")} />
+      )}
+      {state === "recording" ? "Listening… click to stop" : state === "transcribing" ? "Transcribing…" : null}
+    </button>
+  );
+}
+
 export function Composer({ agent, attach, onSent }: { agent: AgentState; attach: Attachments; onSent: () => void }) {
   const [draft, setDraft] = useState("");
   const [said, setSaid] = useState<string | null>(null);
@@ -329,6 +412,14 @@ export function Composer({ agent, attach, onSent }: { agent: AgentState; attach:
         </span>
         <div className="flex-1" />
         <Stop agent={agent} act={act} />
+        <Voice
+          onText={(words) => {
+            setDraft((d) => (d.trim() ? `${d.trimEnd()} ${words}` : words));
+            setSaid(null);
+            setError(null);
+          }}
+          onError={setError}
+        />
         <Button variant="primary" onClick={send} disabled={!text || attach.uploading || busy}>
           Send
         </Button>
