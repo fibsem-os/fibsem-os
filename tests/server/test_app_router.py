@@ -2127,6 +2127,49 @@ def test_overview_cells_name_its_tiles_and_crop_by_name(
     assert len(metadata["cells"]["items"]) == 6
 
 
+def test_the_agent_reads_image_answers_with_experiment_relative_paths(
+    client, host, grid_with_overview
+):
+    """Through the sidecar an image tool names its file relative to the open
+    experiment, once, and a crop of cells says what its crops share once
+    (`agent_view`); the route still answers the whole path."""
+    pytest.importorskip("mcp")
+    from fibsem.ai.agent.mcp.sidecar import build_sidecar
+
+    client.headers["Authorization"] = f"Bearer {TOKEN}"
+    sidecar = build_sidecar(client, client.get("/capabilities").json())
+    overview = host.experiment.grid_path(grid_with_overview) / "overview_sem"
+    relative = os.path.relpath(overview / "overview.tif", host.experiment.path)
+    relative = relative.replace(os.sep, "/")
+
+    def answer(tool, arguments):
+        result = asyncio.run(sidecar.call_tool(tool, arguments))
+        if isinstance(result, tuple):
+            result = result[0]
+        contents = list(getattr(result, "content", result))
+        return json.loads(next(c.text for c in contents if c.type == "text"))
+
+    read = answer("experiment_read_file", {"path": relative})
+    assert read["path"] == relative and "path" not in read["summary"]
+    crops = answer("analysis_crop_image", {"path": relative, "cells": ["A1", "B1"]})
+    assert [c["name"] for c in crops["crops"]] == ["A1", "B1"]
+    assert crops["crops"][1]["preview"]["region"]["x"] > 0
+    assert crops["crop_preview"]["preview_pixelsize"] > 0
+    drawn = answer(
+        "analysis_draw_image",
+        {"path": relative, "marks": {"points": [{"x": 64, "y": 64, "label": "a"}]}},
+    )
+    assert drawn["path"].startswith(os.path.dirname(relative) + "/drawn/")
+    assert drawn["marks"]["points"][0].keys() == {"label", "stage"}
+    grid = answer(
+        "grid_get_output_image",
+        {"grid_name": grid_with_overview.name, "filename": "overview.tif"},
+    )
+    assert grid["metadata"]["path"] == relative
+    route = client.get(f"/app/experiment/files/{relative}", headers=AUTH).json()
+    assert os.path.isabs(route["path"])
+
+
 def test_experiment_files_stay_inside_the_experiment(client, host, tmp_path):
     outside = tmp_path / "elsewhere.md"
     outside.write_text("secret")
