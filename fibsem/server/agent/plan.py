@@ -36,6 +36,7 @@ from typing import Any, Callable, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from fibsem.ai.agent.levels import AgentLevel
+from fibsem.ai.agent.report import MAX_CHECKLIST, MAX_ITEM
 from fibsem.server.agent.files import AgentFiles
 from fibsem.server.auth import (
     AuthConfig,
@@ -149,6 +150,11 @@ def steps(text: str) -> List[Dict[str, Any]]:
                 {"group": group, "text": box.group(2), "done": box.group(1) != " "}
             )
     return found
+
+
+def _short(text: str) -> str:
+    """*text* cut to a checklist item's length, ending "…" when cut."""
+    return text if len(text) <= MAX_ITEM else text[: MAX_ITEM - 1].rstrip() + "…"
 
 
 def rules(text: str) -> List[str]:
@@ -305,18 +311,28 @@ class PlanStore:
 
     def checklist(self, session_id: Optional[str]) -> Optional[List[Dict[str, str]]]:
         """The session's checklist read from its plan: the Rules standing, the
-        Steps' boxes open or done. None with no plan."""
+        Steps' boxes open or done. None with no plan.
+
+        It fits the session's checklist, as the plan need not: a long item is
+        shortened, and past the most it holds the earliest done steps are left
+        out, then the last items. plan.md itself keeps every word."""
         sections = self.current(session_id)
         if not sections:
             return None
         items = [
-            {"text": r, "state": "always"} for r in rules(sections.get("Rules", ""))
+            {"text": _short(r), "state": "always"}
+            for r in rules(sections.get("Rules", ""))
         ]
         items += [
-            {"text": s["text"], "state": "done" if s["done"] else "open"}
+            {"text": _short(s["text"]), "state": "done" if s["done"] else "open"}
             for s in steps(sections.get("Steps", ""))
         ]
-        return items
+        over = len(items) - MAX_CHECKLIST
+        if over > 0:
+            done = [i for i, item in enumerate(items) if item["state"] == "done"]
+            dropped = set(done[:over])
+            items = [item for i, item in enumerate(items) if i not in dropped]
+        return items[:MAX_CHECKLIST]
 
 
 def running_session(auth: AuthConfig) -> Optional[str]:
