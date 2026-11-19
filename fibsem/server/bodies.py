@@ -637,6 +637,33 @@ class ProfileBody:
 
 
 @dataclass
+class HistogramBody:
+    """POST /app/experiment/analysis/histogram: a saved image's values, on a
+    plane and in a box when given."""
+
+    __pydantic_config__ = STRICT
+
+    path: str
+    channel: Optional[str] = None
+    plane: Optional[Plane] = None
+    bins: Optional[Annotated[int, Strict(), Field(ge=2, le=1024)]] = None
+    box: Optional[Tuple[float, float, float, float]] = None
+
+
+@dataclass
+class SpectrumBody:
+    """POST /app/experiment/analysis/spectrum: a saved image's power
+    spectrum, on a plane and in a box when given."""
+
+    __pydantic_config__ = STRICT
+
+    path: str
+    channel: Optional[str] = None
+    plane: Optional[Plane] = None
+    box: Optional[Tuple[float, float, float, float]] = None
+
+
+@dataclass
 class ShiftBody:
     """POST /app/experiment/analysis/shift: two saved beam images; *compare*
     measures by every method too."""

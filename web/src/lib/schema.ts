@@ -814,6 +814,20 @@ export interface components {
         HTTPValidationError: {
             detail: components["schemas"]["ValidationError"][];
         };
+        /** @description POST /app/experiment/analysis/histogram: a saved image's values, on a
+         *     plane and in a box when given. */
+        HistogramBody: {
+            bins?: number | null;
+            box?: [
+                number,
+                number,
+                number,
+                number
+            ] | null;
+            channel?: string | null;
+            path: string;
+            plane?: number | null;
+        };
         /** @description One run of a task on an item, oldest first. */
         HistoryRow: {
             completed_at: string | null;
@@ -2219,6 +2233,19 @@ export interface components {
         SkillRow: {
             description: string;
             name: string;
+        };
+        /** @description POST /app/experiment/analysis/spectrum: a saved image's power
+         *     spectrum, on a plane and in a box when given. */
+        SpectrumBody: {
+            box?: [
+                number,
+                number,
+                number,
+                number
+            ] | null;
+            channel?: string | null;
+            path: string;
+            plane?: number | null;
         };
         /** @description One image of an item's stack: the file one run recorded under a role. */
         StackSlice: {

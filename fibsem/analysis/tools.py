@@ -327,6 +327,49 @@ class ImageTools:
             name="quality",
         )
 
+    def histogram(
+        self,
+        path: str,
+        channel: Optional[str] = None,
+        plane: Optional[int] = None,
+        bins: int = 64,
+        box: Optional[List[float]] = None,
+    ) -> ImageMeasured:
+        """The counts of a saved image's values, its percentiles and what is
+        clipped, with a figure (`fibsem.analysis.measure.histogram`)."""
+        return self._measured(
+            path,
+            lambda image: measure.histogram(image, channel, plane, bins, box),
+            measure.histogram_figure,
+            _measure_name("histogram", plane, box),
+        )
+
+    def power_spectrum(
+        self,
+        path: str,
+        channel: Optional[str] = None,
+        plane: Optional[int] = None,
+        box: Optional[List[float]] = None,
+    ) -> ImageMeasured:
+        """A saved image's radially averaged power spectrum, the finest
+        period with signal and its anisotropy, with a figure
+        (`fibsem.analysis.measure.power_spectrum`)."""
+        return self._measured(
+            path,
+            lambda image: measure.power_spectrum(image, channel, plane, box),
+            measure.spectrum_figure,
+            _measure_name("spectrum", plane, box),
+        )
+
+
+def _measure_name(name: str, plane: Optional[int], box: Optional[List[float]]) -> str:
+    """A measurement's figure name: *name*, then the plane and box it was on."""
+    if plane is not None:
+        name += f"-plane-{plane}"
+    if box is not None:
+        name += "-box-" + "-".join(str(round(v)) for v in box)
+    return name
+
 
 def _beam_image(target: str, path: str) -> FibsemImage:
     """The beam image at *target* (*path* as given), or the refusal."""

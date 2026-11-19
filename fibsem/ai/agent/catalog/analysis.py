@@ -248,6 +248,51 @@ TOOLS = (
         optional=("channel", "plane"),
     ),
     ToolSpec(
+        name="analysis_measure_histogram",
+        returns="ImageMeasured",
+        description="The histogram of a saved image's values (a beam image, or a fluorescence channel on plane, else its max projection), in bins equal bins over the file's range (0 to its full value when known, else its lowest to highest value), and only in box when given. Answers the edges and counts, the percentiles (min, p1, p5, median, p95, p99, max), mean and std, clipped_low / clipped_high (% of pixels at the range's ends: crushed blacks, saturated whites) and range_used (the fraction of the range the values span). Before you set contrast limits, judge a detector's gain, or compare two images' exposure. Saves a figure beside the image as drawn/<image>-histogram.png (-plane-<n>, -box-<x>-<y>-<w>-<h> when given): the counts on a log scale with p1, median and p99 marked. Cite that path as evidence. Nothing moves.",
+        method="POST",
+        path="/app/experiment/analysis/histogram",
+        level="watch",
+        router="app",
+        params={
+            "path": "a saved image file path inside the experiment folder",
+            "channel": _CHANNEL,
+            "plane": arg(
+                "optional: a fluorescence stack's plane, 0 the first (default the max projection)",
+                int,
+            ),
+            "bins": arg("optional: the number of bins, 2 to 1024 (default 64)", int),
+            "box": arg(
+                "optional: only this region, [x, y, width, height] in the image's pixels",
+                List[float],
+            ),
+        },
+        optional=("channel", "plane", "bins", "box"),
+    ),
+    ToolSpec(
+        name="analysis_measure_power_spectrum",
+        returns="ImageMeasured",
+        description="The power spectrum of a saved image (a beam image, or a fluorescence channel on plane, else its max projection), only in box when given: the region cut to a square, windowed, and its 2D Fourier power averaged in rings. Answers radial_power against frequency (cycles per pixel, 0 to 0.5), the noise_floor (median power of the outermost tenth), cutoff (the highest frequency still twice the floor) as finest_period_px (and finest_period_m with the pixel size): the finest detail the image holds, which grows coarser with defocus, drift or a worn probe. anisotropy is the power along x over along y in the middle frequencies: near 1 for a round probe, far from it with astigmatism, drift or scan lines. Compare images of one scene at one magnification; a featureless area has no detail to find. Saves a figure beside the image as drawn/<image>-spectrum.png (-plane-<n>, -box-... when given): the log power with the cutoff circle, and the radial average. Cite that path as evidence. Nothing moves.",
+        method="POST",
+        path="/app/experiment/analysis/spectrum",
+        level="watch",
+        router="app",
+        params={
+            "path": "a saved image file path inside the experiment folder",
+            "channel": _CHANNEL,
+            "plane": arg(
+                "optional: a fluorescence stack's plane, 0 the first (default the max projection)",
+                int,
+            ),
+            "box": arg(
+                "optional: only this region, [x, y, width, height] in the image's pixels; at least 16 px on its short side",
+                List[float],
+            ),
+        },
+        optional=("channel", "plane", "box"),
+    ),
+    ToolSpec(
         name="analysis_measure_shift",
         returns="ImageShift",
         description="The shift of one saved beam image from another, as alignment_align_to_reference measures it: metres and pixels, a score (higher is better) and whether it cleared the minimum. compare also measures it by every method and says how far apart they are in pixels and whether they agree, the check alignment_align_to_reference validates with: a disagreement means the measurement is not to be trusted. Both paths inside the experiment, and both images one size. Works with no microscope connected. Nothing moves.",

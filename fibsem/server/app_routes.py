@@ -51,6 +51,7 @@ from fibsem.server.bodies import (
     GridQualityBody,
     GridRequirementsBody,
     GridRunBody,
+    HistogramBody,
     ImageExportBody,
     ImagePairBody,
     IntensityBody,
@@ -75,6 +76,7 @@ from fibsem.server.bodies import (
     SaveProtocolBody,
     ScheduleBody,
     ShiftBody,
+    SpectrumBody,
     StageOrderBody,
     StopBody,
     StopTaskBody,
@@ -447,6 +449,20 @@ def build_analysis_router(tools: ImageTools) -> APIRouter:
         options = _given(body, "width_px", "channel", "plane", "dip")
         start, end = list(body.start), list(body.end)
         return _image_answer(lambda: tools.line_profile(path, start, end, **options))
+
+    @router.post("/experiment/analysis/histogram", response_model=ImageMeasured)
+    def histogram(body: HistogramBody):
+        path = _required_text(body, "path", saved_image)
+        options = _given(body, "channel", "plane", "bins")
+        box = list(body.box) if body.box is not None else None
+        return _image_answer(lambda: tools.histogram(path, box=box, **options))
+
+    @router.post("/experiment/analysis/spectrum", response_model=ImageMeasured)
+    def power_spectrum(body: SpectrumBody):
+        path = _required_text(body, "path", saved_image)
+        options = _given(body, "channel", "plane")
+        box = list(body.box) if body.box is not None else None
+        return _image_answer(lambda: tools.power_spectrum(path, box=box, **options))
 
     @router.post("/experiment/analysis/shift", response_model=ImageShift)
     def measure_shift(body: ShiftBody):
