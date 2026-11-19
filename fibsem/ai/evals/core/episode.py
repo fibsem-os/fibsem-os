@@ -28,6 +28,7 @@ SESSIONS = "sessions"
 EVENTS = "events.jsonl"
 SESSION_RECORD = "session.json"
 
+
 class EpisodeError(RuntimeError):
     pass
 
@@ -199,11 +200,13 @@ class Episode:
         name = self.data["experiment"]["name"]
         if name in parts:
             rest = parts[len(parts) - 1 - parts[::-1].index(name) + 1 :]
-        elif parts and not PurePosixPath(str(recorded)).is_absolute() and ":" not in parts[0]:
+        elif (
+            parts
+            and not PurePosixPath(str(recorded)).is_absolute()
+            and ":" not in parts[0]
+        ):
             rest = parts
         else:
             return None
         path = self.experiment.joinpath(*rest) if rest else self.experiment
         return path if path.exists() else None
-
-

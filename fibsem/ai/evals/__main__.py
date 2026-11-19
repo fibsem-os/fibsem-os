@@ -12,8 +12,9 @@ from pathlib import Path
 import yaml
 
 from fibsem import paths
-from fibsem.ai.agent import playbooks, sources
+from fibsem.ai.agent import manager, playbooks, sources
 from fibsem.ai.evals import tasks as eval_tasks
+from fibsem.ai.evals.core import episode as episode_mod
 from fibsem.ai.evals.core import matrix as matrix_mod
 from fibsem.ai.evals.core import replay as replay_mod
 from fibsem.ai.evals.core import report as report_mod
@@ -219,11 +220,51 @@ def _parser() -> argparse.ArgumentParser:
     serve.add_argument("runs", type=Path, help="a run folder, or a folder of them")
     serve.add_argument("--cases", type=Path, default=None, help="the cases folder")
     serve.add_argument("--port", type=int, default=8765)
+    episode = sub.add_parser(
+        "episode", help="the record of a real or simulated run, to cut cases from"
+    )
+    episode_sub = episode.add_subparsers(dest="episode_command", required=True)
+    pack = episode_sub.add_parser(
+        "pack",
+        help="copy an experiment and the agent sessions its events name into "
+        "a new episode folder",
+    )
+    pack.add_argument("experiment", type=Path, help="the experiment folder")
+    pack.add_argument("--out", type=Path, required=True, help="a new folder")
+    pack.add_argument(
+        "--sessions",
+        type=Path,
+        nargs="*",
+        default=None,
+        help="session folders, or folders of them (default: this computer's "
+        "agent sessions)",
+    )
+    pack.add_argument(
+        "--link", action="store_true", help="hard link files instead of copying"
+    )
+    pack.add_argument("--note", default=None, help="a line on what the run was")
     return parser
 
 
 def main(argv=None) -> int:
     args = _parser().parse_args(argv)
+
+    if args.command == "episode":
+        sessions = args.sessions
+        if sessions is None:
+            sessions = [manager.sessions_dir()]
+        try:
+            ep = episode_mod.pack(
+                args.experiment, args.out, sessions, link=args.link, note=args.note
+            )
+        except episode_mod.EpisodeError as e:
+            print(e, file=sys.stderr)
+            return 2
+        for entry in ep.data["sessions"]:
+            state = "MISSING" if entry.get("missing") else "kept"
+            print(f"session {entry['id']}: {state}")
+        print(f"Wrote {ep.path}")
+        return 0
 
     if args.command == "check":
         failed = 0
