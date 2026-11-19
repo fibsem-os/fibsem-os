@@ -928,6 +928,9 @@ LEAD_ONLY = {
     "milling_stop",
     "milling_end",
 }
+# The Verifier puts its own answer on the record, so the review needn't trust the
+# Run Lead's copy of it.
+NOTES_ITS_ANSWER = {"autolamella-verifier": {"experiment_add_note"}}
 
 
 def _specialists():
@@ -976,7 +979,7 @@ def test_only_the_run_lead_decides_and_its_agents_only_read():
             tool.removeprefix("mcp__fibsem__")
             for tool in _tools(front)
             if tool.startswith("mcp__fibsem__")
-        }
+        } - NOTES_ITS_ANSWER.get(name, set())
         assert not fibsem & LEAD_ONLY, (name, fibsem & LEAD_ONLY)
         assert not {t for t in fibsem if t.startswith(("workflow_", "protocol_"))} - (
             read_only

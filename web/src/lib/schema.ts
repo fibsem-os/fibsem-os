@@ -698,6 +698,7 @@ export interface components {
             added: string[] | null;
             /** @default false */
             applied: boolean;
+            assigned: string[] | null;
             grid_name: string | null;
             grid_names: string[] | null;
             items_without_grid: string[] | null;
@@ -708,6 +709,10 @@ export interface components {
             save_error: string | null;
             saved: boolean | null;
             was: string | null;
+        };
+        /** @description POST .../grids/{grid_name}/items: the lamellae to record as on it. */
+        GridItemsBody: {
+            item_names: string[];
         };
         GridMarker: {
             inside: boolean;
