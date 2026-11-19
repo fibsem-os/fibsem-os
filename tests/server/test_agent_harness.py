@@ -20,7 +20,7 @@ import httpx
 import pytest
 
 from fibsem.ai.agent import harness as harness_mod
-from fibsem.ai.agent import playbooks
+from fibsem.ai.agent import playbooks, usage
 from fibsem.ai.agent import watch as watch_mod
 from fibsem.ai.agent.harness import Harness, TurnEnd, Wakes, kickoff
 from fibsem.ai.agent.levels import AgentLevel
@@ -1273,6 +1273,64 @@ def test_the_session_is_reported_to_the_app_after_each_turn_and_at_the_end(sessi
     kinds = [e["kind"] for e in session.recorder.buffer.events_since(0)["events"]]
     assert kinds.count("agent_session_started") == 1
     assert kinds.count("agent_session_ended") == 1
+
+
+def test_a_long_turn_reports_its_tokens_and_the_context_while_it_goes_on(session):
+    """The spend is known only as a turn ends, but its tokens and how full
+    the context is are reported while it runs: a turn can last an hour."""
+    finish = threading.Event()
+
+    async def reply(prompt):
+        if len(agent.prompts) > 1:
+            return TurnEnd(cost_usd=0.5, session_id="scripted")
+        agent.calls.seen(
+            "call-1", "a-model", {"input_tokens": 10, "output_tokens": 5}, []
+        )
+        agent.calls.seen(
+            "call-2",
+            "a-model",
+            {"input_tokens": 20, "cache_read_input_tokens": 4000},
+            [],
+        )
+        while not finish.is_set():
+            await asyncio.sleep(0.05)
+        agent.calls.end_turn()
+        return TurnEnd(
+            cost_usd=0.25,
+            session_id="scripted",
+            tokens={"input": 30, "output": 5, "cache_read": 4000, "cache_write": 0},
+            context={"used": 4100, "window": 1000000},
+        )
+
+    agent = ScriptedAgent(reply)
+    agent.calls = usage.Calls()
+    running = _harness(session, agent, budget_usd=5.0, report_every_s=0.1)
+    control = AgentControl(session)
+    assert wait_for(
+        lambda: (
+            ((control.reported_session() or {}).get("context") or {}).get("used")
+            == 4020
+        ),
+        timeout=20,
+    ), "timed out waiting for a report from inside the turn"
+    reported = control.reported_session()
+    assert reported["tokens"] == {
+        "input": 30,
+        "output": 5,
+        "cache_read": 4000,
+        "cache_write": 0,
+    }
+    assert reported.get("turns", 0) == 0 and "spent_usd" not in reported
+
+    finish.set()
+    assert wait_for(
+        lambda: (control.reported_session() or {}).get("turns") == 1, timeout=20
+    ), "timed out waiting for the turn's end"
+    reported = control.reported_session()
+    assert reported["spent_usd"] == 0.25
+    assert reported["context"] == {"used": 4100, "window": 1000000}
+    assert reported["tokens"]["cache_read"] == 4000
+    assert running.stop() == 0
 
 
 def test_the_harness_reports_the_goal_once_and_leaves_later_ones_to_the_agent():

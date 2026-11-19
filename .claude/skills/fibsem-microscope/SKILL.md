@@ -336,6 +336,13 @@ it doesn't list to one it does, so a square 2048 × 2048 came back as
   view, take one image at a larger field of view; reach for a tile set only
   when one field can't cover what you need at the detail you need.
 
+**Give every `beam_acquire_image` a `path`.** Without one the image is shown
+to you and then lost: it isn't saved and isn't on the record, so nobody can
+later see what you saw when you decided. Save it in the item's folder when
+it is about one lamella or site (`Lam-01/checks`), else in `agent/images`,
+and name it for what it shows (`after-move-sem`). A quick look you act on is
+an image you decided on, so it gets a path too.
+
 A point picked on an overview is only as good as the stitch. The tiles are
 placed where the stage was told to go, and a stage that overshoots puts
 features a few µm off (about 4 % in x and 7 % in y per step on the Arctis).
