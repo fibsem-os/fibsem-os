@@ -57,6 +57,8 @@ from fibsem.acting import AGENT, OPERATOR
 from fibsem.ai.agent.session import (
     AgentControl,
 )
+from fibsem.analysis.root import FileRefusal
+from fibsem.analysis.tools import ImageTools
 from fibsem.client.transport import HOST_TOKEN_ENV
 from fibsem.keystore import get_secret
 from fibsem.server import discovery
@@ -70,6 +72,7 @@ from fibsem.server.agent.plan import (
 from fibsem.server.agent.record import build_record_router
 from fibsem.server.agent.session import build_agent_session_router
 from fibsem.server.agent.transcript import build_agent_transcript_router
+from fibsem.server.app_routes import build_analysis_router, build_files_router
 from fibsem.server.auth import (
     AuthConfig,
     require_monitoring,
@@ -452,9 +455,15 @@ def build_agent_host(
     folder: Optional[Path] = None,
     name: str = "fibsemOS",
     instrument: Optional["InstrumentLink"] = None,
+    data: Optional[Path] = None,
 ) -> FastAPI:
     """The agent host as a FastAPI app; its :class:`AgentHost` is
-    ``app.state.host``, which its owner closes when done with it."""
+    ``app.state.host``, which its owner closes when done with it.
+
+    With *data*, a folder of saved images and files, it also serves the
+    App Server's image tools (`fibsem.analysis`) and file reads over that
+    folder, at the same paths: for an agent with no instrument, reviewing
+    saved data or a past run."""
     host = AgentHost(auth, folder, name, instrument)
     app = FastAPI(title="fibsemOS agent host", version=__version__)
     app.state.host = host
@@ -475,7 +484,14 @@ def build_agent_host(
     def capabilities():
         return {
             "api_version": API_VERSION,
-            "routers": {"microscope": False, "services": False, "app": False},
+            "routers": {
+                "microscope": False,
+                "services": False,
+                "app": False,
+                # The image tools and file reads, over the data folder.
+                "analysis": data is not None,
+                "files": data is not None,
+            },
             # What this server is: the agent's routes only.
             "host": "agent",
             "app_name": name,
@@ -512,7 +528,35 @@ def build_agent_host(
     # The operator's side, what the Agent page does: the App Server's own
     # routes, over the host as a session (`_HostSession`).
     app.include_router(build_operator_router(AgentControl(_HostSession(host))))
+    if data is not None:
+        _serve_data(app, host, Path(data))
     return app
+
+
+def _serve_data(app: FastAPI, host: "AgentHost", data: Path) -> None:
+    """The App Server's image tools and file reads, over *data*: its own
+    routers (`build_analysis_router`, `build_files_router`), at Watch."""
+    folder = str(data.expanduser().resolve())
+
+    def root(experiment: Optional[str]) -> str:
+        if experiment is not None:
+            raise FileRefusal(
+                404,
+                "not_found",
+                "This host reads only its data folder: there are no past "
+                "experiments here.",
+            )
+        return folder
+
+    watch = [Depends(require_monitoring())]
+    app.include_router(
+        build_files_router(root, host.record), prefix="/app", dependencies=watch
+    )
+    app.include_router(
+        build_analysis_router(ImageTools(lambda: folder)),
+        prefix="/app",
+        dependencies=watch,
+    )
 
 
 # --- fibsem-agent-host ---------------------------------------------------------
@@ -635,6 +679,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         f"at the instrument (default {INSTRUMENT_TOKEN})",
     )
     parser.add_argument(
+        "--data",
+        default=None,
+        metavar="FOLDER",
+        help="a folder of saved images and files: serve the image tools and "
+        "file reads over it, read only",
+    )
+    parser.add_argument(
         "--open",
         action="store_true",
         help="open the Agent page in this PC's browser, signed in as the operator",
@@ -668,7 +719,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     own = not token
     auth = own_auth() if own else AuthConfig(token=token, operator_token=operator)
     folder = Path(args.folder).expanduser() if args.folder else None
-    app = build_agent_host(auth, folder, args.name, instrument)
+    data = Path(args.data).expanduser() if args.data else None
+    if data is not None and not data.is_dir():
+        print(
+            f"fibsem-agent-host: --data {args.data} is not a folder.", file=sys.stderr
+        )
+        return 1
+    app = build_agent_host(auth, folder, args.name, instrument, data)
     return serve(
         app,
         args.bind,

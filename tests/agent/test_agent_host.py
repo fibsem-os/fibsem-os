@@ -551,3 +551,44 @@ def test_the_agent_says_when_no_host_runs_on_the_pc(on_its_own, capsys):
 
     assert harness.main(["--host"]) == 1
     assert "no agent host is running" in capsys.readouterr().err
+
+
+def test_a_data_folder_is_served_with_the_image_tools(tmp_path, monkeypatch):
+    monkeypatch.setenv("FIBSEM_HOME", str(tmp_path / "home"))
+    data = tmp_path / "data"
+    (data / "run").mkdir(parents=True)
+    ramp = (Image.new("L", (64, 32)), [(x * 4) for x in range(64)] * 32)
+    ramp[0].putdata(ramp[1])
+    ramp[0].save(data / "run" / "ramp.png")
+    auth = AuthConfig(token=AGENT, operator_token=OPERATOR)
+    app = build_agent_host(auth, tmp_path / "host", data=data)
+    try:
+        agent = TestClient(app, headers=_as(AGENT))
+        routers = agent.get("/capabilities").json()["routers"]
+        assert routers["analysis"] and routers["files"] and not routers["app"]
+
+        listing = agent.get("/app/experiment/files", params={"dir": "run"}).json()
+        assert [e["name"] for e in listing["entries"]] == ["ramp.png"]
+        crop = agent.get(
+            "/app/experiment/files/run/ramp.png", params={"box": "0,0,16,16"}
+        )
+        assert crop.status_code == 200, crop.text
+        histogram = agent.post(
+            "/app/experiment/analysis/histogram", json={"path": "run/ramp.png"}
+        )
+        assert histogram.status_code == 200, histogram.text
+        assert (data / "run" / "drawn" / "ramp-histogram.png").is_file()
+
+        past = agent.get("/app/experiment/files", params={"experiment": "/elsewhere"})
+        assert past.status_code == 404
+        outside = agent.get("/app/experiment/files/../host/events.jsonl")
+        assert outside.status_code in (403, 404)
+        assert TestClient(app).get("/app/experiment/files").status_code == 401
+    finally:
+        app.state.host.close()
+
+
+def test_without_a_data_folder_it_serves_no_image_tools(agent):
+    routers = agent.get("/capabilities").json()["routers"]
+    assert not routers["analysis"] and not routers["files"]
+    assert agent.get("/app/experiment/files").status_code == 404

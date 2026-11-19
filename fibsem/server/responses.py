@@ -23,6 +23,7 @@ from fibsem.analysis.answers import (  # noqa: F401 - route models, by name too
     SavedImageMetadata,
     SavedImagePixels,
     SavedImagePosition,
+    Thickness,
 )
 from fibsem.codec import encode, saved
 from fibsem.config import NotificationPreferences
@@ -964,33 +965,6 @@ class EventHistory:
     events: List[Dict[str, Any]] = field(default_factory=list)
     # the offset to pass back as before for the page before this one
     start: Optional[int] = None
-
-
-@dataclass
-class Thickness:
-    """A lamella's thickness read off a FIB image (`ThicknessResult.to_dict`,
-    in nm and degrees), with the plot."""
-
-    item_name: str
-    image: str
-    poi: Point
-    window_um: List[float]
-    window_from: str
-    saved_to: Optional[str]
-    pixel_size_nm: float
-    region_px: List[int]
-    continuity: Dict[str, Any]
-    uncertainty_nm: float
-    thickness_nm: Optional[Dict[str, Optional[float]]] = None
-    thirds_nm: Optional[List[Optional[float]]] = None
-    wedge: Optional[Dict[str, Optional[float]]] = None
-    angle_deg: Optional[float] = None
-    straightness: Optional[Dict[str, Optional[float]]] = None
-    warnings: Optional[List[Dict[str, str]]] = None
-    plot: Optional[Dict[str, str]] = None
-    # Where the window is centred: the item's poi, a given centre, or the
-    # image_centre when the item has no POI.
-    centre_from: Optional[str] = None
 
 
 @dataclass

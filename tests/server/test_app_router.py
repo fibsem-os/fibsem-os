@@ -59,7 +59,13 @@ def client(microscope, host, event_buffer):
 
 def test_capabilities_reports_the_app_router(client):
     body = client.get("/capabilities", headers=AUTH).json()
-    assert body["routers"] == {"microscope": True, "services": True, "app": True}
+    assert body["routers"] == {
+        "microscope": True,
+        "services": True,
+        "app": True,
+        "analysis": True,
+        "files": True,
+    }
     assert body["parts"] == [
         "items",
         "poses",
@@ -1334,12 +1340,29 @@ def test_analysis_measures_a_stack_s_points_profile_and_quality(client, host):
     assert quality.json()["result"]["saturated"] == 0
     assert quality.json()["path"] is None
 
+    histogram = client.post(
+        "/app/experiment/analysis/histogram",
+        headers=AUTH,
+        json={"path": path, "plane": 0, "bins": 32, "box": [0, 0, 64, 64]},
+    )
+    assert histogram.status_code == 200, histogram.text
+    assert len(histogram.json()["result"]["counts"]) == 32
+    assert os.path.isfile(histogram.json()["path"])
+    spectrum = client.post(
+        "/app/experiment/analysis/spectrum", headers=AUTH, json={"path": path}
+    )
+    assert spectrum.status_code == 200, spectrum.text
+    assert spectrum.json()["result"]["pixel_size"] == pytest.approx(1e-7)
+
     for url, bad in (
         ("intensity", {"path": path, "points": [[500, 1]]}),
         ("intensity", {"path": path, "points": "16,48"}),
         ("intensity", {"path": path, "points": [[16, 48]], "channel": "RFP"}),
         ("profile", {"path": path, "start": [1, 1]}),
         ("profile", {"path": path, "start": [1, 1], "end": [9, 9], "plane": 7}),
+        ("histogram", {"path": path, "bins": 1}),
+        ("histogram", {"path": path, "box": [500, 500, 4, 4]}),
+        ("spectrum", {"path": path, "box": [0, 0, 8, 8]}),
     ):
         refused = client.post(f"/app/experiment/analysis/{url}", headers=AUTH, json=bad)
         assert refused.status_code == 422, bad

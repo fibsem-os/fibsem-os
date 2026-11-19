@@ -641,6 +641,9 @@ def build_server(
                 "microscope": serve_microscope,
                 "services": True,
                 "app": app_context is not None,
+                # The image tools and file reads, over the open experiment.
+                "analysis": app_context is not None,
+                "files": app_context is not None,
             },
             # The app the operator works in: where they set the level and
             # decide requests.

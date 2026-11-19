@@ -219,3 +219,102 @@ def test_a_shift_is_measured_between_two_files_with_no_microscope(tmp_path):
 
     with pytest.raises(ImageRefused, match="method is one of"):
         tools.measure_shift("reference.tif", "moved.tif", method="guess")
+
+
+def _beam(data, pixel_size=None, full_value=255.0):
+    return Planes(
+        data=data[None, None],
+        names=["SEM"],
+        pixel_size=pixel_size,
+        full_value=full_value,
+    )
+
+
+def test_a_histogram_spans_the_file_s_range_and_says_what_is_clipped():
+    data = np.zeros((40, 50), dtype=np.uint8)
+    data[:, 25:] = 255  # half crushed, half saturated
+    data[:10, :5] = 100
+    answer = analysis.histogram(_beam(data), bins=16)
+
+    assert answer["range"] == [0.0, 255.0]
+    assert len(answer["counts"]) == 16 and sum(answer["counts"]) == data.size
+    assert answer["clipped_high"] == pytest.approx(50.0)
+    assert answer["clipped_low"] == pytest.approx(100 * (1000 - 50) / 2000)
+    assert answer["percentiles"]["max"] == 255.0
+
+    boxed = analysis.histogram(_beam(data), box=[0, 0, 5, 10])
+    assert boxed["pixels"] == 50 and boxed["percentiles"]["min"] == 100.0
+    with pytest.raises(ValueError, match="2x2"):
+        analysis.histogram(_beam(data), box=[100, 100, 5, 5])
+    with pytest.raises(ValueError, match="bins"):
+        analysis.histogram(_beam(data), bins=1)
+
+
+def test_a_power_spectrum_finds_finer_detail_in_a_sharper_image():
+    from scipy.ndimage import gaussian_filter
+
+    rng = np.random.default_rng(0)
+    scene = rng.normal(0, 200, (128, 128))
+    noise = rng.normal(0, 1, (128, 128))
+    sharp = 100 + gaussian_filter(scene, 1) + noise
+    blurred = 100 + gaussian_filter(scene, 3) + noise
+
+    fine = analysis.power_spectrum(_beam(sharp, pixel_size=2e-9))
+    coarse = analysis.power_spectrum(_beam(blurred, pixel_size=2e-9))
+    assert coarse["finest_period_px"] > fine["finest_period_px"]
+    assert coarse["finest_period_m"] == pytest.approx(coarse["finest_period_px"] * 2e-9)
+    assert 0.5 < fine["anisotropy"] < 2
+
+    # Lines across x put their power along y: anisotropy far below 1.
+    streaked = 100 + gaussian_filter(scene, (1, 4)) + noise
+    assert analysis.power_spectrum(_beam(streaked))["anisotropy"] < 0.5
+    # Noise alone holds no detail above its own floor.
+    assert analysis.power_spectrum(_beam(noise))["cutoff"] is None
+    with pytest.raises(ValueError, match="16x16"):
+        analysis.power_spectrum(_beam(sharp), box=[0, 0, 10, 10])
+
+
+def test_the_histogram_and_spectrum_tools_save_their_figures(tmp_path):
+    from PIL import Image
+
+    from fibsem.analysis.tools import ImageTools
+
+    rng = np.random.default_rng(1)
+    Image.fromarray(rng.integers(0, 255, (64, 64), dtype=np.uint8)).save(
+        tmp_path / "noise.png"
+    )
+    tools = ImageTools(lambda: str(tmp_path))
+
+    histogram = tools.histogram("noise.png", box=[0, 0, 32, 32])
+    assert histogram.measurement == "histogram-box-0-0-32-32"
+    assert Path(histogram.path).parts[-2:] == (
+        "drawn",
+        "noise-histogram-box-0-0-32-32.png",
+    )
+    spectrum = tools.power_spectrum("noise.png")
+    assert Path(spectrum.path).name == "noise-spectrum.png"
+    assert Path(spectrum.path).is_file() and spectrum.result["size_px"] == 64
+
+
+def test_thickness_is_read_off_a_fib_image_in_any_folder(tmp_path):
+    from fibsem.analysis.tools import ImageRefused, ImageTools
+    from fibsem.structures.settings import BeamType, MicroscopeState
+    from tests.test_lamella_thickness import band_image
+
+    image = band_image(235)
+    image.metadata.microscope_state = MicroscopeState()
+    image.metadata.image_settings.beam_type = BeamType.ION
+    image.save(str(tmp_path / "lamella_ib.tif"))
+    tools = ImageTools(lambda: str(tmp_path))
+
+    answer = tools.measure_thickness("lamella_ib.tif")
+    assert answer["thickness_nm"]["mean"] == pytest.approx(235, abs=10)
+    assert answer["centre_from"] == "image_centre"
+    assert answer["window_from"] == "default" and answer["window_um"] == [10.0, 4.0]
+    assert Path(answer["saved_to"]).parts[-2:] == ("thickness", "lamella_ib")
+    assert "item_name" not in answer
+
+    image.metadata.image_settings.beam_type = BeamType.ELECTRON
+    image.save(str(tmp_path / "lamella_eb.tif"))
+    with pytest.raises(ImageRefused, match="SEM image"):
+        tools.measure_thickness("lamella_eb.tif")

@@ -26,7 +26,7 @@ TOOLS = (
         method="GET",
         path="/app/experiment/files/{path}",
         level="watch",
-        router="app",
+        router="analysis",
         params={
             "path": "an image path from experiment_list_files, or one an image answer gave",
             "box": arg(
@@ -51,7 +51,7 @@ TOOLS = (
         method="POST",
         path="/app/experiment/images/drawn",
         level="watch",
-        router="app",
+        router="analysis",
         params={
             "path": "an image file path inside the experiment folder",
             "marks": arg(MARKS_PARAM, dict),
@@ -89,7 +89,7 @@ TOOLS = (
         method="POST",
         path="/app/experiment/images/pair",
         level="watch",
-        router="app",
+        router="analysis",
         params={
             "before": "an image file path inside the experiment folder, drawn on the left",
             "after": "an image file path inside the experiment folder, drawn on the right",
@@ -134,7 +134,7 @@ TOOLS = (
         method="GET",
         path="/app/experiment/images/metadata",
         level="watch",
-        router="app",
+        router="analysis",
         params={
             "path": "an image file path inside the experiment folder, e.g. the path an image answer gives"
         },
@@ -146,7 +146,7 @@ TOOLS = (
         method="GET",
         path="/app/experiment/images/stage_position",
         level="watch",
-        router="app",
+        router="analysis",
         params={
             "path": "an image file path inside the experiment folder",
             "x": arg("source-pixel x (with y)", float),
@@ -167,7 +167,7 @@ TOOLS = (
         method="POST",
         path="/app/experiment/images/pixels",
         level="watch",
-        router="app",
+        router="analysis",
         params={
             "path": "an image file path inside the experiment folder",
             "stage_positions": arg(
@@ -182,7 +182,7 @@ TOOLS = (
         method="POST",
         path="/app/experiment/analysis/intensity",
         level="watch",
-        router="app",
+        router="analysis",
         params={
             "path": "a saved image file path inside the experiment folder",
             "points": arg(
@@ -208,7 +208,7 @@ TOOLS = (
         method="POST",
         path="/app/experiment/analysis/profile",
         level="watch",
-        router="app",
+        router="analysis",
         params={
             "path": "a saved image file path inside the experiment folder",
             "start": arg("[x, y] in the image's full-resolution pixels", List[float]),
@@ -236,7 +236,7 @@ TOOLS = (
         method="GET",
         path="/app/experiment/analysis/quality",
         level="watch",
-        router="app",
+        router="analysis",
         params={
             "path": "a saved image file path inside the experiment folder",
             "channel": _CHANNEL,
@@ -248,13 +248,81 @@ TOOLS = (
         optional=("channel", "plane"),
     ),
     ToolSpec(
+        name="analysis_measure_histogram",
+        returns="ImageMeasured",
+        description="The histogram of a saved image's values (a beam image, or a fluorescence channel on plane, else its max projection), in bins equal bins over the file's range (0 to its full value when known, else its lowest to highest value), and only in box when given. Answers the edges and counts, the percentiles (min, p1, p5, median, p95, p99, max), mean and std, clipped_low / clipped_high (% of pixels at the range's ends: crushed blacks, saturated whites) and range_used (the fraction of the range the values span). Before you set contrast limits, judge a detector's gain, or compare two images' exposure. Saves a figure beside the image as drawn/<image>-histogram.png (-plane-<n>, -box-<x>-<y>-<w>-<h> when given): the counts on a log scale with p1, median and p99 marked. Cite that path as evidence. Nothing moves.",
+        method="POST",
+        path="/app/experiment/analysis/histogram",
+        level="watch",
+        router="analysis",
+        params={
+            "path": "a saved image file path inside the experiment folder",
+            "channel": _CHANNEL,
+            "plane": arg(
+                "optional: a fluorescence stack's plane, 0 the first (default the max projection)",
+                int,
+            ),
+            "bins": arg("optional: the number of bins, 2 to 1024 (default 64)", int),
+            "box": arg(
+                "optional: only this region, [x, y, width, height] in the image's pixels",
+                List[float],
+            ),
+        },
+        optional=("channel", "plane", "bins", "box"),
+    ),
+    ToolSpec(
+        name="analysis_measure_power_spectrum",
+        returns="ImageMeasured",
+        description="The power spectrum of a saved image (a beam image, or a fluorescence channel on plane, else its max projection), only in box when given: the region cut to a square, windowed, and its 2D Fourier power averaged in rings. Answers radial_power against frequency (cycles per pixel, 0 to 0.5), the noise_floor (median power of the outermost tenth), cutoff (the highest frequency still twice the floor) as finest_period_px (and finest_period_m with the pixel size): the finest detail the image holds, which grows coarser with defocus, drift or a worn probe. anisotropy is the power along x over along y in the middle frequencies: near 1 for a round probe, far from it with astigmatism, drift or scan lines. Compare images of one scene at one magnification; a featureless area has no detail to find. Saves a figure beside the image as drawn/<image>-spectrum.png (-plane-<n>, -box-... when given): the log power with the cutoff circle, and the radial average. Cite that path as evidence. Nothing moves.",
+        method="POST",
+        path="/app/experiment/analysis/spectrum",
+        level="watch",
+        router="analysis",
+        params={
+            "path": "a saved image file path inside the experiment folder",
+            "channel": _CHANNEL,
+            "plane": arg(
+                "optional: a fluorescence stack's plane, 0 the first (default the max projection)",
+                int,
+            ),
+            "box": arg(
+                "optional: only this region, [x, y, width, height] in the image's pixels; at least 16 px on its short side",
+                List[float],
+            ),
+        },
+        optional=("channel", "plane", "box"),
+    ),
+    ToolSpec(
+        name="analysis_measure_thickness",
+        returns="Thickness",
+        description="A lamella's thickness, read off any saved FIB image (full resolution) with no item needed: the bright band between the trenches, its width at half its peak brightness column by column, in a window width_um along the lamella by height_um across it (default 10 x 4 um) centred at centre ([x, y] in the image's pixels; default the image's centre). For an item's lamella, item_measure_thickness places the window from the item's POI and trench patterns. Answers what item_measure_thickness answers: thickness in nm (mean, median, min, max, by thirds), wedge, angle_deg, straightness, centre_offset_nm, continuity, contrast, other_bands, resolution, uncertainty_nm (one pixel) and warnings (check the image before using the numbers), plus a plot. A top-down estimate. Nothing moves; the result (data.json, window.tif, plot.png) is saved in a thickness folder beside the image, at saved_to, and replaced when the same image is measured again.",
+        method="POST",
+        path="/app/experiment/analysis/thickness",
+        level="watch",
+        router="analysis",
+        params={
+            "path": "a FIB image file path inside the experiment folder",
+            "width_um": arg(
+                "optional: window along the lamella, um (default 10)", float
+            ),
+            "height_um": arg(
+                "optional: window across the lamella, um (default 4)", float
+            ),
+            "centre": arg(
+                "optional: the window's centre, [x, y] in the image's pixels (default: the image's centre)",
+                List[float],
+            ),
+        },
+        optional=("width_um", "height_um", "centre"),
+    ),
+    ToolSpec(
         name="analysis_measure_shift",
         returns="ImageShift",
         description="The shift of one saved beam image from another, as alignment_align_to_reference measures it: metres and pixels, a score (higher is better) and whether it cleared the minimum. compare also measures it by every method and says how far apart they are in pixels and whether they agree, the check alignment_align_to_reference validates with: a disagreement means the measurement is not to be trusted. Both paths inside the experiment, and both images one size. Works with no microscope connected. Nothing moves.",
         method="POST",
         path="/app/experiment/analysis/shift",
         level="watch",
-        router="app",
+        router="analysis",
         params={
             "reference": "the saved reference image's path inside the experiment folder",
             "image": "the saved image to measure against it",

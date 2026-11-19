@@ -208,6 +208,10 @@ def tools_for_capabilities(
     start before it is connected. None offers every tool.
     """
     routers = dict(capabilities.get("routers", {}), base=True, microscope=True)
+    # A server from before the analysis and files routers named them apart
+    # served them with the app.
+    for apart in ("analysis", "files"):
+        routers.setdefault(apart, routers.get("app", False))
     # A server from before the parts lists none and serves them all.
     parts = capabilities.get("parts")
     return tuple(

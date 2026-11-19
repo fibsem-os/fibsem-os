@@ -586,10 +586,10 @@ load or unload is recorded as `grid_loaded` / `grid_unloaded`.
 ### Alignment
 
 `microscope.alignment` aligns the current view to a saved reference image:
-`align(reference_path, steps, subsystem, ...)` is a long command that shifts the beam
-(or moves the stage) until the two match, `stop` ends it, and the query
-`measure_shift(reference_path, image_path)` measures the shift between two saved images
-without moving anything.
+`align_to_reference(reference_path, steps, subsystem, ...)` is a long command that
+shifts the beam (or moves the stage) until the two match, and `stop` ends it.
+Measuring the shift between two saved images, without a microscope, is an image
+tool: `fibsem.analysis.tools.ImageTools.measure_shift` (`analysis_measure_shift`).
 
 ## From get/set to devices
 

@@ -6,6 +6,8 @@ and every picture is saved beside its image as ``drawn/<name>.png``.
 A tool that can't answer raises :class:`ImageRefused`, with an error type the
 server answers as its HTTP status."""
 
+import base64
+import logging
 import os
 from typing import Any, Callable, Dict, List, Optional
 
@@ -29,6 +31,7 @@ from fibsem.analysis.answers import (
 )
 from fibsem.analysis.images import load_planes
 from fibsem.analysis.root import FileRefusal, resolve
+from fibsem.conversions import image_to_microscope_image_coordinates
 from fibsem.fm.preview import is_fluorescence_image
 from fibsem.geometry.saved_images import image_point_to_stage_position, stage_projector
 from fibsem.imaging.cells import from_crop
@@ -41,9 +44,12 @@ from fibsem.imaging.marks import (
     save_drawn,
     side_by_side,
 )
+from fibsem.imaging.thickness import DEFAULT_WINDOW, measure_lamella_band
 from fibsem.structures.image import FibsemImage
-from fibsem.structures.settings import FibsemStagePosition
+from fibsem.structures.settings import BeamType, FibsemStagePosition, Point
 from fibsem.workflows.evidence import EvidenceRefused, checked_marks
+
+logger = logging.getLogger(__name__)
 
 
 class ImageRefused(Exception):
@@ -326,6 +332,138 @@ class ImageTools:
             lambda image: measure.image_quality(image, channel, plane),
             name="quality",
         )
+
+    def histogram(
+        self,
+        path: str,
+        channel: Optional[str] = None,
+        plane: Optional[int] = None,
+        bins: int = 64,
+        box: Optional[List[float]] = None,
+    ) -> ImageMeasured:
+        """The counts of a saved image's values, its percentiles and what is
+        clipped, with a figure (`fibsem.analysis.measure.histogram`)."""
+        return self._measured(
+            path,
+            lambda image: measure.histogram(image, channel, plane, bins, box),
+            measure.histogram_figure,
+            _measure_name("histogram", plane, box),
+        )
+
+    def power_spectrum(
+        self,
+        path: str,
+        channel: Optional[str] = None,
+        plane: Optional[int] = None,
+        box: Optional[List[float]] = None,
+    ) -> ImageMeasured:
+        """A saved image's radially averaged power spectrum, the finest
+        period with signal and its anisotropy, with a figure
+        (`fibsem.analysis.measure.power_spectrum`)."""
+        return self._measured(
+            path,
+            lambda image: measure.power_spectrum(image, channel, plane, box),
+            measure.spectrum_figure,
+            _measure_name("spectrum", plane, box),
+        )
+
+    def measure_thickness(
+        self,
+        path: str,
+        width_um: Optional[float] = None,
+        height_um: Optional[float] = None,
+        centre: Optional[List[float]] = None,
+        *,
+        poi: Optional[Point] = None,
+        window: Optional[tuple] = None,
+        window_from: str = "default",
+    ) -> Dict[str, Any]:
+        """A lamella's thickness read off the saved FIB image *path*: the
+        bright band between the trenches, its width at half its peak column by
+        column (`fibsem.imaging.thickness.measure_lamella_band`), in a window
+        *width_um* along the lamella by *height_um* across it.
+
+        The window is centred at *centre* ([x, y] in the image's pixels), else
+        at *poi* (a point in the image's own frame, as an item keeps it), else
+        at the image's centre. *window* (metres) and *window_from* are the
+        size an item's trench patterns give, used where *width_um* and
+        *height_um* are not given; with neither, DEFAULT_WINDOW. Nothing
+        moves; the result is saved in a ``thickness`` folder beside the image,
+        replaced when the same image is measured again."""
+        target = self.image(path)
+        if is_fluorescence_image(target):
+            raise ImageRefused(
+                "invalid",
+                f"{path!r} is a fluorescence image; the band is read off a FIB image.",
+            )
+        try:
+            image = FibsemImage.load(target)
+        except Exception as exc:  # noqa: BLE001 - an unreadable file is a data fact
+            raise ImageRefused("invalid", f"{path!r}: {exc}") from None
+        settings = getattr(image.metadata, "image_settings", None)
+        if getattr(settings, "beam_type", None) is BeamType.ELECTRON:
+            raise ImageRefused(
+                "invalid",
+                f"{path!r} is an SEM image; the band is read off a FIB image.",
+            )
+        default = window or DEFAULT_WINDOW
+        if window is None:
+            window_from = "default"
+        size = (
+            default[0] if width_um is None else width_um * 1e-6,
+            default[1] if height_um is None else height_um * 1e-6,
+        )
+        if width_um is not None or height_um is not None:
+            window_from = "given"
+        if centre is not None:
+            pixel_size = getattr(image.metadata, "pixel_size", None)
+            if pixel_size is None:
+                raise ImageRefused("invalid", f"{path!r} carries no pixel size.")
+            poi, centre_from = (
+                image_to_microscope_image_coordinates(
+                    Point(*centre), image.data, pixel_size.x, subpixel_precision=True
+                ),
+                "given",
+            )
+        elif poi is not None:
+            centre_from = "poi"
+        else:
+            poi, centre_from = Point(0, 0), "image_centre"
+        try:
+            result = measure_lamella_band(image, poi, size)
+        except ValueError as exc:
+            raise ImageRefused("invalid", str(exc)) from None
+        # Kept beside the image, as an autofocus run keeps its own: one folder
+        # per image, replaced when the same image is measured again.
+        stem = os.path.splitext(os.path.basename(target))[0]
+        try:
+            saved_to = str(
+                result.save(os.path.join(os.path.dirname(target), "thickness"), stem)
+            )
+        except OSError:
+            logger.exception(f"Could not save the thickness result for {path!r}")
+            saved_to = None
+        # A dict as `Thickness` lays it out: to_dict carries more than the
+        # model names (contrast, other_bands, ...), and routes answer as sent.
+        return {
+            "image": path,
+            "poi": {"x": poi.x, "y": poi.y},
+            "centre_from": centre_from,
+            "window_um": [round(size[0] * 1e6, 3), round(size[1] * 1e6, 3)],
+            "window_from": window_from,
+            "saved_to": saved_to,
+            **result.to_dict(),
+            "plot": {"image_b64_jpeg": base64.b64encode(result.plot_jpeg()).decode()},
+        }
+
+
+def _measure_name(name: str, plane: Optional[int], box: Optional[List[float]]) -> str:
+    """A measurement's figure name: *name*, then the plane and box it was on."""
+    if plane is not None:
+        name += f"-plane-{plane}"
+    if box is not None:
+        name += "-box-" + "-".join(str(round(v)) for v in box)
+    return name
 
 
 def _beam_image(target: str, path: str) -> FibsemImage:

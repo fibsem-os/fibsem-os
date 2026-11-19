@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from fibsem.structures.image import FibsemImageMetadata
-from fibsem.structures.settings import FibsemStagePosition
+from fibsem.structures.settings import FibsemStagePosition, Point
 
 
 @dataclass
@@ -91,3 +91,30 @@ class ImageShift:
     image: str
     shift: Dict[str, Any]
     comparison: Optional[Dict[str, Any]] = None
+
+
+@dataclass
+class Thickness:
+    """A lamella's thickness read off a FIB image (`ThicknessResult.to_dict`,
+    in nm and degrees), with the plot; *item_name* when measured for an item."""
+
+    image: str
+    poi: Point
+    window_um: List[float]
+    window_from: str
+    saved_to: Optional[str]
+    pixel_size_nm: float
+    region_px: List[int]
+    continuity: Dict[str, Any]
+    uncertainty_nm: float
+    thickness_nm: Optional[Dict[str, Optional[float]]] = None
+    thirds_nm: Optional[List[Optional[float]]] = None
+    wedge: Optional[Dict[str, Optional[float]]] = None
+    angle_deg: Optional[float] = None
+    straightness: Optional[Dict[str, Optional[float]]] = None
+    warnings: Optional[List[Dict[str, str]]] = None
+    plot: Optional[Dict[str, str]] = None
+    # Where the window is centred: the item's poi, a given centre, or the
+    # image_centre when the item has no POI.
+    centre_from: Optional[str] = None
+    item_name: Optional[str] = None

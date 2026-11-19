@@ -386,7 +386,8 @@ def build_sidecar(client, capabilities, instrument=None, record=None):
     None (no server answered at start-up) registers every tool's router.
     *instrument*, an instrument kind, offers only the tools on what it has
     (its ``devices.yaml``). *record* True offers the agent's record tools
-    alone (`RECORD_TOOLS`), for an agent host; False offers every tool but
+    (`RECORD_TOOLS`), and the image and file tools when the host serves a
+    data folder, for an agent host; False offers every tool but
     those, for an instrument whose agent keeps its record on a host.
     """
     from mcp.server.mcpserver import Image, MCPServer
@@ -394,8 +395,13 @@ def build_sidecar(client, capabilities, instrument=None, record=None):
 
     every = {"routers": {"app": True, "services": True}}
     if record is True:
-        # The host has no devices: the instrument kind is not read.
-        offered = set(RECORD_TOOLS)
+        # The host has no devices: the instrument kind is not read. A host
+        # serving a data folder adds the image tools and file reads over it.
+        offered = set(RECORD_TOOLS) | {
+            t.name
+            for t in tools_for_capabilities(capabilities or {})
+            if t.router in ("analysis", "files")
+        }
     else:
         offered = {
             t.name

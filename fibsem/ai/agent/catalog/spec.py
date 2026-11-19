@@ -35,8 +35,10 @@ class ToolSpec:
     optional: Tuple[str, ...] = ()
     # Which router serves it: "microscope" unless the App Server's devices
     # service is off; "app" only when the server was built with an
-    # app_context; "services" (the analysis services) and "base" always.
-    # /capabilities reports which.
+    # app_context; "analysis" (the image tools, `fibsem.analysis`) and "files"
+    # (reading files) wherever a folder is served, the App Server's open
+    # experiment or an agent host's data folder; "services" (the analysis
+    # services) and "base" always. /capabilities reports which.
     router: str = "microscope"
     # The optional /app part that serves it (fibsem.server.parts); "" for the
     # core. /capabilities lists the parts the app serves.
@@ -266,6 +268,7 @@ _WRITES_AT_WATCH = frozenset(
         "request_create",
         "request_withdraw",
         "item_measure_thickness",  # saves its result beside the image
+        "analysis_measure_thickness",  # saves its result beside the image
         "correlation_correlate",  # saves a run in the lamella's Correlation folder
         "correlation_refine_point",  # saves its fit figure beside the image
         "experiment_render_markers",  # saves its picture beside the image
@@ -274,6 +277,8 @@ _WRITES_AT_WATCH = frozenset(
         "item_draw_milling",  # saves its picture beside the image
         "analysis_measure_intensity",  # saves its figure beside the image
         "analysis_measure_profile",  # saves its figure beside the image
+        "analysis_measure_histogram",  # saves its figure beside the image
+        "analysis_measure_power_spectrum",  # saves its figure beside the image
     }
 )
 

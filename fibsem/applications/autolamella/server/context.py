@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fibsem.acting import signer
+from fibsem.analysis.tools import ImageRefused
 from fibsem.applications.autolamella import experiment_setup
 from fibsem.applications.autolamella import task_outputs as _task_outputs
 from fibsem.applications.autolamella.config_edits import (
@@ -70,13 +71,10 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.applications.autolamella.workflows.estimate import grid_run_estimate
 from fibsem.applications.autolamella.workflows.plan import plan_lamella_run
 from fibsem.codec import encode
-from fibsem.conversions import image_to_microscope_image_coordinates
 from fibsem.correlation.history import correlation_dir, load_run
-from fibsem.fm.preview import is_fluorescence_image
 from fibsem.geometry.saved_images import image_point_to_stage_position, stage_projector
 from fibsem.imaging.animation import AnimationStep
 from fibsem.imaging.marks import drawn_path, image_stem, save_drawn
-from fibsem.imaging.thickness import DEFAULT_WINDOW, measure_lamella_band
 from fibsem.milling.patterning.picture import milling_picture
 from fibsem.server.app_context import AppContext, find_item
 from fibsem.server.files import jpeg_preview
@@ -96,7 +94,7 @@ from fibsem.server.responses import (
     stale_config,
 )
 from fibsem.structures.image import FibsemImage
-from fibsem.structures.settings import BeamType, FibsemStagePosition, Point
+from fibsem.structures.settings import FibsemStagePosition
 from fibsem.util.records import content_hash
 from fibsem.util.wording import describe_patch
 from fibsem.workflows.actions import NOTE
@@ -373,82 +371,30 @@ class AutoLamellaAppContext(AppContext):
         puts the window there instead of at the POI, for an image not centred
         where the item's tasks image it. Nothing moves; the result is saved in a
         ``thickness`` folder beside the image. The answer carries the result's
-        diagnostic plot.
+        diagnostic plot. The measurement is the library's
+        (`fibsem.analysis.tools.ImageTools.measure_thickness`); this adds the
+        item's POI and trench window.
         """
-        import base64
-
         experiment = self._experiment
         if experiment is None:
             return no_experiment()
         lamella, refusal = find_item(experiment, item_name)
         if refusal:
             return refusal
-        target, refusal = self._experiment_image(path)
-        if refusal:
-            return refusal
-        if is_fluorescence_image(target):
-            return refused(
-                "invalid",
-                f"{path!r} is a fluorescence image; the band is read off a FIB image.",
-            )
+        window = lamella.trench_window()
         try:
-            image = FibsemImage.load(target)
-        except Exception as exc:  # noqa: BLE001 - an unreadable file is a data fact
-            return refused("invalid", f"{path!r}: {exc}")
-        settings = getattr(image.metadata, "image_settings", None)
-        if getattr(settings, "beam_type", None) is BeamType.ELECTRON:
-            return refused(
-                "invalid",
-                f"{path!r} is an SEM image; the band is read off a FIB image.",
+            answer = self.images.measure_thickness(
+                path,
+                width_um,
+                height_um,
+                centre,
+                poi=lamella.poi,
+                window=window,
+                window_from="patterns" if window is not None else "default",
             )
-        default, source = lamella.trench_window(), "patterns"
-        if default is None:
-            default, source = DEFAULT_WINDOW, "default"
-        window = (
-            default[0] if width_um is None else width_um * 1e-6,
-            default[1] if height_um is None else height_um * 1e-6,
-        )
-        if width_um is not None or height_um is not None:
-            source = "given"
-        if centre is not None:
-            pixel_size = getattr(image.metadata, "pixel_size", None)
-            if pixel_size is None:
-                return refused("invalid", f"{path!r} carries no pixel size.")
-            poi, centre_from = (
-                image_to_microscope_image_coordinates(
-                    Point(*centre), image.data, pixel_size.x, subpixel_precision=True
-                ),
-                "given",
-            )
-        elif lamella.poi is not None:
-            poi, centre_from = lamella.poi, "poi"
-        else:
-            poi, centre_from = Point(0, 0), "image_centre"
-        try:
-            result = measure_lamella_band(image, poi, window)
-        except ValueError as exc:
-            return refused("invalid", str(exc))
-        # Kept beside the image, as an autofocus run keeps its own: one folder
-        # per image, replaced when the same image is measured again.
-        stem = os.path.splitext(os.path.basename(target))[0]
-        try:
-            saved_to = str(
-                result.save(os.path.join(os.path.dirname(target), "thickness"), stem)
-            )
-        except OSError:
-            logger.exception(f"Could not save the thickness result for {path!r}")
-            saved_to = None
-        return {
-            "item_name": item_name,
-            "image": path,
-            "poi": {"x": poi.x, "y": poi.y},
-            "centre_from": centre_from,
-            "window_um": [round(window[0] * 1e6, 3), round(window[1] * 1e6, 3)],
-            "window_from": source,
-            "saved_to": saved_to,
-            **result.to_dict(),
-            "plot": {"image_b64_jpeg": base64.b64encode(result.plot_jpeg()).decode()},
-        }
+        except ImageRefused as exc:
+            return refused(exc.error_type, exc.message)
+        return {"item_name": item_name, **answer}
 
     # --- replay: the recorded actions, stepped through on the web page ---------
 
