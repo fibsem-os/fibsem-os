@@ -549,8 +549,10 @@ Plane = Annotated[int, Strict(), Field(ge=0)]
 
 @dataclass
 class ThicknessBody:
-    """POST .../items/{item_name}/thickness: a saved image, and the window to
-    measure in, else the whole lamella."""
+    """POST .../items/{item_name}/thickness and /experiment/analysis/thickness:
+    a saved FIB image, and the window to measure in, else the item's trench
+    window (the default window with no item) about its POI (the image's
+    centre with no item), or about *centre*."""
 
     __pydantic_config__ = STRICT
 

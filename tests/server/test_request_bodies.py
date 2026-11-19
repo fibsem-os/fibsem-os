@@ -55,6 +55,7 @@ TYPED = [
     ("post", "/app/experiment/analysis/profile"),
     ("post", "/app/experiment/analysis/histogram"),
     ("post", "/app/experiment/analysis/spectrum"),
+    ("post", "/app/experiment/analysis/thickness"),
     ("post", "/app/experiment/export/image"),
     ("post", "/app/experiment/notes"),
     ("post", "/app/experiment/messages"),

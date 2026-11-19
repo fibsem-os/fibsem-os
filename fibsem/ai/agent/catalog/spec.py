@@ -266,6 +266,7 @@ _WRITES_AT_WATCH = frozenset(
         "request_create",
         "request_withdraw",
         "item_measure_thickness",  # saves its result beside the image
+        "analysis_measure_thickness",  # saves its result beside the image
         "correlation_correlate",  # saves a run in the lamella's Correlation folder
         "correlation_refine_point",  # saves its fit figure beside the image
         "experiment_render_markers",  # saves its picture beside the image

@@ -294,3 +294,27 @@ def test_the_histogram_and_spectrum_tools_save_their_figures(tmp_path):
     spectrum = tools.power_spectrum("noise.png")
     assert Path(spectrum.path).name == "noise-spectrum.png"
     assert Path(spectrum.path).is_file() and spectrum.result["size_px"] == 64
+
+
+def test_thickness_is_read_off_a_fib_image_in_any_folder(tmp_path):
+    from fibsem.analysis.tools import ImageRefused, ImageTools
+    from fibsem.structures.settings import BeamType, MicroscopeState
+    from tests.test_lamella_thickness import band_image
+
+    image = band_image(235)
+    image.metadata.microscope_state = MicroscopeState()
+    image.metadata.image_settings.beam_type = BeamType.ION
+    image.save(str(tmp_path / "lamella_ib.tif"))
+    tools = ImageTools(lambda: str(tmp_path))
+
+    answer = tools.measure_thickness("lamella_ib.tif")
+    assert answer["thickness_nm"]["mean"] == pytest.approx(235, abs=10)
+    assert answer["centre_from"] == "image_centre"
+    assert answer["window_from"] == "default" and answer["window_um"] == [10.0, 4.0]
+    assert Path(answer["saved_to"]).parts[-2:] == ("thickness", "lamella_ib")
+    assert "item_name" not in answer
+
+    image.metadata.image_settings.beam_type = BeamType.ELECTRON
+    image.save(str(tmp_path / "lamella_eb.tif"))
+    with pytest.raises(ImageRefused, match="SEM image"):
+        tools.measure_thickness("lamella_eb.tif")

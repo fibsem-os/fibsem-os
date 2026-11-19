@@ -2427,7 +2427,7 @@ export interface components {
             order: string[];
         };
         /** @description A lamella's thickness read off a FIB image (`ThicknessResult.to_dict`,
-         *     in nm and degrees), with the plot. */
+         *     in nm and degrees), with the plot; *item_name* when measured for an item. */
         Thickness: {
             angle_deg: number | null;
             centre_from: string | null;
@@ -2435,7 +2435,7 @@ export interface components {
                 [key: string]: unknown;
             };
             image: string;
-            item_name: string;
+            item_name: string | null;
             pixel_size_nm: number;
             plot: {
                 [key: string]: string;
@@ -2466,8 +2466,10 @@ export interface components {
             window_from: string;
             window_um: number[];
         };
-        /** @description POST .../items/{item_name}/thickness: a saved image, and the window to
-         *     measure in, else the whole lamella. */
+        /** @description POST .../items/{item_name}/thickness and /experiment/analysis/thickness:
+         *     a saved FIB image, and the window to measure in, else the item's trench
+         *     window (the default window with no item) about its POI (the image's
+         *     centre with no item), or about *centre*. */
         ThicknessBody: {
             centre?: [
                 number,

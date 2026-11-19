@@ -293,6 +293,29 @@ TOOLS = (
         optional=("channel", "plane", "box"),
     ),
     ToolSpec(
+        name="analysis_measure_thickness",
+        returns="Thickness",
+        description="A lamella's thickness, read off any saved FIB image (full resolution) with no item needed: the bright band between the trenches, its width at half its peak brightness column by column, in a window width_um along the lamella by height_um across it (default 10 x 4 um) centred at centre ([x, y] in the image's pixels; default the image's centre). For an item's lamella, item_measure_thickness places the window from the item's POI and trench patterns. Answers what item_measure_thickness answers: thickness in nm (mean, median, min, max, by thirds), wedge, angle_deg, straightness, centre_offset_nm, continuity, contrast, other_bands, resolution, uncertainty_nm (one pixel) and warnings (check the image before using the numbers), plus a plot. A top-down estimate. Nothing moves; the result (data.json, window.tif, plot.png) is saved in a thickness folder beside the image, at saved_to, and replaced when the same image is measured again.",
+        method="POST",
+        path="/app/experiment/analysis/thickness",
+        level="watch",
+        router="app",
+        params={
+            "path": "a FIB image file path inside the experiment folder",
+            "width_um": arg(
+                "optional: window along the lamella, um (default 10)", float
+            ),
+            "height_um": arg(
+                "optional: window across the lamella, um (default 4)", float
+            ),
+            "centre": arg(
+                "optional: the window's centre, [x, y] in the image's pixels (default: the image's centre)",
+                List[float],
+            ),
+        },
+        optional=("width_um", "height_um", "centre"),
+    ),
+    ToolSpec(
         name="analysis_measure_shift",
         returns="ImageShift",
         description="The shift of one saved beam image from another, as alignment_align_to_reference measures it: metres and pixels, a score (higher is better) and whether it cleared the minimum. compare also measures it by every method and says how far apart they are in pixels and whether they agree, the check alignment_align_to_reference validates with: a disagreement means the measurement is not to be trusted. Both paths inside the experiment, and both images one size. Works with no microscope connected. Nothing moves.",

@@ -464,6 +464,15 @@ def build_analysis_router(tools: ImageTools) -> APIRouter:
         box = list(body.box) if body.box is not None else None
         return _image_answer(lambda: tools.power_spectrum(path, box=box, **options))
 
+    @router.post("/experiment/analysis/thickness", response_model=Thickness)
+    def measure_thickness(body: ThicknessBody):
+        # A POST because the result is saved beside the image.
+        path = _required_text(body, "path", saved_image)
+        options = _given(body, "width_um", "height_um")
+        if body.centre is not None:
+            options["centre"] = list(body.centre)
+        return _image_answer(lambda: tools.measure_thickness(path, **options))
+
     @router.post("/experiment/analysis/shift", response_model=ImageShift)
     def measure_shift(body: ShiftBody):
         # A POST to match the other measurements; it saves nothing.
