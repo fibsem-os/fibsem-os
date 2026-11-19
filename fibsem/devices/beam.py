@@ -101,6 +101,10 @@ DEFAULT_STIGMATION_LIMITS = {
 }
 
 
+# Why an agent never sets the image corrections.
+_GEOMETRY = "the app's image-to-stage geometry assumes its own corrections"
+
+
 class Beam(Device):
     voltage = DeviceParameter(
         float, unit="V", display=Display("Beam Voltage", advanced=True)
@@ -114,7 +118,11 @@ class Beam(Device):
         nearest="driver",
         display=Display("Beam Current"),
     )
-    plasma_gas = DeviceParameter(str, display=Display("Plasma Gas"))
+    plasma_gas = DeviceParameter(
+        str,
+        display=Display("Plasma Gas"),
+        operator_only="the source gas is the operator's",
+    )
     working_distance = DeviceParameter(
         float,
         unit="m",
@@ -206,15 +214,26 @@ class Beam(Device):
             "Lens Alignment", scale=1e6, step=0.01, decimals=3, advanced=True
         ),
     )
-    on = DeviceParameter(bool, doc="The beam is switched on.")
+    on = DeviceParameter(
+        bool,
+        doc="The beam is switched on.",
+        operator_only="switch a beam with beam_turn_on or beam_turn_off",
+    )
     scanning_mode = DeviceParameter(
         ScanMode, doc="What the beam scans; the scan commands set it."
     )
+    # The app's image-to-stage geometry assumes its own corrections (scan
+    # rotation is the agent's).
     angular_correction = DeviceParameter(
-        float, unit="rad", doc="The tilt the angular correction corrects the image for."
+        float,
+        unit="rad",
+        doc="The tilt the angular correction corrects the image for.",
+        operator_only=_GEOMETRY,
     )
     tilt_correction = DeviceParameter(
-        bool, doc="The angular correction's tilt correction is on."
+        bool,
+        doc="The angular correction's tilt correction is on.",
+        operator_only=_GEOMETRY,
     )
 
     scanner = Role(

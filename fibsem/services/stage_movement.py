@@ -1148,7 +1148,11 @@ class StageMovement(Service):
 
     # -- moves the stage device has itself --------------------------------------------------
 
-    @command
+    @command(
+        operator_only="the raw move; move with stage_move_absolute "
+        "(safe_absolute_stage_movement), which tilts flat for a large rotation "
+        "and rotates first"
+    )
     def move_absolute(self, position: FibsemStagePosition) -> FibsemStagePosition:
         """Move the stage to a position, within its limits. Axes that are None stay."""
         with recording_move(

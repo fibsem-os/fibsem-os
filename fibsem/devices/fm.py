@@ -169,7 +169,10 @@ class Objective(Device):
     magnification = DeviceParameter(float)
     numerical_aperture = DeviceParameter(float)
     limit_position = DeviceParameter(
-        float, unit="m", doc="The furthest a move may go in."
+        float,
+        unit="m",
+        doc="The furthest a move may go in.",
+        operator_only="the objective's safety limit, which its moves are checked against",
     )
     insert_position = DeviceParameter(
         float,
