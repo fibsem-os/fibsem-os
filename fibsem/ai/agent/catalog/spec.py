@@ -332,6 +332,7 @@ _WRITES_AT_WATCH = frozenset(
         "analysis_measure_profile",  # saves its figure beside the image
         "analysis_measure_histogram",  # saves its figure beside the image
         "analysis_measure_power_spectrum",  # saves its figure beside the image
+        "analysis_find_grid_squares",  # saves its figure beside the image
     }
 )
 

@@ -719,6 +719,21 @@ class SpectrumBody:
 
 
 @dataclass
+class GridSquaresBody:
+    """POST /app/experiment/analysis/grid_squares: the grid-bar lattice on a
+    saved image, *limit* squares and the *points* to check against the bars;
+    fitted in *box* and preferring *pitch_um* when given."""
+
+    __pydantic_config__ = STRICT
+
+    path: str
+    points: Optional[List[Point]] = None
+    limit: Optional[Annotated[int, Strict(), Field(ge=0, le=200)]] = None
+    box: Optional[Tuple[float, float, float, float]] = None
+    pitch_um: Optional[Annotated[float, Field(gt=0)]] = None
+
+
+@dataclass
 class ShiftBody:
     """POST /app/experiment/analysis/shift: two saved beam images; *compare*
     measures by every method too."""
