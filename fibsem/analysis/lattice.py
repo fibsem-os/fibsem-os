@@ -560,7 +560,7 @@ def _fit(full: np.ndarray, region, hint, pixel) -> Dict[str, Any]:
         hint["longer_step_um"] = round(float(longer), 1)
         # Only the longer step is compared: a tilted view shortens the other.
         hint["shorter_step_um"] = round(float(steps[0]), 1)
-        hint["agrees"] = bool(
+        hint["longer_step_agrees"] = bool(
             abs(longer - hint["pitch_um"]) <= HINT_TOLERANCE * hint["pitch_um"]
         )
         hint["changed_choice"] = hinted["changed_choice"]

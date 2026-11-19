@@ -284,11 +284,11 @@ def test_a_pitch_hint_is_reported_against_the_fit():
     planes = _planes(_grid(a=a, b=b, origin=origin))  # 1 um pixels
 
     agreed = lattice.find_grid_squares(planes, pitch_um=125)
-    assert agreed["hint"]["agrees"] and not agreed["hint"]["changed_choice"]
+    assert agreed["hint"]["longer_step_agrees"] and not agreed["hint"]["changed_choice"]
     assert agreed["hint"]["longer_step_um"] == pytest.approx(120, rel=0.01)
 
     wrong = lattice.find_grid_squares(planes, pitch_um=300)
-    assert not wrong["hint"]["agrees"]
+    assert not wrong["hint"]["longer_step_agrees"]
     assert "disagrees" in wrong["hint"]["note"]
     # A hint prefers; it does not force a lattice the image doesn't have.
     assert wrong["lattice"]["a"]["pitch_px"] == pytest.approx(120, rel=0.01)

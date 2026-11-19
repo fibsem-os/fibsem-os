@@ -10,7 +10,7 @@ measure with the match given rather than searched for. Nothing moves."""
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 import numpy as np
 
@@ -25,8 +25,8 @@ from fibsem.geometry.projection import scan_rotation_flips
 from fibsem.structures.image import FibsemImage
 from fibsem.structures.settings import BeamType, Point
 
-# How far apart the two images' recorded stage positions may be and still be
-# one place: encoder jitter, not a move.
+# How far apart the two images' recorded stage positions may be before the
+# answer says so.
 SAME_POSITION_M = 1e-6
 SAME_ANGLE_RAD = math.radians(0.05)
 # The most point pairs one call takes.
@@ -53,9 +53,10 @@ def _offset(image: FibsemImage, px: Sequence[float], name: str) -> List[float]:
     return [centred.x * size.x, centred.y * size.y]
 
 
-def _checked(sem: FibsemImage, fib: FibsemImage) -> None:
-    """Refuse a pair that is not one electron and one ion image, carrying
-    pixel sizes, taken at one stage position."""
+def _checked(sem: FibsemImage, fib: FibsemImage) -> List[str]:
+    """Refuse a pair that is not one electron and one ion image carrying
+    pixel sizes and stage positions; answer, in words, how far the stage
+    moved between the two when their recorded positions differ."""
     for image, name, beam in (
         (sem, "sem", BeamType.ELECTRON),
         (fib, "fib", BeamType.ION),
@@ -93,11 +94,13 @@ def _checked(sem: FibsemImage, fib: FibsemImage) -> None:
         turn = (first - second + math.pi) % (2 * math.pi) - math.pi
         if abs(turn) > SAME_ANGLE_RAD:
             moved.append(f"{axis} by {math.degrees(abs(turn)):.2f} deg")
+    warnings = []
     if moved:
-        raise ValueError(
-            "the two images were not taken at one stage position ("
+        warnings.append(
+            "the two images record different stage positions ("
             + ", ".join(moved)
-            + "): take the SEM and FIB images without moving the stage between them"
+            + "): the offsets assume one position, so they are off by about "
+            "that much unless it is the stage's own jitter"
         )
     flips = [
         scan_rotation_flips(state.scan_rotation or 0.0)
@@ -112,6 +115,7 @@ def _checked(sem: FibsemImage, fib: FibsemImage) -> None:
             "one beam's scan rotation is turned half a turn from the other's: "
             "the views are not upright together, which this measure assumes"
         )
+    return warnings
 
 
 def _nm(value: float) -> float:
@@ -150,7 +154,10 @@ def _flag_disagreeing(measured: List[Dict[str, Any]], tolerance: float) -> None:
 
 
 def coincidence_offset(
-    sem: FibsemImage, fib: FibsemImage, pairs: Sequence[Dict[str, Any]]
+    sem: FibsemImage,
+    fib: FibsemImage,
+    pairs: Sequence[Dict[str, Any]],
+    tolerance: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Features picked in both images, each pair ``{sem: [x, y], fib: [x, y],
     label?}`` in full-resolution pixels: per pair its offsets and the dy and
@@ -159,18 +166,23 @@ def coincidence_offset(
     each picked FIB point lands after it. A chamber-vertical move leaves the
     SEM view as it is; in the FIB a feature lands where its SEM offset,
     foreshortened, puts it. A pair off the others by more than the tolerance
-    is flagged, never dropped silently; with no majority agreeing there is no
-    move. Raises ValueError for images or points this cannot measure."""
+    (*tolerance* metres, else 2 um or 4 pixels) is flagged, never dropped
+    silently; with no majority agreeing no pair is chosen, and each pair's
+    own dy stands. Raises ValueError for images or points this cannot
+    measure."""
     if not 1 <= len(pairs) <= MAX_PAIRS:
         raise ValueError(f"give 1 to {MAX_PAIRS} point pairs, not {len(pairs)}")
-    _checked(sem, fib)
+    moved = _checked(sem, fib)
     try:
         geometry = geometry_from_images(sem, fib)
     except ValueError as exc:
         raise ValueError(f"the pair's metadata gives no coincidence geometry: {exc}")
     stretch = geometry.y_stretch
     sem_size, fib_size = sem.metadata.pixel_size, fib.metadata.pixel_size
-    tolerance = max(DISAGREE_M, DISAGREE_PX * max(sem_size.x, fib_size.x))
+    if tolerance is None:
+        tolerance = max(DISAGREE_M, DISAGREE_PX * max(sem_size.x, fib_size.x))
+    elif tolerance <= 0:
+        raise ValueError("tolerance_um is more than 0")
 
     measured = []
     for i, pair in enumerate(pairs):
@@ -201,7 +213,7 @@ def coincidence_offset(
         "tolerance_m": _nm(tolerance),
         "vertical_move": None,
     }
-    warnings: List[str] = []
+    warnings: List[str] = list(moved)
     if len(measured) > 2 and len(agreeing) * 2 <= len(measured):
         agreeing = []
         warnings.append(
@@ -209,7 +221,11 @@ def coincidence_offset(
             "the same feature in both images"
         )
     if not agreeing:
-        answer["direction"] = "No move: the pairs disagree; see each pair's disagrees."
+        answer["direction"] = (
+            "The pairs disagree by more than tolerance_m, so none is chosen for "
+            "you: each pair's dy is the move that pair alone gives. Recheck the "
+            "features, add a pair, or use the one you trust."
+        )
     else:
         dy = float(np.median([m["dy"] for m in agreeing]))
         dx = float(np.median([m["dx"] for m in agreeing]))

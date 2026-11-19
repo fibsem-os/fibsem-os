@@ -277,6 +277,7 @@ class ImageTools:
         sem_crop: Any = None,
         fib_crop: Any = None,
         pairs: Optional[List[Dict[str, Any]]] = None,
+        tolerance_um: Optional[float] = None,
     ) -> ImageMeasured:
         """The vertical move that brings features picked in both the saved
         SEM and FIB images to coincidence
@@ -309,7 +310,12 @@ class ImageTools:
                 }
                 for pair in pairs
             ]
-            result = coincidence.coincidence_offset(sem, fib, pairs)
+            result = coincidence.coincidence_offset(
+                sem,
+                fib,
+                pairs,
+                None if tolerance_um is None else float(tolerance_um) * 1e-6,
+            )
         except (ValueError, KeyError, TypeError) as exc:
             raise ImageRefused("invalid", f"{type(exc).__name__}: {exc}") from None
         sem_marks, fib_marks = [], []

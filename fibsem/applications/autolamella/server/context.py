@@ -75,6 +75,7 @@ from fibsem.correlation.history import correlation_dir, load_run
 from fibsem.geometry.saved_images import image_point_to_stage_position, stage_projector
 from fibsem.imaging.animation import AnimationStep
 from fibsem.imaging.marks import drawn_path, image_stem, save_drawn
+from fibsem.milling.patterning import footprints as fp
 from fibsem.milling.patterning.picture import milling_picture
 from fibsem.server.app_context import AppContext, find_item
 from fibsem.server.files import jpeg_preview
@@ -713,7 +714,6 @@ class AutoLamellaAppContext(AppContext):
         task's. Saved as ``drawn/<image>-milling.png`` beside the overview.
         Answers each item's footprint box and nearest neighbour, the nearest
         pair, and what the projection leaves out."""
-        from fibsem.milling.patterning import footprints as fp
 
         experiment = self._experiment
         if experiment is None:
@@ -927,7 +927,6 @@ class AutoLamellaAppContext(AppContext):
     def _fib_frame(lamella, overview, relative):
         """The FIB view *lamella*'s patterns are defined in: its latest ion
         image's, else its milling pose's (`footprints.pose_frame`)."""
-        from fibsem.milling.patterning import footprints as fp
 
         found = _task_outputs.latest_task_image(lamella, "_ib.tif")
         images = [found] if found else _task_outputs.lamella_images(lamella, "_ib.tif")
