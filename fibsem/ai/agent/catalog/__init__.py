@@ -99,6 +99,7 @@ NOT_TOOLS: Dict[str, str] = {
     "DELETE /app/library/{kind}/{name}": "Removing the lab's own copy is the operator's only (operator token).",
     "GET /app/agent/transcript": "What fibsem-agent printed, read back by the web page; the agent has its own context.",
     "POST /app/agent/transcript": "fibsem-agent's harness sends what it printed; not the agent's to call.",
+    "GET /app/agent/transcript/pictures/{name}": "A picture a lab tool answered a step with, read back by the web page; the agent saw it in the tool's answer.",
     "PUT /app/agent/plan": "The operator edits the whole plan from the Agent page; the agent writes it a section at a time (plan_set_section).",
     "POST /app/agent/read": "fibsem-agent's harness, or fibsem-mcp watch, says which of the operator's messages the agent has read; not the agent's to call.",
     "GET /chat": "A redirect to the web app's Agent page, GET /ui/agent.",

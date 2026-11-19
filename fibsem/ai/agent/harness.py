@@ -156,6 +156,14 @@ TRANSCRIPT_SOON_S = 1.0
 TRANSCRIPT_EVERY_S = 10.0
 TRANSCRIPT_BATCH = 200
 TRANSCRIPT_KEEP = 2000
+# A lab tool's pictures on the transcript (`_show_pictures`): at most this many
+# from one result, this many waiting to be sent, and this big (base64, under
+# the server's 5 MB). A send carries one picture at most.
+PICTURES_PER_RESULT = 4
+PICTURES_WAITING = 20
+PICTURE_MAX_B64 = 6_800_000
+# The kinds the server keeps (`fibsem.server.agent.transcript.PICTURE_TYPES`).
+PICTURE_TYPES = ("image/png", "image/jpeg", "image/gif", "image/webp")
 # While a turn goes on, its tokens and the context's fill are reported this
 # often (when they changed), not only as it ends: a turn can run for an hour.
 REPORT_EVERY_S = 30.0
@@ -1366,12 +1374,19 @@ class Harness:
         await asyncio.shield(send())
 
     async def _send_transcript_now(self) -> None:
+        # A send carries one picture at most: the rest go straight after.
+        for _ in range(PICTURES_WAITING + 1):
+            if not await self._send_some_transcript():
+                return
+
+    async def _send_some_transcript(self) -> bool:
+        """One send of the waiting lines; whether it sent and more wait."""
         client, lines = self._client, getattr(self._agent, "transcript", None)
         session_id = getattr(self._agent, "session_id", None)
         if client is None or not lines or not session_id:
-            return
+            return False
         now = time.monotonic()
-        batch = lines[:TRANSCRIPT_BATCH]
+        batch = _one_picture(lines[:TRANSCRIPT_BATCH])
         entries = [
             {**{k: v for k, v in line.items() if k != "at"}, "age_s": now - line["at"]}
             for line in batch
@@ -1390,9 +1405,11 @@ class Harness:
                 log.debug("Sending the transcript failed.", exc_info=True)
                 return False
 
-        if await asyncio.get_running_loop().run_in_executor(None, post):
+        sent = await asyncio.get_running_loop().run_in_executor(None, post)
+        if sent:
             del lines[: len(batch)]
         del lines[:-TRANSCRIPT_KEEP]
+        return sent and bool(lines)
 
     async def _send_transcript_every(self) -> None:
         """While a turn runs: the transcript `TRANSCRIPT_SOON_S` after a line
@@ -1792,6 +1809,52 @@ def step(name: str, arguments: dict, cwd: Optional[Path] = None) -> tuple:
     return "Called", _clip(f"{short} {text}".strip(), 200)
 
 
+def _one_picture(lines: List[dict]) -> List[dict]:
+    """*lines* up to the second picture: a send carries one picture at most."""
+    pictures = [i for i, line in enumerate(lines) if line["kind"] == "picture"]
+    return lines[: pictures[1]] if len(pictures) > 1 else lines
+
+
+def _lab_tool(name: str) -> bool:
+    """Whether *name* is a tool of a lab's MCP server (`extra_mcp`), not one
+    of the harness's own."""
+    parts = name.split("__")
+    return len(parts) >= 3 and parts[0] == "mcp" and parts[1] not in extra_mcp.RESERVED
+
+
+def _images(content) -> List[tuple]:
+    """The images in a tool result's *content*: (media type, base64) each,
+    as the CLI gives them (``source``) or as MCP does (``data``, ``mimeType``)."""
+    found = []
+    for item in content if isinstance(content, list) else []:
+        if not isinstance(item, dict) or item.get("type") != "image":
+            continue
+        source = item.get("source") if isinstance(item.get("source"), dict) else item
+        data = source.get("data")
+        media_type = source.get("media_type") or source.get("mimeType")
+        if isinstance(data, str) and isinstance(media_type, str):
+            found.append((media_type, data))
+    return found
+
+
+def _show_pictures(agent, content, step: int) -> None:
+    """The pictures a lab tool answered with, on the transcript under its
+    step, so the web page shows what the agent saw. At most
+    `PICTURES_WAITING` wait to be sent; one past that is left off."""
+    for media_type, data in _images(content)[:PICTURES_PER_RESULT]:
+        waiting = sum(
+            1 for line in getattr(agent, "transcript", []) if line["kind"] == "picture"
+        )
+        if (
+            waiting >= PICTURES_WAITING
+            or len(data) > PICTURE_MAX_B64
+            or media_type not in PICTURE_TYPES
+        ):
+            log.info("A picture from step %s is left off the transcript.", step)
+            continue
+        _line(agent, "picture", "", step=step, image=data, media_type=media_type)
+
+
 def _line(agent, kind: str, text: str, **extra) -> Optional[int]:
     """Keep a printed line on *agent*'s transcript, if it keeps one."""
     keep = getattr(agent, "line", None)
@@ -1856,15 +1919,16 @@ def _show(message, agent: SdkAgent) -> None:
                 log.info("%s %s", verb, text)
                 seq = _line(agent, "step", text, verb=verb)
                 if seq is not None:
-                    agent._steps[block.id] = (seq, time.monotonic())
+                    agent._steps[block.id] = (seq, time.monotonic(), block.name)
     elif isinstance(message, UserMessage) and isinstance(message.content, list):
         for block in message.content:
             if not isinstance(block, ToolResultBlock):
                 continue
-            seq, took = None, None
+            seq, took, name = None, None, ""
             made = getattr(agent, "_steps", {}).pop(block.tool_use_id, None)
             if made is not None:
                 seq, took = made[0], round(time.monotonic() - made[1], 1)
+                name = made[2]
             if block.is_error:
                 why = _clip(_result_text(block.content))
                 log.warning("failed: %s", why)
@@ -1872,6 +1936,8 @@ def _show(message, agent: SdkAgent) -> None:
             elif seq is not None:
                 # The step is done: the web page stops showing it as running.
                 _line(agent, "done", "", step=seq, took_s=took)
+                if _lab_tool(name):
+                    _show_pictures(agent, block.content, seq)
 
 
 def find_checkout(given: Optional[str] = None) -> Optional[Path]:
