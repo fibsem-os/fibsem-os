@@ -390,6 +390,11 @@ you mean*):
 - `item_draw_milling`: an item's patterns as its task configs have them, on
   its latest ion image. Draw it before a mill, and before you decide or
   suggest a milling proposal.
+- `grid_draw_milling`: the items' patterns on the grid's SEM overview, where
+  the bars show and the FIB view at the milling angle hides them. Use it to
+  check a fiducial or trench is clear of a bar and the gap between
+  neighbours' cuts (`nearest`, `closest`) before the first mill; its outlines
+  can sit a few µm off (its `caveats`).
 
 Where a site came from (grid, square, rank, why it was chosen) belongs on the
 lamella, not in a note: `item_update` with `{"patch": {"description":

@@ -748,6 +748,23 @@ class MillingDrawnBody:
 
 
 @dataclass
+class MillingOverviewBody:
+    """POST /app/experiment/images/milling: items' milling drawn on an
+    overview of their grid. Items by name, or every item of ``grid_name``;
+    the overview at ``path`` or the grid's latest SEM overview; a ``box``
+    ([x, y, width, height] in its pixels) to show instead of the items'
+    neighbourhood."""
+
+    __pydantic_config__ = STRICT
+
+    item_names: Optional[Union[str, List[str]]] = None
+    grid_name: Optional[str] = None
+    path: Optional[str] = None
+    task_names: Optional[Union[str, List[str]]] = None
+    box: Optional[Tuple[float, float, float, float]] = None
+
+
+@dataclass
 class PixelsBody:
     """POST /app/experiment/images/pixels: stage positions ({x, y, z, r, t,
     coordinate_system}) as points on a saved image."""

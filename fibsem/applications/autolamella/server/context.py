@@ -82,6 +82,7 @@ from fibsem.server.responses import (
     ExperimentSummary,
     ItemDetail,
     ItemMillingDrawn,
+    MillingOnOverview,
     ProtocolView,
     Refusal,
     ReplayTimeline,
@@ -696,6 +697,253 @@ class AutoLamellaAppContext(AppContext):
             [stage.name for stage in behind],
             save_drawn(rgb, saved, target),
         )
+
+    def draw_milling_on_overview(
+        self,
+        item_names: Optional[List[str]] = None,
+        grid_name: Optional[str] = None,
+        path: Optional[str] = None,
+        task_names: Optional[List[str]] = None,
+        box: Optional[List[float]] = None,
+    ) -> Any:
+        """Items' milling patterns drawn on an overview of their grid
+        (`fibsem.milling.patterning.footprints`): *item_names*, else every
+        item of *grid_name*; on the image at *path*, else the grid's latest
+        SEM overview; *task_names*' enabled stages, else every milling
+        task's. Saved as ``drawn/<image>-milling.png`` beside the overview.
+        Answers each item's footprint box and nearest neighbour, the nearest
+        pair, and what the projection leaves out."""
+        from fibsem.milling.patterning import footprints as fp
+
+        experiment = self._experiment
+        if experiment is None:
+            return no_experiment()
+        grid = None
+        if grid_name is not None:
+            grid = experiment.get_grid_by_name(grid_name)
+            if grid is None:
+                return self._no_such_grid(experiment, grid_name)
+        if item_names:
+            lamellae = []
+            for name in item_names:
+                lamella, refusal = find_item(experiment, name)
+                if refusal:
+                    return refusal
+                lamellae.append(lamella)
+        elif grid is None:
+            return refused("missing_field", "Pass item_names or grid_name.")
+        else:
+            lamellae, _, reason = _grid_items(experiment, grid)
+            if not lamellae:
+                return refused(
+                    "not_found", reason or f"Grid {grid.name!r} has no items."
+                )
+        grids_by_id = {g.id: g for g in experiment.grids}
+        if path:
+            target, refusal = self._experiment_image(path)
+            if refusal:
+                return refusal
+            if grid is None:
+                real = os.path.realpath(target)
+                grid = next(
+                    (
+                        g
+                        for g in experiment.grids
+                        if real.startswith(
+                            os.path.realpath(experiment.grid_path(g)) + os.sep
+                        )
+                    ),
+                    None,
+                )
+        else:
+            if grid is None:
+                linked = {lam.grid_id for lam in lamellae if lam.grid_id}
+                if len(linked) > 1:
+                    return refused(
+                        "invalid",
+                        "These items are on different grids: draw each grid's "
+                        "items on its own overview.",
+                        grid_names=sorted(
+                            grids_by_id[i].name for i in linked if i in grids_by_id
+                        ),
+                    )
+                if linked:
+                    grid = grids_by_id.get(linked.pop())
+                elif len(experiment.grids) == 1:
+                    grid = experiment.grids[0]
+            target = (
+                latest_item_output(experiment, grid, "overview_sem")
+                if grid is not None
+                else None
+            )
+            if target is None:
+                where = f"Grid {grid.name!r}" if grid is not None else "No grid"
+                return refused(
+                    "not_found",
+                    f"{where} has no SEM overview to draw on: pass path, an "
+                    "overview (or any saved image) in the experiment.",
+                )
+        if grid is not None:
+            elsewhere = [
+                lam.name
+                for lam in lamellae
+                if lam.grid_id is not None and lam.grid_id != grid.id
+            ]
+            if elsewhere:
+                return refused(
+                    "invalid",
+                    f"{', '.join(elsewhere)} not on grid {grid.name!r}, whose "
+                    "overview this is: draw each grid's items on its own overview.",
+                    item_names=elsewhere,
+                )
+        try:
+            overview = fp.load_overview(target)
+            surface = fp.Surface.of(overview)
+        except Exception as exc:  # noqa: BLE001 - a file that can't be drawn on
+            return refused("invalid", f"{path or target}: {exc}")
+
+        root = str(experiment.path)
+
+        def relative(file):
+            return os.path.relpath(file, root).replace(os.sep, "/")
+
+        drawn, unplaced, frames, drawn_tasks = [], [], {}, []
+        for lamella in lamellae:
+            configs = dict(lamella.task_config)
+            names = [
+                n
+                for n in (task_names or list(configs))
+                if getattr(configs.get(n), "milling", None)
+            ]
+            stages = [
+                (name, stage)
+                for name in names
+                for milling in configs[name].milling.values()
+                for stage in milling.enabled_stages
+            ]
+            if not stages:
+                why = "no enabled milling stages"
+                if task_names:
+                    why += f" in {', '.join(task_names)}"
+                unplaced.append({"item_name": lamella.name, "reason": why})
+                continue
+            frame = self._fib_frame(lamella, overview, relative)
+            if frame is None:
+                unplaced.append(
+                    {
+                        "item_name": lamella.name,
+                        "reason": "no FIB image with stage metadata, and no "
+                        "milling pose with an ion scan rotation to place from",
+                    }
+                )
+                continue
+            try:
+                found = [
+                    fp.Footprint(
+                        lamella.name,
+                        fp.stage_kind(stage, name),
+                        stage.name,
+                        frame.to_overview(outline, overview),
+                    )
+                    for name, stage in stages
+                    for outline in fp.stage_outlines(stage)
+                ]
+            except Exception as exc:  # noqa: BLE001 - one item's geometry
+                unplaced.append({"item_name": lamella.name, "reason": str(exc)})
+                continue
+            if not found:
+                unplaced.append(
+                    {"item_name": lamella.name, "reason": "no patterns to draw"}
+                )
+                continue
+            drawn += found
+            frames[lamella.name] = frame.source
+            drawn_tasks += [n for n in dict(stages) if n not in drawn_tasks]
+        if not drawn:
+            return refused(
+                "not_found", "No milling patterns to draw.", unplaced=unplaced
+            )
+
+        gaps = fp.item_gaps(drawn, surface)
+        items, labels = [], {}
+        for name, source in frames.items():
+            own = [f for f in drawn if f.item == name]
+            box_m, box_px = fp.item_box(own, surface)
+            labels[name] = box_px
+            nearest = next((g for g in gaps if name in g.items), None)
+            fact = {
+                "item_name": name,
+                "frame": source,
+                "kinds": sorted({f.kind for f in own}),
+                "box_m": [round(v, 7) for v in box_m],
+                "size_um": [
+                    round((box_m[2] - box_m[0]) * 1e6, 1),
+                    round((box_m[3] - box_m[1]) * 1e6, 1),
+                ],
+            }
+            if nearest is not None:
+                mine = nearest.items.index(name)
+                fact["nearest"] = {
+                    "item_name": nearest.items[1 - mine],
+                    "distance_um": round(nearest.distance * 1e6, 1),
+                    "between": [nearest.kinds[mine], nearest.kinds[1 - mine]],
+                }
+            items.append(fact)
+        try:
+            shown = list(box) if box is not None else fp.neighbourhood(drawn, surface)
+            rgb = fp.overview_picture(
+                target, drawn, shown, gaps[0] if gaps else None, labels
+            )
+        except Exception as exc:  # noqa: BLE001 - a box outside the overview
+            return refused("invalid", f"{path or relative(target)}: {exc}")
+        saved = drawn_path(target, f"{image_stem(target)}-milling")
+        caveats = [
+            "Footprints are projected onto a flat sample through the FIB "
+            "image's centre at its saved pose; height steps across the site "
+            "are not modelled.",
+            "Beam shift and the FIB/SEM coincidence offset (a few µm) are not "
+            "included: outlines may sit a few µm off the milled cuts.",
+            "Scan rotations other than 0 and 180 degrees are not modelled.",
+        ]
+        posed = [n for n, s in frames.items() if s == "milling pose"]
+        if posed:
+            caveats.append(
+                f"{', '.join(posed)}: no FIB image, so placed from the milling "
+                "pose with the overview's recorded ion geometry."
+            )
+        return MillingOnOverview(
+            image=relative(target),
+            path=relative(saved),
+            grid_name=grid.name if grid is not None else None,
+            task_names=drawn_tasks,
+            items=items,
+            closest=gaps[0].fact() if gaps else None,
+            unplaced=unplaced,
+            caveats=caveats,
+            plot=save_drawn(rgb, saved, target),
+        )
+
+    @staticmethod
+    def _fib_frame(lamella, overview, relative):
+        """The FIB view *lamella*'s patterns are defined in: its latest ion
+        image's, else its milling pose's (`footprints.pose_frame`)."""
+        from fibsem.milling.patterning import footprints as fp
+
+        found = _task_outputs.latest_task_image(lamella, "_ib.tif")
+        images = [found] if found else _task_outputs.lamella_images(lamella, "_ib.tif")
+        if images:
+            file = os.path.join(str(lamella.path), images[-1])
+            try:
+                frame = fp.FibFrame.from_image(FibsemImage.load(file), relative(file))
+            except Exception:  # noqa: BLE001 - an unreadable image: try the pose
+                frame = None
+            if frame is not None:
+                return frame
+        pose = lamella.milling_pose
+        position = getattr(pose, "stage_position", None)
+        if position is None:
+            return None
+        return fp.pose_frame(position, pose, overview)
 
     @staticmethod
     def _grid_summary(experiment, grid) -> Dict[str, Any]:

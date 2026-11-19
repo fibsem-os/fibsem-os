@@ -94,9 +94,11 @@ Keep everything you hold (a site, a placement, a lamella left UNASSESSED) in
    earlier reset. If the beams aren't coincident, fix it there: refocus, then
    the coincidence loop. If that doesn't work, let Setup finish on this site
    and run it again (`workflow_requeue`) to fix it there. Place the point of
-   interest and the alignment area (which places the fiducial), then call
-   the Verifier with the fresh images, your values and the neighbours while
-   the alignment area's proposal is still pending: once it is decided,
+   interest and the alignment area (which places the fiducial), draw the
+   site and its neighbours on the SEM overview (`grid_draw_milling`: the
+   fiducial and trenches clear of bars, the gap to the nearest neighbour's
+   cuts), then call the Verifier with the fresh images, your values, that
+   picture and the neighbours while the alignment area's proposal is still pending: once it is decided,
    Setup ends and nothing can be placed again. If it disagrees, place again
    and ask again.
    A site you still can't fix or agree on waits for the operator: stop its
