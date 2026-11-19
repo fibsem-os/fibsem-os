@@ -285,9 +285,9 @@ your placement. When you place or move patterns on a new ion image, save that
 image (`beam_acquire_image` with a path) and `alignment_align_to_reference` to
 it right before the mill, so the patterns land where you put them.
 
-**Aligning to a reference.** `alignment_measure_shift` first to see how far
-off you are, then `alignment_align_to_reference`: beam shift for a small
-offset, `stage` when it is beyond the beam shift's range. If the methods
+**Aligning to a reference.** `analysis_measure_shift` (with compare, to see
+whether the methods agree) first to see how far off you are, then
+`alignment_align_to_reference`: beam shift for a small offset, `stage` when it is beyond the beam shift's range. If the methods
 don't agree on what is left, or the score stays low, the view has changed
 (milled, drifted out of frame): stop and tell the operator rather than
 aligning again.

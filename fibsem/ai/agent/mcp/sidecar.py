@@ -655,7 +655,7 @@ def build_sidecar(client, capabilities, instrument=None, record=None):
             ),
         )
 
-    def experiment_get_image_stage_position(
+    def analysis_map_pixel_to_stage(
         path: str,
         x: Optional[float] = None,
         y: Optional[float] = None,
@@ -666,7 +666,7 @@ def build_sidecar(client, capabilities, instrument=None, record=None):
         if isinstance(crop, (list, tuple)):
             crop = ",".join(str(v) for v in crop)
         return _tool(
-            "experiment_get_image_stage_position",
+            "analysis_map_pixel_to_stage",
             path=path,
             x=x,
             y=y,
@@ -687,7 +687,7 @@ def build_sidecar(client, capabilities, instrument=None, record=None):
             **_given(grid_name=grid_name, fov=fov, current=current),
         )
 
-    def experiment_draw_image(
+    def analysis_draw_image(
         path: str,
         marks: Optional[dict] = None,
         crosshair: Optional[bool] = None,
@@ -698,7 +698,7 @@ def build_sidecar(client, capabilities, instrument=None, record=None):
         box: Optional[List[float]] = None,
     ):
         return _routed(
-            "experiment_draw_image",
+            "analysis_draw_image",
             path=path,
             **_given(
                 marks=dict(marks) if marks is not None else None,
@@ -711,7 +711,7 @@ def build_sidecar(client, capabilities, instrument=None, record=None):
             ),
         )
 
-    def experiment_draw_pair(
+    def analysis_draw_pair(
         before: str,
         after: str,
         marks: Optional[dict] = None,
@@ -724,7 +724,7 @@ def build_sidecar(client, capabilities, instrument=None, record=None):
         share_looks: Optional[bool] = None,
     ):
         return _routed(
-            "experiment_draw_pair",
+            "analysis_draw_pair",
             before=before,
             after=after,
             **_given(
@@ -763,9 +763,9 @@ def build_sidecar(client, capabilities, instrument=None, record=None):
             ),
         )
 
-    def experiment_get_image_pixels(path: str, stage_positions: list):
+    def analysis_map_stage_to_pixel(path: str, stage_positions: list):
         return _tool(
-            "experiment_get_image_pixels",
+            "analysis_map_stage_to_pixel",
             path=path,
             stage_positions=[dict(p) for p in stage_positions],
         )
@@ -811,7 +811,7 @@ def build_sidecar(client, capabilities, instrument=None, record=None):
         )
         return err if err else _with_images(data)
 
-    def experiment_crop_image(
+    def analysis_crop_image(
         path: str,
         box: Optional[list] = None,
         fraction: Optional[list] = None,
@@ -1209,12 +1209,12 @@ def build_sidecar(client, capabilities, instrument=None, record=None):
             correlation_correlate,
             correlation_find_spot_burns,
             microscope_set_state,
-            experiment_get_image_stage_position,
+            analysis_map_pixel_to_stage,
             experiment_render_markers,
-            experiment_draw_image,
-            experiment_draw_pair,
+            analysis_draw_image,
+            analysis_draw_pair,
             item_draw_milling,
-            experiment_get_image_pixels,
+            analysis_map_stage_to_pixel,
             protocol_reorder_tasks,
             protocol_set_task_requirements,
             protocol_set_lamella_defaults,
@@ -1232,7 +1232,7 @@ def build_sidecar(client, capabilities, instrument=None, record=None):
             item_get_output_image,
             item_measure_thickness,
             experiment_read_file,
-            experiment_crop_image,
+            analysis_crop_image,
             experiment_fetch_file,
             grid_get_output_image,
             item_update_task_config,

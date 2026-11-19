@@ -365,7 +365,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "(a path from item_list_outputs or an image you saved). A long command: "
             "it answers with its run at once; service_wait_for_run alignment gives each "
             "step's shift, whether the methods agree on what is left, and the "
-            "folder the run saved to. alignment_measure_shift first if you only want to know "
+            "folder the run saved to. analysis_measure_shift first if you only want to know "
             "how far off the view is."
         ),
         method="POST",
@@ -424,73 +424,6 @@ TOOLS: Tuple[ToolSpec, ...] = (
                 use_autocontrast=bool(a.get("use_autocontrast", False)),
                 path=a.get("path"),
             ),
-        ),
-    ),
-    ToolSpec(
-        name="alignment_measure_shift",
-        description=(
-            "The shift of one saved beam image from another, as alignment_align_to_reference "
-            "measures it: metres and pixels, a score (higher is better) and "
-            "whether it cleared the minimum. Both paths inside the open "
-            "experiment, and both images one size. Works with no microscope "
-            "connected. Reads the files and moves nothing."
-        ),
-        method="POST",
-        path="/app/experiment/analysis/shift",
-        router="app",
-        returns="ImageShift",
-        level="watch",
-        params={
-            "reference_path": "the saved reference image",
-            "image_path": "the saved image to measure against it",
-            "method": arg(
-                "cross-correlation (default), phase-correlation or skimage-phase-correlation",
-                default="cross-correlation",
-            ),
-        },
-        optional=("method",),
-        call=lambda a: (
-            {},
-            {
-                "reference": str(a["reference_path"]),
-                "image": str(a["image_path"]),
-                "method": str(a.get("method") or "cross-correlation"),
-            },
-        ),
-    ),
-    ToolSpec(
-        name="alignment_compare_methods",
-        description=(
-            "The shift of one saved beam image from another by every alignment method, "
-            "how far apart the methods are in pixels, and whether they agree: the "
-            "check alignment_align_to_reference validates with. A disagreement "
-            "means the measurement is not to be trusted. Both paths inside the "
-            "open experiment, and both images one size. Works with no microscope "
-            "connected. Reads the files and moves nothing."
-        ),
-        method="POST",
-        path="/app/experiment/analysis/shift",
-        router="app",
-        returns="ImageShift",
-        level="watch",
-        params={
-            "reference_path": "the saved reference image",
-            "image_path": "the saved image to measure against it",
-            "agreement_px": arg(
-                "the most the methods may differ and agree, in pixels (default 2)",
-                float,
-                default=2.0,
-            ),
-        },
-        optional=("agreement_px",),
-        call=lambda a: (
-            {},
-            {
-                "reference": str(a["reference_path"]),
-                "image": str(a["image_path"]),
-                "compare": True,
-                "agreement_px": float(a.get("agreement_px") or 2.0),
-            },
         ),
     ),
     ToolSpec(
@@ -1119,7 +1052,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         description=(
             "Set the microscope to a saved state: both beams' settings and the "
             "stage position, e.g. the microscope_state of an image's metadata "
-            "(experiment_get_image_metadata) to go back to where and how it was "
+            "(analysis_get_image_metadata) to go back to where and how it was "
             "taken. The stage moves. microscope_get_state gives the shape."
         ),
         method="PUT",

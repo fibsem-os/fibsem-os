@@ -1,16 +1,180 @@
-"""The analysis tools: measurements on a saved image in the experiment, in its
-own values, each with a figure to look at and cite (`fibsem.analysis.measure`).
+"""The analysis tools: they read and measure saved image files and nothing
+else (`fibsem.analysis`): crop and draw an image, map its pixels to the stage
+and back, and measure it in its own values, with a figure to look at and cite.
 Nothing moves and no beam fires."""
 
-from typing import List
+from typing import List, Union
 
-from fibsem.ai.agent.catalog.spec import ToolSpec, arg
+from fibsem.ai.agent.catalog.spec import (
+    BOX_PARAM,
+    LOOKS_PARAM,
+    MARKS_PARAM,
+    STACK_PARAMS,
+    ToolSpec,
+    arg,
+)
 
 _CHANNEL = arg(
     "optional: the layer to measure, a fluorescence channel by name (default the first); a beam image has one",
 )
 
 TOOLS = (
+    ToolSpec(
+        name="analysis_crop_image",
+        returns="FileRead",
+        description="One region of an image in the open experiment, at native resolution (downscaled only when wider than 768 px): full detail where it matters, without the whole file. Give box in source pixels or fraction (0 to 1, as read off a preview), each [x, y, width, height]; or cells, up to 8 cells by name (B3, as experiment_read_file with cells lists them), each answered with its own preview and centre stage position. The answer's preview carries the region and its own scale. A point read off a crop's picture goes to analysis_map_pixel_to_stage and marks with crop (the cell's name or the box), so you never offset it yourself.",
+        method="GET",
+        path="/app/experiment/files/{path}",
+        level="watch",
+        router="app",
+        params={
+            "path": "an image path from experiment_list_files, or one an image answer gave",
+            "box": arg(
+                "[x, y, width, height] in source pixels (instead of fraction)", list
+            ),
+            "fraction": arg(
+                "[left, top, width, height] as fractions of the image, 0 to 1 (instead of box)",
+                list,
+            ),
+            "cells": arg(
+                'up to 8 cell names, e.g. ["B3", "C3"] (instead of box)', List[str]
+            ),
+            **STACK_PARAMS,
+            "experiment": "optional: a past experiment to read instead of the open one, by its relative_path from experiment_list_all (or its path from experiment_list_recent); only one the operator named. Every read of it goes on the record",
+        },
+        optional=("box", "fraction", "cells", "z", "channels", "experiment"),
+    ),
+    ToolSpec(
+        name="analysis_draw_image",
+        returns="ImageDrawn",
+        description="Draw marks on any saved image in the experiment (a beam image, or a fluorescence stack's max projection or one plane: plane, else the plane your marks' z share) and look at them before you act or cite them: the same marks as evidence takes, drawn as the operator sees them, in your purple, each label in a box placed clear of the others. crosshair adds the centre crosshair; the scale bar and metadata bar are under it. Saved beside the image as drawn/<image>.png (drawn/<image>-plane-<n>.png for a plane; replaced when drawn again): cite that path as evidence ({image: path}). looks sets each layer's contrast limits, gamma, opacity and colour; box draws one region. Answers the path, the marks (measured lines with their length, each place with its stage position when the image says where it was taken), a preview, and per layer the look it was drawn with (auto limits as numbers) and its stats: min, p1, median, p99, max, clipped_low / clipped_high (% of pixels at the limits) and saturated (% at the file's full value). Too dark or saturated: set clim from those numbers and draw again.",
+        method="POST",
+        path="/app/experiment/images/drawn",
+        level="watch",
+        router="app",
+        params={
+            "path": "an image file path inside the experiment folder",
+            "marks": arg(MARKS_PARAM, dict),
+            "crosshair": arg(
+                "optional: draw the centre crosshair (default false)", bool
+            ),
+            "metadata_bar": arg(
+                "optional: the metadata bar under the image (default true)", bool
+            ),
+            "channels": arg(
+                "optional: for a fluorescence stack, the channels to show, by name (default all)",
+                List[str],
+            ),
+            "plane": arg(
+                "optional: for a fluorescence stack, the plane to show (0 the first; default the plane your marks' z share, else the max projection): marks on other planes are left out",
+                int,
+            ),
+            "looks": arg(LOOKS_PARAM, dict),
+            "box": arg(BOX_PARAM, List[float]),
+        },
+        optional=(
+            "marks",
+            "crosshair",
+            "metadata_bar",
+            "channels",
+            "plane",
+            "looks",
+            "box",
+        ),
+    ),
+    ToolSpec(
+        name="analysis_draw_pair",
+        returns="ImagePairDrawn",
+        description="Two saved images of the experiment side by side at one scale, each with its own scale bar and metadata bar: before and after a mill, before and after an alignment, SEM next to FIB of one site, two planes of one fluorescence stack (before_plane, after_plane: the target's plane next to the surface's, each with only its own marks). marks (in before's pixels) are drawn on both, at the same place of each frame, so a shift or a missing feature shows. box (before's pixels) draws that region of each, the same place on after. looks applies to both; share_looks (default true) draws after with before's limits wherever looks leaves a layer on auto, so a fade shows as a fade. Saved beside before as drawn/<before>-<after>.png: cite that path as evidence. Answers the path, the marks, a preview and each half's layers (look and stats, as analysis_draw_image).",
+        method="POST",
+        path="/app/experiment/images/pair",
+        level="watch",
+        router="app",
+        params={
+            "before": "an image file path inside the experiment folder, drawn on the left",
+            "after": "an image file path inside the experiment folder, drawn on the right",
+            "marks": arg(MARKS_PARAM, dict),
+            "metadata_bar": arg(
+                "optional: the metadata bar under each image (default true)", bool
+            ),
+            "channels": arg(
+                "optional: for fluorescence stacks, the channels to show, by name (default all)",
+                List[str],
+            ),
+            "before_plane": arg(
+                "optional: before's plane, when a fluorescence stack (0 the first; default as analysis_draw_image picks)",
+                int,
+            ),
+            "after_plane": arg(
+                "optional: after's plane, when a fluorescence stack (0 the first; default as analysis_draw_image picks)",
+                int,
+            ),
+            "looks": arg(LOOKS_PARAM, dict),
+            "box": arg(BOX_PARAM + "; in before's pixels", List[float]),
+            "share_looks": arg(
+                "optional: draw after with before's limits wherever looks leaves a layer on auto (default true)",
+                bool,
+            ),
+        },
+        optional=(
+            "marks",
+            "metadata_bar",
+            "channels",
+            "before_plane",
+            "after_plane",
+            "looks",
+            "box",
+            "share_looks",
+        ),
+    ),
+    ToolSpec(
+        name="analysis_get_image_metadata",
+        returns="SavedImageMetadata",
+        description="The full saved metadata of one image file in the experiment folder: the image settings, pixel size, microscope state (stage, both beams, detectors) and the item and task it was taken for. The image tools already carry a short block of this; use this for the rest. Paths outside the experiment are refused.",
+        method="GET",
+        path="/app/experiment/images/metadata",
+        level="watch",
+        router="app",
+        params={
+            "path": "an image file path inside the experiment folder, e.g. the path an image answer gives"
+        },
+    ),
+    ToolSpec(
+        name="analysis_map_pixel_to_stage",
+        returns="SavedImagePosition",
+        description="The stage position under a point of any saved image in the experiment, beam or FM, from the image's own metadata, so it holds wherever the stage is now. Give x, y in source pixels, or fx, fy from 0 to 1 for a point read off a preview; with crop, x, y as read off that crop's picture (or fx, fy of it), converted for you. Nothing moves.",
+        method="GET",
+        path="/app/experiment/images/stage_position",
+        level="watch",
+        router="app",
+        params={
+            "path": "an image file path inside the experiment folder",
+            "x": arg("source-pixel x (with y)", float),
+            "y": arg("source-pixel y, +y down (with x)", float),
+            "fx": arg("fraction across the image, 0-1 (with fy)", float),
+            "fy": arg("fraction down the image, 0-1 (with fx)", float),
+            "crop": arg(
+                "optional: the crop the point was read off: a cell's name (B3) from analysis_crop_image, or its box [x, y, width, height]",
+                Union[str, List[float]],
+            ),
+        },
+        optional=("x", "y", "fx", "fy", "crop"),
+    ),
+    ToolSpec(
+        name="analysis_map_stage_to_pixel",
+        returns="SavedImagePixels",
+        description="Where stage positions fall on any saved image in the experiment, beam or FM: source pixels for each (and whether inside the image), with the image's scale block. A position the image can't place answers why. Computed from the image's own metadata; never re-derive stage geometry. Nothing moves.",
+        method="POST",
+        path="/app/experiment/images/pixels",
+        level="watch",
+        router="app",
+        params={
+            "path": "an image file path inside the experiment folder",
+            "stage_positions": arg(
+                "stage position dicts (x, y, z, r, t, coordinate_system)", list
+            ),
+        },
+    ),
     ToolSpec(
         name="analysis_measure_intensity",
         returns="ImageMeasured",
@@ -82,5 +246,30 @@ TOOLS = (
             ),
         },
         optional=("channel", "plane"),
+    ),
+    ToolSpec(
+        name="analysis_measure_shift",
+        returns="ImageShift",
+        description="The shift of one saved beam image from another, as alignment_align_to_reference measures it: metres and pixels, a score (higher is better) and whether it cleared the minimum. compare also measures it by every method and says how far apart they are in pixels and whether they agree, the check alignment_align_to_reference validates with: a disagreement means the measurement is not to be trusted. Both paths inside the experiment, and both images one size. Works with no microscope connected. Nothing moves.",
+        method="POST",
+        path="/app/experiment/analysis/shift",
+        level="watch",
+        router="app",
+        params={
+            "reference": "the saved reference image's path inside the experiment folder",
+            "image": "the saved image to measure against it",
+            "method": arg(
+                "optional: cross-correlation (default), phase-correlation or skimage-phase-correlation",
+            ),
+            "compare": arg(
+                "optional: also measure by every method and say whether they agree (default false)",
+                bool,
+            ),
+            "agreement_px": arg(
+                "optional: with compare, the most the methods may differ and agree, in pixels (default 2)",
+                float,
+            ),
+        },
+        optional=("method", "compare", "agreement_px"),
     ),
 )
