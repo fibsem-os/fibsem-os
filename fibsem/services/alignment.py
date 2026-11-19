@@ -4,8 +4,8 @@ The alignment itself is `fibsem.alignment`'s, the one the workflows use: acquire
 an image with the reference's settings, measure its shift from the reference,
 and correct it with the beam shift or the stage, a few times over
 (`multi_step_alignment_v2`). The service runs it from a saved reference *path*,
-since a route can't carry an image, and adds ``measure_shift``, the measurement
-alone between two saved images, which moves nothing.
+since a route can't carry an image. Measuring the shift between two saved
+images, which moves nothing, is an image tool (`fibsem.analysis.tools`).
 
 Being a service is what lets an agent align over the App Server, under
 ``/microscope/services/alignment``.
@@ -29,9 +29,7 @@ _A = TypeVar("_A", bound="Alignment")
 
 class Alignment(Service):
     """Alignment to saved reference images: ``align_to_reference`` corrects the view onto
-    one, ``measure_shift`` measures the shift between two, ``compare_methods``
-    measures it by every method, ``stop`` ends an
-    ``align_to_reference`` between steps."""
+    one, ``stop`` ends an ``align_to_reference`` between steps."""
 
     def __init__(self, name: str = "alignment", **kwargs: Any):
         super().__init__(name, **kwargs)
@@ -54,7 +52,7 @@ class Alignment(Service):
         times. *subsystem* corrects with the ``beam-shift`` (fine, small range),
         the ``stage`` (a stable move) or ``stage-vertical`` (a vertical move).
         *use_autofocus* focuses before each acquisition; *method* measures the
-        shift (as ``measure_shift``); *validate* takes a final image and checks
+        shift (as ``analysis_measure_shift`` does); *validate* takes a final image and checks
         that the methods agree on what is left.
 
         Saves the run (each image, the measurements and a plot) under *path*,
@@ -206,47 +204,6 @@ class Alignment(Service):
                 metadata["overlay_path"], cv2.cvtColor(overlay, cv2.COLOR_RGB2BGR)
             )
         return Frame(overlay, metadata)
-
-    @query
-    def measure_shift(
-        self,
-        reference_path: str,
-        image_path: str,
-        method: str = "cross-correlation",
-    ) -> Dict[str, Any]:
-        """The shift of the saved image at *image_path* from the one at
-        *reference_path*, as ``align_to_reference`` measures it: in metres and pixels, with
-        the score (higher is better) and whether it cleared the minimum.
-        Reads the files and moves nothing. *method* is ``cross-correlation``,
-        ``phase-correlation`` or ``skimage-phase-correlation``."""
-        from fibsem.alignment import AlignmentMethod, _calculate_shift
-
-        result = _calculate_shift(
-            FibsemImage.load(reference_path),
-            FibsemImage.load(image_path),
-            AlignmentMethod(method),
-        )
-        return result.to_dict()
-
-    @query
-    def compare_methods(
-        self,
-        reference_path: str,
-        image_path: str,
-        agreement_px: float = 2.0,
-    ) -> Dict[str, Any]:
-        """The shift of the saved image at *image_path* from the one at
-        *reference_path* by every method, how far apart they are in pixels, and
-        whether they agree (within *agreement_px*): the check
-        ``align_to_reference`` validates with. Reads the files and moves
-        nothing."""
-        from fibsem.alignment import compare_alignment_methods
-
-        return compare_alignment_methods(
-            FibsemImage.load(reference_path),
-            FibsemImage.load(image_path),
-            agreement_threshold_px=agreement_px,
-        ).to_dict()
 
 
 def bind_alignment(service: Type[_A], microscope: Any) -> Optional[_A]:
