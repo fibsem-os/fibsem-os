@@ -102,6 +102,10 @@ def split_event_id(value: str) -> Optional[Tuple[str, int]]:
     return stream, int(seq)
 
 
+# The fields every record has, which only the buffer sets.
+_OWN_FIELDS = frozenset(("id", "seq", "timestamp", "t", "kind", "payload"))
+
+
 class EventBuffer:
     """Bounded, sequence-numbered, thread-safe event log with long-poll wait.
 
@@ -130,20 +134,30 @@ class EventBuffer:
         self._subscribers: List[Callable[[Dict[str, Any]], None]] = []
 
     def append(
-        self, kind: str, payload: Dict[str, Any], actor: Optional[str] = None
+        self,
+        kind: str,
+        payload: Dict[str, Any],
+        actor: Optional[str] = None,
+        envelope: Optional[Dict[str, Any]] = None,
     ) -> int:
         """Record one event. Cheap and non-blocking; safe from any thread.
 
         The one way onto the record: every writer calls it. ``actor`` names who
         acted, when the writer knows better than the thread's mark -- an answer
         is whoever answered, though the GUI thread delivers it. The stamp puts
-        it on the envelope, so the payload need not say who.
+        it on the envelope, so the payload need not say who. *envelope* is
+        fields already stamped elsewhere, for a record passed on from another
+        stream; the six names this buffer sets are its own.
         """
         now = time.time()
-        extra: Dict[str, Any] = {}
+        extra: Dict[str, Any] = {
+            key: value
+            for key, value in (envelope or {}).items()
+            if key not in _OWN_FIELDS
+        }
         if self._stamp is not None:
             try:
-                extra = self._stamp(kind, payload, actor) or {}
+                extra = {**extra, **(self._stamp(kind, payload, actor) or {})}
             except Exception:  # noqa: BLE001 - a stamp must never cost the event
                 logger.debug("event stamp failed", exc_info=True)
         if actor is not None:

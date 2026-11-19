@@ -4,6 +4,8 @@
 # session settings still hold under it.
 description: Fluorescence imaging on a standalone cryo-FM.
 instrument: cryo-fm
+# Its devices are served by the App Server, through its fibsem sidecar.
+mcp: [fibsem]
 skills: [fibsem-agent, cryo-fm]
 reminders:
   hardware_error: Stop. Don't retry. Message the operator with the error word for word.

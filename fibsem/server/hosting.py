@@ -37,7 +37,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from fibsem import unreleased
-from fibsem.acting import AGENT
+from fibsem.acting import AGENT, OPERATOR
 from fibsem.cancellation import NothingToStop
 from fibsem.workflows.events import EventBuffer
 
@@ -81,6 +81,45 @@ def event_log_url(host) -> str:
 def chat_url(host) -> str:
     """The web app's Agent page, with the operator token in the fragment."""
     return f"{host.url}/ui/agent#token={host.auth.operator_token}"
+
+
+def agent_connections(tokens, buffer: Callable[[], Optional[EventBuffer]]):
+    """Asks to connect to a server with these paired *tokens*, allowed at once
+    from this PC while the operator's setting says so; an Allow by the setting
+    goes on *buffer*'s record as theirs. The App Server's, and the agent
+    host's (`fibsem.server.agent.host`)."""
+    from fibsem import config
+    from fibsem.server.connections import Connections
+    from fibsem.workflows.actions import ACTION, action_record
+
+    def save(on: bool) -> None:
+        config.update_user_preferences(
+            lambda p: setattr(p.install.app_server, "allow_local_agents", on)
+        )
+
+    connections = Connections(
+        tokens,
+        always_allow=config.load_user_preferences().install.app_server.allow_local_agents,
+        save_always_allow=save,
+    )
+
+    def record(computer, replaced) -> None:
+        logger.info("Allowed %s to connect (always allowed)", computer.name)
+        stream = buffer()
+        if stream is None:
+            return
+        stream.append(
+            ACTION,
+            action_record(
+                f"Allow {computer.name} to connect",
+                reason="Always allow agents logged in to this PC is on"
+                + (f"; replaces {replaced}" if replaced else ""),
+            ),
+            actor=OPERATOR,
+        )
+
+    connections.on_allowed_always(record)
+    return connections
 
 
 class AppServerHost:
@@ -220,40 +259,9 @@ class AppServerHost:
         return f"http://{self._host}:{self._port}"
 
     def _connections(self):
-        """Asks to connect, allowed at once from this PC while the operator's
-        setting says so; an Allow by the setting goes on the record as theirs."""
-        from fibsem import config
-        from fibsem.acting import OPERATOR
-        from fibsem.server.connections import Connections
-        from fibsem.workflows.actions import ACTION, action_record
-
-        def save(on: bool) -> None:
-            config.update_user_preferences(
-                lambda p: setattr(p.install.app_server, "allow_local_agents", on)
-            )
-
-        connections = Connections(
-            self.auth.pairing.tokens,
-            always_allow=config.load_user_preferences().install.app_server.allow_local_agents,
-            save_always_allow=save,
-        )
-
-        def record(computer, replaced) -> None:
-            logger.info("Allowed %s to connect (always allowed)", computer.name)
-            if self.event_buffer is None:
-                return
-            self.event_buffer.append(
-                ACTION,
-                action_record(
-                    f"Allow {computer.name} to connect",
-                    reason="Always allow agents logged in to this PC is on"
-                    + (f"; replaces {replaced}" if replaced else ""),
-                ),
-                actor=OPERATOR,
-            )
-
-        connections.on_allowed_always(record)
-        return connections
+        """Asks to connect: `agent_connections` over this server's paired
+        computers and event stream."""
+        return agent_connections(self.auth.pairing.tokens, lambda: self.event_buffer)
 
     def start(self) -> bool:
         """Serve the session, connected or not. Returns False (and logs)

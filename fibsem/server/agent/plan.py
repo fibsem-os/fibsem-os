@@ -319,10 +319,18 @@ class PlanStore:
         return items
 
 
-def _session_id(auth: AuthConfig) -> str:
+def running_session(auth: AuthConfig) -> Optional[str]:
+    """The id of the agent session running now; None for none."""
     session = auth.agent_session or {}
     found = session.get("session_id")
     if session.get("ended") or not isinstance(found, str) or not _SESSION.match(found):
+        return None
+    return found
+
+
+def _session_id(auth: AuthConfig) -> str:
+    found = running_session(auth)
+    if found is None:
         raise refusal_error(
             409,
             "no_session",
