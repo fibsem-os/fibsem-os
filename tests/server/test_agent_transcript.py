@@ -1,6 +1,7 @@
 """The agent's transcript, kept beside the experiment, and what the agent said
 it can do: ``/app/agent/transcript`` and the session's facts."""
 
+import base64
 import json
 import time
 from datetime import datetime
@@ -207,3 +208,70 @@ def test_a_done_line_names_its_step_and_each_post_is_an_event(tmp_path):
     from fibsem.workflows.events.kinds import LIVE_KINDS
 
     assert "agent_transcript" in LIVE_KINDS
+
+
+PNG = base64.b64encode(b"\x89PNG\r\n\x1a\n not really").decode()
+
+
+def test_a_picture_is_kept_beside_the_transcript_and_served(server):
+    client, _, folder = server
+    step = {"seq": 4, "kind": "step", "verb": "Called", "text": "notebook read_page"}
+    picture = {
+        "seq": 5,
+        "kind": "picture",
+        "text": "",
+        "step": 4,
+        "image": PNG,
+        "media_type": "image/png",
+    }
+    assert _post(client, "s1", step, picture).json() == {"kept": 2}
+    saved = folder / "agent" / "pictures" / "s1-5.png"
+    assert saved.read_bytes() == base64.b64decode(PNG)
+    # The line keeps the picture's path, not the picture.
+    line = json.loads(
+        (folder / "agent" / "transcript-s1.jsonl").read_text().splitlines()[-1]
+    )
+    assert line["path"] == "pictures/s1-5.png" and "image" not in line
+    entries = client.get("/app/agent/transcript").json()["entries"]
+    assert entries[-1]["path"] == "pictures/s1-5.png"
+
+    served = client.get("/app/agent/transcript/pictures/s1-5.png")
+    assert served.status_code == 200
+    assert served.headers["content-type"] == "image/png"
+    assert served.content == base64.b64decode(PNG)
+    for name in ("s1-6.png", "..%2Ftranscript-s1.jsonl", "s1-5.svg"):
+        missing = client.get(f"/app/agent/transcript/pictures/{name}")
+        assert missing.status_code == 404, name
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"media_type": "image/svg+xml"},
+        {"image": "not base64!"},
+        {"image": ""},
+        {"seq": None},
+    ],
+)
+def test_a_bad_picture_is_refused_and_keeps_nothing(server, change):
+    client, _, folder = server
+    picture = {"seq": 5, "kind": "picture", "text": "", "image": PNG}
+    picture["media_type"] = "image/png"
+    picture.update(change)
+    picture = {k: v for k, v in picture.items() if v is not None}
+    assert _post(client, "s1", picture).status_code == 422
+    assert not (folder / "agent" / "pictures").exists()
+
+
+def test_a_waiting_picture_moves_into_the_experiment(server):
+    client, experiment, folder = server
+    experiment["path"] = None
+    report(client.app.state.auth, {"session_id": "s1"})
+    picture = {"seq": 2, "kind": "picture", "text": "", "image": PNG}
+    picture["media_type"] = "image/png"
+    assert _post(client, "s1", picture).status_code == 200
+    assert client.get("/app/agent/transcript/pictures/s1-2.png").status_code == 200
+    experiment["path"] = str(folder)
+    _post(client, "s1", {"kind": "said", "text": "after"})
+    assert (folder / "agent" / "pictures" / "s1-2.png").is_file()
+    assert client.get("/app/agent/transcript/pictures/s1-2.png").status_code == 200

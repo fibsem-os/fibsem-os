@@ -2,7 +2,7 @@ import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-quer
 import { ArrowDown, BookOpen, Check, ChevronDown, ChevronRight, ListChecks, ListFilter, Loader } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Popup } from "@/components/ui/popup";
-import { api } from "@/lib/api";
+import { api, imageUrl } from "@/lib/api";
 import { onEvents } from "@/lib/events";
 import { Markdown } from "@/lib/markdown";
 import type { AgentPlan, AgentState, RecentRow, ReportedSession, TranscriptLine } from "@/lib/types";
@@ -205,6 +205,25 @@ type Answers = Map<string, TranscriptLine>;
 const stepKey = (session: string, seq: number | undefined) => `${session}|${seq}`;
 /** A line that answers a step: shown on the step, never on its own. */
 const answers = (l: TranscriptLine) => (l.kind === "done" || l.kind === "failed") && l.step != null;
+/** A step's pictures, by its session and number. */
+type Pictures = Map<string, TranscriptLine[]>;
+
+/** A picture a lab's tool answered a step with; a click opens it full size. */
+function StepPicture({ line }: { line: TranscriptLine }) {
+  const name = line.path?.split("/").pop() ?? "";
+  const { data: url } = useQuery({
+    queryKey: ["app/agent/transcript/pictures", name],
+    queryFn: () => imageUrl(`/app/agent/transcript/pictures/${encodeURIComponent(name)}`),
+    enabled: !!name,
+    staleTime: Infinity,
+  });
+  if (!url) return null;
+  return (
+    <a href={url} target="_blank" rel="noreferrer" title="Open the picture" className="block w-fit">
+      <img src={url} alt={line.text || "The step's picture"} className="max-h-48 max-w-full rounded border object-contain" />
+    </a>
+  );
+}
 
 /** What fibsem-agent printed between two rows, in one line, "Working · 6 steps".
  * Open while the agent still adds to it, and it stays open when the agent moves
@@ -216,6 +235,7 @@ function Working({
   folded,
   live,
   answered,
+  pictures,
   running,
   now,
   calls,
@@ -224,6 +244,7 @@ function Working({
   folded: boolean;
   live: boolean;
   answered: Answers;
+  pictures: Pictures;
   running: (step: TranscriptLine) => boolean;
   now?: string | null;
   calls: boolean;
@@ -318,6 +339,12 @@ function Working({
                       </span>
                     )}
                   </span>
+                  {l.kind === "step" &&
+                    pictures.get(stepKey(l.session_id, l.seq))?.map((p) => (
+                      <span key={p.seq} className="col-start-2">
+                        <StepPicture line={p} />
+                      </span>
+                    ))}
                 </div>
               );
             })}
@@ -356,7 +383,12 @@ function Record({
   let working: TranscriptLine[] = [];
   const answered: Answers = new Map();
   const lastAnswered = new Map<string, number>();
+  const pictures: Pictures = new Map();
   for (const l of lines) {
+    if (l.kind === "picture" && l.step != null && l.path) {
+      const key = stepKey(l.session_id, l.step);
+      pictures.set(key, [...(pictures.get(key) ?? []), l]);
+    }
     if (!answers(l)) continue;
     answered.set(stepKey(l.session_id, l.step), l);
     lastAnswered.set(l.session_id, Math.max(lastAnswered.get(l.session_id) ?? 0, l.step ?? 0));
@@ -365,8 +397,8 @@ function Record({
   const lastStep = [...lines].reverse().find((l) => l.kind === "step");
   const running = (step: TranscriptLine) =>
     heard && (saysDone ? (step.seq ?? 0) > (lastAnswered.get(step.session_id) ?? 0) : step === lastStep);
-  // The answers show on their steps, not as lines of their own.
-  lines = lines.filter((l) => !answers(l));
+  // The answers and pictures show on their steps, not as lines of their own.
+  lines = lines.filter((l) => !answers(l) && l.kind !== "picture");
   // Keyed by what a row says, not where it sits: the oldest rows drop off the
   // window, and a run keyed by position would lose whether the reader opened it.
   const seen = new Map<string, number>();
@@ -390,6 +422,7 @@ function Record({
           folded={show === "all"}
           live={live}
           answered={answered}
+          pictures={pictures}
           running={running}
           now={now}
           calls={calls}

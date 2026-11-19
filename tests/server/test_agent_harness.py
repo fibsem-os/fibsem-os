@@ -1952,3 +1952,61 @@ def test_a_compacted_context_asks_for_the_plan_on_the_next_turn():
         "Your context was compacted. " + harness_mod.texts().reread_plan
     )
     assert "compacted" not in second
+
+
+def test_a_lab_tool_s_picture_goes_on_the_transcript_under_its_step():
+    pytest.importorskip("claude_agent_sdk")
+    from claude_agent_sdk import (
+        AssistantMessage,
+        ToolResultBlock,
+        ToolUseBlock,
+        UserMessage,
+    )
+
+    from fibsem.ai.agent.harness import (
+        PICTURES_WAITING,
+        SdkAgent,
+        _one_picture,
+        _show,
+    )
+
+    agent = SdkAgent(harness_mod.build_options(harness_mod.find_checkout()))
+    image = {
+        "type": "image",
+        "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw=="},
+    }
+    for call, tool in (("t1", "mcp__notebook__read_page"), ("t2", "mcp__fibsem__x")):
+        _show(AssistantMessage(content=[ToolUseBlock(call, tool, {})], model="m"), agent)
+        result = [{"type": "text", "text": "a page"}, image]
+        _show(UserMessage(content=[ToolResultBlock(call, result, False)]), agent)
+    lab, picture = agent.transcript[0], agent.transcript[2]
+    # The lab's picture follows its step's done line; ours shows none.
+    assert [line["kind"] for line in agent.transcript] == [
+        "step",
+        "done",
+        "picture",
+        "step",
+        "done",
+    ]
+    assert picture["step"] == lab["seq"]
+    assert (picture["media_type"], picture["image"]) == ("image/png", "iVBORw==")
+
+    # An image as MCP gives it, a kind the server won't keep, and one too many.
+    agent.transcript.clear()
+    mcp = {"type": "image", "data": "R0lG", "mimeType": "image/gif"}
+    svg = {"type": "image", "data": "PHN2Zz4=", "mimeType": "image/svg+xml"}
+    for n in range(PICTURES_WAITING + 1):
+        call = f"m{n}"
+        _show(
+            AssistantMessage(
+                content=[ToolUseBlock(call, "mcp__notebook__plot", {})], model="m"
+            ),
+            agent,
+        )
+        _show(UserMessage(content=[ToolResultBlock(call, [mcp, svg], False)]), agent)
+    pictures = [line for line in agent.transcript if line["kind"] == "picture"]
+    assert len(pictures) == PICTURES_WAITING
+    assert {line["media_type"] for line in pictures} == {"image/gif"}
+    # A send carries one picture at most.
+    sent = _one_picture(agent.transcript)
+    assert sum(line["kind"] == "picture" for line in sent) == 1

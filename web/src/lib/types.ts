@@ -199,13 +199,16 @@ export type RecentRow = Narrow<
 export interface TranscriptLine {
   t: string;
   /** context: what fibsem-agent says of the session, "Playbook set: autolamella, ...".
-   * done: the step it names finished, so it no longer shows as running. */
-  kind: "said" | "step" | "done" | "failed" | "context";
+   * done: the step it names finished, so it no longer shows as running.
+   * picture: an image a lab's tool answered the step with, at *path*. */
+  kind: "said" | "step" | "done" | "failed" | "context" | "picture";
   text: string;
   verb?: string;
   seq?: number;
-  /** For "done" and "failed": the step it was. */
+  /** For "done", "failed" and "picture": the step it was. */
   step?: number;
+  /** For "picture": where it is, under the agent folder ("pictures/<session>-<seq>.png"). */
+  path?: string;
   /** For "done" and "failed": how long the step took, in seconds. */
   took_s?: number;
   session_id: string;
