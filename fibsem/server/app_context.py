@@ -161,11 +161,21 @@ def history_row(item, state) -> HistoryRow:
     )
 
 
+def _positions(experiment) -> List[Any]:
+    """The experiment's positions; for one that keeps none (an app's own kind
+    of experiment), its items."""
+    positions = getattr(experiment, "positions", None)
+    return list(positions) if positions is not None else list(experiment.items())
+
+
 class AppContext:
     """The reads every app serves, over its ``AppSession``."""
 
     # The app the operator works in, as the App Server names it to the agent.
     app_name = "fibsemOS"
+    # Whether creating or opening an experiment waits for a FIB/SEM
+    # microscope. An app for another instrument says False.
+    experiments_need_microscope = True
 
     def __init__(self, session, event_buffer=None):
         self._session = session
@@ -290,7 +300,7 @@ class AppContext:
             status.experiment = ExperimentRef(
                 experiment.name,
                 str(experiment.path),
-                len(experiment.positions),
+                len(_positions(experiment)),
                 getattr(experiment, "sample", "") or "",
                 getattr(experiment, "id", "") or "",
             )
@@ -402,7 +412,7 @@ class AppContext:
         if experiment is None:
             return no_experiment()
         return self.answer_type(ExperimentSummary)(
-            items=[self.summary_row(experiment, p) for p in experiment.positions],
+            items=[self.summary_row(experiment, p) for p in _positions(experiment)],
         )
 
     def task_history(self) -> TaskHistory:
@@ -412,7 +422,7 @@ class AppContext:
             return no_experiment()
         rows = [
             (s.start_timestamp, history_row(p, s))
-            for p in experiment.positions
+            for p in _positions(experiment)
             for s in p.task_history
         ]
         # Through POSIX time, so old naive stamps and aware ones still compare.
@@ -809,7 +819,10 @@ class AppContext:
 
     def _session_refusal(self) -> Optional[Refusal]:
         """Why the open experiment cannot be replaced now, or None."""
-        return self._not_while_running("change experiments") or self._no_microscope()
+        refusal = self._not_while_running("change experiments")
+        if refusal is None and self.experiments_need_microscope:
+            refusal = self._no_microscope()
+        return refusal
 
     def _agent_call(self, call, timeout: float = 30.0):
         """``call()`` where the session edits the experiment."""

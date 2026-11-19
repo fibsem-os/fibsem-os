@@ -105,8 +105,17 @@ def test_a_plugins_kind_is_offered_the_tools_on_its_devices(installed):
     (folder / "devices.yaml").write_text("devices: [stage, camera]\n")
     assert "stage_get_position" in offered()
     assert "milling_run_stage" not in offered()
+    # A tool on a device it has that doesn't fit it is hidden, by name or pattern.
+    (folder / "devices.yaml").write_text(
+        "devices: [stage, camera]\nhide: [stage_get_position, device_call_*]\n"
+    )
+    assert not {"stage_get_position", "device_call_command"} & offered()
+    assert "device_list" in offered()
 
     (folder / "devices.yaml").write_text("devices: stage\n")
+    with pytest.raises(instruments.InstrumentError, match="list of names"):
+        instruments.devices("lab-scope", checkout)
+    (folder / "devices.yaml").write_text("hide: stage_get_position\n")
     with pytest.raises(instruments.InstrumentError, match="list of names"):
         instruments.devices("lab-scope", checkout)
     (folder / "devices.yaml").write_text("tools: [milling_run_stage]\n")

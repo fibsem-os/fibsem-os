@@ -17,6 +17,7 @@ re-read its tool list, so the server's 403 is the gate and each description
 names the level it needs.
 """
 
+import fnmatch
 import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, FrozenSet, Optional, Tuple
@@ -175,13 +176,19 @@ def needs(tool: ToolSpec) -> FrozenSet[str]:
 class Devices:
     """What a kind of instrument has, as its ``devices.yaml`` says
     (`fibsem.ai.agent.instruments.devices`): a FIB-SEM, which gets every
-    tool, or its devices and services by name."""
+    tool, or its devices and services by name. *hide* names tools it is
+    never offered, as names or shell patterns (``fm_*``): a tool on a device
+    it has that doesn't fit it, such as a stage tool that reads a FIB-SEM's
+    stage."""
 
     microscope: bool = False
     devices: FrozenSet[str] = field(default_factory=frozenset)
     services: FrozenSet[str] = field(default_factory=frozenset)
+    hide: Tuple[str, ...] = ()
 
     def offers(self, tool: ToolSpec) -> bool:
+        if any(fnmatch.fnmatchcase(tool.name, pattern) for pattern in self.hide):
+            return False
         if self.microscope:
             return True
         have = {f"device:{d}" for d in self.devices} | {

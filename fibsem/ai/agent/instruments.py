@@ -8,7 +8,9 @@ intake steps and the re-read lines, as files beside the playbooks.
         devices.yaml  what it has, so the agent is offered the tools on them:
                       ``microscope: true`` for a FIB-SEM (every tool), else
                       ``devices:`` and ``services:``, each a list of names;
-                      none gets only the tools for any instrument
+                      none gets only the tools for any instrument.
+                      ``hide:`` lists tools never offered, by name or
+                      pattern (``fm_*``)
 
 A playbook names its kind (``instrument:``); the shipped base playbook sets
 ``fibsem``, and ``none`` is for a playbook with no instrument (`NONE`). The files are fibsemOS's own, or an installed plugin's for its own
@@ -127,7 +129,7 @@ def load(kind: Optional[str], checkout: Path) -> Texts:
 
 
 DEVICES_FILE = "devices.yaml"
-_DEVICES_KEYS = {"microscope", "devices", "services"}
+_DEVICES_KEYS = {"microscope", "devices", "services", "hide"}
 
 
 def devices(kind: Optional[str], checkout: Optional[Path]) -> Devices:
@@ -148,12 +150,13 @@ def devices(kind: Optional[str], checkout: Optional[Path]) -> Devices:
             f"{path}: give {', '.join(sorted(_DEVICES_KEYS))}, not {data!r}"
         )
     names = {}
-    for key in ("devices", "services"):
+    for key in ("devices", "services", "hide"):
         value = data.get(key) or []
         if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
             raise InstrumentError(f"{path}: {key} is a list of names")
         names[key] = frozenset(value)
-    return Devices(microscope=data.get("microscope") is True, **names)
+    hide = tuple(sorted(names.pop("hide")))
+    return Devices(microscope=data.get("microscope") is True, hide=hide, **names)
 
 
 @cache
