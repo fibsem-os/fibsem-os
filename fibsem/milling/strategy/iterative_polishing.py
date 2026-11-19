@@ -114,7 +114,7 @@ class IterativePolishingConfig(MillingStrategyConfig):
     )
     target_channel: Optional[ChannelSettings] = param(
         None,
-        doc="The channel the target is seen in, with its excitation in nm and its emission filter (left out, the stack is reflection, not fluorescence); None takes no target stack.",
+        doc="The channel the target is seen in; None takes no target stack.",
         display=Display("Target Channel", advanced=True),
     )
     zparams: ZParameters = param(
@@ -177,8 +177,6 @@ class IterativePolishingStrategy(MillingStrategy[IterativePolishingConfig]):
                 "A pass looks at the lamella after the mill: take an SEM image, "
                 "fluorescence stacks, or both"
             )
-        if config.target_channel is not None:
-            config.target_channel.check_units()  # before the mill, not after
         if microscope.fm is None and (
             stacks_wanted or config.objective_position is not None
         ):

@@ -813,8 +813,6 @@ class FluorescenceMicroscope:
         if not self.camera:
             raise ValueError("Camera is not set.")
 
-        channel_settings.check_units()
-
         # Configure filter wavelengths
         self.filter_set.excitation_wavelength = channel_settings.excitation_wavelength
         self.filter_set.emission_filter = channel_settings.emission_filter

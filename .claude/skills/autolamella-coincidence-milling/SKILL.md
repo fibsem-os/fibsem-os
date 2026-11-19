@@ -30,16 +30,8 @@ pass also takes FM stacks and follows a target:
              "config": {"face": "top", "acquire_sem_image": true,
                         "objective_position": "<this pass's, in m>",
                         "baseline": "<the last pass's Pass data>",
-                        "targets": [[212.4, 198.1]], "control": [140.0, 260.0],
-                        "target_channel": {"name": "red",
-                                           "excitation_wavelength": 550,
-                                           "emission_filter": {"name": "<filter_set's>"},
-                                           "power": 0.01, "exposure_time": 0.1}}}
+                        "targets": [[212.4, 198.1]], "control": [140.0, 260.0]}}
 ```
-
-`target_channel` is the channel the target shows in: its excitation in nm (550,
-not 5.5e-07) and an emission filter from the FM's `filter_set` choices. Left
-without one, the stack is reflection, and the target doesn't show in it.
 
 `service_wait_for_run` milling then also answers each target's refit,
 signal, ratio to the control and change from the baseline, and the stacks'
