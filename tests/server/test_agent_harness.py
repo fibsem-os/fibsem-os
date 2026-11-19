@@ -1976,7 +1976,9 @@ def test_a_lab_tool_s_picture_goes_on_the_transcript_under_its_step():
         "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw=="},
     }
     for call, tool in (("t1", "mcp__notebook__read_page"), ("t2", "mcp__fibsem__x")):
-        _show(AssistantMessage(content=[ToolUseBlock(call, tool, {})], model="m"), agent)
+        _show(
+            AssistantMessage(content=[ToolUseBlock(call, tool, {})], model="m"), agent
+        )
         result = [{"type": "text", "text": "a page"}, image]
         _show(UserMessage(content=[ToolResultBlock(call, result, False)]), agent)
     lab, picture = agent.transcript[0], agent.transcript[2]
