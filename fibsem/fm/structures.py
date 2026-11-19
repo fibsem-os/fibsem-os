@@ -373,11 +373,6 @@ def emission_filter_from_ome(
     )
 
 
-# The shortest excitation wavelength a channel can have (nm): below it, a
-# wavelength was given in another unit (`ChannelSettings.check_units`)
-MIN_EXCITATION_NM = 100.0
-
-
 @dataclass
 class ChannelSettings(Configurable):
     name: str = param(
@@ -393,7 +388,7 @@ class ChannelSettings(Configurable):
     )  # nm
     emission_filter: EmissionFilter = param(
         REFLECTION,
-        doc="The emission filter the channel is acquired through, by its name and bands. Reflection takes none, and is what a channel left without one images: the excitation light reflected, not fluorescence.",
+        doc="The emission filter the channel is acquired through, by its name and bands. Reflection takes none.",
         display=Display("Emission"),
     )
     power: float = param(
@@ -419,21 +414,6 @@ class ChannelSettings(Configurable):
         doc="The camera's gain, as a fraction of its range.",
         display=Display("Gain"),
     )
-
-    def check_units(self) -> None:
-        """Refuse an excitation wavelength that can't be in nm: 6.4e-07 is 640 nm
-        given in metres, and would image the nearest band there is instead.
-        Zero, an unknown wavelength a file may hold, passes.
-
-        Raises:
-            ValueError: it is above zero and below MIN_EXCITATION_NM.
-        """
-        wavelength = float(self.excitation_wavelength or 0.0)
-        if 0.0 < wavelength < MIN_EXCITATION_NM:
-            raise ValueError(
-                f"Channel {self.name!r}: excitation_wavelength is in nm, and "
-                f"{wavelength:g} is not one (640 nm is 640, not 6.4e-07)"
-            )
 
     def to_dict(self):
         return encode(self)

@@ -489,6 +489,10 @@ def test_a_labs_extra_mcp_server_is_added_and_its_token_is_never_shown(
     (playbooks_dir / "with-notebook.yaml").write_text(
         "mcp: [notebook]\n", encoding="utf-8"
     )
+    # The server offers one tool mcp.yaml doesn't list; the agent never sees it.
+    monkeypatch.setattr(
+        extra_mcp, "hidden", lambda extras, secrets: ["mcp__notebook__wipe"]
+    )
     checkout = harness_mod.find_checkout()
     playbook = playbooks.load("with-notebook", checkout)
     bare = dataclasses.replace(playbook, mcp=[harness_mod.SERVER])
@@ -500,6 +504,9 @@ def test_a_labs_extra_mcp_server_is_added_and_its_token_is_never_shown(
     assert options.allowed_tools == without.allowed_tools + [
         "mcp__notebook__search",
         "mcp__notebook__append_entry",
+    ]
+    assert options.disallowed_tools == without.disallowed_tools + [
+        "mcp__notebook__wipe"
     ]
     assert options.strict_mcp_config
     # The entry names the token; the CLI fills it in from its environment.
@@ -539,7 +546,8 @@ def test_a_labs_extra_mcp_server_is_added_and_its_token_is_never_shown(
     printed += capsys.readouterr().out
     assert (
         "MCP notebook (https://notebook.example/mcp, token NOTEBOOK_TOKEN): "
-        "search, append_entry; specialists: search"
+        "search, append_entry; at Watch: none, the rest at Drive; "
+        "specialists: search"
     ) in printed
     assert secret not in printed
 

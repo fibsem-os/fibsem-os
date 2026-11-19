@@ -655,11 +655,8 @@ def build_server(
                     app_context.answer_types if app_context else {}
                 ).items()
             },
-            # The agent level: what the agent may do right now, and when the
-            # operator's time limit drops it to Watch (epoch seconds; None
-            # for no limit).
+            # The agent level: what the agent may do right now.
             "level": auth.level.value,
-            "level_until": auth.level_until,
             # Whether this install serves an agent at all (fibsem.unreleased).
             "agent": auth.agent_allowed,
             # Whether a microscope is connected now.
