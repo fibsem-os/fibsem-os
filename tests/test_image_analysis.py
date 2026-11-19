@@ -1,16 +1,18 @@
-"""Measurements on saved images (`fibsem.imaging.analysis`): intensity at points
+"""Measurements on saved images (`fibsem.analysis`): intensity at points
 per plane, a line's profile and FWHM, and image quality."""
+
+from pathlib import Path
 
 import numpy as np
 import pytest
 
+from fibsem.analysis import measure as analysis
+from fibsem.analysis.images import Planes, load_planes
 from fibsem.fm.structures import (
     FluorescenceChannelMetadata,
     FluorescenceImage,
     FluorescenceImageMetadata,
 )
-from fibsem.imaging import analysis
-from fibsem.imaging.analysis import Planes
 
 
 def _spot(shape, x, y, sigma, amplitude):
@@ -148,8 +150,72 @@ def test_a_stack_on_disk_reads_as_its_channels_and_planes(tmp_path):
     )
     path = str(tmp_path / "stack.ome.tiff")
     FluorescenceImage(data=data, metadata=metadata).save(path)
-    planes = analysis.load_planes(path)
+    planes = load_planes(path)
     assert planes.names == ["GFP"] and planes.planes == 5
     assert planes.pixel_size == pytest.approx(1e-7)
     assert planes.z_step == pytest.approx(3e-7)
     assert planes.full_value == 65535
+
+
+def test_a_plain_picture_reads_as_one_plane_with_no_scale(tmp_path):
+    from PIL import Image
+
+    rgb = np.zeros((20, 30, 3), dtype=np.uint8)
+    rgb[5:10, 5:10] = 255
+    path = str(tmp_path / "figure.png")
+    Image.fromarray(rgb).save(path)
+    planes = load_planes(path)
+    assert planes.data.shape == (1, 1, 20, 30)
+    assert planes.names == ["Image"] and planes.pixel_size is None
+    assert planes.data[0, 0, 7, 7] == 255
+
+
+def test_a_format_no_reader_reads_is_refused_with_the_readers_named(tmp_path):
+    path = tmp_path / "notes.txt"
+    path.write_text("not an image")
+    with pytest.raises(ValueError, match="fluorescence stack, beam image, picture"):
+        load_planes(str(path))
+
+
+def test_the_tools_work_over_any_folder_and_refuse_paths_outside_it(tmp_path):
+    from PIL import Image
+
+    from fibsem.analysis.tools import ImageRefused, ImageTools
+
+    root = tmp_path / "data"
+    root.mkdir()
+    picture = np.tile(np.arange(64, dtype=np.uint8) * 4, (32, 1))
+    Image.fromarray(picture).save(root / "ramp.png")
+    tools = ImageTools(lambda: str(root))
+
+    answer = tools.line_profile("ramp.png", [0, 16], [63, 16])
+    assert answer.measurement == "profile-0-16-63-16"
+    assert Path(answer.path).parts[-2:] == ("drawn", "ramp-profile-0-16-63-16.png")
+    assert answer.result["values"][0] < answer.result["values"][-1]
+
+    with pytest.raises(ImageRefused) as outside:
+        tools.image_quality("../elsewhere.png")
+    assert outside.value.error_type == "not_allowed"
+    with pytest.raises(ImageRefused) as closed:
+        ImageTools(lambda: None).image_quality("ramp.png")
+    assert closed.value.error_type == "no_experiment"
+
+
+def test_a_shift_is_measured_between_two_files_with_no_microscope(tmp_path):
+    from fibsem.analysis.tools import ImageRefused, ImageTools
+    from fibsem.structures.image import FibsemImage
+    from fibsem.structures.settings import MicroscopeState
+
+    image = FibsemImage.generate_blank_image(resolution=(256, 192), random=True)
+    image.metadata.microscope_state = MicroscopeState()
+    image.save(str(tmp_path / "reference.tif"))
+    image.data = np.roll(image.data, 6, axis=1)
+    image.save(str(tmp_path / "moved.tif"))
+    tools = ImageTools(lambda: str(tmp_path))
+
+    answer = tools.measure_shift("reference.tif", "moved.tif", compare=True)
+    assert abs(abs(answer.shift["shift_px"]["x"]) - 6) < 1
+    assert set(answer.comparison) >= {"shifts_px", "agreement"}
+
+    with pytest.raises(ImageRefused, match="method is one of"):
+        tools.measure_shift("reference.tif", "moved.tif", method="guess")

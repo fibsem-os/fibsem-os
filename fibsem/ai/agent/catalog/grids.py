@@ -97,7 +97,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="grid_get_output_image",
-        description="One saved overview (mosaic) of a grid, as an image you can look at: a 768 px JPEG preview of a file grid_list / grid_get lists. A preview, not the data; grid_get_markers places the items on it. A beam image comes with its metadata block (pixel size, preview_pixelsize, stage position, beam, detector). A name it neither lists nor finds in the experiment is refused with the valid ones. With cells, the overview is shown cut into named cells (its tiles; columns A, B, ..., rows 1, 2, ...), each listed in the metadata with its box and centre stage position, to crop by name with experiment_crop_image.",
+        description="One saved overview (mosaic) of a grid, as an image you can look at: a 768 px JPEG preview of a file grid_list / grid_get lists. A preview, not the data; grid_get_markers places the items on it. A beam image comes with its metadata block (pixel size, preview_pixelsize, stage position, beam, detector). A name it neither lists nor finds in the experiment is refused with the valid ones. With cells, the overview is shown cut into named cells (its tiles; columns A, B, ..., rows 1, 2, ...), each listed in the metadata with its box and centre stage position, to crop by name with analysis_crop_image.",
         method="GET",
         path="/app/experiment/grids/{grid_name}/outputs/{filename}",
         level="watch",

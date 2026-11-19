@@ -2143,7 +2143,7 @@ def test_sidecar_reads_experiment_files_as_tools_and_resources(
 
     result = asyncio.run(
         sidecar.call_tool(
-            "experiment_crop_image", {"path": OVERVIEW, "box": [0, 0, 16, 16]}
+            "analysis_crop_image", {"path": OVERVIEW, "box": [0, 0, 16, 16]}
         )
     )
     if isinstance(result, tuple):

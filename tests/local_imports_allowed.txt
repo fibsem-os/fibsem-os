@@ -20,6 +20,7 @@ fibsem/ai/evals/__main__.py 3
 fibsem/alignment/coincidence.py 10
 fibsem/alignment/methods.py 1
 fibsem/alignment/plotting.py 5
+fibsem/analysis/measure.py 2
 fibsem/applications/autolamella/config_edits.py 6
 fibsem/applications/autolamella/overview_figure.py 5
 fibsem/applications/autolamella/server/context.py 1
@@ -95,7 +96,6 @@ fibsem/geometry/projection.py 2
 fibsem/geometry/saved_images.py 10
 fibsem/guided_setup.py 6
 fibsem/image_format.py 2
-fibsem/imaging/analysis.py 2
 fibsem/imaging/cells.py 6
 fibsem/imaging/export.py 1
 fibsem/imaging/marks.py 1

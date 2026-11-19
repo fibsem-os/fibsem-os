@@ -3,7 +3,7 @@ pieces its route call is built from."""
 
 import inspect
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 
 @dataclass(frozen=True)
@@ -201,6 +201,18 @@ BOX_PARAM = (
     "contrasted to the region"
 )
 
+# A fluorescence stack's plane and channels, as the files route reads them.
+STACK_PARAMS = {
+    "z": arg(
+        "a fluorescence stack's plane to show, 0 the first (default: the max projection over z)",
+        int,
+    ),
+    "channels": arg(
+        "the fluorescence channels to show, by name, as its fm block lists them (default: all)",
+        List[str],
+    ),
+}
+
 # The optional argument every acting tool takes (`ToolSpec.takes_evidence`):
 # what the agent judged from, kept in the experiment (fibsem.workflows.evidence).
 EVIDENCE_PARAM = (
@@ -211,7 +223,7 @@ EVIDENCE_PARAM = (
     "on it); or file, an image you made yourself in your working folder (an overlay "
     "your code drew, a plot; PNG or JPEG, at most 4 MB, saved at most 2048 px), "
     "shown as it is, with source, the experiment image it was drawn from; "
-    f"marks, {MARKS_PARAM}; experiment_draw_image shows them drawn. "
+    f"marks, {MARKS_PARAM}; analysis_draw_image shows them drawn. "
     "Attach it whenever an image decided what you do; without it the operator "
     "sees 'No evidence'"
 )
@@ -257,8 +269,8 @@ _WRITES_AT_WATCH = frozenset(
         "correlation_correlate",  # saves a run in the lamella's Correlation folder
         "correlation_refine_point",  # saves its fit figure beside the image
         "experiment_render_markers",  # saves its picture beside the image
-        "experiment_draw_image",  # saves its picture beside the image
-        "experiment_draw_pair",  # saves its picture beside the first image
+        "analysis_draw_image",  # saves its picture beside the image
+        "analysis_draw_pair",  # saves its picture beside the first image
         "item_draw_milling",  # saves its picture beside the image
         "analysis_measure_intensity",  # saves its figure beside the image
         "analysis_measure_profile",  # saves its figure beside the image

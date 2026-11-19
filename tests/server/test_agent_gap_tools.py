@@ -481,7 +481,7 @@ def test_a_point_on_any_saved_image_is_a_stage_position_and_back(driving, arctis
     pixels = _ok(
         _call(
             driving,
-            "experiment_get_image_pixels",
+            "analysis_map_stage_to_pixel",
             path=path,
             stage_positions=[position],
         )
@@ -609,13 +609,15 @@ def test_alignment_methods_are_compared_on_saved_images(driving, arctis):  # noq
     answer = _ok(
         _call(
             driving,
-            "alignment_compare_methods",
-            reference_path=first,
-            image_path=second,
+            "analysis_measure_shift",
+            reference=first,
+            image=second,
+            compare=True,
         )
     )
-    result = answer["result"]
+    result = answer["comparison"]
     assert set(result) >= {"shifts_px", "max_disagreement_px", "agreement"}
+    assert set(answer["shift"]) >= {"shift_px", "score", "success"}
 
 
 # --- what the operator reads ---------------------------------------------------------

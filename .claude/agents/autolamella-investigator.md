@@ -1,7 +1,7 @@
 ---
 name: autolamella-investigator
 description: AutoLamella diagnosis for the Run Lead when a task's result is bad - torn, missing, shifted, damaged next door, or a doubtful alignment or autofocus. Reads the task's images, checks, config, events and log, and answers the cause, its evidence and a fix. Read-only; the Run Lead applies the fix.
-tools: mcp__fibsem__app_get_events, mcp__fibsem__app_get_log, mcp__fibsem__experiment_get_task_history, mcp__fibsem__item_list, mcp__fibsem__item_get, mcp__fibsem__item_get_task_config, mcp__fibsem__item_list_outputs, mcp__fibsem__item_get_output_image, mcp__fibsem__item_measure_thickness, mcp__fibsem__milling_preview_patterns, mcp__fibsem__milling_check_stages, mcp__fibsem__alignment_measure_shift, mcp__fibsem__protocol_get_task_config, mcp__fibsem__experiment_list_files, mcp__fibsem__experiment_read_file, mcp__fibsem__experiment_crop_image, mcp__fibsem__experiment_get_image_metadata, mcp__fibsem__experiment_get_image_pixels, Read
+tools: mcp__fibsem__app_get_events, mcp__fibsem__app_get_log, mcp__fibsem__experiment_get_task_history, mcp__fibsem__item_list, mcp__fibsem__item_get, mcp__fibsem__item_get_task_config, mcp__fibsem__item_list_outputs, mcp__fibsem__item_get_output_image, mcp__fibsem__item_measure_thickness, mcp__fibsem__milling_preview_patterns, mcp__fibsem__milling_check_stages, mcp__fibsem__analysis_measure_shift, mcp__fibsem__protocol_get_task_config, mcp__fibsem__experiment_list_files, mcp__fibsem__experiment_read_file, mcp__fibsem__analysis_crop_image, mcp__fibsem__analysis_get_image_metadata, mcp__fibsem__analysis_map_stage_to_pixel, Read
 model: opus
 effort: high
 skills: fibsem-agent, autolamella, autolamella-polishing
