@@ -12,7 +12,6 @@ approve its own request or raise its own level.
 import base64
 import os
 from dataclasses import asdict
-from datetime import datetime
 from typing import Any, Dict, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -67,28 +66,6 @@ def _text(value: str, key: str, required: bool = True) -> str:
     return value.strip()
 
 
-def _until(value: Optional[str]) -> Optional[float]:
-    """An ISO 8601 time as epoch seconds; one without an offset is local."""
-    if value is None or not value.strip():
-        return None
-    text = value.strip()
-    if text.endswith(("Z", "z")):
-        text = text[:-1] + "+00:00"
-    try:
-        return datetime.fromisoformat(text).timestamp()
-    except ValueError:
-        raise refusal_error(
-            422, "bad_until", f"until is an ISO 8601 time, not {value!r}."
-        ) from None
-
-
-def _until_text(auth: Any) -> Optional[str]:
-    until = getattr(auth, "level_until", None)
-    if until is None:
-        return None
-    return datetime.fromtimestamp(until).astimezone().isoformat(timespec="seconds")
-
-
 def build_operator_router(agent: AgentControl) -> APIRouter:
     """The operator's side of the agent, under ``/app/agent``."""
     router = APIRouter(prefix="/app/agent", dependencies=[Depends(require_operator())])
@@ -108,8 +85,6 @@ def build_operator_router(agent: AgentControl) -> APIRouter:
                 experiment=agent.experiment_name(),
                 level=agent.level.value if agent.level is not None else None,
                 stopped=bool(auth.stopped) if auth is not None else False,
-                level_until=_until_text(auth),
-                level_expired=bool(auth.expired) if auth is not None else False,
                 last_heard_s=agent.seconds_since_seen(),
                 client=agent.client(),
                 session=agent.session_line(),
@@ -291,12 +266,10 @@ def build_operator_router(agent: AgentControl) -> APIRouter:
         except ValueError:
             names = ", ".join(level.value for level in AgentLevel)
             raise refusal_error(422, "bad_level", f"The level is one of {names}.")
-        until = _until(body.until)
-        why_not = agent.set_level(level, until=until)
+        why_not = agent.set_level(level)
         if why_not is not None:
             raise refusal_error(409, "level_refused", why_not)
-        auth = agent.host.auth if agent.host is not None else None
-        return answer(LevelSet(level.value, _until_text(auth)))
+        return answer(LevelSet(level.value))
 
     @router.post("/stop", response_model=AgentStopped)
     def stop_agent():
