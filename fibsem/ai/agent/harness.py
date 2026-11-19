@@ -398,8 +398,12 @@ class Wakes:
         self,
         remind: Optional[Callable[[List[str]], List[str]]] = None,
         words: Optional[instruments.Texts] = None,
+        waking: Optional[Callable[[], Optional[frozenset]]] = None,
     ) -> None:
         self.off = False
+        # The line kinds the playbook lets wake the agent (`wake_lines.waking`),
+        # read at each line: None for every line.
+        self._waking = waking
         self._held: List[str] = []
         # The operator's messages in the turns given, until they are read.
         self.unread: List[str] = []
@@ -419,13 +423,28 @@ class Wakes:
                     continue
                 self.off = False
             self._held.append(line)
-        if self.off or not self._held:
+        if self.off or not self._held or not self._wakes_now():
             return None
         lines, self._held = self._held, []
         for line in lines:
             self.unread += getattr(line, "message_ids", ())
         remind = self._remind(lines) if self._remind else None
         return turn_prompt(lines, remind, self._words)
+
+    def _wakes_now(self) -> bool:
+        """Whether a held line wakes the agent: any, unless the playbook names
+        its ``wakes``; then one of those, an urgent one or one that always does
+        (`wake_lines.ALWAYS`). The rest wait for the next turn."""
+        kinds = self._waking() if self._waking is not None else None
+        if kinds is None:
+            return True
+        for line in self._held:
+            kind = getattr(line, "kind", None)
+            if kind is None or kind in kinds or kind in wake_lines.ALWAYS:
+                return True
+            if kind in URGENT:
+                return True
+        return False
 
     def read(self) -> List[str]:
         """The ids of the operator's messages in the turns given since the
@@ -997,7 +1016,13 @@ class Harness:
     def _new_wakes(self) -> Wakes:
         playbook = self._playbook
         remind = playbook.reminders.for_lines if playbook is not None else None
-        return Wakes(remind, self._words)
+
+        def waking():
+            # The playbook now: playbook_set may change it mid session.
+            current = playbook.reminders.playbook if playbook is not None else None
+            return wake_lines.waking(current.wakes if current is not None else None)
+
+        return Wakes(remind, self._words, waking)
 
     def outcome(self) -> dict:
         """How the run ended, for its session's record."""
@@ -2708,6 +2733,8 @@ def show_config(
         # The playbook's servers, and the lab's it doesn't name (off).
         "mcp": servers,
         "mcp_unused": unused,
+        # The lines that wake the agent, by group; None for every line.
+        "wakes": playbook.wakes,
         # The agent host its record and wake-ups go through; None for the
         # App Server.
         "host": host,
@@ -2820,6 +2847,12 @@ def _config_text(config: dict) -> str:
         lines.append(
             f"MCP off (the lab's, not named in this playbook's mcp): "
             f"{', '.join(config['mcp_unused'])}"
+        )
+    if config.get("wakes") is not None:
+        lines.append(
+            "Wakes on: "
+            + (", ".join(config["wakes"]) or "nothing")
+            + " (and always messages, the level, Stop and its own wake-ups)"
         )
     lines.append(f"Playbook skills: {', '.join(playbook['skills']) or 'none'}")
     lines += [f"  When needed: {o['skill']}, {o['when']}" for o in playbook["optional"]]

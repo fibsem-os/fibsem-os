@@ -468,3 +468,91 @@ def test_without_a_host_the_prompt_names_the_fibsem_tools_as_before(checkout):
     assert harness_mod._name_servers(harness_mod.NO_CODE, [SERVER]) == (
         harness_mod.NO_CODE
     )
+
+
+# --- wakes: what wakes the agent ---------------------------------------------------
+
+
+def test_a_playbook_names_what_wakes_its_agent_and_the_nearest_wins(lab, checkout):
+    write(lab, "quiet-lead", "extends: autolamella\nwakes: [run, decisions]\n")
+    write(lab, "quieter", "extends: quiet-lead\nwakes: [decisions]\n")
+    write(lab, "inherits", "extends: quiet-lead\n")
+    assert playbooks.load("autolamella", checkout).wakes is None
+    assert playbooks.load("quiet-lead", checkout).wakes == ["run", "decisions"]
+    assert playbooks.load("quieter", checkout).wakes == ["decisions"]
+    assert playbooks.load("inherits", checkout).wakes == ["run", "decisions"]
+
+
+def test_wakes_names_known_groups(lab, checkout):
+    write(lab, "odd", "extends: autolamella\nwakes: [run, stage_moves]\n")
+    with pytest.raises(playbooks.PlaybookError, match="stage_moves"):
+        playbooks.load("odd", checkout)
+
+
+def test_every_line_the_watch_says_has_a_group_or_always_wakes():
+    from fibsem.ai.agent import wake_lines
+
+    grouped = set().union(*wake_lines.GROUPS.values()) | wake_lines.ALWAYS
+    lines = {
+        watch_mod.PROPOSAL,
+        watch_mod.PROPOSAL_RELEASED,
+        watch_mod.SUGGESTION,
+        watch_mod.REQUEST,
+        watch_mod.COMMAND_ENDED,
+        watch_mod.COMMAND_FAILED,
+        watch_mod.AUTOFOCUS,
+        watch_mod.ALIGNMENT,
+        watch_mod.NOTE,
+        watch_mod.MESSAGE,
+        watch_mod.PLAN_EDITED,
+        watch_mod.LEVEL,
+        watch_mod.LEVEL_LOWERED,
+        watch_mod.OPERATOR_STOP,
+        watch_mod.WORKFLOW_STARTED,
+        watch_mod.WORKFLOW_ENDED,
+        watch_mod.WORKFLOW_FAILED,
+        watch_mod.QUIET,
+        watch_mod.GAP,
+        watch_mod.RESTARTED,
+        watch_mod.AGENT_OFF,
+        watch_mod.AGENT_BACK,
+        watch_mod.SERVER_UNAVAILABLE,
+        watch_mod.SERVER_GONE,
+        watch_mod.NO_EVENTS,
+        watch_mod.UNREACHABLE,
+        harness_mod.ALARM,
+        harness_mod.DEADLINE,
+        *watch_mod.INTERESTING,
+    }
+    assert lines <= grouped
+
+
+def _wake(kind):
+    return watch_mod.Wake(kind, kind.upper())
+
+
+def test_a_line_the_playbook_leaves_out_waits_for_the_next_turn():
+    from fibsem.ai.agent import wake_lines
+
+    wakes = harness_mod.Wakes(waking=lambda: wake_lines.waking(["run"]))
+    assert wakes.add([_wake("autofocus")]) is None
+    assert wakes.add([_wake("note")]) is None
+    prompt = wakes.add([_wake("workflow_ended")])
+    # One turn, with the lines held before it.
+    assert "AUTOFOCUS" in prompt and "NOTE" in prompt
+    assert "WORKFLOW_ENDED" in prompt
+
+
+def test_the_operator_always_wakes_the_agent():
+    from fibsem.ai.agent import wake_lines
+
+    wakes = harness_mod.Wakes(waking=lambda: wake_lines.waking([]))
+    assert wakes.add([_wake("workflow_started")]) is None
+    assert wakes.add([_wake(watch_mod.MESSAGE)]) is not None
+    assert wakes.add([_wake(watch_mod.LEVEL)]) is not None
+    assert wakes.add([_wake(harness_mod.ALARM)]) is not None
+
+
+def test_with_no_wakes_every_line_wakes_the_agent():
+    assert harness_mod.Wakes(waking=lambda: None).add([_wake("autofocus")])
+    assert harness_mod.Wakes().add([_wake("autofocus")])
