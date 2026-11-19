@@ -255,6 +255,15 @@ fibsem-agent
   picks first. Flags on the command line win over it; the API key is never in
   it. `--show-config` prints what the agent would run with and starts nothing,
   `--list-playbooks` lists them, and `--json` gives either as JSON.
+- **What wakes it.** A playbook's `wakes` names the lines that wake the
+  agent, by group: `decisions` (proposals, suggestions, requests), `run`
+  (workflows, tasks, long commands), `checks` (autofocus, alignment, mills)
+  and `notes` (the operator's notes and plan edits). The
+  nearest playbook that names them wins; with none, every line wakes it, as
+  the shipped playbooks do. A line left out goes in the agent's next turn.
+  The operator's messages, the level, Stop, the watch's own state and the
+  agent's own wake-ups always wake it, so `wakes: []` gives an agent that
+  waits for the operator. `--show-config` shows the list.
 - **Defaults.** The shipped `fibsem-agent` playbook is the one place the
   defaults live, and it stays under every playbook, a lab's copy of it
   included: its skill, its `session:` settings (with the timers
