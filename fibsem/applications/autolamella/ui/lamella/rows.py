@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 from qtpy.QtCore import QEvent, QSize, Qt, QTimer, Signal
@@ -220,6 +220,10 @@ class LamellaRow(QWidget):
         )
         self.grid_menu.aboutToShow.connect(self._fill_grid_menu)
         self.grid_menu.menuAction().setVisible(False)
+        # How many rows an assignment from this one moves, from the list that
+        # holds it; one when nothing says otherwise.
+        self.assign_count: Callable[[], int] = lambda: 1
+        menu.aboutToShow.connect(self._title_grid_menu)
         self.action_remove = menu.addAction(
             fibsem_icon("mdi:trash-can-outline", color=tokens.GRAY_ICON_COLOR),
             "Remove",
@@ -288,6 +292,12 @@ class LamellaRow(QWidget):
         self._grid_context = context
         self.grid_menu.menuAction().setVisible(bool(context))
         self.refresh()
+
+    def _title_grid_menu(self) -> None:
+        count = self.assign_count()
+        self.grid_menu.setTitle(
+            f"Assign {count} Ticked to Grid" if count > 1 else "Assign to Grid"
+        )
 
     def _fill_grid_menu(self) -> None:
         self.grid_menu.clear()
@@ -561,6 +571,7 @@ class LamellaListWidget(QWidget):
         row.defect_changed.connect(self.defect_changed)
         row.selection_changed.connect(self._on_row_selection_changed)
         row.grid_assign_requested.connect(self._on_grid_assign)
+        row.assign_count = lambda r=row: len(self._assigned_with(r.lamella))
 
         self._sync_select_all()
         return row
@@ -637,11 +648,12 @@ class LamellaListWidget(QWidget):
         self.remove_lamella(lamella)
         self.remove_requested.emit(lamella)
 
-    def _on_grid_assign(self, lamella: Lamella, grid_id: str) -> None:
+    def _assigned_with(self, lamella: Lamella) -> List[Lamella]:
         ticked = self.get_selected()
-        self.grid_assign_requested.emit(
-            ticked if lamella in ticked else [lamella], grid_id
-        )
+        return ticked if lamella in ticked else [lamella]
+
+    def _on_grid_assign(self, lamella: Lamella, grid_id: str) -> None:
+        self.grid_assign_requested.emit(self._assigned_with(lamella), grid_id)
 
     def _on_row_selection_changed(self, *_) -> None:
         self._sync_select_all()

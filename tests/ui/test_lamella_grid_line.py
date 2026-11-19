@@ -336,6 +336,13 @@ class TestAssignToGrid:
         for i in range(3):
             widget._row(i).checkbox.setChecked(i != 1)
 
+        def title(row):
+            row._title_grid_menu()
+            return row.grid_menu.title()
+
+        assert title(widget._row(2)) == "Assign 2 Ticked to Grid"
+        assert title(widget._row(1)) == "Assign to Grid"
+
         widget._row(2).grid_assign_requested.emit(lamellae["unlinked"], elm.id)
         widget._row(1).grid_assign_requested.emit(lamellae["on-elm"], elm.id)
         assert asked == [
