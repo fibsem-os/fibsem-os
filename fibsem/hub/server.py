@@ -2,7 +2,7 @@
 
 ``GET /hub`` lists the instruments as they were last read. Signed in at the
 hub is the install's operator token, or a browser paired as the operator with
-a code from ``fibsem-hub pair``. From there a person changes the list, starts
+a code from ``agent-hub pair``. From there a person changes the list, starts
 and ends the agent the hub runs for an instrument, and asks an instrument's
 gateway to start or stop its app: that gateway decides whether this hub may. The hub keeps its own paired computers
 (``~/.fibsem/hub/paired.json``), apart from a gateway's on the same PC.

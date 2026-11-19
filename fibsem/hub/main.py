@@ -1,6 +1,6 @@
-"""``fibsem-hub``: run the hub on this PC, and ask the one that runs.
+"""``agent-hub``: run the hub on this PC, and ask the one that runs.
 
-``fibsem-hub`` (or ``run``) runs it until Ctrl-C. ``status`` lists the
+``agent-hub`` (or ``run``) runs it until Ctrl-C. ``status`` lists the
 instruments as the running hub last read them, ``pair`` shows a code that
 signs a browser on another computer in, ``open`` opens the Lab Hub page signed
 in, and ``stop`` stops it.
@@ -67,7 +67,7 @@ def _ask(route: str, method: str = "GET", body: Optional[dict] = None):
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="fibsem-hub",
+        prog="agent-hub",
         description="Reach a lab's microscope PCs from this one. Run it on a PC "
         "away from the microscopes: each microscope PC runs fibsem-gateway.",
     )
@@ -129,7 +129,7 @@ def run(port: int) -> int:
 def _status() -> int:
     state = _ask("/hub")
     if state is None:
-        print("No hub runs here. Start it with: fibsem-hub")
+        print("No hub runs here. Start it with: agent-hub")
         return 1
     if not state["instruments"]:
         print("No instruments yet.")
@@ -156,14 +156,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if args.command == "pair":
             answer = _ask("/pairing", "POST", {"role": "operator"})
             if answer is None:
-                print("No hub runs here. Start it with: fibsem-hub")
+                print("No hub runs here. Start it with: agent-hub")
                 return 1
             print(f"Pairing code: {answer['code']} (5 minutes).")
             return 0
         if args.command == "open":
             found = read_running()
             if found is None:
-                print("No hub runs here. Start it with: fibsem-hub")
+                print("No hub runs here. Start it with: agent-hub")
                 return 1
             webbrowser.open(
                 f"{found['url']}/ui/hub#token={read_operator_token() or ''}"

@@ -15,7 +15,7 @@ const TABS: [Tab, string][] = [
   ["agents", "Agents"],
 ];
 
-/** The hub's page (`fibsem-hub`): the lab's instruments. Overview is
+/** The hub's page (`agent-hub`): the lab's instruments. Overview is
  * their status and opens one; Instruments is the list and its upkeep; Agents
  * is every agent running. */
 export function HubPage() {

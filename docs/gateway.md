@@ -156,7 +156,7 @@ same from a terminal.
 
 ## Pairing a hub
 
-A hub is a separate program on another PC, [`fibsem-hub`](hub.md). The gateway is the door
+A hub is a separate program on another PC, [`agent-hub`](hub.md). The gateway is the door
 to this microscope PC: a hub reaches it only after it is paired here.
 
 Pair a hub with a 4-digit code from `fibsem-gateway pair --hub --may-switch`. The

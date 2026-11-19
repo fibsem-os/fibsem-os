@@ -6,7 +6,7 @@ PC that looks after a single microscope from another room is a hub with one inst
 
 It is a different program from the [gateway](gateway.md), and a PC runs one or the other:
 
-| | Gateway (`fibsem-gateway`) | Hub (`fibsem-hub`) |
+| | Gateway (`fibsem-gateway`) | Hub (`agent-hub`) |
 | --- | --- | --- |
 | Runs on | each microscope PC | one PC away from the microscopes |
 | Connections | accepts them, and decides who gets in | only connects out |
@@ -20,15 +20,22 @@ it: with the hub off, every microscope PC works as it does without one.
 ## Running it
 
 ```
-fibsem-hub            # run the hub, on 127.0.0.1:8020
-fibsem-hub open       # open the Lab Hub page, signed in
-fibsem-hub status     # the instruments as last read
-fibsem-hub pair       # a code that signs a browser on another computer in
-fibsem-hub stop
+<<<<<<< HEAD
+agent-hub            # run the hub, on 127.0.0.1:8020
+agent-hub open       # open the Lab Hub page, signed in
+agent-hub status     # the instruments as last read
+agent-hub pair       # a code that signs a browser on another computer in
+agent-hub stop
+=======
+agent-hub            # run the hub, on 127.0.0.1:8020
+agent-hub status     # the instruments as last read
+agent-hub pair       # a code that signs a browser on another computer in
+agent-hub stop
+>>>>>>> claude/project-thread-8ku26f-hub
 ```
 
 The hub listens on its own PC only. Its sign in is its own: the install's operator token, and
-browsers paired with a code from `fibsem-hub pair`. They are kept apart from a gateway's
+browsers paired with a code from `agent-hub pair`. They are kept apart from a gateway's
 paired computers.
 
 ## Instruments
