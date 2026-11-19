@@ -366,6 +366,11 @@ one section at a time with `plan_set_section`:
   its own as `![caption](path)`, the path relative to the experiment folder
   (`lamella-01/polish.png`); the Agent page shows it. **Summary**: at the end.
 
+For a small change, don't resend the section: `plan_append` adds a line
+(a Progress line, a rule, a new box) and `plan_check_step` ticks a box by
+its text. Each write answers the section's length and the boxes done, not
+the plan.
+
 Every instruction goes in the moment it arrives: a standing rule in Rules,
 a task as a Steps box. Read the plan before each step (`plan_get`). Tick a box
 only when it is done and you have said so; a rule stays until the operator

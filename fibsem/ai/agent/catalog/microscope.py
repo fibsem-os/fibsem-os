@@ -274,7 +274,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="plan_set_section",
-        description="Write one section of your plan (plan.md), replacing it; empty text removes it. Brief: the operator's question, the sample and the target, the goal, in their words, with a first line 'Sample: <name>' -- the sample is written once, and only the operator changes it after (409 sample_set). Playbook: which one runs and who chose it. Rules: the operator's standing rules, one '- ' line each, in their words. Steps: '- [ ] step' boxes, grouped under '### Group' lines, ticked '- [x]' only when done and said. Progress: what happened, newest last. Summary: at the end. No # or ## headings inside a section. Refused (409 no_session) before your session is reported.",
+        description="Write one section of your plan (plan.md), replacing it; empty text removes it. Brief: the operator's question, the sample and the target, the goal, in their words, with a first line 'Sample: <name>' -- the sample is written once, and only the operator changes it after (409 sample_set). Playbook: which one runs and who chose it. Rules: the operator's standing rules, one '- ' line each, in their words. Steps: '- [ ] step' boxes, grouped under '### Group' lines, ticked '- [x]' only when done and said. Progress: what happened, newest last. Summary: at the end. No # or ## headings inside a section. To add a line use plan_append, to tick a box plan_check_step. Answers the section's name and length and the boxes done of total, not the plan (plan_get reads it). Refused (409 no_session) before your session is reported.",
         method="POST",
         path="/app/agent/plan/section",
         level="watch",
@@ -283,6 +283,32 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "section": "the heading: Brief, Playbook, Rules, Steps, Progress, Summary, or one of your playbook's",
             "text": "the section's markdown, all of it",
         },
+    ),
+    ToolSpec(
+        name="plan_append",
+        description="Add a line (or a few) at the end of one section of your plan, making the section if it has none: a Progress line, a Rules line, a new Steps box. Same rules as plan_set_section. Answers like it.",
+        method="POST",
+        path="/app/agent/plan/append",
+        level="watch",
+        router="app",
+        params={
+            "section": "the heading, as plan_set_section takes it",
+            "text": "the line(s) to add, no # or ## headings",
+        },
+    ),
+    ToolSpec(
+        name="plan_check_step",
+        description="Tick one Steps box in your plan, or untick it (done false): the box whose text is step, else the only one starting with it. Refused (404 not_found) for none, (409 ambiguous) for several, listing them. Answers the box's full text and the boxes done of total.",
+        method="POST",
+        path="/app/agent/plan/step",
+        level="watch",
+        router="app",
+        params={
+            "step": "the box's text, or enough of its start to name one",
+            "done": arg("false to untick (default true)", bool, default=True),
+            "group": "optional: the ### group it is under, when two boxes read alike",
+        },
+        optional=("done", "group"),
     ),
     ToolSpec(
         name="microscope_get_info",

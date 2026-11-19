@@ -305,6 +305,8 @@ _WRITES_AT_WATCH = frozenset(
         "knowledge_write",  # the microscope's knowledge base, not the experiment
         "server_report_session",  # the agent's own session, on the record
         "plan_set_section",  # the session's plan.md, beside the experiment
+        "plan_append",
+        "plan_check_step",
         "request_create",
         "request_withdraw",
         "item_measure_thickness",  # saves its result beside the image
