@@ -209,6 +209,7 @@ class TestTheRows:
         assert not rows["on-oak"].btn_defect.isVisibleTo(rows["on-oak"])
         assert [a.text() for a in rows["on-oak"].btn_actions.menu().actions()] == [
             "Edit",
+            "Assign to Grid",
             "Remove",
             "Verdict",
         ]
@@ -306,3 +307,38 @@ class TestFromTheWindow:
         assert main_ui.workflow_tab.lamella_workflow_widget.lamella_list._row(
             0
         ).grid_label.toolTip() == ("Grid-02 is on the stage")
+
+
+class TestAssignToGrid:
+    def test_the_menu_offers_the_grids_with_records(self, experiment, lamellae, tidy):
+        widget = LamellaListWidget()
+        widget.set_lamellae(list(experiment.positions))
+        row = widget._row(2)  # unlinked
+        assert not row.grid_menu.menuAction().isVisible()
+
+        widget.set_grid_context(_context(experiment, {"grid-oak"}))
+        assert row.grid_menu.menuAction().isVisible()
+        row._fill_grid_menu()
+        assert [a.text() for a in row.grid_menu.actions()] == ["grid-elm", "grid-oak"]
+
+        oak_row = widget._row(0)
+        oak_row._fill_grid_menu()
+        current = {a.text(): a.isEnabled() for a in oak_row.grid_menu.actions()}
+        assert current == {"grid-elm": True, "grid-oak": False}
+
+    def test_a_ticked_row_assigns_every_ticked_row(self, experiment, lamellae, tidy):
+        widget = LamellaListWidget()
+        widget.set_lamellae(list(experiment.positions))
+        widget.set_grid_context(_context(experiment, set()))
+        asked = []
+        widget.grid_assign_requested.connect(lambda ls, g: asked.append((ls, g)))
+        elm = experiment.get_grid_by_name("grid-elm")
+        for i in range(3):
+            widget._row(i).checkbox.setChecked(i != 1)
+
+        widget._row(2).grid_assign_requested.emit(lamellae["unlinked"], elm.id)
+        widget._row(1).grid_assign_requested.emit(lamellae["on-elm"], elm.id)
+        assert asked == [
+            ([lamellae["on-oak"], lamellae["unlinked"]], elm.id),
+            ([lamellae["on-elm"]], elm.id),
+        ]

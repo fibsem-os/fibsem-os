@@ -1319,6 +1319,8 @@ class GridEdit(Edit):
     quality: Optional[Dict[str, Any]] = None
     note: Optional[str] = None
     items_without_grid: Optional[List[str]] = None
+    # the lamellae an assignment put on the grid that were not on it
+    assigned: Optional[List[str]] = None
 
 
 # An app's own item detail, experiment summary and protocol view

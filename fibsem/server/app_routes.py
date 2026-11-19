@@ -44,6 +44,7 @@ from fibsem.server.bodies import (
     DrawOptions,
     EvidenceBody,
     ExperimentPathBody,
+    GridItemsBody,
     GridNoteBody,
     GridPlanBody,
     GridQualityBody,
@@ -1485,6 +1486,16 @@ def build_app_config_router(context: "AppContext") -> APIRouter:
     )
     def remove_grid(grid_name: str):
         return _answer_or_refusal(context.remove_grid(grid_name))
+
+    @router.post(
+        "/experiment/grids/{grid_name}/items", response_model=GridEdit, tags=[GRIDS]
+    )
+    def assign_items_to_grid(grid_name: str, body: GridItemsBody):
+        if not body.item_names:
+            raise _missing_field("Pass item_names: the lamellae to put on the grid.")
+        return _answer_or_refusal(
+            context.assign_items_to_grid(grid_name, list(body.item_names))
+        )
 
     # -- lamella positions: the Lamella tab's buttons ---------------------------
 

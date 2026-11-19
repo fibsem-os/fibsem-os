@@ -121,6 +121,7 @@ class LamellaRow(QWidget):
     remove_clicked = Signal(object)  # Lamella
     defect_changed = Signal(object)  # Lamella
     selection_changed = Signal(object, bool)  # Lamella, checked
+    grid_assign_requested = Signal(object, str)  # Lamella, GridRecord.id
 
     def __init__(
         self,
@@ -212,6 +213,13 @@ class LamellaRow(QWidget):
         self.action_edit = menu.addAction(
             fibsem_icon("mdi:pencil", color=tokens.GRAY_ICON_COLOR), "Edit"
         )
+        # The experiment's grid records, filled as the menu opens; hidden
+        # while it has none, since a grid must have a record to be assigned.
+        self.grid_menu = menu.addMenu(
+            fibsem_icon("mdi:grid", color=tokens.GRAY_ICON_COLOR), "Assign to Grid"
+        )
+        self.grid_menu.aboutToShow.connect(self._fill_grid_menu)
+        self.grid_menu.menuAction().setVisible(False)
         self.action_remove = menu.addAction(
             fibsem_icon("mdi:trash-can-outline", color=tokens.GRAY_ICON_COLOR),
             "Remove",
@@ -278,7 +286,24 @@ class LamellaRow(QWidget):
 
     def set_grid_context(self, context: Optional[GridContext]) -> None:
         self._grid_context = context
+        self.grid_menu.menuAction().setVisible(bool(context))
         self.refresh()
+
+    def _fill_grid_menu(self) -> None:
+        self.grid_menu.clear()
+        current = getattr(self.lamella, "grid_id", None)
+        for grid_id, (name, _) in sorted(
+            (self._grid_context or {}).items(), key=lambda kv: kv[1][0]
+        ):
+            action = self.grid_menu.addAction(name)
+            action.setCheckable(True)
+            action.setChecked(grid_id == current)
+            action.setEnabled(grid_id != current)
+            action.triggered.connect(
+                lambda _=False, g=grid_id: self.grid_assign_requested.emit(
+                    self.lamella, g
+                )
+            )
 
     @ensure_main_thread
     def refresh(self) -> None:
@@ -428,6 +453,9 @@ class LamellaListWidget(QWidget):
     remove_requested = Signal(object)  # Lamella
     defect_changed = Signal(object)  # Lamella
     selection_changed = Signal(list)  # List[Lamella]
+    # The lamellae to put on a grid, by its GridRecord.id: the row's own, or
+    # every ticked row when the row asked from is ticked.
+    grid_assign_requested = Signal(list, str)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -532,6 +560,7 @@ class LamellaListWidget(QWidget):
         row.remove_clicked.connect(self._on_remove_clicked)
         row.defect_changed.connect(self.defect_changed)
         row.selection_changed.connect(self._on_row_selection_changed)
+        row.grid_assign_requested.connect(self._on_grid_assign)
 
         self._sync_select_all()
         return row
@@ -608,6 +637,12 @@ class LamellaListWidget(QWidget):
         self.remove_lamella(lamella)
         self.remove_requested.emit(lamella)
 
+    def _on_grid_assign(self, lamella: Lamella, grid_id: str) -> None:
+        ticked = self.get_selected()
+        self.grid_assign_requested.emit(
+            ticked if lamella in ticked else [lamella], grid_id
+        )
+
     def _on_row_selection_changed(self, *_) -> None:
         self._sync_select_all()
         self.selection_changed.emit(self.get_selected())
@@ -643,6 +678,7 @@ class LamellaNameListWidget(QWidget):
     update_requested = Signal(object)
     remove_requested = Signal(object)
     defect_changed = Signal(object)
+    grid_assign_requested = Signal(list, str)  # [Lamella], GridRecord.id
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -739,6 +775,9 @@ class LamellaNameListWidget(QWidget):
             row.update_clicked.connect(self.update_requested)
             row.remove_clicked.connect(self.remove_requested)
             row.defect_changed.connect(self.defect_changed)
+            row.grid_assign_requested.connect(
+                lambda lamella, g: self.grid_assign_requested.emit([lamella], g)
+            )
             self._apply_btn_visibility(row)
             item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, pos)  # type: ignore
