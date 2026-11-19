@@ -253,13 +253,14 @@ def _parser() -> argparse.ArgumentParser:
     seg_check.add_argument("episode", type=Path)
     segment = episode_sub.add_parser(
         "segment",
-        help="propose the episode's segments with an agent (uses your API key); "
-        "--dry-run writes its prompt and inputs only",
+        help="propose the episode's segments with fibsem-agent on the "
+        "eval-segmenter playbook, on an agent host of its own (uses your API "
+        "key); --dry-run writes its goal and inputs only",
     )
     segment.add_argument("episode", type=Path)
     segment.add_argument("--model", default=None)
     segment.add_argument("--effort", default=None)
-    segment.add_argument("--budget-usd", type=float, default=5.0)
+    segment.add_argument("--budget-usd", type=float, default=3.0)
     segment.add_argument("--dry-run", action="store_true")
     from_run = sub.add_parser(
         "from-run",
@@ -312,7 +313,7 @@ def main(argv=None) -> int:
             return 2
         if args.dry_run:
             folder = segmenter_mod.prepare(ep)
-            print(f"Wrote the segmenter's prompt and inputs to {folder}")
+            print(f"Wrote the segmenter's goal and inputs to {folder}")
             return 0
         try:
             result = segmenter_mod.run(ep, args.model, args.budget_usd, args.effort)
