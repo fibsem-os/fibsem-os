@@ -1620,6 +1620,11 @@ export interface components {
                 [key: string]: unknown;
             } | null;
         };
+        /** @description POST /app/agent/plan/append: lines added at the end of one section. */
+        PlanAppendBody: {
+            section: string;
+            text: string;
+        };
         /** @description PUT /app/agent/plan: the whole plan, its sections under ## headings. */
         PlanBody: {
             markdown: string;
@@ -1633,6 +1638,13 @@ export interface components {
         PlanStep: {
             grid: string;
             step: string;
+        };
+        /** @description POST /app/agent/plan/step: one Steps box ticked, or unticked. */
+        PlanStepBody: {
+            step: string;
+            /** @default true */
+            done?: boolean;
+            group?: string | null;
         };
         PlaybookSkill: {
             skill: string;

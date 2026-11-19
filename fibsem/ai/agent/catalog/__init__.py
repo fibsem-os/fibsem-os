@@ -62,6 +62,8 @@ RECORD_TOOLS = frozenset(
     (
         "plan_get",
         "plan_set_section",
+        "plan_append",
+        "plan_check_step",
         "experiment_add_note",
         "experiment_message_operator",
         "server_report_session",
@@ -101,7 +103,7 @@ NOT_TOOLS: Dict[str, str] = {
     "GET /app/agent/transcript": "What fibsem-agent printed, read back by the web page; the agent has its own context.",
     "POST /app/agent/transcript": "fibsem-agent's harness sends what it printed; not the agent's to call.",
     "GET /app/agent/transcript/pictures/{name}": "A picture a lab tool answered a step with, read back by the web page; the agent saw it in the tool's answer.",
-    "PUT /app/agent/plan": "The operator edits the whole plan from the Agent page; the agent writes it a section at a time (plan_set_section).",
+    "PUT /app/agent/plan": "The operator edits the whole plan from the Agent page; the agent writes it a section, a line or a box at a time (plan_set_section, plan_append, plan_check_step).",
     "POST /app/agent/read": "fibsem-agent's harness, or fibsem-mcp watch, says which of the operator's messages the agent has read; not the agent's to call.",
     "GET /chat": "A redirect to the web app's Agent page, GET /ui/agent.",
     "GET /ui": "The operator's web app, HTML; it calls the operator's routes.",
