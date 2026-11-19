@@ -2739,8 +2739,8 @@ def show_config(
                 "where": s.url or " ".join(s.command),
                 "token": s.token,
                 "about": s.about,
-                "tools": s.tools,
-                "watch": s.watch,
+                "tools": [extra_mcp.ALL] if s.every else s.tools,
+                "watch": ([extra_mcp.ALL] if s.every and s.at_watch("") else s.watch),
                 "subagents": s.subagents,
             }
             for name, s in extras.items()

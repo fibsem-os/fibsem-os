@@ -24,8 +24,14 @@ its tools ``watch``, and one marked ``drive`` still needs Drive:
       level: watch
       tools: [search, read_page, {tidy: drive}]
 
- The agent never sees the server's other
-tools (`hidden`).
+The agent never sees the server's other tools (`hidden`). ``tools: all``
+allows every tool the server offers, at the server's level, as it offers them
+at each start:
+
+    notebook:
+      url: https://notebook.example/mcp
+      level: watch
+      tools: all
 
 The token is in no file and on no command line: the server's entry names it
 as ``${NOTEBOOK_TOKEN}``, which the CLI fills in from its environment, where
@@ -60,6 +66,8 @@ TOKEN = re.compile(r"^[A-Z][A-Z0-9_]*$")
 SECRET_WORDS = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL")
 # The agent level a lab tool needs: Watch, or Drive unless it says so.
 WATCH, DRIVE = "watch", "drive"
+# ``tools: all``: every tool a server offers.
+ALL = "all"
 # How long listing a server's tools at the start may take.
 LIST_TIMEOUT_S = 20.0
 
@@ -83,6 +91,17 @@ class Server:
     token: str = ""
     # The tools that work at Watch; the rest of *tools* need Drive.
     watch: List[str] = field(default_factory=list)
+    # ``tools: all``: every tool the server offers, at *level*; *tools* is empty.
+    every: bool = False
+    level: str = "drive"
+
+    def allows(self, tool: str) -> bool:
+        """Whether the agent may call *tool* here, at some level."""
+        return self.every or tool in self.tools
+
+    def at_watch(self, tool: str) -> bool:
+        """Whether *tool* works at Watch."""
+        return self.level == WATCH if self.every else tool in self.watch
 
 
 def path() -> Path:
@@ -116,18 +135,25 @@ def _server(name, entry) -> Server:
     if name in RESERVED:
         raise ExtraMcpError(f"{name} is the name of fibsem-agent's own server")
     if not isinstance(entry, dict):
-        raise ExtraMcpError(f"{name}: list the tools the agent may call, in tools")
+        raise ExtraMcpError(
+            f"{name}: list the tools the agent may call, in tools (or tools: {ALL})"
+        )
     unknown = sorted(str(key) for key in set(entry) - set(FIELDS))
     if unknown:
         raise ExtraMcpError(f"{name}: unknown setting(s) {', '.join(unknown)}")
     level = entry.get("level", DRIVE)
     if level not in (WATCH, DRIVE):
         raise ExtraMcpError(f"{name}: level is {level!r}; a server is watch or drive")
-    tools, watch = _tools(entry.get("tools"), f"{name}'s tools", level)
-    if not tools:
-        raise ExtraMcpError(f"{name}: list the tools the agent may call, in tools")
+    every = entry.get("tools") == ALL
+    tools, watch = (
+        ([], []) if every else _tools(entry.get("tools"), f"{name}'s tools", level)
+    )
+    if not tools and not every:
+        raise ExtraMcpError(
+            f"{name}: list the tools the agent may call, in tools (or tools: {ALL})"
+        )
     given = _names(entry.get("subagents"), f"{name}'s subagents")
-    outside = [tool for tool in given if tool not in tools]
+    outside = [tool for tool in given if not every and tool not in tools]
     if outside:
         raise ExtraMcpError(
             f"{name}: subagents may list only its tools, not {', '.join(outside)}"
@@ -172,6 +198,8 @@ def _server(name, entry) -> Server:
         list(command or []),
         token,
         watch,
+        every,
+        level,
     )
 
 
@@ -199,6 +227,8 @@ def _tools(value, what: str, level: str = DRIVE):
 
 
 def _drive_line(server: Server) -> str:
+    if server.every:
+        return " They all need the agent at Drive." if server.level == DRIVE else ""
     drive = [tool for tool in server.tools if tool not in server.watch]
     if not drive:
         return ""
@@ -260,8 +290,15 @@ def tokens(extras: Dict[str, Server]) -> Dict[str, str]:
 
 
 def allowed(extras: Dict[str, Server]) -> List[str]:
-    """The tools the agent may call on the extra servers."""
-    return [f"mcp__{s.name}__{tool}" for s in extras.values() for tool in s.tools]
+    """The tools the agent may call on the extra servers: a ``tools: all``
+    server's by its prefix, which allows all of them."""
+    return [
+        name
+        for s in extras.values()
+        for name in (
+            [f"mcp__{s.name}"] if s.every else [f"mcp__{s.name}__{t}" for t in s.tools]
+        )
+    ]
 
 
 def refusal(
@@ -274,9 +311,9 @@ def refusal(
     if len(parts) != 3 or parts[0] != "mcp" or parts[1] not in extras:
         return None
     server, name = extras[parts[1]], parts[2]
-    if name not in server.tools:
+    if not server.allows(name):
         return f"{name} is not one of the {server.name} tools {path()} allows."
-    if name in server.watch:
+    if server.at_watch(name):
         return None
     now = level()
     if now == DRIVE:
@@ -316,6 +353,9 @@ def hidden(extras: Dict[str, Server], secrets: Dict[str, str]) -> List[str]:
     Raises:
         ExtraMcpError: a server could not be listed.
     """
+    extras = {name: s for name, s in extras.items() if not s.every}
+    if not extras:
+        return []
     found: Dict[str, object] = {}
 
     def run() -> None:
@@ -338,7 +378,7 @@ def hidden(extras: Dict[str, Server], secrets: Dict[str, str]) -> List[str]:
         f"mcp__{name}__{tool}"
         for name, tools in offered.items()
         for tool in tools
-        if tool not in extras[name].tools
+        if not extras[name].allows(tool)
     ]
 
 

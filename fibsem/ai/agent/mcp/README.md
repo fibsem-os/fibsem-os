@@ -151,7 +151,8 @@ fibsem-agent
   the command that starts it (`command`, the program then its arguments),
   the name its token is stored under (`token`, optional), and the tools the
   agent may call and the ones a specialist may list (`about` and `subagents`
-  are optional; tools are named one by one):
+  are optional; tools are named one by one, or `tools: all` for every tool
+  the server offers):
 
   ```yaml
   notebook:
@@ -187,6 +188,12 @@ fibsem-agent
 
   The single quotes keep the shell (bash, zsh, PowerShell) from filling the
   token in at registration; in cmd use double quotes.
+
+  A tool needs the agent at Drive unless it is marked `watch` (`- search:
+  watch`), or its server is (`level: watch`); below that the harness refuses
+  it. The agent never sees a tool the server offers that isn't listed. With
+  `tools: all`, every tool the server offers is allowed, at the server's
+  level, including tools it adds later.
 
   A server is on only for a playbook that names it in its `mcp` list. For a
   shipped playbook, the lab adds one of its own that extends it:

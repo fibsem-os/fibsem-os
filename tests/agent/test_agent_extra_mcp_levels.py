@@ -216,3 +216,33 @@ def test_a_server_at_an_address_is_listed_with_its_token(tmp_path):
     finally:
         process.terminate()
         process.wait(timeout=10)
+
+
+def _all(tmp_path, level):
+    file = tmp_path / "mcp.yaml"
+    file.write_text(
+        f"notebook:\n  command: [x]\n  level: {level}\n  tools: all\n"
+        "  subagents: [search]\n",
+        encoding="utf-8",
+    )
+    return extra_mcp.load(file)
+
+
+def test_tools_all_allows_every_tool_the_server_offers(tmp_path):
+    extras = _all(tmp_path, "drive")
+    notebook = extras["notebook"]
+    assert notebook.every and notebook.tools == []
+    # The whole server, by its prefix; nothing to list or hide.
+    assert extra_mcp.allowed(extras) == ["mcp__notebook"]
+    assert extra_mcp.hidden(extras, {}) == []
+    assert extra_mcp.subagent_allowed(extras) == ["mcp__notebook__search"]
+    assert "They all need the agent at Drive." in extra_mcp.prompt_lines(extras)
+    # Its level still decides.
+    assert extra_mcp.refusal(extras, "mcp__notebook__anything", lambda: "watch")
+    assert extra_mcp.refusal(extras, "mcp__notebook__anything", lambda: "drive") is None
+
+
+def test_tools_all_at_watch_works_at_watch(tmp_path):
+    extras = _all(tmp_path, "watch")
+    assert extra_mcp.refusal(extras, "mcp__notebook__anything", lambda: "watch") is None
+    assert "Drive" not in extra_mcp.prompt_lines(extras)
