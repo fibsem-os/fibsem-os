@@ -8,7 +8,6 @@ from fibsem.ai.evals.__main__ import main
 from fibsem.ai.evals.core import cut, episode, segments
 from fibsem.ai.evals.core.cases import check_case, load_case
 
-
 BASE = datetime(2026, 11, 20, 3, tzinfo=timezone.utc).timestamp()
 
 
