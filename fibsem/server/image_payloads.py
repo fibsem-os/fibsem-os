@@ -53,6 +53,16 @@ def image_payload(image) -> Optional[Dict[str, Any]]:
 
     if isinstance(image, FluorescenceImage):
         return _fluorescence_payload(image)
+    from fibsem.server.images import own_preview, own_summary
+
+    own = own_summary(image)
+    if own is not None:  # another instrument's image: its scale from its summary
+        try:
+            payload = own_preview(image, own)
+        except Exception:
+            return None
+        payload["acquired_at"] = own.get("acquired_at")
+        return payload
     if hasattr(image, "metadata"):
         try:
             from fibsem.server.images import preview_payload
@@ -74,9 +84,14 @@ def image_payload(image) -> Optional[Dict[str, Any]]:
 
 
 def image_info(image, plane: Optional[int] = None) -> Optional[Dict[str, Any]]:
-    """`fields_info` of a FibsemImage or FluorescenceImage; None for a bare array.
+    """`fields_info` of a FibsemImage or FluorescenceImage; None for a bare array
+    or another instrument's image (its facts are its summary, not these fields).
     *plane* is the FM plane shown (0-based), None the max projection."""
     if getattr(image, "metadata", None) is None:
+        return None
+    from fibsem.server.images import own_summary
+
+    if own_summary(image) is not None:
         return None
     from fibsem.fm.structures import FluorescenceImage
     from fibsem.imaging.export import image_fields

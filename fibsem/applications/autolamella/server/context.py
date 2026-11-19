@@ -250,6 +250,7 @@ class AutoLamellaAppContext(AppContext):
     """Read-only facade over a running (or resting) AutoLamella session."""
 
     app_name = "AutoLamella"
+    experiment_app = "autolamella"
 
     def picture_sources(self) -> _task_outputs.PreviewSources:
         return _task_outputs.PreviewSources(lambda: self._experiment)

@@ -318,3 +318,83 @@ def test_thickness_is_read_off_a_fib_image_in_any_folder(tmp_path):
     image.save(str(tmp_path / "lamella_eb.tif"))
     with pytest.raises(ImageRefused, match="SEM image"):
         tools.measure_thickness("lamella_eb.tif")
+
+
+class _EntryPoint:
+    def __init__(self, target, name="lab-format"):
+        self.name, self.value, self.dist = name, "lab:reader", None
+        self._target = target
+
+    def load(self):
+        return self._target
+
+
+@pytest.fixture
+def lab_reader(monkeypatch):
+    """A plugin's reader for its instrument's own format (here, raw uint16)."""
+    from fibsem.analysis.images import READER_GROUP, Reader
+    from fibsem.plugins import loader
+
+    def read(path):
+        data = np.fromfile(path, dtype=np.uint16).reshape(32, 64)
+        return Planes(
+            data=data[None, None],
+            names=["Lab image"],
+            pixel_size=4e-10,
+            full_value=65535.0,
+        )
+
+    reader = Reader("lab image", lambda path: path.endswith(".lab"), read)
+    loader.clear_cache()
+    monkeypatch.setattr(
+        loader,
+        "_entry_points",
+        lambda group: iter([_EntryPoint(reader)] if group == READER_GROUP else []),
+    )
+    yield reader
+    loader.clear_cache()
+
+
+def test_a_plugin_s_reader_reads_its_instrument_s_format(tmp_path, lab_reader):
+    from fibsem.analysis.tools import ImageTools
+
+    data = np.tile(np.arange(64, dtype=np.uint16) * 1000, (32, 1))
+    data.tofile(tmp_path / "frame.lab")
+    planes = load_planes(str(tmp_path / "frame.lab"))
+    assert planes.names == ["Lab image"] and planes.pixel_size == 4e-10
+    answer = ImageTools(lambda: str(tmp_path)).line_profile(
+        "frame.lab", [0, 16], [63, 16]
+    )
+    assert answer.result["values"][0] < answer.result["values"][-1]
+
+
+def test_a_plugin_entry_that_is_not_a_reader_is_left_out(monkeypatch):
+    from fibsem.analysis.images import READERS, readers
+    from fibsem.plugins import loader
+
+    loader.clear_cache()
+    monkeypatch.setattr(
+        loader, "_entry_points", lambda group: iter([_EntryPoint(object())])
+    )
+    try:
+        assert readers() == READERS
+    finally:
+        loader.clear_cache()
+
+
+def test_the_tools_that_read_fibsem_metadata_refuse_another_instrument_s_file(tmp_path):
+    from fibsem.analysis.tools import ImageRefused, ImageTools
+
+    (tmp_path / "frame.mrc").write_bytes(b"\0" * 64)
+    tools = ImageTools(lambda: str(tmp_path))
+    for call in (
+        lambda: tools.metadata("frame.mrc"),
+        lambda: tools.pixel_to_stage("frame.mrc", px=[1, 1]),
+        lambda: tools.stage_to_pixel(
+            "frame.mrc", [{"x": 0, "y": 0, "z": 0, "r": 0, "t": 0}]
+        ),
+    ):
+        with pytest.raises(ImageRefused) as refused:
+            call()
+        assert refused.value.error_type == "invalid"
+        assert "isn't one (another instrument's image" in refused.value.message
