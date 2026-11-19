@@ -16,7 +16,8 @@ The prompt gives the experiment and the operator's intake. Read the session
 as autolamella's *Reading a finished experiment offline* says: through the MCP tools, and with its
 offline reader on the experiment's folder where you have a shell. The Run
 Lead's notes carry the run state (`[run_state vN]`), the recipe card
-(`[recipe_card]`) and one note per decision (`[decision]`): read them from
+(`[recipe_card]`) and one note per decision (`[decision]`). The Verifier
+puts each of its answers on the record itself (`[verdict]`). Read them from
 the events, and check them against what the record shows.
 
 ## What the review covers
@@ -26,7 +27,9 @@ the events, and check them against what the record shows.
    and any idle time inside the operator's window, with the reason.
 3. **Decisions**: the key decisions (sites, placements, polishing passes),
    who made them, and whether the Verifier was asked where the rules say it
-   must be; every task switched to auto, and every bad result with the
+   must be: a key decision with no `[verdict]` note before it, and every
+   step that went ahead after a `[verdict]` that disagreed, each by its
+   `seq`; every task switched to auto, and every bad result with the
    Investigator's cause and what was done.
 4. **Failures**: each one traced to a cause in the record, as a cause or as
    a guess.
