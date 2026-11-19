@@ -14,10 +14,12 @@ import yaml
 from fibsem import paths
 from fibsem.ai.agent import manager, playbooks, sources
 from fibsem.ai.evals import tasks as eval_tasks
+from fibsem.ai.evals.core import catalogue as catalogue_mod
 from fibsem.ai.evals.core import episode as episode_mod
 from fibsem.ai.evals.core import matrix as matrix_mod
 from fibsem.ai.evals.core import replay as replay_mod
 from fibsem.ai.evals.core import report as report_mod
+from fibsem.ai.evals.core import segments as segments_mod
 from fibsem.ai.evals.core import serve as serve_mod
 from fibsem.ai.evals.core import trace as trace_mod
 from fibsem.ai.evals.core import visual
@@ -243,11 +245,44 @@ def _parser() -> argparse.ArgumentParser:
         "--link", action="store_true", help="hard link files instead of copying"
     )
     pack.add_argument("--note", default=None, help="a line on what the run was")
+    seg_check = episode_sub.add_parser(
+        "check", help="check an episode's segments.yaml against its record"
+    )
+    seg_check.add_argument("episode", type=Path)
+    catalogue = sub.add_parser(
+        "catalogue",
+        help="the tasks a case can be cut from a real run for, as the segmenter "
+        "reads them",
+    )
+    catalogue.add_argument("--write", type=Path, default=None, help="a yaml file")
     return parser
 
 
 def main(argv=None) -> int:
     args = _parser().parse_args(argv)
+
+    if args.command == "catalogue":
+        text = yaml.safe_dump(catalogue_mod.catalogue(), sort_keys=False, width=100)
+        if args.write:
+            args.write.write_text(text)
+            print(f"Wrote {args.write}")
+        else:
+            print(text)
+        return 0
+
+    if args.command == "episode" and args.episode_command == "check":
+        try:
+            ep = episode_mod.Episode.load(args.episode)
+        except episode_mod.EpisodeError as e:
+            print(e, file=sys.stderr)
+            return 2
+        result = segments_mod.check(ep)
+        for problem in result.problems:
+            print(f"PROBLEM  {problem}")
+        for note in result.notes:
+            print(f"note     {note}")
+        print("ok" if result.ok else f"{len(result.problems)} problems")
+        return 0 if result.ok else 1
 
     if args.command == "episode":
         sessions = args.sessions

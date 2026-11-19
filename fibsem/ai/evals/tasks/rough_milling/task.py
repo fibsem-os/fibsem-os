@@ -7,7 +7,7 @@ import numpy as np
 from fibsem.ai.evals.core.cases import Case, pass_names
 from fibsem.ai.evals.core.scoring import InvalidAnswer, yes_no
 from fibsem.ai.evals.core.visual import KEY, THEME, _pass_strip
-from fibsem.ai.evals.tasks.base import EvalTask, Run, Sim
+from fibsem.ai.evals.tasks.base import EvalTask, FromRun, Run, Sim
 
 # What a rough_milling key says about each step.
 ROUGH_CHECKS = ("milled_through", "intact")
@@ -117,4 +117,10 @@ TASK = EvalTask(
     summary=summary,
     draw=draw_rough_milling,
     sims=(Sim("rough", "fibsem.ai.evals.tasks.rough_milling.make"),),
+    from_run=FromRun(
+        decision="Rough milling, after each step: whether the step milled through and the lamella is still intact.",
+        inputs={
+            "steps": "each rough milling step: its name and the FIB and SEM images taken after it",
+        },
+    ),
 )

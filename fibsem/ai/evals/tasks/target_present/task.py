@@ -7,7 +7,7 @@ import numpy as np
 from fibsem.ai.evals.core.cases import Case, pass_names
 from fibsem.ai.evals.core.scoring import InvalidAnswer, yes_no
 from fibsem.ai.evals.core.visual import KEY, THEME, _pass_strip
-from fibsem.ai.evals.tasks.base import EvalTask, Run, Sim
+from fibsem.ai.evals.tasks.base import EvalTask, FromRun, Run, Sim
 
 
 def score_target_present(
@@ -104,4 +104,10 @@ TASK = EvalTask(
     summary=summary,
     draw=draw_target_present,
     sims=(Sim("coincidence", "fibsem.ai.evals.tasks.target_present.make"),),
+    from_run=FromRun(
+        decision="Polishing with an FM stack after each pass (coincident FM): whether the target is still in the lamella after each pass.",
+        inputs={
+            "passes": "each pass up to the decision: its name and the FM stack taken after it",
+        },
+    ),
 )
