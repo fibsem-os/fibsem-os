@@ -47,6 +47,7 @@ from fibsem.ai.agent.catalog import (
     RECORD_TOOLS,
     tools_for_capabilities,
 )
+from fibsem.ai.agent.catalog.spec import lenient
 from fibsem.client import tools
 from fibsem.client.transport import ServerUnreachable, Transport
 from fibsem.extras import missing_extra_message
@@ -1343,7 +1344,8 @@ def _described(fn, params):
         parameters=[
             parameter.replace(
                 annotation=Annotated[
-                    parameter.annotation, Field(description=params[parameter.name])
+                    lenient(parameter.annotation),
+                    Field(description=params[parameter.name]),
                 ]
             )
             if parameter.name in params

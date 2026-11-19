@@ -506,3 +506,31 @@ def test_a_name_with_a_slash_reaches_its_route_whole():
         "/app/experiment/items/Lamella%2001%2F2",
         "/app/experiment/items/Lamella%2001%2F2",
     ]
+
+
+def test_a_list_argument_takes_one_string_or_the_list_as_json():
+    """The model sometimes gives a list as one string, or writes the list out
+    as JSON text: either reads as the list, and the schema stays an array."""
+    from mcp.server.mcpserver.utilities.func_metadata import func_metadata
+
+    spec = next(s for s in CATALOG if s.name == "knowledge_write")
+
+    def declared():
+        pass
+
+    declared.__name__ = spec.name
+    declared.__signature__ = spec.signature
+    model = func_metadata(declared).arg_model
+    assert model.model_json_schema()["properties"]["images"]["anyOf"][0]["type"] == (
+        "array"
+    )
+    for given, read in (
+        ("a.png", ["a.png"]),
+        ('["a.png", "b.png"]', ["a.png", "b.png"]),
+        (["a.png"], ["a.png"]),
+        (None, None),
+    ):
+        found = model.model_validate(
+            {"section": "instrument", "title": "t", "text": "x", "images": given}
+        )
+        assert found.images == read, given

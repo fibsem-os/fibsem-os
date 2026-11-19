@@ -548,7 +548,9 @@ def write(
         remind = " ".join(str(remind).split())
         if len(remind) > MAX_REMIND:
             raise KnowledgeError(
-                "invalid", f"remind is one line of at most {MAX_REMIND} characters."
+                "invalid",
+                f"remind is one line of at most {MAX_REMIND} characters; this one "
+                f"is {len(remind)}. Keep the line short and put the details in text.",
             )
     given = {
         "instrument": _tag(instrument, "instrument"),

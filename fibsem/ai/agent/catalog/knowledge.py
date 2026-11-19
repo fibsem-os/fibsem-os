@@ -86,9 +86,9 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "sample": f"optional: {_SAMPLE}; the open experiment's sample when left out",
             "playbook": f"optional: {_PLAYBOOK}; any entry may be tagged with the run's playbook",
             "lasts": f"optional: {_LASTS}; ongoing when left out",
-            "remind": "optional: one line said before the steps it concerns (e.g. 'the 10 pA aperture is down: use 30 pA'); an empty one removes it",
+            "remind": "optional: one line of at most 200 characters, said before the steps it concerns (e.g. 'the 10 pA aperture is down: use 30 pA'); the details go in text; an empty one removes it",
             "images": arg(
-                "optional: up to 8 image paths in the open experiment (a figure you drew, an image the image tools answered), copied in at most 1024 px; refused with no experiment open",
+                "optional: a list of up to 8 image paths in the open experiment (a figure you drew, an image the image tools answered), copied in at most 1024 px; refused with no experiment open",
                 List[str],
             ),
             "item": "optional: the lamella or grid it is about, by name",

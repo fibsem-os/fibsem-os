@@ -2,8 +2,47 @@
 pieces its route call is built from."""
 
 import inspect
+import json
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import (
+    Annotated,
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Union,
+    get_origin,
+)
+
+from pydantic import BeforeValidator
+
+
+def _listed(value: Any) -> Any:
+    """A list argument as the model sometimes gives it: one string for a
+    one-item list, or the list written out as JSON text. Anything else as
+    given, for the type to check."""
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if text.startswith("["):
+        try:
+            found = json.loads(text)
+        except ValueError:
+            return value
+        if isinstance(found, list):
+            return found
+    return [value]
+
+
+def lenient(annotation: Any) -> Any:
+    """*annotation*, taking a list (or an optional one) as `_listed` reads
+    it; any other type as it is. The input schema stays the list's."""
+    inner = [annotation, *getattr(annotation, "__args__", ())]
+    if any(get_origin(each) is list for each in inner):
+        return Annotated[annotation, BeforeValidator(_listed)]
+    return annotation
 
 
 @dataclass(frozen=True)
@@ -93,6 +132,7 @@ class ToolSpec:
                 default, annotation = None, Optional[argument.type]
             else:
                 default, annotation = argument.default, argument.type
+            annotation = lenient(annotation)
             parameters.append(
                 inspect.Parameter(
                     name,
