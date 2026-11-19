@@ -27,6 +27,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import shutil
 import signal
 import sys
@@ -1942,6 +1943,59 @@ def granted_tools(
     return granted
 
 
+def _hidden(extras, secrets: Dict[str, str]) -> List[str]:
+    """The lab servers' tools that mcp.yaml doesn't list, kept from the
+    model. A server that can't be listed is warned about: its other tools stay
+    in sight, and the level gate still refuses them."""
+    if not extras:
+        return []
+    try:
+        return extra_mcp.hidden(extras, secrets)
+    except extra_mcp.ExtraMcpError as error:
+        log.warning(f"{error}; the agent may see tools mcp.yaml doesn't list")
+        return []
+
+
+def level_gate(extras, url: Optional[str], token: Optional[str]):
+    """The PreToolUse hook that refuses a lab server's tool the agent level
+    doesn't reach (`extra_mcp.refusal`), reading the level from the App
+    Server at each call, so the operator's change holds at once."""
+
+    async def hook(hook_input, tool_use_id, context):
+        tool = str(hook_input.get("tool_name") or "")
+        why = await asyncio.to_thread(
+            extra_mcp.refusal, extras, tool, lambda: extra_mcp.read_level(url, token)
+        )
+        if why is None:
+            return {}
+        log.info(f"refused {tool}: {why}")
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": why,
+            }
+        }
+
+    return hook
+
+
+def _with_level_gate(hooks: Optional[dict], extras, url, token) -> Optional[dict]:
+    """*hooks* with the level gate on every lab server's tools."""
+    if not extras:
+        return hooks
+    from claude_agent_sdk import HookMatcher
+
+    names = "|".join(re.escape(name) for name in extras)
+    hooks = dict(hooks or {})
+    hooks["PreToolUse"] = [
+        HookMatcher(
+            matcher=f"mcp__({names})__.*", hooks=[level_gate(extras, url, token)]
+        )
+    ] + list(hooks.get("PreToolUse", []))
+    return hooks
+
+
 def sidecar_command() -> List[str]:
     """``fibsem-mcp`` of this environment, by absolute path. Failing that,
     ``python -I -m``, which keeps the current folder off the path, so another
@@ -2016,7 +2070,8 @@ def build_options(
     extras = used_servers(extras, names)
     # The extra servers' tokens: their entries name them, ${NAME}, and the
     # CLI fills them in from here (`extra_mcp.definitions`).
-    env.update(extra_mcp.tokens(extras))
+    secrets = extra_mcp.tokens(extras)
+    env.update(secrets)
     if host_token:
         env[HOST_TOKEN_ENV] = host_token
     granted = granted_tools(loaded, extras, host is not None, SERVER in names)
@@ -2029,6 +2084,7 @@ def build_options(
         allowed = granted + code_mode.allowed_tools(work, code)
         denied = [tool for tool in DENIED_TOOLS if tool not in given]
         settings = code_mode.settings_json(work, {**os.environ, **env}, code)
+    denied = denied + _hidden(extras, secrets)
     servers = {}
     lab = extra_mcp.definitions(extras)
     for name in names:
@@ -2071,13 +2127,17 @@ def build_options(
                 names + [RECORD_SERVER] if host else None,
             ),
         },
-        # With a playbook control, the reminders on now, asked at each call.
-        hooks=(
+        # With a playbook control, the reminders on now, asked at each call;
+        # and the lab servers' tools gated by the agent level.
+        hooks=_with_level_gate(
             control.reminders.sdk_hooks(SERVER)
             if control is not None
             else reminders.sdk_hooks(playbook.hooks, SERVER)
             if playbook
-            else None
+            else None,
+            extras,
+            url,
+            token,
         ),
         # Watcher lines carry operator-typed text: never expand an @path in it.
         verbatim_prompts=True,
@@ -2762,7 +2822,8 @@ def show_config(
                 "where": s.url or " ".join(s.command),
                 "token": s.token,
                 "about": s.about,
-                "tools": s.tools,
+                "tools": [extra_mcp.ALL] if s.every else s.tools,
+                "watch": ([extra_mcp.ALL] if s.every and s.at_watch("") else s.watch),
                 "subagents": s.subagents,
             }
             for name, s in extras.items()
@@ -2839,7 +2900,8 @@ def _config_text(config: dict) -> str:
     lines += [
         f"MCP {name} ({each['where']}"
         + (f", token {each['token']}" if each["token"] else "")
-        + f"): {', '.join(each['tools'])}; specialists: "
+        + f"): {', '.join(each['tools'])}; at Watch: "
+        f"{', '.join(each.get('watch', [])) or 'none'}, the rest at Drive; specialists: "
         f"{', '.join(each['subagents']) or 'none'}"
         for name, each in config.get("extra_mcp", {}).items()
     ]
