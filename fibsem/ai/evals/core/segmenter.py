@@ -143,6 +143,10 @@ def prompt_hash(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()[:12]
 
 
+class SegmenterError(RuntimeError):
+    pass
+
+
 def _fix_text(problems: List[str]) -> str:
     listed = "\n".join(f"- {p}" for p in problems)
     return (
@@ -201,11 +205,19 @@ async def _run(
         async for reply in client.receive_response():
             if isinstance(reply, ResultMessage):
                 spent = float(reply.total_cost_usd or spent)
+                if reply.is_error:
+                    why = "; ".join(reply.errors or []) or reply.result
+                    raise SegmenterError(f"the agent's turn failed: {why}")
                 if reply.result:
                     said.append(str(reply.result))
 
     async with ClaudeSDKClient(options) as client:
         await turn(client, "Segment this episode now, following your instructions.")
+        if not segments.path(episode).is_file():
+            raise SegmenterError(
+                "the agent ended its turn without writing segments.yaml: "
+                + (said[-1] if said else "it said nothing")
+            )
         result = segments.check(episode)
         if not result.ok:
             await turn(client, _fix_text(result.problems))
@@ -226,7 +238,9 @@ def run(
     effort: Optional[str] = None,
 ) -> segments.Check:
     """Propose the episode's segments with an agent; the check of what it
-    wrote. A segments.yaml already there is kept as segments.previous.yaml."""
+    wrote. A segments.yaml already there is kept as segments.previous.yaml.
+    Raises SegmenterError when the agent fails (it can't sign in, say) or
+    writes no segments."""
     prepare(episode)
     existing = segments.path(episode)
     if existing.is_file():

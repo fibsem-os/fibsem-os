@@ -183,3 +183,89 @@ def test_cli_segment_dry_run(tmp_path):
     ep = _episode(tmp_path)
     assert main(["episode", "segment", str(ep.path), "--dry-run"]) == 0
     assert (ep.path / "segmenter" / "prompt.md").is_file()
+
+
+class _FakeClient:
+    """Stands in for ClaudeSDKClient: each turn runs *act* and ends with
+    the given result."""
+
+    replies = []
+    asked = []
+
+    def __init__(self, options):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def query(self, message):
+        _FakeClient.asked.append(message)
+
+    async def receive_response(self):
+        act, result = _FakeClient.replies.pop(0)
+        if act:
+            act()
+        yield result
+
+
+def _result(sdk, is_error=False, text="done", errors=None):
+    return sdk.ResultMessage(
+        subtype="error" if is_error else "success",
+        duration_ms=1,
+        duration_api_ms=1,
+        is_error=is_error,
+        num_turns=1,
+        session_id="x",
+        total_cost_usd=0.5,
+        result=text,
+        errors=errors,
+    )
+
+
+def test_segmenter_reports_a_failed_turn(tmp_path, monkeypatch):
+    sdk = pytest.importorskip("claude_agent_sdk")
+    from fibsem.ai.evals.core import segmenter
+
+    ep = _episode(tmp_path)
+    monkeypatch.setattr(sdk, "ClaudeSDKClient", _FakeClient)
+    _FakeClient.asked = []
+    _FakeClient.replies = [
+        (None, _result(sdk, True, "Failed to authenticate", ["OAuth expired"]))
+    ]
+    with pytest.raises(segmenter.SegmenterError, match="OAuth expired"):
+        segmenter.run(ep)
+    assert len(_FakeClient.asked) == 1
+
+
+def test_segmenter_with_no_file_written_fails(tmp_path, monkeypatch):
+    sdk = pytest.importorskip("claude_agent_sdk")
+    from fibsem.ai.evals.core import segmenter
+
+    ep = _episode(tmp_path)
+    monkeypatch.setattr(sdk, "ClaudeSDKClient", _FakeClient)
+    _FakeClient.asked = []
+    _FakeClient.replies = [(None, _result(sdk, text="I could not"))]
+    with pytest.raises(segmenter.SegmenterError, match="I could not"):
+        segmenter.run(ep)
+    assert len(_FakeClient.asked) == 1
+
+
+def test_segmenter_gets_one_turn_to_fix_problems(tmp_path, monkeypatch):
+    sdk = pytest.importorskip("claude_agent_sdk")
+    from fibsem.ai.evals.core import segmenter
+
+    ep = _episode(tmp_path)
+    monkeypatch.setattr(sdk, "ClaudeSDKClient", _FakeClient)
+    _FakeClient.asked = []
+    _FakeClient.replies = [
+        (lambda: segments.save(ep, _data(_segment(start_event="nope"))), _result(sdk)),
+        (lambda: segments.save(ep, _data(_segment())), _result(sdk, text="fixed")),
+    ]
+    result = segmenter.run(ep)
+    assert result.ok
+    assert len(_FakeClient.asked) == 2 and "nope" in _FakeClient.asked[1]
+    info = segments.load(ep)["segmenter"]
+    assert info["spent_usd"] == 0.5 and info["said"] == "fixed"

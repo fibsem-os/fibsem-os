@@ -314,7 +314,11 @@ def main(argv=None) -> int:
             folder = segmenter_mod.prepare(ep)
             print(f"Wrote the segmenter's prompt and inputs to {folder}")
             return 0
-        result = segmenter_mod.run(ep, args.model, args.budget_usd, args.effort)
+        try:
+            result = segmenter_mod.run(ep, args.model, args.budget_usd, args.effort)
+        except segmenter_mod.SegmenterError as e:
+            print(f"The segmenter failed: {e}", file=sys.stderr)
+            return 2
         data = segments_mod.load(ep)
         found = data.get("segments") or []
         new = sum(1 for s in found if not s.get("task"))
