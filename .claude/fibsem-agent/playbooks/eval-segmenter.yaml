@@ -1,15 +1,11 @@
 # Segmenting an episode (the record of one run) into the decisions an eval
 # case could score. Offline: no instrument, run on an agent host, with the
 # episode folder as its files folder. `python -m fibsem.ai.evals episode
-# segment` starts it; it reads the episode and writes segments.yaml.
+# segment` starts it, with its budget on the command line; it reads the
+# episode and writes segments.yaml. The base's session settings hold.
 description: Segment a recorded run into the decisions an eval case could score.
 instrument: none
 mcp: []
-session:
-  effort: high
-  max_budget_usd: 3
-  max_turns: 60
-  mode: files
 skills: [eval-segmenter]
 rules:
   - Write segments.yaml in the episode folder and no other file.
