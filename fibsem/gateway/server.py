@@ -12,7 +12,9 @@ operator, and ``/gateway/agent`` reads, starts and ends this
 PC's agent (`fibsem.gateway.agent`), resuming an ended session too, with
 the same rules as starting the app. ``/gateway/defaults`` is what the page
 fills in for the next start (the operator saves it), and ``/gateway/secrets``
-says which keys this PC has, never what they are.
+says which keys this PC has, never what they are. A hub is another program
+on another PC (`fibsem.hub`): the gateway serves it what a paired hub may read
+and do here, and holds no list of instruments itself.
 Pairing is the App Server's (`fibsem.server.pairing_routes`), with the hub
 role, and the page is the web app's ``/ui/gateway``.
 """
