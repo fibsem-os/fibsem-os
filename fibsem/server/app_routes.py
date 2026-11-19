@@ -58,6 +58,7 @@ from fibsem.server.bodies import (
     IntensityBody,
     MarkersBody,
     MillingDrawnBody,
+    MillingOverviewBody,
     NameBody,
     NewExperimentBody,
     NewItemBody,
@@ -127,6 +128,7 @@ from fibsem.server.responses import (
     LamellaDefaultsSet,
     LogRead,
     MarkersDrawn,
+    MillingOnOverview,
     OptionsSet,
     OverviewStagePosition,
     Proposals,
@@ -938,6 +940,31 @@ def build_app_router(context: "AppContext") -> APIRouter:
         return _typed(
             context.draw_item_milling(
                 item_name, task_names, body.image_path, body.background, **options
+            )
+        )
+
+    @router.post(
+        "/experiment/images/milling",
+        response_model=MillingOnOverview,
+        tags=[LAMELLAE],
+    )
+    def draw_milling_on_overview(body: MillingOverviewBody):
+        # A POST because the picture is saved beside the overview.
+        def listed(value):
+            return [value] if isinstance(value, str) else value
+
+        item_names = listed(body.item_names)
+        if not item_names and not body.grid_name:
+            raise _missing_field(
+                "Pass item_names, or grid_name to draw every item on that grid."
+            )
+        return _typed(
+            context.draw_milling_on_overview(
+                item_names=item_names,
+                grid_name=body.grid_name,
+                path=body.path,
+                task_names=listed(body.task_names),
+                box=list(body.box) if body.box is not None else None,
             )
         )
 
