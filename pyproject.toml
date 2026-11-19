@@ -102,6 +102,8 @@ server = []
 # Voice input in the agent's message box, transcribed on this PC.
 voice = [
     "faster-whisper>=1.0",
+    # faster-whisper 1.2 passes metadata_errors to av.open, which av 16+ refuses.
+    "av<16",
 ]
 
 # The MCP sidecar (fibsem-mcp). The fibsem package itself never imports mcp.
