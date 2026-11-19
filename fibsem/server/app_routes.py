@@ -40,6 +40,7 @@ from fibsem.server.auth import (
 from fibsem.server.bodies import (
     AnimationExportBody,
     ApplyProtocolBody,
+    CoincidenceOffsetBody,
     CorrelationRunBody,
     DecideBody,
     DrawBody,
@@ -446,9 +447,37 @@ def build_analysis_router(tools: ImageTools) -> APIRouter:
     @router.post("/experiment/analysis/profile", response_model=ImageMeasured)
     def line_profile(body: ProfileBody):
         path = _required_text(body, "path", saved_image)
-        options = _given(body, "width_px", "channel", "plane", "dip")
+        options = _given(body, "width_px", "channel", "plane", "dip", "points")
         start, end = list(body.start), list(body.end)
         return _image_answer(lambda: tools.line_profile(path, start, end, **options))
+
+    @router.post("/experiment/analysis/coincidence", response_model=ImageMeasured)
+    def coincidence_offset(body: CoincidenceOffsetBody):
+        # A POST because its picture is saved beside the SEM image.
+        sem_path = _required_text(body, "sem_path", saved_image)
+        fib_path = _required_text(body, "fib_path", saved_image)
+        if (body.pairs is None) == (body.sem_point is None or body.fib_point is None):
+            raise _missing_field(
+                "Pass sem_point and fib_point, or pairs: [{sem: [x, y], "
+                "fib: [x, y], label?}, ...], not both."
+            )
+        options = {
+            name: crop if isinstance(crop, str) else list(crop)
+            for name, crop in (("sem_crop", body.sem_crop), ("fib_crop", body.fib_crop))
+            if crop is not None
+        }
+        if body.pairs is not None:
+            options["pairs"] = [
+                {"sem": list(p.sem), "fib": list(p.fib), "label": p.label}
+                for p in body.pairs
+            ]
+        sem_point = None if body.sem_point is None else list(body.sem_point)
+        fib_point = None if body.fib_point is None else list(body.fib_point)
+        return _image_answer(
+            lambda: tools.coincidence_offset(
+                sem_path, sem_point, fib_path, fib_point, **options
+            )
+        )
 
     @router.post("/experiment/analysis/histogram", response_model=ImageMeasured)
     def histogram(body: HistogramBody):

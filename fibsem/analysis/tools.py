@@ -18,7 +18,7 @@ from fibsem.alignment import (
     _calculate_shift,
     compare_alignment_methods,
 )
-from fibsem.analysis import measure
+from fibsem.analysis import coincidence, measure
 from fibsem.analysis.answers import (
     ImageDrawn,
     ImageMeasured,
@@ -264,6 +264,90 @@ class ImageTools:
             ).to_dict()
         return ImageShift(reference, image, shift, comparison)
 
+    def coincidence_offset(
+        self,
+        sem_path: str,
+        sem_point: Optional[List[float]],
+        fib_path: str,
+        fib_point: Optional[List[float]],
+        sem_crop: Any = None,
+        fib_crop: Any = None,
+        pairs: Optional[List[Dict[str, Any]]] = None,
+    ) -> ImageMeasured:
+        """The vertical move that brings features picked in both the saved
+        SEM and FIB images to coincidence
+        (`fibsem.analysis.coincidence.coincidence_offset`): one at
+        *sem_point* and *fib_point*, or *pairs* (``{sem, fib, label?}``).
+        With a picture of every pair, labelled, and where each lands in the
+        FIB, saved as ``drawn/<sem>-<fib>-coincidence.png`` beside the SEM
+        image. Points read off a crop's picture name that crop (*sem_crop*,
+        *fib_crop*: a cell's name or a box), as `pixel_to_stage` takes it."""
+        if pairs is None:
+            if sem_point is None or fib_point is None:
+                raise ImageRefused("invalid", "Give sem_point and fib_point, or pairs.")
+            pairs = [{"sem": sem_point, "fib": fib_point}]
+        elif sem_point is not None or fib_point is not None:
+            raise ImageRefused(
+                "invalid", "Give sem_point and fib_point, or pairs, not both."
+            )
+        sem_target, fib_target = self.image(sem_path), self.image(fib_path)
+        sem, fib = _beam_image(sem_target, sem_path), _beam_image(fib_target, fib_path)
+        try:
+            pairs = [
+                {
+                    **pair,
+                    "sem": _uncropped_point(sem_target, sem_crop, pair["sem"], None)[0]
+                    if sem_crop is not None
+                    else pair["sem"],
+                    "fib": _uncropped_point(fib_target, fib_crop, pair["fib"], None)[0]
+                    if fib_crop is not None
+                    else pair["fib"],
+                }
+                for pair in pairs
+            ]
+            result = coincidence.coincidence_offset(sem, fib, pairs)
+        except (ValueError, KeyError, TypeError) as exc:
+            raise ImageRefused("invalid", f"{type(exc).__name__}: {exc}") from None
+        sem_marks, fib_marks = [], []
+        for pair, (x, y) in ((p, p["sem_px"]) for p in result["pairs"]):
+            sem_marks.append({"x": x, "y": y, "label": pair["label"]})
+            fx, fy = pair["fib_px"]
+            fib_marks.append({"x": fx, "y": fy, "label": pair["label"]})
+            if "after_fib_px" in pair:
+                ax, ay = pair["after_fib_px"]
+                fib_marks.append(
+                    {
+                        "x": ax,
+                        "y": ay,
+                        "shape": "target",
+                        "label": f"{pair['label']} after",
+                    }
+                )
+        try:
+            left = draw(
+                sem_target,
+                _checked_marks({"points": sem_marks}, sem_target),
+                crosshair=True,
+            )
+            right = draw(
+                fib_target,
+                _checked_marks({"points": fib_marks}, fib_target),
+                crosshair=True,
+            )
+        except ValueError as exc:
+            raise ImageRefused("invalid", str(exc)) from None
+        saved = drawn_path(
+            sem_target,
+            f"{image_stem(sem_target)}-{image_stem(fib_target)}-coincidence",
+        )
+        return ImageMeasured(
+            sem_path,
+            "coincidence",
+            {"sem_path": sem_path, "fib_path": fib_path, **result},
+            saved,
+            save_drawn(side_by_side(left.rgb, right.rgb), saved),
+        )
+
     def _measured(self, path: str, run, figure=None, name: str = "") -> ImageMeasured:
         """*run* (and its *figure*, saved as ``drawn/<image>-<name>.png``) on
         the saved image *path*."""
@@ -309,11 +393,14 @@ class ImageTools:
         channel: Optional[str] = None,
         plane: Optional[int] = None,
         dip: bool = False,
+        points: Optional[int] = None,
     ) -> ImageMeasured:
         """A saved image's values along a line, and the FWHM of its peak (or
-        *dip*), with a figure (`fibsem.analysis.measure.line_profile`)."""
+        *dip*), with a figure (`fibsem.analysis.measure.line_profile`). The
+        answer leaves the per-pixel samples out; *points* adds the profile
+        resampled to that many (`fibsem.analysis.measure.profile_summary`)."""
         line = "-".join(str(round(v)) for v in (*start, *end))
-        return self._measured(
+        answer = self._measured(
             path,
             lambda image: measure.line_profile(
                 image, start, end, width_px, channel, plane, dip
@@ -321,6 +408,11 @@ class ImageTools:
             measure.profile_figure,
             f"profile-{line}",
         )
+        try:
+            answer.result = measure.profile_summary(answer.result, points)
+        except ValueError as exc:
+            raise ImageRefused("invalid", str(exc)) from None
+        return answer
 
     def image_quality(
         self, path: str, channel: Optional[str] = None, plane: Optional[int] = None

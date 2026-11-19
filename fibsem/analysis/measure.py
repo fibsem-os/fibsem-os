@@ -8,7 +8,8 @@ is a layer per channel, a plane per z. Points and lines are in the image's pixel
 - `measure_intensity`: the signal at points, per plane, against the ring
   around each, and as a ratio to a reference point.
 - `line_profile`: values along a line, averaged across its width, with the
-  full width at half maximum of its peak (or dip).
+  full width at half maximum of its peak (or dip); `profile_summary` is what
+  the tool answers of it.
 - `image_quality`: clipping, centre and spread of the histogram (as the
   brightness and contrast routine judges a probe image), and focus.
 - `histogram`: the counts of a layer's values, its percentiles and what is
@@ -282,6 +283,28 @@ def line_profile(
         if fwhm["fwhm_px"] is not None:
             answer["fwhm_m"] = fwhm["fwhm_px"] * image.pixel_size
     return answer
+
+
+def profile_summary(
+    result: Dict[str, Any], points: Optional[int] = None
+) -> Dict[str, Any]:
+    """*result* (`line_profile`) without its per-pixel samples; with *points*,
+    the profile resampled to that many evenly spaced samples (the per-pixel
+    ones when there are no more of them than that)."""
+    summary = {k: v for k, v in result.items() if k not in ("distance_px", "values")}
+    if points is None:
+        return summary
+    if points < 2:
+        raise ValueError("points is 2 or more.")
+    distance, values = result["distance_px"], result["values"]
+    if points < len(values):
+        at = np.linspace(distance[0], distance[-1], points)
+        distance = [round(float(d), 2) for d in at]
+        values = [
+            round(float(v), 3) for v in np.interp(at, result["distance_px"], values)
+        ]
+    summary["distance_px"], summary["values"] = list(distance), list(values)
+    return summary
 
 
 def _fwhm(distance: np.ndarray, values: np.ndarray, dip: bool) -> Dict[str, Any]:

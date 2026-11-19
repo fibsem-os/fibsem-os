@@ -1331,6 +1331,14 @@ def test_analysis_measures_a_stack_s_points_profile_and_quality(client, host):
     assert result["fwhm_px"] == pytest.approx(16, abs=1.5)
     assert result["fwhm_m"] == pytest.approx(result["fwhm_px"] * 1e-7)
     assert profile.json()["path"].endswith("stack-profile-16-30-16-70.png")
+    assert "values" not in result and "distance_px" not in result
+    resampled = client.post(
+        "/app/experiment/analysis/profile",
+        headers=AUTH,
+        json={"path": path, "start": [16, 30], "end": [16, 70], "points": 9},
+    )
+    assert resampled.status_code == 200, resampled.text
+    assert len(resampled.json()["result"]["values"]) == 9
 
     quality = client.get(
         "/app/experiment/analysis/quality", headers=AUTH, params={"path": path}
@@ -1360,12 +1368,63 @@ def test_analysis_measures_a_stack_s_points_profile_and_quality(client, host):
         ("intensity", {"path": path, "points": [[16, 48]], "channel": "RFP"}),
         ("profile", {"path": path, "start": [1, 1]}),
         ("profile", {"path": path, "start": [1, 1], "end": [9, 9], "plane": 7}),
+        ("profile", {"path": path, "start": [1, 1], "end": [9, 9], "points": 1}),
         ("histogram", {"path": path, "bins": 1}),
         ("histogram", {"path": path, "box": [500, 500, 4, 4]}),
         ("spectrum", {"path": path, "box": [0, 0, 8, 8]}),
     ):
         refused = client.post(f"/app/experiment/analysis/{url}", headers=AUTH, json=bad)
         assert refused.status_code == 422, bad
+
+
+def test_analysis_measures_coincidence_from_two_picked_points(client, host):
+    from tests.test_coincidence_target import PIXEL_SIZE, SHAPE, _fib, _pair, make_scene
+
+    folder = Path(host.experiment.path)
+    scene = make_scene()
+    sem, fib = _pair(scene, _fib(scene, 6e-6))
+    sem.save(str(folder / "site-sem.tif"))
+    fib.save(str(folder / "site-fib.tif"))
+    h, w = SHAPE
+    body = {
+        "sem_path": str(folder / "site-sem.tif"),
+        "sem_point": [w / 2, h / 2],
+        "fib_path": str(folder / "site-fib.tif"),
+        "fib_point": [w / 2, h / 2 - 6e-6 / PIXEL_SIZE],
+    }
+    resp = client.post("/app/experiment/analysis/coincidence", headers=AUTH, json=body)
+    assert resp.status_code == 200, resp.text
+    answer = resp.json()
+    assert answer["result"]["vertical_move"]["dy"] == pytest.approx(6e-6, rel=1e-3)
+    assert answer["path"].endswith("site-sem-site-fib-coincidence.png")
+
+    pairs = {
+        "sem_path": body["sem_path"],
+        "fib_path": body["fib_path"],
+        "pairs": [
+            {"sem": body["sem_point"], "fib": body["fib_point"], "label": "cell"},
+            {"sem": [w / 2 + 40, h / 2], "fib": [w / 2 + 40, body["fib_point"][1]]},
+        ],
+    }
+    resp = client.post("/app/experiment/analysis/coincidence", headers=AUTH, json=pairs)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["result"]["vertical_move"]["from_pairs"] == ["cell", "2"]
+    for bad in (
+        {**pairs, "sem_point": body["sem_point"], "fib_point": body["fib_point"]},
+        {"sem_path": body["sem_path"], "fib_path": body["fib_path"]},
+        {**pairs, "pairs": pairs["pairs"] * 6},
+    ):
+        refused = client.post(
+            "/app/experiment/analysis/coincidence", headers=AUTH, json=bad
+        )
+        assert refused.status_code == 422, refused.text
+
+    swapped = {**body, "sem_path": body["fib_path"], "fib_path": body["sem_path"]}
+    refused = client.post(
+        "/app/experiment/analysis/coincidence", headers=AUTH, json=swapped
+    )
+    assert refused.status_code == 422, refused.text
+    assert "ELECTRON" in refused.text
 
 
 def _milling_item(host):

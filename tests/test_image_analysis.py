@@ -107,6 +107,26 @@ def test_the_profile_figure_draws():
     assert analysis.profile_figure(image, result).shape[2] == 3
 
 
+def test_the_profile_s_summary_leaves_the_samples_out_unless_resampled():
+    data = 50 + _spot((64, 64), 32, 32, 3.0, 1000)
+    image = Planes(data=data[None, None], names=["SEM"], pixel_size=2e-9)
+    result = analysis.line_profile(image, [8, 32], [56, 32])
+
+    summary = analysis.profile_summary(result)
+    assert "values" not in summary and "distance_px" not in summary
+    assert summary["fwhm_px"] == result["fwhm_px"]
+    assert summary["half_crossings_px"] == result["half_crossings_px"]
+    assert {"min", "max", "baseline", "extremum_px", "length_m"} <= set(summary)
+
+    resampled = analysis.profile_summary(result, points=5)
+    assert resampled["distance_px"] == [0.0, 12.0, 24.0, 36.0, 48.0]
+    assert resampled["values"][2] == pytest.approx(max(result["values"]))
+    whole = analysis.profile_summary(result, points=500)
+    assert whole["values"] == result["values"]
+    with pytest.raises(ValueError, match="2 or more"):
+        analysis.profile_summary(result, points=1)
+
+
 def test_quality_flags_a_saturated_image_and_finds_the_sharpest_plane():
     rng = np.random.default_rng(0)
     good = rng.normal(32000, 8000, (128, 128)).clip(0, 65535).astype(np.uint16)
@@ -191,7 +211,10 @@ def test_the_tools_work_over_any_folder_and_refuse_paths_outside_it(tmp_path):
     answer = tools.line_profile("ramp.png", [0, 16], [63, 16])
     assert answer.measurement == "profile-0-16-63-16"
     assert Path(answer.path).parts[-2:] == ("drawn", "ramp-profile-0-16-63-16.png")
-    assert answer.result["values"][0] < answer.result["values"][-1]
+    assert "values" not in answer.result
+    resampled = tools.line_profile("ramp.png", [0, 16], [63, 16], points=8)
+    assert len(resampled.result["values"]) == 8
+    assert resampled.result["values"][0] < resampled.result["values"][-1]
 
     with pytest.raises(ImageRefused) as outside:
         tools.image_quality("../elsewhere.png")

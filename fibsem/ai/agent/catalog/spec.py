@@ -325,6 +325,7 @@ _WRITES_AT_WATCH = frozenset(
         "experiment_render_markers",  # saves its picture beside the image
         "analysis_draw_image",  # saves its picture beside the image
         "analysis_draw_pair",  # saves its picture beside the first image
+        "analysis_measure_coincidence_offset",  # saves its picture beside the SEM image
         "item_draw_milling",  # saves its picture beside the image
         "analysis_measure_intensity",  # saves its figure beside the image
         "analysis_measure_profile",  # saves its figure beside the image

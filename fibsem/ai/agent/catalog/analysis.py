@@ -204,7 +204,7 @@ TOOLS = (
     ToolSpec(
         name="analysis_measure_profile",
         returns="ImageMeasured",
-        description="A saved image's values along a line from start to end ([x, y] pixels), a sample per pixel, each the mean across width_px, on one plane of a fluorescence stack (plane) or its max projection. Answers the samples and their distance (in metres too when the pixel size is known), and the full width at half maximum of the profile's peak (its dip with dip=true) above the baseline, the median of the profile's outer fifths: fwhm_px (fwhm_m), with where it crosses the half level. fwhm is null when the profile doesn't fall to half on both sides: draw a longer line. For a spot's size, a lamella's edge, a bar's width. Saves a figure beside the image as drawn/<image>-profile-<x0>-<y0>-<x1>-<y1>.png: the line on the image and the profile with its FWHM. Cite that path as evidence. Nothing moves.",
+        description="A saved image's values along a line from start to end ([x, y] pixels), a sample per pixel, each the mean across width_px, on one plane of a fluorescence stack (plane) or its max projection. Answers the line's length (in metres too when the pixel size is known), min, max, the extremum and where it is, and the full width at half maximum of the profile's peak (its dip with dip=true) above the baseline, the median of the profile's outer fifths: fwhm_px (fwhm_m), with where it crosses the half level. fwhm is null when the profile doesn't fall to half on both sides: draw a longer line. The samples themselves are left out; points=N adds the profile resampled to N samples (distance_px, values). For a spot's size, a lamella's edge, a bar's width. Saves a figure beside the image as drawn/<image>-profile-<x0>-<y0>-<x1>-<y1>.png: the line on the image and the profile with its FWHM. Cite that path as evidence. Nothing moves.",
         method="POST",
         path="/app/experiment/analysis/profile",
         level="watch",
@@ -226,8 +226,46 @@ TOOLS = (
                 "optional: measure the profile's dip, not its peak (default false)",
                 bool,
             ),
+            "points": arg(
+                "optional: also answer the profile resampled to this many samples, 2 to 1000 (default none)",
+                int,
+            ),
         },
-        optional=("width_px", "channel", "plane", "dip"),
+        optional=("width_px", "channel", "plane", "dip", "points"),
+    ),
+    ToolSpec(
+        name="analysis_measure_coincidence_offset",
+        returns="ImageMeasured",
+        description="SEM/FIB coincidence from features you picked yourself in a saved SEM image and a saved FIB image taken at one stage position: one feature as sem_point and fib_point, or 2 to 10 as pairs, each {sem: [x, y], fib: [x, y], label?} on the same feature, in each image's full-resolution pixels; points read off a crop's picture take that crop (sem_crop, fib_crop), converted for you. Converts with the images' own pixel sizes and the pair's stage geometry (the geometry alignment_check_coincidence uses), so you never convert previews by hand. Answers per pair its offsets from each image centre (x right, y up) and the dy and dx it alone gives; vertical_move: the dy to hand stage_vertical_move with beam_type ION, the median of the pairs that agree, with from_pairs naming them, and direction in words; dz, the height error as alignment_check_coincidence reports it; stage_move_m, the raw stage move that dy makes; per pair after_fib_px, where its FIB point lands (the SEM view is unchanged; a feature lands at its SEM offset foreshortened, so one centred in the SEM ends centred in both); spread_m across pairs. A pair whose dy or dx is off the others' median by more than tolerance_m carries disagrees: check it is the same feature. Two pairs that disagree, or no majority agreeing, give no move. dx is what no stage move changes: one pair's differing dx marks a wrong match; a dx common to all (above 5 um, in warnings) is a beam offset. Refuses images that are not one electron and one ion image, taken at different stage positions or tilts, or lacking pixel size or geometry. Saves a picture beside the SEM image as drawn/<sem>-<fib>-coincidence.png: every pair labelled in both images, and where each lands in the FIB. Check it before moving. Nothing moves.",
+        method="POST",
+        path="/app/experiment/analysis/coincidence",
+        level="watch",
+        router="analysis",
+        params={
+            "sem_path": "the saved SEM (electron) image's path inside the experiment folder",
+            "fib_path": "the saved FIB (ion) image of the same place, taken without moving the stage",
+            "sem_point": arg(
+                "one feature's [x, y] in the SEM image's full-resolution pixels (with fib_point; or pairs)",
+                List[float],
+            ),
+            "fib_point": arg(
+                "the same feature's [x, y] in the FIB image's full-resolution pixels",
+                List[float],
+            ),
+            "pairs": arg(
+                "instead of sem_point and fib_point, up to 10 features: [{sem: [x, y], fib: [x, y], label: optional short name}, ...]",
+                list,
+            ),
+            "sem_crop": arg(
+                "optional: the crop the SEM points were read off: a cell's name (B3) from analysis_crop_image, or its box [x, y, width, height]",
+                Union[str, List[float]],
+            ),
+            "fib_crop": arg(
+                "optional: the crop the FIB points were read off, as sem_crop",
+                Union[str, List[float]],
+            ),
+        },
+        optional=("sem_point", "fib_point", "pairs", "sem_crop", "fib_crop"),
     ),
     ToolSpec(
         name="analysis_measure_quality",
