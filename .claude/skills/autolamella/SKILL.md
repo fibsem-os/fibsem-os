@@ -191,7 +191,7 @@ Before you decide or place either:
    on it is not one either.
 2. At the position proposal, take fresh SEM and FIB images with
    `beam_acquire_pair`, saved in the lamella's folder: one picture of both,
-   with each image's quality. Check both are in focus and their brightness and
+   with each image's contrast and focus measures. Check both are in focus and their brightness and
    contrast let you read them; fix them first if not (fibsem-microscope,
    *Don't judge a poor image*), and check what Setup's own autofocus did.
    Read the milling angle (`stage_get_current_milling_angle`) against the
@@ -200,9 +200,11 @@ Before you decide or place either:
    coincidence loop (fibsem-microscope, *Using the microscope*): centre it
    in one beam with `stage_stable_move`, bring the other beam onto it with
    `stage_vertical_move`, and image both again.
-4. Check it again with both beams at a 50 µm field of view: the same feature
-   within 5 µm of the centre in both images (aim for 2-3 µm), measured in
-   the image. Coincidence only shows as a vertical offset, so measure it up
+4. Check it again with both beams at about a 50 µm field of view (from a
+   wider one first if 50 µm shares too few features): the same feature
+   near the centre in both images, measured in the image. Within 5 µm,
+   2-3 µm where the scene allows, is the guide; say what you reached and
+   why it is enough for this site. Coincidence only shows as a vertical offset, so measure it up
    and down the image, on a sharp landmark (fibsem-microscope,
    *Coincidence: do it yourself*).
 5. Only then decide, and show the operator both images, saying which is

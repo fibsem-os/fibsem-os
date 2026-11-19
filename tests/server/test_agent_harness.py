@@ -988,8 +988,13 @@ def test_a_given_folder_is_resolved(tmp_path, monkeypatch):
 
 # --- the specialists ------------------------------------------------------------
 
-# Read-only, but it saves its result beside the image it measured.
-MEASURES = {"item_measure_thickness"}
+# Read-only, but each saves its result or figure beside the image it measured.
+MEASURES = {
+    "item_measure_thickness",
+    "analysis_find_grid_squares",
+    "analysis_measure_coincidence_offset",
+    "grid_draw_milling",
+}
 # Only the Run Lead decides, starts, stops, mills, edits and keeps the record.
 LEAD_ONLY = {
     "proposal_decide",

@@ -20,6 +20,8 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
+from fibsem.fm.preview import is_fluorescence_image
+from fibsem.fm.structures import FluorescenceImage
 from fibsem.geometry.projection import (
     BeamStageProjection,
     image_stage_geometry,
@@ -27,6 +29,9 @@ from fibsem.geometry.projection import (
     stage_to_pixel,
     surface_foreshortening,
 )
+from fibsem.imaging.looks import cropped, looks_for
+from fibsem.imaging.marks import PT, legend, load_marked_image, marked_picture
+from fibsem.structures.image import FibsemImage
 from fibsem.structures.settings import (
     BeamType,
     FibsemBitmapSettings,
@@ -36,6 +41,7 @@ from fibsem.structures.settings import (
     FibsemRectangleSettings,
     FibsemStagePosition,
 )
+from fibsem.theme.tokens import AGENT_MARK_COLOR
 
 # Each kind of footprint's colour on the overview.
 KIND_COLOURS = {
@@ -159,13 +165,9 @@ class FibFrame:
 
 def load_overview(path: str):
     """The saved image at *path*: a fluorescence stack or a beam image."""
-    from fibsem.fm.preview import is_fluorescence_image
 
     if is_fluorescence_image(path):
-        from fibsem.fm.structures import FluorescenceImage
-
         return FluorescenceImage.load(path)
-    from fibsem.structures.image import FibsemImage
 
     return FibsemImage.load(path)
 
@@ -411,10 +413,6 @@ def overview_picture(
     from matplotlib.colors import to_rgba
     from matplotlib.lines import Line2D
     from matplotlib.patches import Patch, Polygon
-
-    from fibsem.imaging.looks import cropped, looks_for
-    from fibsem.imaging.marks import PT, legend, load_marked_image, marked_picture
-    from fibsem.theme.tokens import AGENT_MARK_COLOR
 
     image, options = load_marked_image(path)
     if image is None:

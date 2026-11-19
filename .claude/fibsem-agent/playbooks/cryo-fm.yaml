@@ -13,6 +13,8 @@ tools:
   - app_get_status
   - plan_get
   - plan_set_section
+  - plan_append
+  - plan_check_step
   - experiment_message_operator
   - experiment_add_note
   - knowledge_list

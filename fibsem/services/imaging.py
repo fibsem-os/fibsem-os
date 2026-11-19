@@ -56,6 +56,7 @@ from fibsem.autofunctions.brightness_contrast import (
     problems,
     unusable,
 )
+from fibsem.autofunctions.metrics import calculate_focus_quality
 from fibsem.cancellation import (
     AnyStopEvent,
     OperationCancelledError,
@@ -71,6 +72,14 @@ from fibsem.fm.structures import (
     ChannelSettings,
     OverviewParameters,
     ZParameters,
+)
+from fibsem.imaging.marks import (
+    PAIR_GAP,
+    draw_pair,
+    drawn_path,
+    image_stem,
+    save_drawn,
+    side_by_side,
 )
 from fibsem.imaging.tiling.progress import TiledProgress
 from fibsem.services.core import Service, save_beam_conditions
@@ -1025,11 +1034,11 @@ def _stage_position(image: FibsemImage) -> Optional[Dict[str, Any]]:
 
 def _pair_image(image: FibsemImage, path: str, contrasted: bool) -> Dict[str, Any]:
     """One image of `Imaging.acquire_pair`: where it is saved, its size and
-    scale, and whether it is fit to judge, as auto brightness/contrast judges
-    an image (clipped fractions, centre and spread on its range, problems in
-    words, unusable), with its focus score (the mean Laplacian: comparable only
-    between images of one scene at one field of view)."""
-    from fibsem.autofunctions.metrics import calculate_focus_quality
+    scale, and its measures as auto brightness/contrast takes them (clipped
+    fractions, centre and spread on its range) with its focus score (the mean
+    Laplacian: comparable only between images of one scene at one field of
+    view). Measures only: whether the image is fit to judge is the caller's
+    to say."""
 
     data = image.data
     settings = BrightnessContrastSettings()
@@ -1045,8 +1054,6 @@ def _pair_image(image: FibsemImage, path: str, contrasted: bool) -> Dict[str, An
             "clipped_white": round(stats.white, 4),
             "centre": round(stats.centre, 3),
             "spread": round(stats.spread, 3),
-            "problems": problems(stats, settings),
-            "unusable": unusable(stats, settings),
             "focus": round(calculate_focus_quality(data.astype(float)), 4),
         },
     }
@@ -1068,15 +1075,6 @@ def pair_picture(
     import io
 
     from PIL import Image
-
-    from fibsem.imaging.marks import (
-        PAIR_GAP,
-        draw_pair,
-        drawn_path,
-        image_stem,
-        save_drawn,
-        side_by_side,
-    )
 
     left, right = draw_pair(sem_path, fib_path, None)
     composite = side_by_side(left.rgb, right.rgb)

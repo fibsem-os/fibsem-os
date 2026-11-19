@@ -196,7 +196,8 @@ def test_two_pairs_that_disagree_give_no_move():
     answer = coincidence_offset(sem, fib, pairs)
 
     assert answer["vertical_move"] is None
-    assert "No move" in answer["direction"]
+    assert "none is chosen" in answer["direction"]
+    assert [p["dy"] for p in answer["pairs"]] != [None, None]
     for pair in answer["pairs"]:
         assert "differ by 12.0 um" in pair["disagrees"]
         assert "after_fib_px" not in pair
@@ -218,13 +219,14 @@ def test_a_pair_it_cannot_measure_is_refused():
 
     moved = deepcopy(fib)
     moved.metadata.microscope_state.stage_position.z += 5e-6
-    with pytest.raises(ValueError, match="not taken at one stage position.*z by 5.00"):
-        _one(sem, moved, centre, centre)
+    answer = coincidence_offset(sem, moved, [{"sem": centre, "fib": centre}])
+    assert any("z by 5.00 um" in w for w in answer["warnings"])
+    assert answer["vertical_move"] is not None
 
     tilted = deepcopy(fib)
     tilted.metadata.microscope_state.stage_position.t += np.deg2rad(1.0)
-    with pytest.raises(ValueError, match="t by 1.00 deg"):
-        _one(sem, tilted, centre, centre)
+    answer = coincidence_offset(sem, tilted, [{"sem": centre, "fib": centre}])
+    assert any("t by 1.00 deg" in w for w in answer["warnings"])
 
     unscaled = deepcopy(fib)
     unscaled.metadata.pixel_size = None

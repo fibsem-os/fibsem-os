@@ -469,6 +469,8 @@ def build_analysis_router(tools: ImageTools) -> APIRouter:
             for name, crop in (("sem_crop", body.sem_crop), ("fib_crop", body.fib_crop))
             if crop is not None
         }
+        if body.tolerance_um is not None:
+            options["tolerance_um"] = body.tolerance_um
         if body.pairs is not None:
             options["pairs"] = [
                 {"sem": list(p.sem), "fib": list(p.fib), "label": p.label}

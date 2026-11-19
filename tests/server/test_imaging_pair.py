@@ -87,8 +87,6 @@ def test_a_site_check_saves_both_images_and_answers_compactly(
             "clipped_white",
             "centre",
             "spread",
-            "problems",
-            "unusable",
             "focus",
         }
         # The field of view stays on the beam.

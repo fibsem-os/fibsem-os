@@ -578,13 +578,17 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "to the operator. Answers one side-by-side picture (SEM left, FIB "
             "right, saved as drawn/<sem>-<fib>.png beside them, for evidence) "
             "and compact facts: each image's experiment path, resolution, "
-            "pixel size and quality (clipped fractions, centre, spread, "
-            "problems, unusable, focus: retake or autocontrast before judging "
-            "an unusable one), the stage position. A point read off the picture "
+            "pixel size and quality (the fractions clipped black and white, "
+            "the histogram's centre and spread on the file's range, and focus, "
+            "the mean Laplacian, comparable only within one scene: measures "
+            "for you to weigh with the picture, not a verdict), the stage "
+            "position. A point read off the picture "
             "is (point - origin) * scale in that half's image, full-resolution "
             "pixels, with picture.sem / picture.fib's origin and scale. Moves "
             "nothing and judges nothing: pick the same feature in both halves "
-            "yourself. Refused when a beam is off."
+            "yourself. Refused when a beam is off. For beams that need "
+            "different fields of view or settings, take them one at a time "
+            "(beam_acquire_image)."
         ),
         method="POST",
         path="/microscope/services/imaging/commands/acquire_pair",

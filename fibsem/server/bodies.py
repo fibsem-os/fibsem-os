@@ -657,7 +657,7 @@ class ProfileBody:
     channel: Optional[str] = None
     plane: Optional[Plane] = None
     dip: Optional[Flag] = None
-    points: Optional[Annotated[int, Strict(), Field(ge=2, le=1000)]] = None
+    points: Optional[Annotated[int, Strict(), Field(ge=2, le=10000)]] = None
 
 
 @dataclass
@@ -689,6 +689,8 @@ class CoincidenceOffsetBody:
     # the crop each point was read off: a cell's name or [x, y, width, height]
     sem_crop: Optional[Union[str, Tuple[float, float, float, float]]] = None
     fib_crop: Optional[Union[str, Tuple[float, float, float, float]]] = None
+    # how far a pair's dy or dx may be off the others' before it is flagged
+    tolerance_um: Optional[float] = None
 
 
 @dataclass
