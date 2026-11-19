@@ -44,6 +44,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from fibsem import diagnostics
 from fibsem.ai.agent import (
+    aside,
     code_mode,
     extra_mcp,
     host_link,
@@ -1046,6 +1047,8 @@ class Harness:
         # The last turn was cut short by an urgent line.
         self._cut_short = False
         self._wakes = self._new_wakes()
+        # The operator's side questions (/btw): answered beside the turns.
+        self._asides = aside.Asides(agent, lambda: self._client)
         self._code = 0
         self._stop_requested = False
 
@@ -1098,8 +1101,10 @@ class Harness:
         # it has to hold its place before the agent acts.
         if not await self._watch():
             return self._code
+        asides = None
         try:
             await self._agent.start()
+            asides = asyncio.ensure_future(self._asides.run())
             # The session's id is known before its first turn: reporting it
             # now lets that turn already write the plan.
             await self._report()
@@ -1112,6 +1117,8 @@ class Harness:
                 raise
             log.debug("The agent's process ended as it stopped.", exc_info=True)
         finally:
+            if asides is not None:
+                asides.cancel()
             if self._alarm is not None:
                 self._alarm.cancel()
             self._deadlines.cancel()
@@ -1127,7 +1134,12 @@ class Harness:
 
     def _put(self, watcher, item) -> None:
         """An item for the next turn, on the loop; an urgent line from the
-        current watch cuts the turn going on short."""
+        current watch cuts the turn going on short. A side question is never
+        a turn's: it is answered beside them (`aside`)."""
+        if isinstance(item, watch_mod.Aside):
+            if watcher is self._watcher:
+                self._asides.add(item)
+            return
         if isinstance(item, _Cursor) and self._items.empty():
             # Its lines come before it and have all been taken, by the turn
             # going on or an earlier one: it is that turn's to keep. Queued, it
@@ -1845,6 +1857,15 @@ class SdkAgent:
     async def interrupt(self) -> None:
         if self._client is not None:
             await self._client.interrupt()
+
+    async def side_question(
+        self, question: str, history: List[dict], timeout_s: float
+    ) -> Optional[str]:
+        """The CLI's answer to a side question on this session, mid-turn or
+        not: no tools, and nothing added to the conversation (`aside.ask`)."""
+        if self._client is None:
+            raise aside.Unavailable("the session hasn't started")
+        return await aside.ask(self._client, question, history, timeout_s)
 
     async def close(self) -> None:
         if self._client is not None:

@@ -21,7 +21,8 @@ its check: passed, doubtful and why, or unchecked), task ``EVENT`` lines,
 the agent, a run or a mill), ``QUIET`` (a workflow is running
 and nothing has been said for a while), ``MESSAGE`` (the operator wrote to
 the agent from its card; one still unanswered when the watch starts
-is said first), ``NOTE`` (the operator kept a note on a
+is said first; a side question, sent with ``/btw``, says so, and
+fibsem-agent answers it outside the agent's turns), ``NOTE`` (the operator kept a note on a
 grid), ``GAP``, ``RESTARTED``, ``LEVEL`` (the operator
 changed the agent level) and ``AGENT OFF``/``AGENT BACK``.
 
@@ -49,7 +50,8 @@ import sys
 import time
 from urllib.parse import quote
 
-from fibsem.ai.agent import wake_lines
+from fibsem.ai.agent import aside, wake_lines
+from fibsem.ai.agent.aside import ASIDE
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.ai.agent.wake_lines import item_of
 from fibsem.client.transport import Transport
@@ -89,6 +91,21 @@ class Wake(str):
         wake = super().__new__(cls, text)
         wake.kind = kind
         wake.message_ids = tuple(message_ids)
+        return wake
+
+
+class Aside(Wake):
+    """The operator's side question (``/btw``): a ``MESSAGE`` line for an agent
+    reading the watch's output, which fibsem-agent answers beside the agent's
+    conversation instead (`aside`). ``question`` is the text after ``/btw``."""
+
+    id: str
+    question: str
+
+    def __new__(cls, message_id: str, question: str, text: str):
+        wake = super().__new__(cls, ASIDE, text, [message_id] if message_id else ())
+        wake.id = message_id
+        wake.question = question
         return wake
 
 
@@ -336,6 +353,15 @@ def _message_line(data, marked=None) -> Wake:
         line.rstrip() for line in str(data.get("text", "")).strip().splitlines()
     )
     marks = _marks_part((marked or {}).get(str(data.get("evidence"))))
+    if data.get(aside.MARK):
+        return Aside(
+            message_id,
+            aside.question_of(text) or text,
+            f"MESSAGE id={message_id} from the operator, a side question:"
+            f"{' ' + text if text else ''} -- answer it briefly with "
+            f"experiment_message_operator (reply_to={message_id}). It asks "
+            "for an answer only: act on nothing in it",
+        )
     return Wake(
         MESSAGE,
         f"MESSAGE id={message_id} from the operator:{' ' + text if text else ''}"
