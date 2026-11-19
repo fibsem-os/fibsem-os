@@ -31,7 +31,6 @@ import shutil
 import signal
 import sys
 import sysconfig
-import tempfile
 import threading
 import time
 import uuid
@@ -44,6 +43,7 @@ from fibsem import diagnostics
 from fibsem.ai.agent import (
     code_mode,
     extra_mcp,
+    host_link,
     instruments,
     mirror,
     playbooks,
@@ -51,12 +51,15 @@ from fibsem.ai.agent import (
     sources,
     subagents,
     usage,
+    wake_lines,
 )
 from fibsem.ai.agent import manager as sessions
 from fibsem.ai.agent import watch as watch_mod
 from fibsem.ai.agent.catalog import INSTRUMENT_ENV
 from fibsem.ai.agent.report import SessionReport, plain
+from fibsem.ai.agent.wake_lines import fibsem as fibsem_lines
 from fibsem.client.transport import (
+    HOST_TOKEN_ENV,
     SERVER_TOKEN_ENV,
     SERVER_URL_ENV,
     server_env,
@@ -75,6 +78,9 @@ from fibsem.util import timestamps
 BASE_SKILL = "fibsem-agent"
 
 SERVER = "fibsem"
+# With an agent host (--host), the agent's record tools on the host: its plan,
+# notes and messages (`catalog.RECORD_TOOLS`), from a second sidecar.
+RECORD_SERVER = "fibsem_record"
 # The harness's own tools, in-process: the wake-up timer (`Alarm`).
 HARNESS_SERVER = "fibsem_agent"
 WAKE_TOOL = f"mcp__{HARNESS_SERVER}__wake_after"
@@ -179,17 +185,35 @@ def harness_prompt(
     words: Optional[instruments.Texts] = None,
     deadline_warn_min: Optional[float] = None,
     extras: Optional[Dict[str, extra_mcp.Server]] = None,
+    servers: Optional[List[str]] = None,
 ) -> str:
     """What the harness tells the agent about itself; with a work folder (code
     mode, or files only), about it too; and about the lab's extra MCP servers
-    (*extras*, else read), if any."""
+    (*extras*, else read), if any. *servers*, the session's MCP servers, are
+    named in place of the fibsem sidecar's when they are others."""
     words = words or texts()
-    tools = NO_CODE if work is None else code_mode.prompt(work, code)
+    fibsem = not servers or SERVER in servers
+    tools = NO_CODE if work is None else code_mode.prompt(work, code, fibsem)
+    tools = _name_servers(tools, servers)
     more = extra_mcp.prompt_lines(extra_mcp.load() if extras is None else extras)
     if more:
         tools += "\n" + more
     warn = deadline_warn_min or defaults().deadline_warn_min
     return words.prompt.format(tools=tools, deadline_warn_min=f"{warn:g}")
+
+
+def _name_servers(tools: str, servers: Optional[List[str]]) -> str:
+    """*tools*, the prompt's tool line, naming *servers* where it names the
+    fibsem sidecar, when the session's servers are others (an agent host)."""
+    if not servers or servers == [SERVER]:
+        return tools
+    named = ", ".join(f"mcp__{name}__*" for name in servers)
+    return (
+        tools.replace("the mcp__fibsem__* tools", f"the {named} tools")
+        .replace("the matching mcp__fibsem__ tool", "the matching tool")
+        .replace("so the mcp__fibsem__* tools", "so those tools")
+        .replace("can't reach the App Server or", "can't reach your servers or")
+    )
 
 
 def system_prompt(
@@ -198,11 +222,12 @@ def system_prompt(
     playbook: Optional[playbooks.Playbook] = None,
     words: Optional[instruments.Texts] = None,
     extras: Optional[Dict[str, extra_mcp.Server]] = None,
+    servers: Optional[List[str]] = None,
 ) -> str:
     """The harness's prompt, and the rules of the playbook the session
     started on after it, so they are read every turn."""
     warn = playbook.session.deadline_warn_min if playbook is not None else None
-    prompt = harness_prompt(work, code, words, warn, extras)
+    prompt = harness_prompt(work, code, words, warn, extras, servers)
     if playbook is not None and playbook.rules:
         prompt += (
             f"\n\nRules of the {playbook.name} playbook you started on:\n"
@@ -331,9 +356,9 @@ URGENT = frozenset(
         watch_mod.WORKFLOW_FAILED,
         "task_failed",
         watch_mod.COMMAND_FAILED,
-        watch_mod.MILL_FAILED,
+        fibsem_lines.MILL_FAILED,
         # A milling monitor's stop rule fired.
-        watch_mod.STOP_RULE,
+        fibsem_lines.STOP_RULE,
     }
 )
 
@@ -761,9 +786,12 @@ class Watcher:
         retry_s: Optional[float] = None,
         quiet_s: Optional[float] = None,
         after: Optional[str] = None,
+        lines: Optional[wake_lines.Lines] = None,
     ) -> None:
         self._client = client
         self._deliver = deliver
+        # The instrument kind's own lines (`wake_lines`); the FIB-SEM's for None.
+        self._lines = lines
         # An event id to watch from, for a resumed session; None starts at the tail.
         self._after = after
         self._poll_s = poll_s
@@ -812,6 +840,7 @@ class Watcher:
                 on_seeded=lambda: self._deliver(_Seeded()),
                 after=self._after,
                 on_cursor=lambda event_id: self._deliver(_Cursor(event_id)),
+                lines=self._lines,
             )
         except _Stopped:
             return
@@ -1056,6 +1085,8 @@ class Harness:
             retry_s=self._retry_s,
             quiet_s=self._quiet_s,
             after=self._after,
+            # The session's instrument kind's own lines: it can't switch kind.
+            lines=wake_lines.for_kind(self._words.kind),
         )
         self._watcher = watcher
         watcher.start()
@@ -1766,6 +1797,70 @@ def find_checkout(given: Optional[str] = None) -> Optional[Path]:
     return sources.find_root(given, BASE_SKILL)
 
 
+def mcp_names(
+    playbook: Optional[playbooks.Playbook],
+    extras: Dict[str, extra_mcp.Server],
+    host: bool = False,
+) -> List[str]:
+    """The MCP servers *playbook* names (``mcp``): ``fibsem``, the sidecar,
+    and any of the lab's (*extras*). Without a playbook, the sidecar alone.
+    Raises `SetupRefused` for a server that isn't there, and, without an
+    agent *host*, for a playbook without ``fibsem``: the agent's wake-ups and
+    its record go through the App Server then. A playbook with no instrument
+    (``instrument: none``) has no ``fibsem`` and runs through a host."""
+    if playbook is not None and playbook.instrument == instruments.NONE:
+        if not host:
+            raise SetupRefused(
+                f"The {playbook.name} playbook has no instrument: it keeps its "
+                "record on an agent host, so start it with --host."
+            )
+        if SERVER in playbook.mcp:
+            raise SetupRefused(
+                f"The {playbook.name} playbook has no instrument, so no "
+                f"{SERVER} server: take {SERVER} out of its mcp."
+            )
+        names = list(playbook.mcp)
+    else:
+        names = (
+            list(playbook.mcp) if playbook is not None and playbook.mcp else [SERVER]
+        )
+    missing = [n for n in names if n != SERVER and n not in extras]
+    if missing:
+        raise SetupRefused(
+            f"The {playbook.name} playbook uses the MCP server(s) "
+            f"{', '.join(missing)}, which {extra_mcp.path()} doesn't set up."
+        )
+    if SERVER not in names and not host:
+        raise SetupRefused(
+            f"The {playbook.name} playbook's mcp has no {SERVER}: without "
+            "--host the agent hears from the app and keeps its record through "
+            "it, so it needs it."
+        )
+    return names
+
+
+def used_servers(
+    extras: Dict[str, extra_mcp.Server], names: List[str]
+) -> Dict[str, extra_mcp.Server]:
+    """The lab's servers (*extras*) the session's *names* name: a lab server
+    is on only for a playbook that names it in ``mcp``."""
+    return {name: extras[name] for name in names if name in extras}
+
+
+def granted_tools(
+    loaded: Loaded, extras, host: bool = False, fibsem: bool = True
+) -> List[str]:
+    """The tools allowed without asking: the fibsem tools (with *fibsem*, the
+    sidecar among the session's servers), the harness's, the subagents', the
+    lab servers' and, with an agent host, the record tools."""
+    sidecar = f"mcp__{SERVER}__*"
+    own = [t for t in ALLOWED_TOOLS if fibsem or t != sidecar]
+    granted = own + subagent_tools(loaded.agents) + extra_mcp.allowed(extras)
+    if host:
+        granted = granted + [f"mcp__{RECORD_SERVER}__*"]
+    return granted
+
+
 def sidecar_command() -> List[str]:
     """``fibsem-mcp`` of this environment, by absolute path. Failing that,
     ``python -I -m``, which keeps the current folder off the path, so another
@@ -1797,11 +1892,15 @@ def build_options(
     loaded: Optional[Loaded] = None,
     words: Optional[instruments.Texts] = None,
     extras: Optional[Dict[str, extra_mcp.Server]] = None,
+    host: Optional[str] = None,
+    host_token: Optional[str] = None,
 ):
-    """The SDK session: the sidecar as the only MCP server, besides the lab's
-    extra ones (*extras*, else read; `extra_mcp`), the *loaded* skills and
+    """The SDK session: the MCP servers the *playbook* names (``mcp``; the
+    sidecar alone without one), among them the lab's (*extras*, else read;
+    `extra_mcp`) and no other of the lab's, the *loaded* skills and
     subagents (`session_names`) and nothing else of the user's Claude Code
-    config. Settings left None are the base playbook's. With ``work``, code
+    config. With an agent *host*, its own sidecar offers the record tools
+    there, and the instrument's sidecar offers the rest. Settings left None are the base playbook's. With ``work``, code
     mode: the code tools, sandboxed, in ``work`` (``code_mode.prepare`` has
     copied the skills there); without ``code``, the file tools only. The
     *playbook* the session starts on puts its rules in the prompt, and its
@@ -1814,7 +1913,11 @@ def build_options(
     extras = extra_mcp.load() if extras is None else extras
     base = defaults()
     command = sidecar_command()
-    server = {"type": "stdio", "command": command[0], "args": command[1:]}
+    server = {
+        "type": "stdio",
+        "command": command[0],
+        "args": command[1:] + (["--no-record"] if host else []),
+    }
     # In the CLI's environment, which the sidecar inherits: the server entry
     # goes on the CLI's command line, where anyone can list it.
     env = dict(CLI_ENV)
@@ -1826,7 +1929,16 @@ def build_options(
     kind = playbook.instrument if playbook is not None else None
     if kind:
         env[INSTRUMENT_ENV] = kind
-    granted = ALLOWED_TOOLS + subagent_tools(loaded.agents) + extra_mcp.allowed(extras)
+    # The playbook's servers, in its order: the sidecar and the lab's it
+    # names. The lab's others are off.
+    names = mcp_names(playbook, extras, host is not None)
+    extras = used_servers(extras, names)
+    # The extra servers' tokens: their entries name them, ${NAME}, and the
+    # CLI fills them in from here (`extra_mcp.definitions`).
+    env.update(extra_mcp.tokens(extras))
+    if host_token:
+        env[HOST_TOKEN_ENV] = host_token
+    granted = granted_tools(loaded, extras, host is not None, SERVER in names)
     tools, allowed, denied = BUILT_IN_TOOLS, granted, DENIED_TOOLS
     settings = None
     if work is not None:
@@ -1836,17 +1948,20 @@ def build_options(
         allowed = granted + code_mode.allowed_tools(work, code)
         denied = [tool for tool in DENIED_TOOLS if tool not in given]
         settings = code_mode.settings_json(work, {**os.environ, **env}, code)
-    servers = {SERVER: server}
+    servers = {}
+    lab = extra_mcp.definitions(extras)
+    for name in names:
+        servers[name] = server if name == SERVER else lab[name]
+    if host:
+        # The address goes on the command line; its token, by name only.
+        servers[RECORD_SERVER] = {
+            "type": "stdio",
+            "command": command[0],
+            "args": command[1:]
+            + ["--url", host, "--token-env", HOST_TOKEN_ENV, "--record-only"],
+        }
     if alarm is not None:
         servers[HARNESS_SERVER] = wake_server(alarm, control)
-    # The extra servers' entries carry their credentials, so they go to the
-    # CLI in a file of their own, a second --mcp-config, and not with the
-    # servers above, which the SDK puts on the command line. Never in a work
-    # folder: the agent reads there.
-    extra_args = {}
-    if extras:
-        private = transcript or Path(tempfile.mkdtemp(prefix="fibsem-agent-"))
-        extra_args["mcp-config"] = str(extra_mcp.write_config(extras, private))
     return ClaudeAgentOptions(
         # Its .claude holds the session's skills (`sources.assemble`; CLAUDE.md
         # is off, see CLI_ENV), and none of ~/.claude: the user's own
@@ -1860,14 +1975,20 @@ def build_options(
         permission_mode=PERMISSION_MODE,
         settings=settings,
         mcp_servers=servers,
-        extra_args=extra_args,
         env=env,
         # Only the servers above: not a `fibsem` registered in ~/.claude.json.
         strict_mcp_config=True,
         system_prompt={
             "type": "preset",
             "preset": "claude_code",
-            "append": system_prompt(work, code, playbook, words, extras),
+            "append": system_prompt(
+                work,
+                code,
+                playbook,
+                words,
+                extras,
+                names + [RECORD_SERVER] if host else None,
+            ),
         },
         # With a playbook control, the reminders on now, asked at each call.
         hooks=(
@@ -1935,7 +2056,18 @@ def status(
 
     rows = [
         ("fibsem", __version__),
-        ("Server", args.url or "this computer's App Server"),
+        *(
+            [
+                ("Host", args.host),
+                (
+                    "Server",
+                    args.url
+                    or "this computer's App Server, if the playbook names fibsem",
+                ),
+            ]
+            if getattr(args, "host", None)
+            else [("Server", args.url or "this computer's App Server")]
+        ),
         ("Playbook", getattr(args, "playbook", None) or "none"),
         ("Model", args.model or "Claude Code's default"),
         ("Goal", args.goal or "none: the skills decide"),
@@ -1976,6 +2108,19 @@ def _parser() -> argparse.ArgumentParser:
         default=None,
         help="App Server URL, for a server on another machine; its token goes "
         "in FIBSEM_SERVER_TOKEN, never on the command line",
+    )
+    parser.add_argument(
+        "--host",
+        nargs="?",
+        const="",
+        default=None,
+        metavar="URL",
+        help="an agent host (fibsem-agent-host) to hear from and keep the "
+        "agent's record through, in place of the App Server: the one running "
+        "on this PC, or at URL. It asks the operator to allow this agent, and "
+        "keeps the token it is given; or set the token in "
+        f"{HOST_TOKEN_ENV} (environment or key store). The instrument's "
+        "server is then one of the playbook's mcp servers, or none",
     )
     parser.add_argument("--model", default=None, help="model (default: the CLI's)")
     parser.add_argument(
@@ -2127,13 +2272,17 @@ def _setup(args, checkout: Path) -> Setup:
     loaded = session_names(checkout, playbook if args.playbook else None)
     try:
         extras = extra_mcp.load()
-        # Registered, or the agent would start without what it was told it has.
-        extra_mcp.definitions(extras)
+        # Each token stored, or the agent would start without what it was
+        # told it has.
+        extra_mcp.tokens(extras)
     except extra_mcp.ExtraMcpError as error:
         raise SetupRefused(str(error)) from None
+    names = mcp_names(playbook, extras, getattr(args, "host", None) is not None)
+    # A specialist gets only the lab servers its session has.
+    used = used_servers(extras, names)
     try:
         for name in loaded.agents:
-            subagents.check_file(name, checkout, EFFORTS, extras)
+            subagents.check_file(name, checkout, EFFORTS, used)
     except subagents.SubagentError as error:
         raise SetupRefused(str(error)) from None
     work = None
@@ -2208,6 +2357,13 @@ def main(argv=None) -> int:
         parser.error("--session-id starts a new session: --resume carries one on")
     if args.list_hooks:
         return _print(reminders.hook_rows(), args.json, _hook_text)
+    if args.host is not None:
+        # --host alone: the host running on this PC, from its discovery file.
+        url = host_link.host_url(args.host)
+        if url is None and not args.show_config:
+            print(host_link.NO_HOST, file=sys.stderr)
+            return 1
+        args.host = url or host_link.ON_THIS_PC
 
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -2239,6 +2395,14 @@ def main(argv=None) -> int:
         return 1
     # From the environment, so it is not in the process list or shell history.
     token = server_env()[1]
+    # The agent's token at the host: set, kept from an Allow there, or asked for.
+    host_token = None
+    if args.host:
+        try:
+            host_token = host_link.host_token(args.host)
+        except (LookupError, PermissionError) as why:
+            print(f"fibsem-agent: {why}", file=sys.stderr)
+            return 1
     # The CLI reads the key from its environment, which it inherits from here.
     key = get_secret(API_KEY)
     if key:
@@ -2254,7 +2418,11 @@ def main(argv=None) -> int:
     # The specialists' tools on the extra servers go on their copies in the
     # folder just assembled; with nothing assembled (run is the checkout),
     # the files are the shipped ones and stay as they are.
-    extra_tools = extra_mcp.subagent_allowed(extras)
+    extra_tools = extra_mcp.subagent_allowed(
+        used_servers(
+            extras, mcp_names(playbook, extras, getattr(args, "host", None) is not None)
+        )
+    )
     if work is not None:
         code_mode.prepare(work, checkout, loaded.skills, loaded.agents)
         subagents.add_tools(work, loaded.agents, extra_tools)
@@ -2305,6 +2473,8 @@ def main(argv=None) -> int:
         loaded=loaded,
         words=words,
         extras=extras,
+        host=args.host,
+        host_token=host_token,
     )
     agent = SdkAgent(options, usage_path=session.folder / usage.FILE)
     agent.playbook = control
@@ -2313,8 +2483,13 @@ def main(argv=None) -> int:
         control.say(f"Playbook set: {playbook.name}, {control.reminders.chosen_by}")
     harness = Harness(
         agent,
-        lambda: watch_mod.connect(args.url, token),
-        url=args.url,
+        # Its record and wake-ups: the agent host's, else the App Server's.
+        (
+            (lambda: watch_mod.connect(args.host, host_token))
+            if args.host
+            else (lambda: watch_mod.connect(args.url, token))
+        ),
+        url=args.host or args.url,
         resumed=args.resume is not None,
         server_wait_s=args.server_wait,
         goal=args.goal,
@@ -2356,9 +2531,6 @@ def main(argv=None) -> int:
         code, outcome = 1, {"reason": f"the agent failed: {error}"}
     finally:
         signal.signal(signal.SIGINT, previous)
-        # The extra servers' credentials don't outlive the session: a resume
-        # writes the file again.
-        (session.folder / extra_mcp.CONFIG).unlink(missing_ok=True)
     session.end(code, **(outcome or harness.outcome()))
     return code
 
@@ -2395,6 +2567,7 @@ def _about(
         "fibsem": __version__,
         "cwd": str(work or run or checkout),
         "url": args.url,
+        "host": getattr(args, "host", None),
         "goal": args.goal,
         "model": args.model,
         "effort": args.effort,
@@ -2449,10 +2622,16 @@ def show_config(
 ) -> dict:
     """``--show-config``: everything the agent would run with, from the same
     pieces `build_options` uses, without the SDK and without starting. The
-    extra servers by name and tools: their entries hold credentials."""
+    extra servers with their tokens' names, never the tokens."""
     loaded = loaded or session_names(checkout, playbook)
     extras = extra_mcp.load() if extras is None else extras
-    granted = ALLOWED_TOOLS + subagent_tools(loaded.agents) + extra_mcp.allowed(extras)
+    host = getattr(args, "host", None)
+    named = mcp_names(playbook, extras, host is not None)
+    # The lab's servers this playbook leaves off, so none goes unnoticed.
+    unused = sorted(set(extras) - set(named))
+    extras = used_servers(extras, named)
+    servers = named + ([RECORD_SERVER] if host else [])
+    granted = granted_tools(loaded, extras, host is not None, SERVER in servers)
     tools, allowed, denied = BUILT_IN_TOOLS, granted, DENIED_TOOLS
     if work is not None:
         given = code_mode.tools(code)
@@ -2470,6 +2649,12 @@ def show_config(
         "deadline_warn_min": playbook.session.deadline_warn_min,
         "quiet_min": playbook.session.quiet_min,
         "instrument": words.kind if words else playbook.instrument,
+        # The playbook's servers, and the lab's it doesn't name (off).
+        "mcp": servers,
+        "mcp_unused": unused,
+        # The agent host its record and wake-ups go through; None for the
+        # App Server.
+        "host": host,
         "mode": ("code" if code else "files") if work is not None else "none",
         "folder": str(work) if work is not None else None,
         "checkout": str(checkout),
@@ -2484,11 +2669,19 @@ def show_config(
             "path": str(playbook.path),
             "hash": playbook.hash,
         },
-        "system_prompt": system_prompt(work, code, playbook, words, extras),
+        "system_prompt": system_prompt(
+            work, code, playbook, words, extras, servers if host else None
+        ),
     }
     if extras:
         config["extra_mcp"] = {
-            name: {"about": s.about, "tools": s.tools, "subagents": s.subagents}
+            name: {
+                "where": s.url or " ".join(s.command),
+                "token": s.token,
+                "about": s.about,
+                "tools": s.tools,
+                "subagents": s.subagents,
+            }
             for name, s in extras.items()
         }
     return config
@@ -2561,10 +2754,17 @@ def _config_text(config: dict) -> str:
         f"Denied:   {', '.join(config['denied_tools'])}",
     ]
     lines += [
-        f"MCP {name}: {', '.join(each['tools'])}; specialists: "
+        f"MCP {name} ({each['where']}"
+        + (f", token {each['token']}" if each["token"] else "")
+        + f"): {', '.join(each['tools'])}; specialists: "
         f"{', '.join(each['subagents']) or 'none'}"
         for name, each in config.get("extra_mcp", {}).items()
     ]
+    if config.get("mcp_unused"):
+        lines.append(
+            f"MCP off (the lab's, not named in this playbook's mcp): "
+            f"{', '.join(config['mcp_unused'])}"
+        )
     lines.append(f"Playbook skills: {', '.join(playbook['skills']) or 'none'}")
     lines += [f"  When needed: {o['skill']}, {o['when']}" for o in playbook["optional"]]
     lines.append("Reminders:")

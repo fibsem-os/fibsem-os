@@ -250,6 +250,11 @@ class AgentControl:
             return None
         previous = host.auth.level
         stopped = host.stop_agent(self._session.microscope)
+        # Why the Stop didn't reach everything it should, from a host that
+        # passes it on (the agent host to its instrument); none from the App
+        # Server's.
+        reason = getattr(host, "stop_reason", None)
+        reason = reason if isinstance(reason, str) else ""
         logger.warning(
             "Agent stopped by the operator: level set to watch%s",
             f"; stopped {stopped}" if stopped else "",
@@ -260,6 +265,7 @@ class AgentControl:
                 ACTION,
                 action_record(
                     "Stop the agent",
+                    reason=reason,
                     stops="agent",
                     previous=previous.value if previous is not None else None,
                     level=host.auth.level.value,

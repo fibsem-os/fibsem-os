@@ -14,6 +14,7 @@ from psygnal.containers import EventedDict
 
 from fibsem.ai.agent import watch as watch_mod
 from fibsem.ai.agent.levels import AgentLevel
+from fibsem.ai.agent.wake_lines import fibsem as fibsem_lines
 from fibsem.applications.autolamella.server import AutoLamellaAppContext
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
@@ -1253,8 +1254,8 @@ def test_a_failed_command_or_mill_has_its_own_kind():
         watch_mod.COMMAND_ENDED,
         watch_mod.COMMAND_ENDED,
         watch_mod.COMMAND_FAILED,
-        watch_mod.MILL_ENDED,
-        watch_mod.MILL_FAILED,
+        fibsem_lines.MILL_ENDED,
+        fibsem_lines.MILL_FAILED,
     ]
     assert said[2][1].startswith("COMMAND ENDED") and said[2][1].endswith("(beam)")
 
@@ -1270,7 +1271,10 @@ def test_a_stop_rule_firing_has_its_own_kind_and_a_monitor_error_does_not():
             "payload": {"monitor": "current", "reading": {"error": "no signal"}},
         },
     )
-    assert [kind for kind, _ in said] == [watch_mod.STOP_RULE, watch_mod.MILL_READING]
+    assert [kind for kind, _ in said] == [
+        fibsem_lines.STOP_RULE,
+        fibsem_lines.MILL_READING,
+    ]
 
 
 def test_a_level_going_down_is_told_from_one_going_up():
@@ -1399,3 +1403,21 @@ def test_a_watch_after_the_cursor_says_only_what_came_since(app):
     code, lines = _watch({}, after=said[-1])
 
     assert lines == ["EVENT task_started l2", "WORKFLOW ENDED (workflow_completed)"]
+
+
+def test_the_mill_lines_are_the_fibsem_kind_s_alone():
+    from fibsem.ai.agent import wake_lines
+
+    mill = {"kind": "milling", "payload": {"status": "completed"}}
+    said = []
+    watch_mod._print_events(
+        [mill], 0, said.append, lines=wake_lines.for_kind("cryo-fm")
+    )
+    assert said == []
+    watch_mod._print_events([mill], 0, said.append, lines=wake_lines.for_kind("none"))
+    assert said == []
+    # The fibsem kind, and a watch that names none (the App Server's).
+    for lines in (wake_lines.for_kind("fibsem"), None):
+        said.clear()
+        watch_mod._print_events([mill], 0, said.append, lines=lines)
+        assert [line.kind for line in said] == [fibsem_lines.MILL_ENDED]

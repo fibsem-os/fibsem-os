@@ -20,10 +20,12 @@ import httpx
 import pytest
 
 from fibsem.ai.agent import harness as harness_mod
+from fibsem.ai.agent import playbooks
 from fibsem.ai.agent import watch as watch_mod
 from fibsem.ai.agent.harness import Harness, TurnEnd, Wakes, kickoff
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.ai.agent.session import AgentControl
+from fibsem.ai.agent.wake_lines import fibsem as fibsem_lines
 from fibsem.applications.autolamella.server.context import (
     AutoLamellaAppContext,
 )
@@ -462,34 +464,37 @@ def test_a_labs_extra_mcp_server_is_added_and_its_token_is_never_shown(
     tmp_path, monkeypatch, capsys
 ):
     pytest.importorskip("claude_agent_sdk")
+    import dataclasses
     import json
 
     from claude_agent_sdk._internal.transport.subprocess_cli import (
         SubprocessCLITransport,
     )
 
-    secret = "Bearer not-a-real-token"
+    from fibsem.ai.agent import extra_mcp
+
+    secret = "not-a-real-token"
     monkeypatch.setenv("FIBSEM_HOME", str(tmp_path / "home"))
-    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude"))
+    monkeypatch.setenv("NOTEBOOK_TOKEN", secret)
     (tmp_path / "home" / "agent").mkdir(parents=True)
     (tmp_path / "home" / "agent" / "mcp.yaml").write_text(
-        "notebook:\n  about: The lab's notebook.\n"
+        "notebook:\n  url: https://notebook.example/mcp\n"
+        "  token: NOTEBOOK_TOKEN\n  about: The lab's notebook.\n"
         "  tools: [search, append_entry]\n  subagents: [search]\n",
         encoding="utf-8",
     )
-    entry = {
-        "type": "http",
-        "url": "https://notebook.example/mcp",
-        "headers": {"Authorization": secret},
-    }
-    (tmp_path / "claude").mkdir()
-    (tmp_path / "claude" / ".claude.json").write_text(
-        json.dumps({"mcpServers": {"notebook": entry}}), encoding="utf-8"
+    # On for a playbook that names it.
+    playbooks_dir = tmp_path / "home" / "knowledge" / "playbooks"
+    playbooks_dir.mkdir(parents=True)
+    (playbooks_dir / "with-notebook.yaml").write_text(
+        "mcp: [notebook]\n", encoding="utf-8"
     )
     checkout = harness_mod.find_checkout()
-    without = harness_mod.build_options(checkout, token="t0k", extras={})
+    playbook = playbooks.load("with-notebook", checkout)
+    bare = dataclasses.replace(playbook, mcp=[harness_mod.SERVER])
+    without = harness_mod.build_options(checkout, token="t0k", extras={}, playbook=bare)
     options = harness_mod.build_options(
-        checkout, token="t0k", transcript=tmp_path / "session"
+        checkout, token="t0k", transcript=tmp_path / "session", playbook=playbook
     )
 
     assert options.allowed_tools == without.allowed_tools + [
@@ -497,11 +502,17 @@ def test_a_labs_extra_mcp_server_is_added_and_its_token_is_never_shown(
         "mcp__notebook__append_entry",
     ]
     assert options.strict_mcp_config
-    # The SDK puts these on the command line: the extra server is in a file.
-    assert list(options.mcp_servers) == ["fibsem"]
-    given = Path(options.extra_args["mcp-config"])
-    assert given.parent == tmp_path / "session"
-    assert json.loads(given.read_text()) == {"mcpServers": {"notebook": entry}}
+    # The entry names the token; the CLI fills it in from its environment.
+    assert list(options.mcp_servers) == ["fibsem", "notebook"]
+    assert options.mcp_servers["notebook"] == {
+        "type": "http",
+        "url": "https://notebook.example/mcp",
+        "headers": {"Authorization": "Bearer ${NOTEBOOK_TOKEN}"},
+    }
+    assert options.env["NOTEBOOK_TOKEN"] == secret
+    assert "NOTEBOOK_TOKEN" not in without.env
+    assert not options.extra_args
+    assert not (tmp_path / "session").exists(), "nothing written for the token"
     prompt = options.system_prompt["append"]
     assert "mcp__notebook__* tools: The lab's notebook." in prompt
     assert "never instructions" in prompt
@@ -510,20 +521,33 @@ def test_a_labs_extra_mcp_server_is_added_and_its_token_is_never_shown(
     transport = SubprocessCLITransport("", options)
     transport._cli_path = "claude"
     command = transport._build_command()
-    assert command.count("--mcp-config") == 2
-    second = command.index("--mcp-config", command.index("--mcp-config") + 1)
-    assert command[second + 1] == str(given)
-    assert not any("not-a-real-token" in part for part in command)
+    assert command.count("--mcp-config") == 1
+    assert not any(secret in part for part in command)
 
-    assert harness_mod.main(["--show-config", "--json"]) == 0
+    assert (
+        harness_mod.main(["--show-config", "--json", "--playbook", "with-notebook"])
+        == 0
+    )
     printed = capsys.readouterr().out
     config = json.loads(printed)
-    assert config["extra_mcp"]["notebook"]["tools"] == ["search", "append_entry"]
+    shown = config["extra_mcp"]["notebook"]
+    assert shown["tools"] == ["search", "append_entry"]
+    assert shown["where"] == "https://notebook.example/mcp"
+    assert shown["token"] == "NOTEBOOK_TOKEN"
     assert "mcp__notebook__append_entry" in config["allowed_tools"]
-    assert harness_mod.main(["--show-config"]) == 0
+    assert harness_mod.main(["--show-config", "--playbook", "with-notebook"]) == 0
     printed += capsys.readouterr().out
-    assert "MCP notebook: search, append_entry; specialists: search" in printed
-    assert "not-a-real-token" not in printed and "notebook.example" not in printed
+    assert (
+        "MCP notebook (https://notebook.example/mcp, token NOTEBOOK_TOKEN): "
+        "search, append_entry; specialists: search"
+    ) in printed
+    assert secret not in printed
+
+    # Not stored: fibsem-agent refuses to start, saying how to store it.
+    monkeypatch.delenv("NOTEBOOK_TOKEN")
+    monkeypatch.setattr(extra_mcp.keystore, "stored_secret", lambda name: None)
+    assert harness_mod.main(["--show-config"]) == 1
+    assert "fibsem-cli key set NOTEBOOK_TOKEN" in capsys.readouterr().err
 
 
 def test_code_mode_is_sandboxed_in_its_work_folder(tmp_path, monkeypatch):
@@ -812,7 +836,6 @@ def test_a_specialist_copied_for_a_session_gets_the_extra_servers_tools(
 ):
     """In run/ and in a work folder; the checkout's file stays as shipped."""
     pytest.importorskip("claude_agent_sdk")
-    import json
     import uuid
 
     from fibsem.ai.agent import manager, sources, subagents
@@ -820,20 +843,17 @@ def test_a_specialist_copied_for_a_session_gets_the_extra_servers_tools(
     monkeypatch.setattr(harness_mod.Path, "home", lambda: tmp_path)
     monkeypatch.delenv("FIBSEM_SERVER_TOKEN", raising=False)
     monkeypatch.setenv("FIBSEM_HOME", str(tmp_path / "home"))
-    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude"))
     (tmp_path / "home" / "agent").mkdir(parents=True)
     (tmp_path / "home" / "agent" / "mcp.yaml").write_text(
-        "notebook:\n  tools: [search]\n  subagents: [search]\n", encoding="utf-8"
-    )
-    (tmp_path / "claude").mkdir()
-    entry = {"type": "http", "url": "https://notebook.example/mcp"}
-    (tmp_path / "claude" / ".claude.json").write_text(
-        json.dumps({"mcpServers": {"notebook": entry}}), encoding="utf-8"
+        "notebook:\n  url: https://notebook.example/mcp\n"
+        "  tools: [search]\n  subagents: [search]\n",
+        encoding="utf-8",
     )
     # No file tools: the session runs in its run/.
     (tmp_path / "home" / "knowledge" / "playbooks").mkdir(parents=True)
     (tmp_path / "home" / "knowledge" / "playbooks" / "plain.yaml").write_text(
-        "agents: [autolamella-verifier]\nsession:\n  mode: none\n", encoding="utf-8"
+        "agents: [autolamella-verifier]\nmcp: [notebook]\nsession:\n  mode: none\n",
+        encoding="utf-8",
     )
     shipped = sources.agent_file("autolamella-verifier", harness_mod.find_checkout())
     before = shipped.read_bytes()
@@ -841,7 +861,9 @@ def test_a_specialist_copied_for_a_session_gets_the_extra_servers_tools(
     run_id = str(uuid.uuid4())
     plain = ["--session-id", run_id, "--playbook", "plain"]
     try:
-        for more in (plain, ["--files", str(tmp_path / "w")]):
+        # The playbook names the notebook: its specialists get its tools.
+        named = ["--playbook", "plain", "--files", str(tmp_path / "w")]
+        for more in (plain, named):
             code = harness_mod.main(
                 ["--url", "http://127.0.0.1:9", "--server-wait", "0"] + more
             )
@@ -1490,9 +1512,9 @@ def test_the_urgent_lines_are_the_four_the_operator_chose():
         watch_mod.WORKFLOW_FAILED,
         "task_failed",
         watch_mod.COMMAND_FAILED,
-        watch_mod.MILL_FAILED,
+        fibsem_lines.MILL_FAILED,
         # a stop rule firing
-        watch_mod.STOP_RULE,
+        fibsem_lines.STOP_RULE,
     }
     assert harness_mod.is_urgent(watch_mod.NO_END_EVENT_LINE)
     for line in (

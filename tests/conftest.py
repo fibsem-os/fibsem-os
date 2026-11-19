@@ -69,11 +69,11 @@ def _every_event_kind_is_registered(monkeypatch):
     untyped = set()
     append = EventBuffer.append
 
-    def checked(self, kind, payload, actor=None):
+    def checked(self, kind, payload, actor=None, envelope=None):
         if kind not in KINDS and kind not in _MADE_UP_KINDS:
             unregistered.append(kind)
         untyped.update(f"{kind}.{name}" for name in unknown_fields(kind, payload))
-        return append(self, kind, payload, actor)
+        return append(self, kind, payload, actor, envelope)
 
     monkeypatch.setattr(EventBuffer, "append", checked)
     yield

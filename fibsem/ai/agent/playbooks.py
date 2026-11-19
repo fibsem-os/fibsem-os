@@ -4,6 +4,7 @@
     description: On-grid lamellae, not correlative.
     extends: fibsem-agent            # optional
     instrument: fibsem               # the instrument kind its prompts are for
+    mcp: [notebook]                  # MCP servers it uses, by name (`extra_mcp`)
     session:                         # what a session STARTED on it runs with
       level: watch                   # the level the gateway's card picks first
       model: opus
@@ -33,6 +34,11 @@ A playbook is ``<name>.yaml`` in the lab's ``~/.fibsem/knowledge/playbooks/``
 or the shipped ``.claude/fibsem-agent/playbooks/``, the lab's winning. Skills,
 optional skills, subagents, hooks, reminders and rules add up along ``extends``, the parent's
 first; ``session`` settings and ``instrument`` too, the child's winning.
+``mcp`` adds up the same way: the MCP servers the agent uses, by name, each
+``fibsem`` (the sidecar, built in) or a server in the lab's ``mcp.yaml``
+(`extra_mcp`). The shipped base names ``fibsem``, under every playbook of
+its instrument kind; a playbook for another kind names its own, and one with
+no instrument (``instrument: none``) names no ``fibsem``.
 
 The shipped base playbook is the one place the agent's defaults live: it sits
 under every playbook, a lab's copy of the base included, so its session
@@ -65,6 +71,7 @@ FIELDS = (
     "description",
     "extends",
     "instrument",
+    "mcp",
     "session",
     "skills",
     "optional",
@@ -77,6 +84,8 @@ FIELDS = (
 # plan.md's headings when a playbook names none (fibsem.server.agent.plan).
 PLAN = ["Brief", "Playbook", "Rules", "Steps", "Progress", "Summary"]
 _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
+# An MCP server's name, as it sits in mcp__<server>__<tool> (`extra_mcp.NAME`).
+_SERVER = re.compile(r"[A-Za-z][\w-]*")
 SESSION = (
     "level",
     "model",
@@ -174,6 +183,8 @@ class Playbook:
     session: SessionSettings = field(default_factory=SessionSettings)
     # The instrument kind its prompts are for (`instruments`).
     instrument: Optional[str] = None
+    # The MCP servers it uses, by name: ``fibsem`` or a lab's (`extra_mcp`).
+    mcp: List[str] = field(default_factory=list)
 
     def optional_skill(self, name: str) -> Optional[Optional_]:
         return next((o for o in self.optional if o.skill == name), None)
@@ -193,6 +204,7 @@ class Playbook:
             "description": self.description,
             "extends": self.chain[:-1],
             "instrument": self.instrument,
+            "mcp": list(self.mcp),
             "hooks": list(self.switched_on),
             "skills": list(self.skills),
             "optional": [
@@ -249,18 +261,19 @@ def available(checkout: Optional[Path]) -> List[str]:
 
 def load(name: str, checkout: Optional[Path], efforts=()) -> Playbook:
     """Playbook *name* with what it extends added in, on the shipped base
-    playbook's session settings and instrument kind, and its skills for a
-    playbook of the base's instrument kind; a
+    playbook's session settings and instrument kind, and its skills and
+    servers for a playbook of the base's instrument kind; a
     `PlaybookError` says what is wrong with it. *efforts*, when given, are
     the efforts allowed."""
     playbook = _load(name, checkout, [], tuple(efforts))
     base = shipped_base(checkout)
     if base is not None:
         playbook.instrument = playbook.instrument or base.instrument
-        # The base's skills are for its instrument kind: a playbook for
-        # another kind names its own.
+        # The base's skills and servers are for its instrument kind: a
+        # playbook for another kind names its own.
         if playbook.instrument == base.instrument:
             playbook.skills = _merge(base.skills, playbook.skills)
+            playbook.mcp = _merge(base.mcp, playbook.mcp)
         playbook.session = base.session.merged(playbook.session)
     if checkout is not None:
         kinds = instruments.kinds(checkout)
@@ -371,6 +384,13 @@ def _read(
     ):
         raise PlaybookError(f"{path}: instrument is one instrument kind's name")
     skills = _names(data.get("skills"), "skills", path)
+    mcp = _names(data.get("mcp"), "mcp", path)
+    bad = [m for m in mcp if not _SERVER.fullmatch(m)]
+    if bad:
+        raise PlaybookError(
+            f"{path}: mcp lists servers by name, not {', '.join(bad)}: letters, "
+            "digits, _ and -, letter first"
+        )
     optional = _optional(data.get("optional"), path)
     switched_on = _names(data.get("hooks"), "hooks", path)
     unknown = [h for h in switched_on if h not in reminders.HOOK_OPTIONS]
@@ -418,6 +438,7 @@ def _read(
         plan=plan or (parent.plan if parent else list(PLAN)),
         session=(parent.session if parent else SessionSettings()).merged(session),
         instrument=instrument or (parent.instrument if parent else None),
+        mcp=_merge(parent.mcp if parent else [], mcp),
     )
     return playbook
 
