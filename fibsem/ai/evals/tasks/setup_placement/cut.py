@@ -2,6 +2,8 @@
 
 from typing import Any, Dict, Optional
 
+from fibsem.structures.image import FibsemImage
+
 BRIEF = (
     "This FIB image at the milling angle shows the site of {item}, where a "
     "lamella is to be made. Place the lamella through the target here: give "
@@ -15,8 +17,6 @@ def _image_facts(path) -> Dict[str, Any]:
     """The FIB image's pixel size and size in pixels, from its metadata
     where the file carries it."""
     try:
-        from fibsem.structures.image import FibsemImage
-
         image = FibsemImage.load(str(path))
     except Exception:  # noqa: BLE001 - any unreadable image: no facts
         return {}
