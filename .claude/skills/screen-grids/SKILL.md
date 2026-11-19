@@ -110,7 +110,8 @@ Picking on the overview gives candidates by the first check. Then go to
 each candidate (`stage_stable_move`) and do the second there: the same
 feature centred in both beams at a 50 µm field of view, within 5 µm as
 measured in the FIB image, aiming for 2-3 µm (fibsem-microscope,
-*Coincidence: do it yourself*). If it isn't, fix it:
+*Coincidence: do it yourself*), checked with `beam_acquire_pair` at
+150-200 µm, then at 50 µm. If it isn't, fix it:
 focus, then the coincidence loop. Never reject a candidate for focus or
 coincidence. If you can't fix one, say what you tried and ask the operator;
 in a lead run, hold it in `[run_state]` and carry on with the others. With

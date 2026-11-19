@@ -183,7 +183,12 @@ any overview, and again at each site on a bent grid: on one grid the
 coincident height ran from +20.8 to +33.6 µm between sites. Use this loop,
 not the coincidence commands: it worked better on a real instrument. Fix it
 with the stage, never with a beam shift: a site made coincident by beam
-shift is not ready.
+shift is not ready. Take each pair with `beam_acquire_pair` (both beams at
+one field of view, coarse at 150-200 µm then 50 µm, saved in the item's
+folder), not two `beam_acquire_image` calls: it answers one side-by-side
+picture, each half's origin and scale to take the feature you pick there
+back to that image's pixels, and whether each image is fit to judge. It
+moves nothing and judges nothing; the offset and the move stay yours.
 
 - *Pick it yourself, let the tool convert.* Find the same feature in the
   saved SEM and FIB images (full-resolution pixels, or as read off an
