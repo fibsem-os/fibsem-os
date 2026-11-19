@@ -3,7 +3,7 @@
 ``GET /hub`` lists the instruments as they were last read, for anyone signed
 in. The operator alone changes the list or pairs with an instrument: the
 install's operator token, or a browser paired as the operator with a code from
-``fibsem-hub pair``. The hub keeps its own paired computers
+``agent-hub pair``. The hub keeps its own paired computers
 (``~/.fibsem/hub/paired.json``), apart from a gateway's on the same PC.
 """
 
