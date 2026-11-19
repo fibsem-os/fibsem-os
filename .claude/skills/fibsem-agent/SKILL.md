@@ -477,6 +477,7 @@ Every read works at Watch.
 | Is this image good enough to go on with? | `analysis_measure_quality` |
 | How bright is a target, and against what? | `analysis_measure_intensity` with a `reference` point (a bead, the bulk); `correlation_refine_point`'s `z_fit` for its plane and width in z |
 | How wide is a spot, an edge or a bar? | `analysis_measure_profile` (`fwhm`; null means draw a longer line) |
+| How far off coincidence is a feature I found in both beams? | `analysis_measure_coincidence_offset` (the `dy` for `stage_vertical_move`) |
 | Grids | `grid_list`, `grid_get`, `grid_get_markers`, `experiment_render_markers` |
 | Grids on the hardware now | `grid_get_inventory` (which grid is loaded), `grid_get_current` |
 | Files | `experiment_list_files`, `experiment_read_file`, `analysis_crop_image` |

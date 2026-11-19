@@ -657,6 +657,38 @@ class ProfileBody:
     channel: Optional[str] = None
     plane: Optional[Plane] = None
     dip: Optional[Flag] = None
+    points: Optional[Annotated[int, Strict(), Field(ge=2, le=1000)]] = None
+
+
+@dataclass
+class PointPair:
+    """One feature: where it is in the SEM image and in the FIB image."""
+
+    __pydantic_config__ = STRICT
+
+    sem: Point
+    fib: Point
+    label: Optional[Annotated[str, Field(min_length=1, max_length=24)]] = None
+
+
+@dataclass
+class CoincidenceOffsetBody:
+    """POST /app/experiment/analysis/coincidence: features picked in a saved
+    SEM image and in a saved FIB image, one (sem_point, fib_point) or
+    several (pairs)."""
+
+    __pydantic_config__ = STRICT
+
+    sem_path: str
+    fib_path: str
+    sem_point: Optional[Point] = None
+    fib_point: Optional[Point] = None
+    pairs: Optional[Annotated[List[PointPair], Field(min_length=1, max_length=10)]] = (
+        None
+    )
+    # the crop each point was read off: a cell's name or [x, y, width, height]
+    sem_crop: Optional[Union[str, Tuple[float, float, float, float]]] = None
+    fib_crop: Optional[Union[str, Tuple[float, float, float, float]]] = None
 
 
 @dataclass

@@ -170,8 +170,8 @@ each.
 
 **Coincidence: do it yourself.** To bring the beams onto the same feature,
 centre it in one beam with `stage_stable_move`, find it in the other beam's
-image, and `stage_vertical_move` by its offset there (`beam_type` = the beam
-you measured in). Take both images again and repeat until it is centred in
+image, and `stage_vertical_move` by the offset the tool converts for you
+(below). Take both images again and repeat until it is centred in
 both; cap each step to a few µm, or use `relaxation` below 1 if it
 overshoots. Work from whichever beam has it centred already. Do it before
 any overview, and again at each site on a bent grid: on one grid the
@@ -180,10 +180,16 @@ not the coincidence commands: it worked better on a real instrument. Fix it
 with the stage, never with a beam shift: a site made coincident by beam
 shift is not ready.
 
-- *Measure, don't eyeball.* Find the feature's pixel position in the other
-  image, take its offset from the centre, and convert with that image's
-  pixel size. Pass the offset as measured: `stage_vertical_move` allows for
-  the FIB's tilted view, so don't scale it yourself.
+- *Pick it yourself, let the tool convert.* Find the same feature in the
+  saved SEM and FIB images (full-resolution pixels, or as read off an
+  `analysis_crop_image` picture with its crop) and give the
+  points to `analysis_measure_coincidence_offset`. Where the scene allows,
+  give 2-3 features as `pairs`, above all on repeating debris where one
+  match can be the wrong copy: a pair marked `disagrees` is one to recheck,
+  not to average in. Hand its `vertical_move.dy` to `stage_vertical_move`
+  with `beam_type` ION; `after_fib_px` says where each lands. Check its
+  picture marks your features in both first. Never convert preview pixels
+  or scale the offset by hand.
 - *Match a sharp landmark.* At the SEM orientation the FIB sees the sample
   at a glancing angle: its image is squashed top to bottom (to about 0.6),
   and a cell that is a bright blob in the SEM can show only as an arc of
