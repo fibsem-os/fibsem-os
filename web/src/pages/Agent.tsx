@@ -516,6 +516,8 @@ export function AgentPage() {
   // The operator's messages the agent hasn't read wait below the chat, under
   // whatever it does meanwhile; read, each sits where the agent read it.
   const all = recent.data?.rows ?? [];
+  // What the agent printed: its steps show before its first message or action.
+  const lines = transcript.data?.entries ?? [];
   const rows = all.filter((r) => !(r.kind === "you" && r.message_id && !r.read));
   const unread = all.filter((r) => r.kind === "you" && r.message_id && !r.read);
   const a = agent.data;
@@ -686,15 +688,22 @@ export function AgentPage() {
           >
             <div>
               {a.session && <div className="py-1.5 pl-2.5 text-[13px] text-muted-foreground">{a.session}</div>}
-              {all.length ? (
+              {all.length || lines.length ? (
                 <Record
                   rows={rows}
-                  lines={transcript.data?.entries ?? []}
+                  lines={lines}
                   show={show}
                   heard={isWorking && !agent.data?.stopped}
                   now={a.now}
                   calls={calls}
                 />
+              ) : isWorking ? (
+                // Connected, before its first step: starting takes a while, and
+                // an empty page reads as nothing happening.
+                <div className="py-8 text-center text-[13px] text-muted-foreground">
+                  The agent is starting: it reads its playbook and skills, then where things stand. Its steps show
+                  here as it takes them.
+                </div>
               ) : (
                 <div className="py-8 text-center text-[13px] text-muted-foreground">
                   No messages yet. What you write here waits for the agent: it reads it on its next turn, or when one
