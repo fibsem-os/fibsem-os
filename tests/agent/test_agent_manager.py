@@ -1,6 +1,8 @@
 """The agent manager against a stand-in ``fibsem-agent`` (``stand_in.py``):
 real processes and real session folders, no model."""
 
+import os
+import subprocess
 import sys
 import threading
 import time
@@ -16,6 +18,7 @@ from fibsem.ai.agent.manager import (
     AgentRunning,
     AgentSessionManager,
     SessionFolder,
+    SessionRunning,
     read_json,
 )
 
@@ -286,6 +289,39 @@ def test_a_session_folder_records_each_run_and_how_it_ended(tmp_path):
     assert "ended" not in second
 
 
+def test_a_session_runs_in_one_process_at_a_time(tmp_path):
+    session = SessionFolder.open("abc", {}, tmp_path)
+    other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        record = session.record()
+        record["runs"][-1]["pid"] = other.pid
+        manager.write_json(session.folder / RECORD, record)
+        with pytest.raises(SessionRunning, match="already running"):
+            SessionFolder.open("abc", {}, tmp_path)
+        assert session.record() == record, "the running one's record is left alone"
+    finally:
+        other.kill()
+        other.wait(10)
+    # Its process gone without an end (a crash): the session runs again.
+    assert len(SessionFolder.open("abc", {}, tmp_path).record()["runs"]) == 2
+
+
+def test_runs_starting_together_open_the_record_one_at_a_time(tmp_path):
+    session = SessionFolder.open("abc", {}, tmp_path)
+    session.end(0, "stopped")
+    lock = session.folder / manager.OPENING
+    lock.touch()
+    with pytest.raises(SessionRunning, match="is starting"):
+        with manager._opening(session.folder, wait_s=0.2):
+            pass
+    assert lock.exists(), "the holder's lock is left alone"
+    # One left by a process that died holding it is taken over.
+    old = time.time() - manager.OPENING_STALE_S - 1
+    os.utime(lock, (old, old))
+    assert len(SessionFolder.open("abc", {}, tmp_path).record()["runs"]) == 2
+    assert not lock.exists()
+
+
 def test_a_session_folder_keeps_the_instrument_and_experiment_it_works_on(tmp_path):
     session = SessionFolder.open("abc", {}, root=tmp_path)
     session.keep_where(
@@ -331,7 +367,7 @@ def test_resume_carries_an_ended_session_on_in_its_own_folder(make, tmp_path):
 
 def test_resume_takes_on_a_session_no_manager_started(make, tmp_path):
     mgr, env = make("wait")
-    SessionFolder.open("by-hand", {"cwd": "/w"}, tmp_path)
+    SessionFolder.open("by-hand", {"cwd": "/w"}, tmp_path).end(0, "stopped")
     assert mgr.folder("by-hand") is not None
     agent = mgr.resume("arctis-1", "by-hand", [], env=env)
     until(lambda: len(read_json(agent.folder / RECORD).get("runs", [])) == 2)

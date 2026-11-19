@@ -24,6 +24,7 @@ no second copy.
 
 import argparse
 import asyncio
+import functools
 import json
 import logging
 import os
@@ -34,6 +35,7 @@ import sys
 import sysconfig
 import threading
 import time
+import traceback
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
@@ -2488,6 +2490,41 @@ def playbook_configuration(name: str) -> dict:
 
 
 def main(argv=None) -> int:
+    """``fibsem-agent``. Every exit but a clean one says why: on the console,
+    and in the session's log once it is open."""
+    opened: List[sessions.SessionFolder] = []
+    try:
+        return _main(argv, opened)
+    except sessions.SessionRunning as busy:
+        print(f"fibsem-agent: {busy}", file=sys.stderr)
+        return 1
+    except Exception as error:  # noqa: BLE001 - said, then the exit code
+        _failed(error, opened)
+        return 1
+
+
+def _failed(error: Exception, opened: List["sessions.SessionFolder"]) -> None:
+    """Say why fibsem-agent failed outside its run: in its log, with the
+    traceback, once the log is open, else on the console."""
+    why = f"fibsem-agent failed: {type(error).__name__}: {error}"
+    if any(isinstance(h, logging.FileHandler) for h in log.handlers):
+        log.error(why, exc_info=error)
+        say = log.error
+    else:
+        print(why, file=sys.stderr)
+        traceback.print_exception(error)
+        say = functools.partial(print, file=sys.stderr)
+    for session in opened:
+        session_id = session.record().get("session_id")
+        if session_id:
+            say(f"--resume {session_id} carries the session on.")
+        try:
+            session.end(1, why)
+        except Exception:  # noqa: BLE001 - what was said stands
+            log.debug("Could not record the run's end.", exc_info=True)
+
+
+def _main(argv, opened: List["sessions.SessionFolder"]) -> int:
     refuse("fibsem-agent")
     diagnostics.install("fibsem-agent")
     parser = _parser()
@@ -2551,6 +2588,7 @@ def main(argv=None) -> int:
     session = sessions.SessionFolder.open(
         session_id, _about(args, checkout, work, code, playbook, run), folder=folder
     )
+    opened.append(session)
     log_path = Path(args.log).expanduser() if args.log else session.log_path
     print_fibsem_logo()
     _log_to(log_path)
