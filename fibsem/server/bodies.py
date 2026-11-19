@@ -493,6 +493,15 @@ class GridNoteBody:
 
 
 @dataclass
+class GridItemsBody:
+    """POST .../grids/{grid_name}/items: the lamellae to record as on it."""
+
+    __pydantic_config__ = STRICT
+
+    item_names: List[str]
+
+
+@dataclass
 class PlaceBody:
     """Where an item is: a stage position, or a point on a grid overview
     (``{grid_name, filename, px | fraction}``)."""

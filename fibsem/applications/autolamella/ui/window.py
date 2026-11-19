@@ -22,6 +22,7 @@ import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella import config as cfg
 from fibsem.applications.autolamella.experiment_setup import load_for_adoption
 from fibsem.applications.autolamella.poses import remove_lamella
+from fibsem.applications.autolamella.run_edits import lamella_edit_refusal
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     AutoLamellaWorkflowConfig,
@@ -61,6 +62,7 @@ from fibsem.ui.run.run_refusal import refused_during_run
 from fibsem.ui.run.view import RunView
 from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
 from fibsem.ui.widgets.microscope_panel import MicroscopePanel, add_microscope_tab
+from fibsem.workflows.grid.edits import assign_lamellae_to_grid
 from fibsem.workflows.grid.naming import (
     grid_rename_refusal,
     record_inventoried_grids,
@@ -313,6 +315,9 @@ class AutoLamellaWindow(AppWindow):
         )
         self.panel.experiment_tab.lamella_list.lamella_selected.connect(
             self._on_experiment_lamella_selected
+        )
+        self.panel.experiment_tab.lamella_list.grid_assign_requested.connect(
+            self._on_lamella_grid_assign_requested
         )
 
         # The controller's SEM/FIB/FM canvases are the display and drive the control
@@ -707,6 +712,9 @@ class AutoLamellaWindow(AppWindow):
         lamella.lamella_edit_requested.connect(self._on_lamella_edit)
         lamella.lamella_remove_requested.connect(self._on_lamella_remove_requested)
         lamella.lamella_defect_changed.connect(self._on_lamella_defect_changed)
+        lamella.lamella_list.grid_assign_requested.connect(
+            self._on_lamella_grid_assign_requested
+        )
         grids = self.workflow_tab.grid_workflow_widget
         grids.protocol_changed.connect(self._refresh_grid_protocol_editor)
         # An inventory, a rename, a manual load on the Grids tab: the run view's
@@ -922,8 +930,6 @@ class AutoLamellaWindow(AppWindow):
 
     def _on_lamella_remove_requested(self, lamella: "Lamella"):
         """Remove the given lamella from the experiment after the list widget has already removed its row."""
-        from fibsem.applications.autolamella.run_edits import lamella_edit_refusal
-
         if self.experiment is None:
             return
         why = lamella_edit_refusal(
@@ -937,6 +943,28 @@ class AutoLamellaWindow(AppWindow):
             return
         self.panel.experiment_tab.update_items(latest=True)
         self.panel.refresh()
+
+    def _on_lamella_grid_assign_requested(self, lamellae: list, grid_id: str):
+        """Record *lamellae* as on the grid *grid_id*: a lamella row's Assign
+        to Grid, the same edit as the App Server's."""
+        experiment = self.experiment
+        grid = experiment.get_grid_by_id(grid_id) if experiment else None
+        if grid is None:
+            return
+        for lamella in lamellae:
+            why = lamella_edit_refusal(
+                self.session.runner, experiment, lamella, "move it to another grid"
+            )
+            if why:
+                notification_service.show_toast(why, "warning")
+                return
+        moved = assign_lamellae_to_grid(experiment, grid, lamellae)
+        self._refresh_after_naming()
+        if moved:
+            notification_service.show_toast(
+                f"{', '.join(moved)} {'is' if len(moved) == 1 else 'are'} now on {grid.name}.",
+                "info",
+            )
 
     def _on_step_update(self, label: str) -> None:
         """Handle per-step update from the workflow worker thread."""
