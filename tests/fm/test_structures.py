@@ -2625,3 +2625,13 @@ def test_only_a_multi_band_filter_of_unknown_bands_shows_as_multi_band():
     assert emission_filter_for("Quad GFP/RFP", {}).label == "Quad GFP/RFP"
     assert REFLECTION.label == "Reflection"
     assert emission_filter_for(510.0, {510.0: (510.0, 560.0)}).label == "510–560 nm"
+
+
+def test_an_excitation_wavelength_in_metres_is_refused():
+    """A wavelength that can't be nm is refused; nm and an unknown 0 pass."""
+    from fibsem.fm.structures import MIN_EXCITATION_NM
+
+    for nm in (550, MIN_EXCITATION_NM, 0):
+        ChannelSettings(excitation_wavelength=nm).check_units()
+    with pytest.raises(ValueError, match="excitation_wavelength is in nm"):
+        ChannelSettings(name="red", excitation_wavelength=6.4e-07).check_units()
