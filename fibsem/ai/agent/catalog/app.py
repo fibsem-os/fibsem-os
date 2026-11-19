@@ -547,7 +547,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         method="GET",
         path="/app/experiment/files",
         level="watch",
-        router="app",
+        router="files",
         params={
             "dir": "a folder path from an earlier listing, relative to the experiment (default: the top)",
             "experiment": "optional: a past experiment to read instead of the open one, by its relative_path from experiment_list_all (or its path from experiment_list_recent); only one the operator named. Every read of it goes on the record",
@@ -561,7 +561,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         method="GET",
         path="/app/experiment/files/{path}",
         level="watch",
-        router="app",
+        router="files",
         params={
             "path": "a path from experiment_list_files, or an image path an image answer gave",
             **STACK_PARAMS,
@@ -580,7 +580,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         method="GET",
         path="/app/experiment/files/{path}",
         level="watch",
-        router="app",
+        router="files",
         params={
             "path": "a path from experiment_list_files, or an image path an image answer gave",
             "experiment": "optional: a past experiment to read instead of the open one, by its relative_path from experiment_list_all (or its path from experiment_list_recent); only one the operator named. Every read of it goes on the record",

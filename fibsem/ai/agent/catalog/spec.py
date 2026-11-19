@@ -35,8 +35,10 @@ class ToolSpec:
     optional: Tuple[str, ...] = ()
     # Which router serves it: "microscope" unless the App Server's devices
     # service is off; "app" only when the server was built with an
-    # app_context; "services" (the analysis services) and "base" always.
-    # /capabilities reports which.
+    # app_context; "analysis" (the image tools, `fibsem.analysis`) and "files"
+    # (reading files) wherever a folder is served, the App Server's open
+    # experiment or an agent host's data folder; "services" (the analysis
+    # services) and "base" always. /capabilities reports which.
     router: str = "microscope"
     # The optional /app part that serves it (fibsem.server.parts); "" for the
     # core. /capabilities lists the parts the app serves.

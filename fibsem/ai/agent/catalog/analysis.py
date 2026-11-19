@@ -26,7 +26,7 @@ TOOLS = (
         method="GET",
         path="/app/experiment/files/{path}",
         level="watch",
-        router="app",
+        router="analysis",
         params={
             "path": "an image path from experiment_list_files, or one an image answer gave",
             "box": arg(
@@ -51,7 +51,7 @@ TOOLS = (
         method="POST",
         path="/app/experiment/images/drawn",
         level="watch",
-        router="app",
+        router="analysis",
         params={
             "path": "an image file path inside the experiment folder",
             "marks": arg(MARKS_PARAM, dict),
@@ -89,7 +89,7 @@ TOOLS = (
         method="POST",
         path="/app/experiment/images/pair",
         level="watch",
-        router="app",
+        router="analysis",
         params={
             "before": "an image file path inside the experiment folder, drawn on the left",
             "after": "an image file path inside the experiment folder, drawn on the right",
@@ -134,7 +134,7 @@ TOOLS = (
         method="GET",
         path="/app/experiment/images/metadata",
         level="watch",
-        router="app",
+        router="analysis",
         params={
             "path": "an image file path inside the experiment folder, e.g. the path an image answer gives"
         },
@@ -146,7 +146,7 @@ TOOLS = (
         method="GET",
         path="/app/experiment/images/stage_position",
         level="watch",
-        router="app",
+        router="analysis",
         params={
             "path": "an image file path inside the experiment folder",
             "x": arg("source-pixel x (with y)", float),
@@ -167,7 +167,7 @@ TOOLS = (
         method="POST",
         path="/app/experiment/images/pixels",
         level="watch",
-        router="app",
+        router="analysis",
         params={
             "path": "an image file path inside the experiment folder",
             "stage_positions": arg(
@@ -182,7 +182,7 @@ TOOLS = (
         method="POST",
         path="/app/experiment/analysis/intensity",
         level="watch",
-        router="app",
+        router="analysis",
         params={
             "path": "a saved image file path inside the experiment folder",
             "points": arg(
@@ -208,7 +208,7 @@ TOOLS = (
         method="POST",
         path="/app/experiment/analysis/profile",
         level="watch",
-        router="app",
+        router="analysis",
         params={
             "path": "a saved image file path inside the experiment folder",
             "start": arg("[x, y] in the image's full-resolution pixels", List[float]),
@@ -236,7 +236,7 @@ TOOLS = (
         method="GET",
         path="/app/experiment/analysis/quality",
         level="watch",
-        router="app",
+        router="analysis",
         params={
             "path": "a saved image file path inside the experiment folder",
             "channel": _CHANNEL,
@@ -254,7 +254,7 @@ TOOLS = (
         method="POST",
         path="/app/experiment/analysis/histogram",
         level="watch",
-        router="app",
+        router="analysis",
         params={
             "path": "a saved image file path inside the experiment folder",
             "channel": _CHANNEL,
@@ -277,7 +277,7 @@ TOOLS = (
         method="POST",
         path="/app/experiment/analysis/spectrum",
         level="watch",
-        router="app",
+        router="analysis",
         params={
             "path": "a saved image file path inside the experiment folder",
             "channel": _CHANNEL,
@@ -299,7 +299,7 @@ TOOLS = (
         method="POST",
         path="/app/experiment/analysis/thickness",
         level="watch",
-        router="app",
+        router="analysis",
         params={
             "path": "a FIB image file path inside the experiment folder",
             "width_um": arg(
@@ -322,7 +322,7 @@ TOOLS = (
         method="POST",
         path="/app/experiment/analysis/shift",
         level="watch",
-        router="app",
+        router="analysis",
         params={
             "reference": "the saved reference image's path inside the experiment folder",
             "image": "the saved image to measure against it",

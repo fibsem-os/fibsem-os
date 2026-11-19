@@ -490,6 +490,154 @@ def build_analysis_router(tools: ImageTools) -> APIRouter:
     return router
 
 
+def _files_over(root: Callable[[Optional[str]], Optional[str]]):
+    """A call of a `fibsem.server.files` read over the folder *root* answers
+    for an experiment (None: the open one), its refusal as the HTTP error."""
+
+    def answer(experiment, read, *args, **kwargs):
+        try:
+            return read(root(experiment), *args, **kwargs)
+        except files.FileRefusal as refusal:
+            raise HTTPException(status_code=refusal.status, detail=refusal.detail)
+
+    return answer
+
+
+def build_files_router(
+    root: Callable[[Optional[str]], Optional[str]],
+    record: Callable[[str, Dict[str, Any]], None],
+) -> APIRouter:
+    """The read-only file routes over the folder *root* answers: listing a
+    folder, reading a file (a preview, a crop, or the file as it is) and an
+    image's raw planes. *root* takes a past experiment's path, or None for
+    the open one, and raises ``FileRefusal`` for one it won't read; *record*
+    puts a past experiment's reads, and every raw file, on the record. The
+    App Server mounts them over its experiments; the agent host over its data
+    folder."""
+    router = APIRouter(route_class=_AsSentRoute)
+    _files_answer = _files_over(root)
+
+    def _record_read(experiment, path, raw):
+        # A past experiment's every read, and every raw file, go on the record.
+        if experiment is not None or raw:
+            payload = {"path": path, "raw": raw}
+            if experiment is not None:
+                payload["experiment"] = experiment
+            record("experiment_file_read", payload)
+
+    @router.get("/experiment/files", response_model=FolderListing)
+    def list_files(dir: str = "", experiment: Optional[str] = None):
+        listing = _files_answer(experiment, files.list_folder, dir)
+        _record_read(experiment, dir, False)
+        # As listed: a file has no images count, rather than a null one.
+        return JSONResponse(listing)
+
+    @router.get(
+        "/experiment/files/{path:path}", response_model=FileRead, responses=_RAW_FILE
+    )
+    def read_file(
+        request: Request,
+        path: str,
+        box: Optional[str] = None,
+        fraction: Optional[str] = None,
+        width: Optional[int] = None,
+        z: Optional[int] = None,
+        channels: Optional[str] = None,
+        cells: Optional[str] = None,
+        raw: bool = False,
+        experiment: Optional[str] = None,
+    ):
+        if raw:
+            # The file as it is, its experiment's folder name and its path in
+            # it in the headers: where a fetch keeps it.
+            root = _files_answer(experiment, lambda root: root)
+            target, relative = _files_answer(experiment, files.raw_file, path)
+            _record_read(experiment, relative, True)
+            return FileResponse(
+                target,
+                headers={
+                    "X-Experiment": quote(os.path.basename(os.path.normpath(root))),
+                    "X-Experiment-Path": quote(relative),
+                },
+            )
+        # A region is "x,y,width,height": source pixels (box) or 0-1 (fraction).
+        # width: the preview's at most, for a thumbnail or a full-size view.
+        # A fluorescence stack: plane z (0 the first; none, the max projection)
+        # in channels, comma-separated names (none, all).
+        # cells: "true" draws the image's named cells on the preview; names,
+        # comma-separated ("B3,C4"), crop those cells.
+        show_cells = (cells or "").strip().lower() == "true"
+        crops = None if show_cells or not cells else [c for c in cells.split(",") if c]
+        tag = _files_answer(
+            experiment, files.read_etag, path, box, fraction, width, z, channels, cells
+        )
+        # kept by the browser, but asked about each time: an unchanged file answers 304
+        cache = {"ETag": tag, "Cache-Control": "no-cache"} if tag else {}
+        if tag is not None and request.headers.get("if-none-match") == tag:
+            _record_read(experiment, path, False)
+            return Response(status_code=304, headers=cache)
+        answer = _files_answer(
+            experiment,
+            files.read,
+            path,
+            box=_numbers(box),
+            fraction=_numbers(fraction),
+            max_width=files.preview_width(width),
+            z=z,
+            channels=[c for c in (channels or "").split(",") if c] or None,
+            cells=show_cells,
+            crops=crops,
+        )
+        _record_read(experiment, path, False)
+        return JSONResponse(jsonable_encoder(answer), headers=cache)
+
+    @router.get("/experiment/planes/{path:path}", responses=_PLANES)
+    def read_planes(
+        request: Request,
+        path: str,
+        factor: int = 1,
+        z: Optional[str] = None,
+        first: Optional[int] = None,
+        last: Optional[int] = None,
+        channels: Optional[str] = None,
+        box: Optional[str] = None,
+        experiment: Optional[str] = None,
+    ):
+        # An image's raw planes for the web viewer, which draws them itself: the
+        # values as stored, gzipped, C-order, little-endian; X-Planes says their
+        # (C, Z, Y, X) shape, dtype and channels. factor 1, 4 or 8; z a plane
+        # (0 the first), "all", or max/mean/min over first..last; box x,y,w,h
+        # a region at full size.
+        picked = [c for c in (channels or "").split(",") if c] or None
+        plane = int(z) if z is not None and z.lstrip("-").isdigit() else z
+        region = None
+        if box is not None:
+            try:
+                region = [int(n) for n in box.split(",")]
+            except ValueError:
+                raise _missing_field("box is x,y,width,height in pixels.") from None
+        query = ("planes", factor, z, first, last, channels, box)
+        tag = _files_answer(experiment, files.read_etag, path, *query)
+        cache = {"ETag": tag, "Cache-Control": "no-cache"} if tag else {}
+        if tag is not None and request.headers.get("if-none-match") == tag:
+            return Response(status_code=304, headers=cache)
+        header, data = _files_answer(
+            experiment, planes.read, path, factor, plane, first, last, picked, region
+        )
+        _record_read(experiment, path, False)
+        return Response(
+            gzip.compress(data.tobytes(), compresslevel=1),
+            media_type="application/octet-stream",
+            headers={
+                **cache,
+                "Content-Encoding": "gzip",
+                "X-Planes": json.dumps(header),
+            },
+        )
+
+    return router
+
+
 def build_app_router(context: "AppContext") -> APIRouter:
     router = _router()
     router.include_router(build_analysis_router(context.images))
@@ -765,86 +913,10 @@ def build_app_router(context: "AppContext") -> APIRouter:
         )
 
     # -- an experiment's files: the open one's, or a past one's, read only ------
-
-    def _files_answer(experiment, read, *args, **kwargs):
-        try:
-            return read(context.experiment_root(experiment), *args, **kwargs)
-        except files.FileRefusal as refusal:
-            raise HTTPException(status_code=refusal.status, detail=refusal.detail)
-
-    def _record_read(experiment, path, raw):
-        # A past experiment's every read, and every raw file, go on the record.
-        if experiment is not None or raw:
-            payload = {"path": path, "raw": raw}
-            if experiment is not None:
-                payload["experiment"] = experiment
-            context.record_event("experiment_file_read", payload)
-
-    @router.get("/experiment/files", response_model=FolderListing)
-    def list_files(dir: str = "", experiment: Optional[str] = None):
-        listing = _files_answer(experiment, files.list_folder, dir)
-        _record_read(experiment, dir, False)
-        # As listed: a file has no images count, rather than a null one.
-        return JSONResponse(listing)
-
-    @router.get(
-        "/experiment/files/{path:path}", response_model=FileRead, responses=_RAW_FILE
+    router.include_router(
+        build_files_router(context.experiment_root, context.record_event)
     )
-    def read_file(
-        request: Request,
-        path: str,
-        box: Optional[str] = None,
-        fraction: Optional[str] = None,
-        width: Optional[int] = None,
-        z: Optional[int] = None,
-        channels: Optional[str] = None,
-        cells: Optional[str] = None,
-        raw: bool = False,
-        experiment: Optional[str] = None,
-    ):
-        if raw:
-            # The file as it is, its experiment's folder name and its path in
-            # it in the headers: where a fetch keeps it.
-            root = _files_answer(experiment, lambda root: root)
-            target, relative = _files_answer(experiment, files.raw_file, path)
-            _record_read(experiment, relative, True)
-            return FileResponse(
-                target,
-                headers={
-                    "X-Experiment": quote(os.path.basename(os.path.normpath(root))),
-                    "X-Experiment-Path": quote(relative),
-                },
-            )
-        # A region is "x,y,width,height": source pixels (box) or 0-1 (fraction).
-        # width: the preview's at most, for a thumbnail or a full-size view.
-        # A fluorescence stack: plane z (0 the first; none, the max projection)
-        # in channels, comma-separated names (none, all).
-        # cells: "true" draws the image's named cells on the preview; names,
-        # comma-separated ("B3,C4"), crop those cells.
-        show_cells = (cells or "").strip().lower() == "true"
-        crops = None if show_cells or not cells else [c for c in cells.split(",") if c]
-        tag = _files_answer(
-            experiment, files.read_etag, path, box, fraction, width, z, channels, cells
-        )
-        # kept by the browser, but asked about each time: an unchanged file answers 304
-        cache = {"ETag": tag, "Cache-Control": "no-cache"} if tag else {}
-        if tag is not None and request.headers.get("if-none-match") == tag:
-            _record_read(experiment, path, False)
-            return Response(status_code=304, headers=cache)
-        answer = _files_answer(
-            experiment,
-            files.read,
-            path,
-            box=_numbers(box),
-            fraction=_numbers(fraction),
-            max_width=files.preview_width(width),
-            z=z,
-            channels=[c for c in (channels or "").split(",") if c] or None,
-            cells=show_cells,
-            crops=crops,
-        )
-        _record_read(experiment, path, False)
-        return JSONResponse(jsonable_encoder(answer), headers=cache)
+    _files_answer = _files_over(context.experiment_root)
 
     @router.post(
         "/report",
@@ -898,50 +970,6 @@ def build_app_router(context: "AppContext") -> APIRouter:
             "experiment_file_added", {"path": entry["path"], "size": entry["size"]}
         )
         return JSONResponse(entry)
-
-    @router.get("/experiment/planes/{path:path}", responses=_PLANES)
-    def read_planes(
-        request: Request,
-        path: str,
-        factor: int = 1,
-        z: Optional[str] = None,
-        first: Optional[int] = None,
-        last: Optional[int] = None,
-        channels: Optional[str] = None,
-        box: Optional[str] = None,
-        experiment: Optional[str] = None,
-    ):
-        # An image's raw planes for the web viewer, which draws them itself: the
-        # values as stored, gzipped, C-order, little-endian; X-Planes says their
-        # (C, Z, Y, X) shape, dtype and channels. factor 1, 4 or 8; z a plane
-        # (0 the first), "all", or max/mean/min over first..last; box x,y,w,h
-        # a region at full size.
-        picked = [c for c in (channels or "").split(",") if c] or None
-        plane = int(z) if z is not None and z.lstrip("-").isdigit() else z
-        region = None
-        if box is not None:
-            try:
-                region = [int(n) for n in box.split(",")]
-            except ValueError:
-                raise _missing_field("box is x,y,width,height in pixels.") from None
-        query = ("planes", factor, z, first, last, channels, box)
-        tag = _files_answer(experiment, files.read_etag, path, *query)
-        cache = {"ETag": tag, "Cache-Control": "no-cache"} if tag else {}
-        if tag is not None and request.headers.get("if-none-match") == tag:
-            return Response(status_code=304, headers=cache)
-        header, data = _files_answer(
-            experiment, planes.read, path, factor, plane, first, last, picked, region
-        )
-        _record_read(experiment, path, False)
-        return Response(
-            gzip.compress(data.tobytes(), compresslevel=1),
-            media_type="application/octet-stream",
-            headers={
-                **cache,
-                "Content-Encoding": "gzip",
-                "X-Planes": json.dumps(header),
-            },
-        )
 
     # -- exports: the Qt export dialogs' files, for a person to download ---------
     # Each renders, so a POST computes and changes nothing; FastAPI runs these

@@ -142,7 +142,10 @@ Each group contributes one kind of object:
   agent host: start `fibsem-agent-host`, then `fibsem-agent --host`. The host
   makes its own tokens and writes a discovery file, as the App Server does, so
   the agent finds it and asks to connect; the operator allows it on the host's
-  Agent page (`/ui/agent`).
+  Agent page (`/ui/agent`). `fibsem-agent-host --data <folder>` also serves
+  the image tools (`analysis_*`) and file reads (`experiment_list_files`,
+  `experiment_read_file`) over that folder, read only, for an agent that
+  reviews saved data with no instrument.
 
 When a built-in, a runtime registration and a plugin claim the same name, the
 built-in is used, then the runtime registration, then the plugin.
