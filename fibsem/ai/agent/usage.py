@@ -114,6 +114,20 @@ class Calls:
             call[key] = max(call[key], value)
         call["tools"].extend(tools)
 
+    def so_far(self) -> Dict[str, int]:
+        """The tokens of the turn going on, the call still open included."""
+        if self._open is None:
+            return dict(self.turn_tokens)
+        return add(self.turn_tokens, {key: self._open[key] for key in FIELDS})
+
+    def reading(self) -> Optional[int]:
+        """How much the agent's latest call read, the call still open
+        included: how full its context is, while a turn goes on."""
+        call = self._open
+        if call is not None and call["agent"] is None:
+            return prompt({key: call[key] for key in FIELDS}) or self.context
+        return self.context
+
     def end_turn(self) -> Dict[str, int]:
         """The tokens of the turn just ended."""
         self._close()
