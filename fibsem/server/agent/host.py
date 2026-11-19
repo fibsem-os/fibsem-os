@@ -63,6 +63,7 @@ from fibsem.client.transport import HOST_TOKEN_ENV
 from fibsem.keystore import get_secret
 from fibsem.server import discovery
 from fibsem.server.agent.files import AgentFiles
+from fibsem.server.agent.handoff import build_agent_handoff_router
 from fibsem.server.agent.operator import build_operator_router
 from fibsem.server.agent.plan import (
     PlanStore,
@@ -525,6 +526,7 @@ def build_agent_host(
     app.include_router(build_agent_session_router(host.record))
     app.include_router(build_agent_plan_router(lambda: None, host.record))
     app.include_router(build_agent_transcript_router(lambda: None, host.record))
+    app.include_router(build_agent_handoff_router(lambda: None))
     # The operator's side, what the Agent page does: the App Server's own
     # routes, over the host as a session (`_HostSession`).
     app.include_router(build_operator_router(AgentControl(_HostSession(host))))

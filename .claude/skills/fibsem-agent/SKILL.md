@@ -383,6 +383,24 @@ replaces what is there unless the operator says so: new instructions are when
 checks get dropped. If two conflict, ask which wins. Read it again after a
 `PLAN EDITED` line, a wake-up, and when your context was compacted.
 
+**A fresh context.** Every turn re-reads your whole context, so each step of
+a long session costs more than the last, and an automatic compaction keeps
+only a summary. Under fibsem-agent, `context_reset` starts a fresh context of
+the same session (same chat, budget, plan and experiment) when your turn
+ends, from your skills, the plan and a handoff note you write. The harness
+tells you once when the context passes a size; whether to act on it is
+yours. It is worth it at a natural boundary when the context is large: a
+block of work done (screening, the sites approved, a lamella's tasks), before
+a long unattended stretch, or before going quiet for a long time (the next
+wake of a large context with a cold cache is dear). Not mid-task, and not
+while a decision waits on the operator's answer. The operator may also ask for
+one. First bring the plan up to date (Steps ticked, Progress written, every
+rule in Rules), then write the note for an agent who knows the skills but
+nothing of today: what is in flight with its ids, the next steps concretely,
+and what the record doesn't hold. A figure in it says where it came from.
+A specialist you were carrying on with (a Verifier kept for a lamella's
+later passes) does not come with you: say in the note what it had settled.
+
 Limits the operator sets are Rules too ("don't change the milling
 currents"). A rule with a time is a deadline: write it as `by 07:00` or
 `by 2026-11-06 07:00` ("- Finish by 07:00"; a time alone is saved with its

@@ -118,6 +118,8 @@ SESSION = (
     "wake_max_min",
     "deadline_warn_min",
     "quiet_min",
+    "context_marks",
+    "compact_window",
 )
 # Numbers above 0, and the type each is read as.
 NUMBERS = {
@@ -126,6 +128,7 @@ NUMBERS = {
     "wake_max_min": float,
     "deadline_warn_min": float,
     "quiet_min": float,
+    "compact_window": int,
 }
 MODES = ("none", "files", "code")
 LEVELS = ("watch", "assist", "drive")
@@ -153,6 +156,12 @@ class SessionSettings:
     """A deadline wakes the agent this many minutes before it, and at it."""
     quiet_min: Optional[float] = None
     """A running workflow quiet this many minutes wakes the agent, once."""
+    context_marks: Optional[List[int]] = None
+    """Context sizes, in tokens, at which the agent is told once how full its
+    context is (`handoff.Marks`)."""
+    compact_window: Optional[int] = None
+    """The CLI's auto-compact window, in tokens (100k to 1M); None leaves the
+    CLI's own, which compacts near the model's window."""
 
     def merged(self, child: "SessionSettings") -> "SessionSettings":
         """This, with *child*'s settings winning where it has them."""
@@ -513,6 +522,15 @@ def _session(value: Any, path: Path, efforts=()) -> SessionSettings:
         if isinstance(given, bool) or not isinstance(given, (int, float)) or given <= 0:
             raise PlaybookError(f"{path}: session {key} must be a number above 0")
         found[key] = kind(given)
+    marks = value.get("context_marks")
+    if marks is not None:
+        if not isinstance(marks, list) or not all(
+            isinstance(m, int) and not isinstance(m, bool) and m > 0 for m in marks
+        ):
+            raise PlaybookError(
+                f"{path}: session context_marks must be a list of token counts above 0"
+            )
+        found["context_marks"] = sorted(set(marks))
     if found.get("level", "watch") not in LEVELS:
         raise PlaybookError(f"{path}: session level is one of {', '.join(LEVELS)}")
     if found.get("mode", "none") not in MODES:

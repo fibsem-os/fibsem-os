@@ -103,6 +103,8 @@ NOT_TOOLS: Dict[str, str] = {
     "GET /app/agent/transcript": "What fibsem-agent printed, read back by the web page; the agent has its own context.",
     "POST /app/agent/transcript": "fibsem-agent's harness sends what it printed; not the agent's to call.",
     "GET /app/agent/transcript/pictures/{name}": "A picture a lab tool answered a step with, read back by the web page; the agent saw it in the tool's answer.",
+    "POST /app/agent/handoff": "fibsem-agent's harness keeps the agent's handoff note when it starts a fresh context; the agent calls context_reset.",
+    "GET /app/agent/handoff": "The handoff notes, read back by the operator; a fresh context is given its note in its first prompt.",
     "PUT /app/agent/plan": "The operator edits the whole plan from the Agent page; the agent writes it a section, a line or a box at a time (plan_set_section, plan_append, plan_check_step).",
     "PUT /app/agent/budget": "Raising the session's budget while it runs is the operator's only (operator token); the harness reads it.",
     "POST /app/agent/read": "fibsem-agent's harness, or fibsem-mcp watch, says which of the operator's messages the agent has read; not the agent's to call.",
