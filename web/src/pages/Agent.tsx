@@ -519,6 +519,8 @@ export function AgentPage() {
   const rows = all.filter((r) => !(r.kind === "you" && r.message_id && !r.read));
   const unread = all.filter((r) => r.kind === "you" && r.message_id && !r.read);
   const a = agent.data;
+  // What fibsem-agent printed: shown from its first step, before any message.
+  const lines = transcript.data?.entries ?? [];
   // A row that arrives while the reader is scrolled up shows the way down to it.
   const [newer, setNewer] = useState(false);
   const attach = useAttachments();
@@ -686,15 +688,21 @@ export function AgentPage() {
           >
             <div>
               {a.session && <div className="py-1.5 pl-2.5 text-[13px] text-muted-foreground">{a.session}</div>}
-              {all.length ? (
+              {all.length || lines.length ? (
                 <Record
                   rows={rows}
-                  lines={transcript.data?.entries ?? []}
+                  lines={lines}
                   show={show}
                   heard={isWorking && !agent.data?.stopped}
                   now={a.now}
                   calls={calls}
                 />
+              ) : isWorking && !agent.data?.stopped ? (
+                <div className="flex items-center justify-center gap-1.5 py-8 text-[13px] text-muted-foreground">
+                  <Loader size={13} className="shrink-0 animate-spin" aria-hidden />
+                  The agent is starting: it connects, then reads its skills and playbook. Its steps show here as it takes
+                  them.
+                </div>
               ) : (
                 <div className="py-8 text-center text-[13px] text-muted-foreground">
                   No messages yet. What you write here waits for the agent: it reads it on its next turn, or when one
