@@ -41,6 +41,8 @@ def test_it_serves_the_microscope_with_no_app_or_agent(discovery, capsys):
                 "microscope": True,
                 "services": True,
                 "app": False,
+                "analysis": False,
+                "files": False,
             }
             assert capabilities["agent"] is False
             assert capabilities["level"] == "off"
