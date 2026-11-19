@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from fibsem.ai.agent import watch
 from fibsem.ai.agent.levels import AgentLevel
+from fibsem.ai.agent.report import MAX_CHECKLIST, MAX_ITEM
 from fibsem.server import AuthConfig
 from fibsem.server.agent.plan import (
     PLAN_EDITED,
@@ -139,6 +140,28 @@ def test_the_sessions_checklist_is_read_from_the_plan(server):
         {"text": "Sites", "state": "done"},
         {"text": "Polish", "state": "open"},
     ]
+
+
+def test_a_long_plan_still_reads_as_the_sessions_checklist(server):
+    agent, _, _, _, _ = server
+    long = "Mill the trench " + "deeper " * 40
+    section(agent, "Rules", f"- {long}")
+    boxes = [f"- [x] Done {n}" for n in range(30)]
+    boxes += [f"- [ ] Open {n}" for n in range(30)]
+    section(agent, "Steps", "\n".join([f"- [ ] {long}"] + boxes))
+    answer = agent.get("/app/agent/session")
+    assert answer.status_code == 200
+    checklist = answer.json()["session"]["checklist"]
+    assert len(checklist) == MAX_CHECKLIST
+    assert all(len(item["text"]) <= MAX_ITEM for item in checklist)
+    assert checklist[0]["text"].startswith("Mill the trench deeper")
+    assert checklist[0]["text"].endswith("…")
+    assert checklist[0]["state"] == "always" and checklist[1]["state"] == "open"
+    # The earliest done steps make room; every open step stays.
+    assert [i["text"] for i in checklist if i["state"] == "open"][-1] == "Open 29"
+    assert checklist[2]["text"] == "Done 12"
+    # The plan itself keeps every word.
+    assert long.strip() in agent.get("/app/agent/plan").json()["markdown"]
 
 
 def test_a_rule_with_a_time_is_a_deadline_saved_with_its_date(server, experiment_s1):

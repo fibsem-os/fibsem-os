@@ -293,3 +293,16 @@ def test_an_acquisition_alone_never_reaches_the_stream(microscope):
     finally:
         for dispose in disposers:
             dispose()
+
+
+def test_a_record_passed_on_keeps_its_envelope_but_not_its_place():
+    # An agent host passes on an instrument's records: who acted and where in
+    # the run stay; the id, seq and time are the new stream's.
+    buffer = EventBuffer(stream="host")
+    given = {"id": "app-7", "seq": 7, "kind": "x", "item": {"name": "01"}, "at": 1}
+    buffer.append("task_started", {"item_name": "01"}, actor="task", envelope=given)
+    (record,) = buffer.events_since(0)["events"]
+    assert record["id"] == "host-1" and record["seq"] == 1
+    assert record["kind"] == "task_started"
+    assert record["payload"] == {"item_name": "01"}
+    assert record["item"] == {"name": "01"} and record["actor"] == "task"

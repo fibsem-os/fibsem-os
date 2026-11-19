@@ -6,7 +6,7 @@ it never may, and allows everything else.
 import pytest
 from fastapi.testclient import TestClient
 
-from fibsem.ai.agent.blocklist import blocked, path_outside
+from fibsem.ai.agent.blocklist import blocked, path_outside, rules
 from fibsem.server import AuthConfig, build_server
 
 TOKEN = "test-token"
@@ -182,3 +182,56 @@ def test_the_gis_and_sputter_coater_are_the_operators(microscope):
     assert blocked(coater, "write", "current")
     assert gis.state.get_value() is not None
     assert coater.current.get_value() > 0
+
+
+def test_a_backend_cannot_drop_a_mark():
+    """The marks sit on the base classes: a backend that overrides a marked
+    command, redeclares a marked parameter or clears the class's mark keeps
+    them all."""
+    from fibsem.devices.beam import Beam
+    from fibsem.devices.chamber import Chamber
+    from fibsem.devices.core import DeviceParameter, command
+    from fibsem.devices.stage import Stage
+
+    class OwnStage(Stage):
+        @command
+        def home(self) -> bool:
+            return True
+
+    class OwnBeam(Beam):
+        on = DeviceParameter(bool, doc="Switched on, by this backend's word.")
+
+    class OwnChamber(Chamber):
+        operator_only = ""
+
+    stage = OwnStage.__new__(OwnStage)
+    beam = OwnBeam.__new__(OwnBeam)
+    chamber = OwnChamber.__new__(OwnChamber)
+    assert blocked(stage, "command", "home") == "homing is the operator's"
+    assert blocked(stage, "command", "move_relative") is None
+    assert "beam_turn_on" in blocked(beam, "write", "on")
+    assert blocked(beam, "write", "voltage") is None
+    assert "venting" in blocked(chamber, "write", "state")
+    # The rows list each mark once, where it is made, not again per backend.
+    rows = rules()
+    assert not any(row["device"].startswith("Own") for row in rows)
+
+
+def test_the_rows_list_every_mark():
+    rows = {(row["device"], row["blocked"]) for row in rules()}
+    assert rows >= {
+        ("Beam", "settings on"),
+        ("Beam", "settings angular_correction, tilt_correction"),
+        ("Beam", "settings plasma_gas"),
+        ("Chamber", "every setting and command"),
+        ("Stage", "commands home"),
+        ("Stage", "commands link"),
+        ("Stage", "commands move_absolute"),
+        ("Manipulator", "every setting and command"),
+        ("Gas injector", "every setting and command"),
+        ("Sputter coater", "every setting and command"),
+        ("Objective", "settings limit_position"),
+        ("Stage movement", "commands move_absolute"),
+        ("Milling", "commands start"),
+    }
+    assert all(row["why"] for row in rules())

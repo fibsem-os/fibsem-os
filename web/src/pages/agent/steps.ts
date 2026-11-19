@@ -35,7 +35,7 @@ const WORDS: Record<string, (a: Args) => [string, string]> = {
   experiment_message_operator: () => ["Messaged", "you"],
   experiment_add_note: () => ["Noted", "in the experiment"],
   experiment_read_file: (a) => ["Read", str(a.path)],
-  experiment_crop_image: (a) => ["Cropped", str(a.path) || "an image"],
+  analysis_crop_image: (a) => ["Cropped", str(a.path) || "an image"],
   app_get_status: () => ["Checked", "the microscope"],
   app_get_events: () => ["Read", "the events"],
   app_get_log: () => ["Read", "the log"],

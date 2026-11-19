@@ -549,8 +549,10 @@ Plane = Annotated[int, Strict(), Field(ge=0)]
 
 @dataclass
 class ThicknessBody:
-    """POST .../items/{item_name}/thickness: a saved image, and the window to
-    measure in, else the whole lamella."""
+    """POST .../items/{item_name}/thickness and /experiment/analysis/thickness:
+    a saved FIB image, and the window to measure in, else the item's trench
+    window (the default window with no item) about its POI (the image's
+    centre with no item), or about *centre*."""
 
     __pydantic_config__ = STRICT
 
@@ -634,6 +636,47 @@ class ProfileBody:
     channel: Optional[str] = None
     plane: Optional[Plane] = None
     dip: Optional[Flag] = None
+
+
+@dataclass
+class HistogramBody:
+    """POST /app/experiment/analysis/histogram: a saved image's values, on a
+    plane and in a box when given."""
+
+    __pydantic_config__ = STRICT
+
+    path: str
+    channel: Optional[str] = None
+    plane: Optional[Plane] = None
+    bins: Optional[Annotated[int, Strict(), Field(ge=2, le=1024)]] = None
+    box: Optional[Tuple[float, float, float, float]] = None
+
+
+@dataclass
+class SpectrumBody:
+    """POST /app/experiment/analysis/spectrum: a saved image's power
+    spectrum, on a plane and in a box when given."""
+
+    __pydantic_config__ = STRICT
+
+    path: str
+    channel: Optional[str] = None
+    plane: Optional[Plane] = None
+    box: Optional[Tuple[float, float, float, float]] = None
+
+
+@dataclass
+class ShiftBody:
+    """POST /app/experiment/analysis/shift: two saved beam images; *compare*
+    measures by every method too."""
+
+    __pydantic_config__ = STRICT
+
+    reference: str
+    image: str
+    method: Optional[str] = None
+    compare: Optional[Flag] = None
+    agreement_px: Optional[float] = None
 
 
 @dataclass

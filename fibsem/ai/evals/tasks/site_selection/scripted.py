@@ -149,7 +149,7 @@ def _stretch(client: LiveClient, name: str, shape) -> float:
     it: 1 face on, more for a view that foreshortens y (the FIB's)."""
     h, w = shape
     at = [
-        client.call("experiment_get_image_stage_position", path=name, x=x, y=y)[
+        client.call("analysis_map_pixel_to_stage", path=name, x=x, y=y)[
             "stage_position"
         ]
         for x, y in ((0, 0), (w - 1, 0), (0, h - 1))
@@ -184,7 +184,7 @@ def _centre_on_cell(client: LiveClient, name: str, step: float) -> None:
     if off < 1e-6:
         return
     at = client.call(
-        "experiment_get_image_stage_position",
+        "analysis_map_pixel_to_stage",
         path=f"sites/{Path(path).name}",
         x=cell["x_px"],
         y=cell["y_px"],
@@ -239,7 +239,7 @@ def site_selection(client: LiveClient, work: Path) -> Dict[str, Any]:
         if len(sites) == MOST_SITES:
             break
         at = client.call(
-            "experiment_get_image_stage_position",
+            "analysis_map_pixel_to_stage",
             path=Path(path).name,
             x=cell["x_px"],
             y=cell["y_px"],

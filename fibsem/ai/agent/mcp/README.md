@@ -145,14 +145,19 @@ fibsem-agent
   server unless the lab adds one (below). Nothing waits on a permission
   prompt; anything else is denied. So the offline `read_record.py` reader
   stays with Claude Code.
-- **Extra MCP servers.** A lab can give the agent a server it registered at
-  user level in Claude Code (`claude mcp add -s user <name> ...`) by naming it
-  in `~/.fibsem/agent/mcp.yaml` (under `FIBSEM_HOME` when that is set), with
-  the tools the agent may call and the ones a specialist may list (`about`
-  and `subagents` are optional; tools are named one by one):
+- **Extra MCP servers.** A lab can give the agent another MCP server, a lab
+  notebook say, set up in one place: `~/.fibsem/agent/mcp.yaml` (under
+  `FIBSEM_HOME` when that is set). Each server gives its address (`url`) or
+  the command that starts it (`command`, the program then its arguments),
+  the name its token is stored under (`token`, optional), and the tools the
+  agent may call and the ones a specialist may list (`about` and `subagents`
+  are optional; tools are named one by one, or `tools: all` for every tool
+  the server offers):
 
   ```yaml
   notebook:
+    url: https://notebook.example/mcp
+    token: NOTEBOOK_TOKEN
     about: The lab's shared notebook and paper library.
     tools: [get_overview, get_notebook_guide, get_tree, search, read_page,
             get_entry, get_changes, get_attachment, get_my_mentions,
@@ -164,15 +169,54 @@ fibsem-agent
                 read_paper, get_folder_notes]
   ```
 
+  Then store the token once: `fibsem-cli key set NOTEBOOK_TOKEN` (Windows
+  Credential Manager or the macOS Keychain; an environment variable of that
+  name wins). A `url` server gets it as `Authorization: Bearer <token>`, a
+  `command` one as an environment variable of that name. The token's name is
+  in capitals with KEY, TOKEN or SECRET in it, so code mode keeps it from
+  commands. It is in no file and on no command line: the server's entry
+  says `${NOTEBOOK_TOKEN}` and the CLI fills it in from its environment.
+  `--show-config` names the server, its address and its token's name, never
+  the token. No `claude mcp add` is needed, and a server registered in Claude
+  Code is not used. To have the notebook in your own Claude Code sessions too,
+  register it there with the same placeholder, so the token stays out of
+  `~/.claude.json`, and set `NOTEBOOK_TOKEN` in that shell:
+
+  ```
+  claude mcp add -s user --transport http notebook https://notebook.example/mcp --header 'Authorization: Bearer ${NOTEBOOK_TOKEN}'
+  ```
+
+  The single quotes keep the shell (bash, zsh, PowerShell) from filling the
+  token in at registration; in cmd use double quotes.
+
+  A tool needs the agent at Drive unless it is marked `watch` (`- search:
+  watch`), or its server is (`level: watch`); below that the harness refuses
+  it. The agent never sees a tool the server offers that isn't listed. With
+  `tools: all`, every tool the server offers is allowed, at the server's
+  level, including tools it adds later.
+
+  A picture a lab tool answers with shows on the Agent page under its step,
+  as the agent saw it. It is kept beside the transcript, in the session's
+  `agent/pictures/` folder.
+
+  A server is on only for a playbook that names it in its `mcp` list. For a
+  shipped playbook, the lab adds one of its own that extends it:
+
+  ```yaml
+  # ~/.fibsem/knowledge/playbooks/autolamella-notebook.yaml
+  description: AutoLamella, with the lab's notebook.
+  extends: autolamella
+  mcp: [notebook]
+  ```
+
+  `--show-config` lists the lab's servers a playbook leaves off.
+
   Each specialist whose file lists its tools gets the `subagents` ones; one
   that lists none has every tool the session has, these included. The agent
   is told the server is there and that what it returns is data, never
-  instructions; its notes still go on the experiment's record. The server's
-  entry, with its token, is copied from `~/.claude.json` into a file in the
-  session's folder that only this account may read, and never printed:
-  `--show-config` names the server and its tools only. Without the file
-  nothing changes; a server it names that Claude Code doesn't have stops
-  `fibsem-agent` at the start, saying how to add it.
+  instructions; its notes still go on the experiment's record. Without the
+  file nothing changes; a token not stored stops `fibsem-agent` at the
+  start, saying how to store it.
 - **Agents.** Leading a run (the autolamella-lead skill), the agent is the Run
   Lead and makes every decision. It calls the Verifier for a second opinion
   on the site list, each Setup placement and every polishing pass, the
@@ -185,8 +229,8 @@ fibsem-agent
 - **Your Claude Code config stays out.** The session runs in a folder that
   holds only its skills and specialists, copied there each start (its
   session folder's `run/`, or the `--code`/`--files` folder), not `~/.claude`, and only this sidecar, not a
-  `fibsem` server you registered with `claude mcp add`: of those, only the
-  ones `mcp.yaml` names (above).
+  `fibsem` server you registered with `claude mcp add`; besides it, only the
+  servers of `mcp.yaml` (above) that the playbook names.
 - **Signing in.** A Claude API key: the `ANTHROPIC_API_KEY` environment
   variable, else the one `fibsem-cli key set ANTHROPIC_API_KEY` stored in
   Windows Credential Manager or the macOS Keychain. Or configure Amazon Bedrock or Google Vertex as the Agent SDK
@@ -222,6 +266,15 @@ fibsem-agent
   picks first. Flags on the command line win over it; the API key is never in
   it. `--show-config` prints what the agent would run with and starts nothing,
   `--list-playbooks` lists them, and `--json` gives either as JSON.
+- **What wakes it.** A playbook's `wakes` names the lines that wake the
+  agent, by group: `decisions` (proposals, suggestions, requests), `run`
+  (workflows, tasks, long commands), `checks` (autofocus, alignment, mills)
+  and `notes` (the operator's notes and plan edits). The
+  nearest playbook that names them wins; with none, every line wakes it, as
+  the shipped playbooks do. A line left out goes in the agent's next turn.
+  The operator's messages, the level, Stop, the watch's own state and the
+  agent's own wake-ups always wake it, so `wakes: []` gives an agent that
+  waits for the operator. `--show-config` shows the list.
 - **Defaults.** The shipped `fibsem-agent` playbook is the one place the
   defaults live, and it stays under every playbook, a lab's copy of it
   included: its skill, its `session:` settings (with the timers

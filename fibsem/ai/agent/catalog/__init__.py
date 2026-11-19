@@ -40,6 +40,7 @@ __all__ = [
     "INSTRUMENT_ENV",
     "GROUP_TITLES",
     "NOT_TOOLS",
+    "RECORD_TOOLS",
     "Devices",
     "ToolSpec",
     "needs",
@@ -50,6 +51,21 @@ __all__ = [
 # Where fibsem-agent tells the sidecar its playbook's instrument kind, so the
 # sidecar offers the tools on that kind's devices (`Devices`).
 INSTRUMENT_ENV = "FIBSEM_AGENT_INSTRUMENT"
+
+# The agent's own record: its plan, its notes and messages to the
+# operator, and its session's goal. With an agent host
+# (`fibsem.server.agent.host`) these go to the host, not the instrument's
+# server: fibsem-agent runs one sidecar on the host with these alone, and
+# the instrument's without them.
+RECORD_TOOLS = frozenset(
+    (
+        "plan_get",
+        "plan_set_section",
+        "experiment_add_note",
+        "experiment_message_operator",
+        "server_report_session",
+    )
+)
 
 CATALOG: Tuple[ToolSpec, ...] = (
     microscope.TOOLS
@@ -83,6 +99,7 @@ NOT_TOOLS: Dict[str, str] = {
     "DELETE /app/library/{kind}/{name}": "Removing the lab's own copy is the operator's only (operator token).",
     "GET /app/agent/transcript": "What fibsem-agent printed, read back by the web page; the agent has its own context.",
     "POST /app/agent/transcript": "fibsem-agent's harness sends what it printed; not the agent's to call.",
+    "GET /app/agent/transcript/pictures/{name}": "A picture a lab tool answered a step with, read back by the web page; the agent saw it in the tool's answer.",
     "PUT /app/agent/plan": "The operator edits the whole plan from the Agent page; the agent writes it a section at a time (plan_set_section).",
     "POST /app/agent/read": "fibsem-agent's harness, or fibsem-mcp watch, says which of the operator's messages the agent has read; not the agent's to call.",
     "GET /chat": "A redirect to the web app's Agent page, GET /ui/agent.",
@@ -191,6 +208,10 @@ def tools_for_capabilities(
     start before it is connected. None offers every tool.
     """
     routers = dict(capabilities.get("routers", {}), base=True, microscope=True)
+    # A server from before the analysis and files routers named them apart
+    # served them with the app.
+    for apart in ("analysis", "files"):
+        routers.setdefault(apart, routers.get("app", False))
     # A server from before the parts lists none and serves them all.
     parts = capabilities.get("parts")
     return tuple(

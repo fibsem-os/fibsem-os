@@ -814,6 +814,20 @@ export interface components {
         HTTPValidationError: {
             detail: components["schemas"]["ValidationError"][];
         };
+        /** @description POST /app/experiment/analysis/histogram: a saved image's values, on a
+         *     plane and in a box when given. */
+        HistogramBody: {
+            bins?: number | null;
+            box?: [
+                number,
+                number,
+                number,
+                number
+            ] | null;
+            channel?: string | null;
+            path: string;
+            plane?: number | null;
+        };
         /** @description One run of a task on an item, oldest first. */
         HistoryRow: {
             completed_at: string | null;
@@ -878,7 +892,7 @@ export interface components {
             scalebar_locations: string[];
             width: number;
         };
-        /** @description An analysis tool's answer (`fibsem.imaging.analysis`) on a saved image. */
+        /** @description An analysis tool's answer (`fibsem.analysis.measure`) on a saved image. */
         ImageMeasured: {
             image: string;
             measurement: string;
@@ -1005,6 +1019,19 @@ export interface components {
             /** @default false */
             save: boolean;
             scan_interlacing: number | null;
+        };
+        /** @description The shift of *image* from *reference*, as an alignment measures it
+         *     (`fibsem.alignment.AlignmentIteration.to_dict`), and with every method
+         *     when asked (`fibsem.alignment.AlignmentDifferential.to_dict`). */
+        ImageShift: {
+            comparison: {
+                [key: string]: unknown;
+            } | null;
+            image: string;
+            reference: string;
+            shift: {
+                [key: string]: unknown;
+            };
         };
         /** @description Who is in control, doing what, since when (epoch seconds). */
         InControl: {
@@ -2194,9 +2221,31 @@ export interface components {
             scheduled_at?: string | null;
             task_name: string;
         };
+        /** @description POST /app/experiment/analysis/shift: two saved beam images; *compare*
+         *     measures by every method too. */
+        ShiftBody: {
+            agreement_px?: number | null;
+            compare?: boolean | null;
+            image: string;
+            method?: string | null;
+            reference: string;
+        };
         SkillRow: {
             description: string;
             name: string;
+        };
+        /** @description POST /app/experiment/analysis/spectrum: a saved image's power
+         *     spectrum, on a plane and in a box when given. */
+        SpectrumBody: {
+            box?: [
+                number,
+                number,
+                number,
+                number
+            ] | null;
+            channel?: string | null;
+            path: string;
+            plane?: number | null;
         };
         /** @description One image of an item's stack: the file one run recorded under a role. */
         StackSlice: {
@@ -2378,7 +2427,7 @@ export interface components {
             order: string[];
         };
         /** @description A lamella's thickness read off a FIB image (`ThicknessResult.to_dict`,
-         *     in nm and degrees), with the plot. */
+         *     in nm and degrees), with the plot; *item_name* when measured for an item. */
         Thickness: {
             angle_deg: number | null;
             centre_from: string | null;
@@ -2386,7 +2435,7 @@ export interface components {
                 [key: string]: unknown;
             };
             image: string;
-            item_name: string;
+            item_name: string | null;
             pixel_size_nm: number;
             plot: {
                 [key: string]: string;
@@ -2417,8 +2466,10 @@ export interface components {
             window_from: string;
             window_um: number[];
         };
-        /** @description POST .../items/{item_name}/thickness: a saved image, and the window to
-         *     measure in, else the whole lamella. */
+        /** @description POST .../items/{item_name}/thickness and /experiment/analysis/thickness:
+         *     a saved FIB image, and the window to measure in, else the item's trench
+         *     window (the default window with no item) about its POI (the image's
+         *     centre with no item), or about *centre*. */
         ThicknessBody: {
             centre?: [
                 number,

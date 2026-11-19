@@ -44,6 +44,7 @@ from fibsem.ai.agent.catalog import (
     CATALOG,
     EVIDENCE_PARAM,
     INSTRUMENT_ENV,
+    RECORD_TOOLS,
     tools_for_capabilities,
 )
 from fibsem.client import tools
@@ -376,7 +377,7 @@ def _devices(kind):
     return instruments.devices(kind, sources.find_root())
 
 
-def build_sidecar(client, capabilities, instrument=None):
+def build_sidecar(client, capabilities, instrument=None, record=None):
     """Build the MCP server over an httpx-compatible client.
 
     ``capabilities`` is the full /capabilities payload; a tool registers when
@@ -384,18 +385,32 @@ def build_sidecar(client, capabilities, instrument=None):
     application), whatever the agent's level. The server enforces the level.
     None (no server answered at start-up) registers every tool's router.
     *instrument*, an instrument kind, offers only the tools on what it has
-    (its ``devices.yaml``).
+    (its ``devices.yaml``). *record* True offers the agent's record tools
+    (`RECORD_TOOLS`), and the image and file tools when the host serves a
+    data folder, for an agent host; False offers every tool but
+    those, for an instrument whose agent keeps its record on a host.
     """
     from mcp.server.mcpserver import Image, MCPServer
     from mcp.types import ToolAnnotations
 
     every = {"routers": {"app": True, "services": True}}
-    offered = {
-        t.name
-        for t in tools_for_capabilities(
-            capabilities or every, _devices(instrument) if instrument else None
-        )
-    }
+    if record is True:
+        # The host has no devices: the instrument kind is not read. A host
+        # serving a data folder adds the image tools and file reads over it.
+        offered = set(RECORD_TOOLS) | {
+            t.name
+            for t in tools_for_capabilities(capabilities or {})
+            if t.router in ("analysis", "files")
+        }
+    else:
+        offered = {
+            t.name
+            for t in tools_for_capabilities(
+                capabilities or every, _devices(instrument) if instrument else None
+            )
+        }
+    if record is False:
+        offered -= RECORD_TOOLS
     by_name = {t.name: t for t in CATALOG}
     # The open experiment's files as resources, beside the tools that read them.
     files_offered = "experiment_read_file" in offered
@@ -646,7 +661,7 @@ def build_sidecar(client, capabilities, instrument=None):
             ),
         )
 
-    def experiment_get_image_stage_position(
+    def analysis_map_pixel_to_stage(
         path: str,
         x: Optional[float] = None,
         y: Optional[float] = None,
@@ -657,7 +672,7 @@ def build_sidecar(client, capabilities, instrument=None):
         if isinstance(crop, (list, tuple)):
             crop = ",".join(str(v) for v in crop)
         return _tool(
-            "experiment_get_image_stage_position",
+            "analysis_map_pixel_to_stage",
             path=path,
             x=x,
             y=y,
@@ -678,7 +693,7 @@ def build_sidecar(client, capabilities, instrument=None):
             **_given(grid_name=grid_name, fov=fov, current=current),
         )
 
-    def experiment_draw_image(
+    def analysis_draw_image(
         path: str,
         marks: Optional[dict] = None,
         crosshair: Optional[bool] = None,
@@ -689,7 +704,7 @@ def build_sidecar(client, capabilities, instrument=None):
         box: Optional[List[float]] = None,
     ):
         return _routed(
-            "experiment_draw_image",
+            "analysis_draw_image",
             path=path,
             **_given(
                 marks=dict(marks) if marks is not None else None,
@@ -702,7 +717,7 @@ def build_sidecar(client, capabilities, instrument=None):
             ),
         )
 
-    def experiment_draw_pair(
+    def analysis_draw_pair(
         before: str,
         after: str,
         marks: Optional[dict] = None,
@@ -715,7 +730,7 @@ def build_sidecar(client, capabilities, instrument=None):
         share_looks: Optional[bool] = None,
     ):
         return _routed(
-            "experiment_draw_pair",
+            "analysis_draw_pair",
             before=before,
             after=after,
             **_given(
@@ -754,9 +769,9 @@ def build_sidecar(client, capabilities, instrument=None):
             ),
         )
 
-    def experiment_get_image_pixels(path: str, stage_positions: list):
+    def analysis_map_stage_to_pixel(path: str, stage_positions: list):
         return _tool(
-            "experiment_get_image_pixels",
+            "analysis_map_stage_to_pixel",
             path=path,
             stage_positions=[dict(p) for p in stage_positions],
         )
@@ -802,7 +817,7 @@ def build_sidecar(client, capabilities, instrument=None):
         )
         return err if err else _with_images(data)
 
-    def experiment_crop_image(
+    def analysis_crop_image(
         path: str,
         box: Optional[list] = None,
         fraction: Optional[list] = None,
@@ -1200,12 +1215,12 @@ def build_sidecar(client, capabilities, instrument=None):
             correlation_correlate,
             correlation_find_spot_burns,
             microscope_set_state,
-            experiment_get_image_stage_position,
+            analysis_map_pixel_to_stage,
             experiment_render_markers,
-            experiment_draw_image,
-            experiment_draw_pair,
+            analysis_draw_image,
+            analysis_draw_pair,
             item_draw_milling,
-            experiment_get_image_pixels,
+            analysis_map_stage_to_pixel,
             protocol_reorder_tasks,
             protocol_set_task_requirements,
             protocol_set_lamella_defaults,
@@ -1223,7 +1238,7 @@ def build_sidecar(client, capabilities, instrument=None):
             item_get_output_image,
             item_measure_thickness,
             experiment_read_file,
-            experiment_crop_image,
+            analysis_crop_image,
             experiment_fetch_file,
             grid_get_output_image,
             item_update_task_config,
@@ -1540,12 +1555,38 @@ def main(argv=None):
         help="offer only the tools on this instrument kind's devices (default every "
         "tool; fibsem-agent sets it from its playbook)",
     )
+    record = parser.add_mutually_exclusive_group()
+    record.add_argument(
+        "--record-only",
+        dest="record",
+        action="store_const",
+        const=True,
+        help="offer only the agent's record tools (plan, notes, messages): for "
+        "an agent host",
+    )
+    record.add_argument(
+        "--no-record",
+        dest="record",
+        action="store_const",
+        const=False,
+        help="offer every tool but the record tools: for an instrument whose "
+        "agent keeps its record on an agent host",
+    )
+    parser.add_argument(
+        "--token-env",
+        default=None,
+        metavar="NAME",
+        help="read the token from this environment variable, not --token: "
+        "for a second server, its token kept off the command line",
+    )
     parser.add_argument(
         "--check",
         action="store_true",
         help="print connection status and exit (does not start the MCP server)",
     )
     args = parser.parse_args(argv)
+    if args.token_env:
+        args.token = os.environ.get(args.token_env) or None
 
     if args.check:
         try:
@@ -1570,7 +1611,7 @@ def main(argv=None):
             args.url, args.token, wait_s, user_agent=client.named_user_agent
         )
     )
-    build_sidecar(client, capabilities, args.instrument).run()
+    build_sidecar(client, capabilities, args.instrument, args.record).run()
 
 
 if __name__ == "__main__":

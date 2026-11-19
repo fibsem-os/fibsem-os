@@ -21,6 +21,7 @@ import subprocess
 import sys
 import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
@@ -116,6 +117,45 @@ def last_session(
     return None
 
 
+class SessionRunning(RuntimeError):
+    """The session is running in another process already."""
+
+
+# Held while a run opens the session's record; one older than this was left
+# by a process that died holding it.
+OPENING = ".opening"
+OPENING_STALE_S = 30.0
+OPENING_WAIT_S = 10.0
+
+
+@contextmanager
+def _opening(folder: Path, wait_s: float = OPENING_WAIT_S):
+    """Hold the session's opening lock: one run at a time reads its record
+    and adds itself. Raises `SessionRunning` if it isn't free within *wait_s*."""
+    lock = folder / OPENING
+    deadline = time.monotonic() + wait_s
+    while True:
+        try:
+            os.close(os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+            break
+        except FileExistsError:
+            try:
+                if time.time() - lock.stat().st_mtime > OPENING_STALE_S:
+                    lock.unlink(missing_ok=True)
+                    continue
+            except OSError:
+                continue
+            if time.monotonic() > deadline:
+                raise SessionRunning(
+                    f"Another run of this session is starting ({lock} is held)."
+                ) from None
+            time.sleep(0.05)
+    try:
+        yield
+    finally:
+        lock.unlink(missing_ok=True)
+
+
 class SessionFolder:
     """The record ``fibsem-agent`` keeps of one session, in its folder."""
 
@@ -135,16 +175,26 @@ class SessionFolder:
         runs with (cwd, url, goal, model...)."""
         folder = folder or session_folder(session_id, root)
         folder.mkdir(parents=True, exist_ok=True)
-        # A stop left from an earlier run is not for this one.
-        (folder / STOP).unlink(missing_ok=True)
         session = cls(folder)
-        record = session.record()
-        runs = record.get("runs", [])
-        runs.append({"pid": os.getpid(), "started": timestamps.now().isoformat()})
-        # A resumed run says only what it was given: the goal stays the first run's.
-        given = {key: value for key, value in about.items() if value is not None}
-        record.update({"session_id": session_id, **given, "runs": runs})
-        session._write(record)
+        # One run at a time: two starting together would both rebuild the
+        # session's folder and each take the record as the other wrote it.
+        with _opening(folder):
+            record = session.record()
+            runs = record.get("runs", [])
+            last = runs[-1] if runs else {}
+            pid = last.get("pid")
+            if "ended" not in last and pid != os.getpid() and pid_alive(pid):
+                raise SessionRunning(
+                    f"Session {session_id} is already running (process {pid}): "
+                    "stop it, or wait for it to end, before running it again."
+                )
+            # A stop left from an earlier run is not for this one.
+            (folder / STOP).unlink(missing_ok=True)
+            runs.append({"pid": os.getpid(), "started": timestamps.now().isoformat()})
+            # A resumed run says only what it was given: the goal stays the first run's.
+            given = {key: value for key, value in about.items() if value is not None}
+            record.update({"session_id": session_id, **given, "runs": runs})
+            session._write(record)
         return session
 
     @property

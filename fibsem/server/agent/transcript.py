@@ -7,8 +7,15 @@ machine. They go to ``agent/transcript-<session id>.jsonl`` in the session's
 experiment, or its own folder until one is open (`agent_files`), not on the
 record: the record stays the events the app and later agents read.
 Self-reported, like the session.
+
+A picture a lab's MCP server answered with comes as a ``picture`` line, its
+image in it (``image``, base64, and ``media_type``). It is saved beside the
+transcript, ``agent/pictures/<session id>-<line>.<ext>``, the line keeps its
+``path`` instead, and ``GET /app/agent/transcript/pictures/<name>`` serves it.
 """
 
+import base64
+import binascii
 import json
 import logging
 import re
@@ -17,9 +24,10 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import FileResponse
 
 from fibsem.ai.agent.levels import AgentLevel
-from fibsem.server.agent.files import AgentFiles
+from fibsem.server.agent.files import PICTURES, AgentFiles
 from fibsem.server.auth import AuthConfig, refusal_error, require_level
 from fibsem.server.bodies import TranscriptBody
 from fibsem.util.timestamps import iso_from_posix
@@ -30,7 +38,17 @@ log = logging.getLogger(__name__)
 FOLDER = "agent"
 # context: what the harness says of the session ("Playbook set: ...").
 # done: a step finished (its ``step``), so the page stops showing it running.
-KINDS = ("said", "step", "done", "failed", "context")
+# picture: an image a step answered with (its ``step``), saved beside.
+KINDS = ("said", "step", "done", "failed", "context", "picture")
+# A picture's kinds of image, by media type: the file's extension.
+PICTURE_TYPES = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/gif": "gif",
+    "image/webp": "webp",
+}
+MAX_PICTURE_BYTES = 5 * 1024 * 1024
+_PICTURE_NAME = re.compile(r"^[A-Za-z0-9_-]{1,100}-\d{1,9}\.(png|jpg|gif|webp)$")
 MAX_ENTRIES = 200
 MAX_TEXT = 2000
 MAX_AGE_S = 24 * 3600
@@ -77,7 +95,38 @@ def _entry(raw: Any, now: float) -> Dict[str, Any]:
         if not isinstance(verb, str) or len(verb) > 40:
             raise _invalid("verb is a word of at most 40 characters.")
         entry["verb"] = verb
+    if kind == "picture":
+        entry["_image"] = _picture(raw)
+        if "seq" not in entry:
+            raise _invalid("a picture line has its seq.")
     return entry
+
+
+def _picture(raw: Dict[str, Any]) -> tuple:
+    """A picture line's image: (its extension, its bytes)."""
+    media_type = raw.get("media_type")
+    if media_type not in PICTURE_TYPES:
+        raise _invalid(f"media_type is one of {sorted(PICTURE_TYPES)}.")
+    data = raw.get("image")
+    if not isinstance(data, str):
+        raise _invalid("image is the picture, base64.")
+    try:
+        image = base64.b64decode(data, validate=True)
+    except (binascii.Error, ValueError):
+        raise _invalid("image is the picture, base64.")
+    if not image or len(image) > MAX_PICTURE_BYTES:
+        raise _invalid(f"a picture is at most {MAX_PICTURE_BYTES} bytes.")
+    return PICTURE_TYPES[media_type], image
+
+
+def _keep_picture(folder: Path, session_id: str, entry: Dict[str, Any]) -> None:
+    """Save a picture line's image beside the transcript; the line keeps its
+    path, relative to the agent/ folder."""
+    extension, image = entry.pop("_image")
+    name = f"{session_id}-{entry['seq']}.{extension}"
+    (folder / PICTURES).mkdir(parents=True, exist_ok=True)
+    (folder / PICTURES / name).write_bytes(image)
+    entry["path"] = f"{PICTURES}/{name}"
 
 
 def read(folder: Path, since: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -136,6 +185,9 @@ def build_agent_transcript_router(
         entries = [_entry(item, now) for item in raw]
         folder = _files(request).folder(session_id)
         folder.mkdir(parents=True, exist_ok=True)
+        for entry in entries:
+            if "_image" in entry:
+                _keep_picture(folder, session_id, entry)
         with open(
             folder / f"transcript-{session_id}.jsonl", "a", encoding="utf-8"
         ) as f:
@@ -148,15 +200,29 @@ def build_agent_transcript_router(
                 log.debug("could not record %s", AGENT_TRANSCRIPT, exc_info=True)
         return {"kept": len(entries)}
 
-    @router.get("/transcript")
-    def get_transcript(request: Request, since: Optional[str] = None):
+    def _folder(request: Request) -> Optional[Path]:
         # The running session's folder, else the open experiment's.
         auth: AuthConfig = request.app.state.auth
         session = auth.agent_session or {}
         running = None if session.get("ended") else session.get("session_id")
-        folder = _files(request).folder(running if isinstance(running, str) else None)
+        return _files(request).folder(running if isinstance(running, str) else None)
+
+    @router.get("/transcript")
+    def get_transcript(request: Request, since: Optional[str] = None):
+        folder = _folder(request)
         if folder is None or not folder.is_dir():
             return {"entries": []}
         return {"entries": read(folder, since)}
+
+    @router.get("/transcript/pictures/{name}")
+    def get_picture(request: Request, name: str):
+        folder = _folder(request)
+        path = None if folder is None else folder / PICTURES / name
+        if not _PICTURE_NAME.match(name) or path is None or not path.is_file():
+            raise refusal_error(404, "not_found", f"No picture {name}.")
+        media_type = next(
+            kind for kind, ext in PICTURE_TYPES.items() if name.endswith("." + ext)
+        )
+        return FileResponse(path, media_type=media_type)
 
     return router

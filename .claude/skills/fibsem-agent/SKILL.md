@@ -415,9 +415,9 @@ something you looked at is not a reason: look first, or ask.
 or report one, draw it and look at the picture. Cite the drawn file as the note's or message's evidence
 (`{image: path}`), so the operator sees what you saw.
 
-- `experiment_draw_image`: your marks on one saved image, such as a site, a
+- `analysis_draw_image`: your marks on one saved image, such as a site, a
   measured line or the area you mean.
-- `experiment_draw_pair`: two images side by side at one scale, such as
+- `analysis_draw_pair`: two images side by side at one scale, such as
   before and after a mill or an alignment, or the SEM next to the FIB of one
   site.
 
@@ -474,7 +474,7 @@ Every read works at Watch.
 | How wide is a spot, an edge or a bar? | `analysis_measure_profile` (`fwhm`; null means draw a longer line) |
 | Grids | `grid_list`, `grid_get`, `grid_get_markers`, `experiment_render_markers` |
 | Grids on the hardware now | `grid_get_inventory` (which grid is loaded), `grid_get_current` |
-| Files | `experiment_list_files`, `experiment_read_file`, `experiment_crop_image` |
+| Files | `experiment_list_files`, `experiment_read_file`, `analysis_crop_image` |
 | A file to read in your own folder | `experiment_fetch_file` saves it as it is on your machine |
 | A past experiment | the same tools with `experiment`, its `relative_path` from `experiment_list_all`; only one the operator named or their goal asks for, and every read goes on the record |
 

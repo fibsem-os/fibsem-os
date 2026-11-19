@@ -14,24 +14,12 @@ from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
 from fibsem.acting import OPERATOR, WORKFLOW, Actor, current_actor, signer
+from fibsem.analysis.tools import ImageRefused, ImageTools
 from fibsem.codec import decode, encode
 from fibsem.config import get_recent_experiments
-from fibsem.fm.preview import is_fluorescence_image
-from fibsem.geometry.saved_images import image_point_to_stage_position, stage_projector
-from fibsem.imaging import analysis
-from fibsem.imaging.cells import from_crop
-from fibsem.imaging.marks import (
-    draw,
-    draw_pair,
-    drawn_path,
-    image_stem,
-    plane_shown,
-    save_drawn,
-    side_by_side,
-)
 from fibsem.instrument import needs_microscope
 from fibsem.server import log_tail
-from fibsem.server.files import FileRefusal, resolve
+from fibsem.server.files import FileRefusal
 from fibsem.server.image_payloads import image_info, image_payload
 from fibsem.server.responses import (
     AppStatus,
@@ -40,21 +28,14 @@ from fibsem.server.responses import (
     ExperimentRef,
     ExperimentSummary,
     HistoryRow,
-    ImageDrawn,
-    ImageMeasured,
-    ImagePairDrawn,
     ImagePayload,
     ItemDetail,
     ItemStack,
-    PixelPoint,
     Queue,
     QueueEntry,
     Refusal,
     RunEnded,
     RunFailed,
-    SavedImageMetadata,
-    SavedImagePixels,
-    SavedImagePosition,
     SummaryRow,
     TaskHistory,
     TaskOutputs,
@@ -63,8 +44,7 @@ from fibsem.server.responses import (
     refusal_of,
     refused,
 )
-from fibsem.structures.image import FibsemImage
-from fibsem.structures.settings import BeamType, FibsemStagePosition
+from fibsem.structures.settings import BeamType
 from fibsem.util.records import dataframe_records
 from fibsem.util.timestamps import to_iso, wall_time_of
 from fibsem.workflows import workflow_edits
@@ -84,8 +64,6 @@ from fibsem.workflows.events.recording import (
 )
 from fibsem.workflows.evidence import (
     EVIDENCE,
-    EvidenceRefused,
-    checked_marks,
     frame_path,
 )
 from fibsem.workflows.experiment import EXPERIMENT_FILENAME
@@ -196,6 +174,8 @@ class AppContext:
         self._fixed_buffer = event_buffer
         # The microscope's progress, followed from the first status read.
         self._progress = ProgressLines()
+        # The image tools, over the open experiment's folder.
+        self.images = ImageTools(lambda: self.experiment_path)
         self._progress_microscope = None
         self._stop_progress: Optional[Callable[[], None]] = None
 
@@ -270,257 +250,13 @@ class AppContext:
         the session's plain one. Raises OSError when it cannot be made."""
         return self._session.recording_experiment()
 
-    def image_metadata(self, path: str) -> Any:
-        """A saved beam image's full metadata, as its file records it, for a
-        path inside the open experiment only (the agent's drill-down behind
-        the short block every image answer carries)."""
-        target, refusal = self._experiment_image(path)
-        if refusal:
-            return refusal
-        image = FibsemImage.load(target)
-        if image.metadata is None:
-            return refused("not_found", f"{path} carries no beam image metadata.")
-        return SavedImageMetadata(path, image.metadata)
-
     def _experiment_image(self, path: str):
         """``(real path, None)`` for a file inside the open experiment, else
         ``(None, refusal)``: the agent reads saved images there only."""
-        import os
-
         try:
-            target = resolve(self.experiment_path, path)
-        except FileRefusal as refusal:
+            return self.images.image(path), None
+        except ImageRefused as refusal:
             return None, refused(refusal.error_type, refusal.message)
-        if not os.path.isfile(target):
-            return None, refused("not_found", f"{path} is a folder.")
-        return target, None
-
-    def image_stage_position(self, path: str, px=None, fraction=None, crop=None) -> Any:
-        """The stage position under a point of any saved image in the
-        experiment, beam or fluorescence, through the same projection the
-        overview canvases use, built from the image's own metadata: it converts
-        as the image was taken, wherever the stage is now. ``px`` is [x, y] in
-        source pixels (origin top-left, +y down); ``fraction`` is [x, y] from 0
-        to 1 across the image. With *crop* (a cell's name or a box), both are
-        read off that crop's picture instead (`fibsem.imaging.cells`)."""
-        target, refusal = self._experiment_image(path)
-        if refusal:
-            return refusal
-        try:
-            if crop is not None:
-                px, fraction = _uncropped_point(target, crop, px, fraction)
-            position = image_point_to_stage_position(target, px=px, fraction=fraction)
-        except ValueError as exc:
-            return refused("invalid", str(exc))
-        return SavedImagePosition(path, position)
-
-    def image_pixels(self, path: str, stage_positions: List[Dict[str, Any]]) -> Any:
-        """Where each stage position falls on a saved image in the experiment,
-        in source pixels, with the image's scale block. A position the image
-        cannot place (no geometry for it) answers its reason instead."""
-        target, refusal = self._experiment_image(path)
-        if refusal:
-            return refusal
-        try:
-            positions = [FibsemStagePosition.from_dict(p) for p in stage_positions]
-        except (TypeError, KeyError, AttributeError) as exc:
-            return refused("invalid", f"Not a stage position: {exc}")
-        block, project = stage_projector(target)
-        points = []
-        for position in positions:
-            try:
-                point = project(position)
-            except Exception as exc:  # noqa: BLE001 - per-position answer
-                points.append(PixelPoint(reason=str(exc)))
-                continue
-            x, y = float(point.x), float(point.y)
-            inside = 0 <= x <= block["width"] and 0 <= y <= block["height"]
-            points.append(PixelPoint(px=[x, y], inside=inside))
-        return SavedImagePixels(path, block, points)
-
-    def draw_image(
-        self,
-        path: str,
-        marks: Any = None,
-        crosshair: bool = False,
-        metadata_bar: bool = True,
-        channels: Optional[List[str]] = None,
-        plane: Optional[int] = None,
-        looks: Optional[Dict[str, Dict[str, Any]]] = None,
-        box: Optional[List[float]] = None,
-    ) -> Any:
-        """A saved image in the experiment (beam, or a fluorescence stack's
-        *plane* or max projection) with *marks* (the one marks vocabulary, its
-        pixels) drawn on it, as evidence draws them, the centre *crosshair*,
-        the scale bar and the metadata bar. Only the region *box* (x, y,
-        width, height in its pixels) when given; each layer drawn with its
-        look from *looks* (by name: limits, gamma, opacity, colour, as the
-        viewer's layers panel sets them). Saved as ``drawn/<image>.png``
-        beside the image (``<image>-plane-<n>.png`` for a plane,
-        ``-box-<x>-<y>-<w>-<h>`` for a region; replaced when drawn again), a
-        path to cite as evidence. Answers each layer's look and stats."""
-        target, refusal = self._experiment_image(path)
-        if refusal:
-            return refusal
-        checked, refusal = _checked_marks(marks, target)
-        if refusal:
-            return refusal
-        try:
-            drawn = draw(
-                target,
-                checked,
-                crosshair=crosshair,
-                metadata_bar=metadata_bar,
-                channels=channels,
-                plane=plane,
-                looks=looks,
-                box=box,
-            )
-        except ValueError as exc:
-            return refused("invalid", str(exc))
-        saved = drawn_path(target, _drawn_stem(target, checked, plane, box))
-        return ImageDrawn(
-            path,
-            saved,
-            checked,
-            save_drawn(drawn.rgb, saved, target, checked, plane),
-            drawn.layers,
-        )
-
-    def draw_pair(
-        self,
-        before: str,
-        after: str,
-        marks: Any = None,
-        metadata_bar: bool = True,
-        channels: Optional[List[str]] = None,
-        before_plane: Optional[int] = None,
-        after_plane: Optional[int] = None,
-        looks: Optional[Dict[str, Dict[str, Any]]] = None,
-        box: Optional[List[float]] = None,
-        share_looks: bool = True,
-    ) -> Any:
-        """Two saved images of the experiment side by side at one scale, each
-        with its own bars, *marks* (in *before*'s pixels) drawn on both: pre and
-        post mill, before and after an alignment, SEM next to FIB, two planes
-        of one fluorescence stack (*before_plane*, *after_plane*). *box* (in
-        *before*'s pixels) draws that region of each. Both take *looks*; with
-        *share_looks*, *after* is drawn with *before*'s limits wherever
-        *looks* leaves one on auto. Saved as ``drawn/<before>-<after>.png``
-        beside *before*."""
-        first, refusal = self._experiment_image(before)
-        if refusal:
-            return refusal
-        second, refusal = self._experiment_image(after)
-        if refusal:
-            return refusal
-        checked, refusal = _checked_marks(marks, first)
-        if refusal:
-            return refusal
-        try:
-            left, right = draw_pair(
-                first,
-                second,
-                checked,
-                metadata_bar=metadata_bar,
-                channels=channels,
-                before_plane=before_plane,
-                after_plane=after_plane,
-                looks=looks,
-                box=box,
-                share_looks=share_looks,
-            )
-        except ValueError as exc:
-            return refused("invalid", str(exc))
-        saved = drawn_path(
-            first,
-            f"{_drawn_stem(first, checked, before_plane, box)}"
-            f"-{_drawn_stem(second, checked, after_plane, box)}",
-        )
-        return ImagePairDrawn(
-            before,
-            after,
-            saved,
-            checked,
-            save_drawn(
-                side_by_side(left.rgb, right.rgb), saved, first, checked, before_plane
-            ),
-            left.layers,
-            right.layers,
-        )
-
-    def _measured(self, path: str, measure, figure=None, name: str = ""):
-        """*measure* (and its *figure*, saved as ``drawn/<image>-<name>.png``)
-        on the saved image *path*, as an `ImageMeasured`."""
-        target, refusal = self._experiment_image(path)
-        if refusal:
-            return refusal
-        try:
-            planes = analysis.load_planes(target)
-            result = measure(planes)
-        except ValueError as exc:
-            return refused("invalid", str(exc))
-        if figure is None:
-            return ImageMeasured(path, name, result)
-        saved = drawn_path(target, f"{image_stem(target)}-{name}")
-        return ImageMeasured(
-            path, name, result, saved, save_drawn(figure(planes, result), saved)
-        )
-
-    def measure_intensity(
-        self,
-        path: str,
-        points: List[List[float]],
-        radius_px: float = 3.0,
-        channel: Optional[str] = None,
-        reference: Optional[int] = None,
-        planes: Optional[List[int]] = None,
-    ) -> Any:
-        """The signal at *points* of a saved image, per plane: the mean in a
-        disc of *radius_px* above the median of the ring about it, as a ratio
-        to the *reference* point's. Saves a figure of each point's planes and
-        its signal against plane (`fibsem.imaging.analysis.measure_intensity`)."""
-        return self._measured(
-            path,
-            lambda image: analysis.measure_intensity(
-                image, points, radius_px, channel, reference, planes
-            ),
-            analysis.intensity_figure,
-            "intensity",
-        )
-
-    def line_profile(
-        self,
-        path: str,
-        start: List[float],
-        end: List[float],
-        width_px: float = 1.0,
-        channel: Optional[str] = None,
-        plane: Optional[int] = None,
-        dip: bool = False,
-    ) -> Any:
-        """A saved image's values along a line, and the FWHM of its peak (or
-        *dip*), with a figure (`fibsem.imaging.analysis.line_profile`)."""
-        line = "-".join(str(round(v)) for v in (*start, *end))
-        return self._measured(
-            path,
-            lambda image: analysis.line_profile(
-                image, start, end, width_px, channel, plane, dip
-            ),
-            analysis.profile_figure,
-            f"profile-{line}",
-        )
-
-    def image_quality(
-        self, path: str, channel: Optional[str] = None, plane: Optional[int] = None
-    ) -> Any:
-        """A saved image's clipping, histogram, focus and, for a stack, each
-        plane's sharpness (`fibsem.imaging.analysis.image_quality`)."""
-        return self._measured(
-            path,
-            lambda image: analysis.image_quality(image, channel, plane),
-            name="quality",
-        )
 
     @property
     def _runner(self):
@@ -1973,36 +1709,3 @@ class AppContext:
         if not result["applied"]:
             return refused("invalid", result["error"])
         return result
-
-
-def _uncropped_point(target: str, crop: Any, px, fraction):
-    """``(px, None)``: the image's pixels under a point read off *crop*'s
-    picture, *px* in its pixels or *fraction* of it. Raises ValueError."""
-    scale, x0, y0, box = from_crop(target, crop)
-    if (px is None) == (fraction is None):
-        raise ValueError("Give exactly one of px ([x, y] source pixels) or fraction.")
-    if px is not None:
-        return [px[0] * scale + x0, px[1] * scale + y0], None
-    return [x0 + fraction[0] * box[2], y0 + fraction[1] * box[3]], None
-
-
-def _drawn_stem(
-    path: str, marks: Any, plane: Optional[int], box: Optional[List[float]] = None
-) -> str:
-    """The name a picture of *path* is saved by: its stem, with the plane of a
-    stack it shows (`plane_shown`) and the region *box*, so each is kept."""
-    shown, _ = plane_shown(marks, plane, is_fluorescence_image(path))
-    stem = image_stem(path)
-    if shown is not None:
-        stem = f"{stem}-plane-{shown + 1}"
-    if box is not None:
-        stem += "-box-" + "-".join(str(round(v)) for v in box)
-    return stem
-
-
-def _checked_marks(marks: Any, image_path: str):
-    """``(marks, None)`` checked and placed on the stage, or ``(None, refusal)``."""
-    try:
-        return checked_marks(marks, image_path), None
-    except EvidenceRefused as refusal:
-        return None, refused(refusal.error_type, refusal.message)

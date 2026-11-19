@@ -1,107 +1,113 @@
 """The App Server's blocklist: what the agent may never touch, at any level.
 
 Two separate questions. The level says how the agent may
-act right now: Watch reads, Assist asks, Drive acts. This blocklist names what
+act right now: Watch reads, Assist asks, Drive acts. The blocklist names what
 it may never touch: a blocked write or command is refused (403
 ``not_allowed``) at every level, an approved Assist request included, since a
 request runs its actions through the same routes. Its value stays readable.
 Everything not listed is allowed, and the level guards it.
 
-The test for a block is "never, whatever the level", like venting. Risky but
+The list is the ``operator_only`` marks next to the code they block
+(`fibsem.devices.core.operator_only_reason`): a parameter's (``DeviceParameter(...,
+operator_only=why)``), a command's (``@command(operator_only=why)``), or a whole kind of
+device's (``operator_only = why``, as the chamber's). They sit on the base
+classes, so every backend shares them and none can drop one.
+
+The test for a mark is "never, whatever the level", like venting. Risky but
 legitimate actions (an absolute stage move, a grid exchange, the beam voltage)
-stay off the list.
+stay unmarked.
 """
 
 import os
 import re
-from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
+from collections import defaultdict
+from typing import Any, Callable, Dict, Iterator, List, Mapping, Optional
 
-from fibsem.devices.beam import Beam
-from fibsem.devices.chamber import Chamber
-from fibsem.devices.core import Device
-from fibsem.devices.fm import Objective
-from fibsem.devices.gis import GasInjector
-from fibsem.devices.manipulator import Manipulator
-from fibsem.devices.sputter_coater import SputterCoater
-from fibsem.devices.stage import Stage
-from fibsem.services.milling import Milling
-from fibsem.services.stage_movement import StageMovement
+# Imported so their classes, and the marks on them, are known to `rules`.
+import fibsem.devices.beam  # noqa: F401
+import fibsem.devices.chamber  # noqa: F401
+import fibsem.devices.fm  # noqa: F401
+import fibsem.devices.gis  # noqa: F401
+import fibsem.devices.manipulator  # noqa: F401
+import fibsem.devices.sputter_coater  # noqa: F401
+import fibsem.devices.stage  # noqa: F401
+import fibsem.services.milling  # noqa: F401
+import fibsem.services.stage_movement  # noqa: F401
+from fibsem.devices.core import Device, DeviceParameter, operator_only_reason
+from fibsem.services.core import Service
 
-# Blocked by the kind of device, not its name: every beam, whatever it is called.
-# "write" names parameters the agent may not set, "command" commands it may not
-# run; ALL blocks every one.
-ALL = "*"
-_BLOCKED: Tuple[Tuple[type, Dict[str, Any]], ...] = (
-    # The on write, which turn_on and turn_off cover; the app's image-to-stage
-    # geometry assumes its own corrections (scan rotation is allowed); the
-    # source gas.
-    (Beam, {"write": {"on", "angular_correction", "tilt_correction", "plasma_gas"}}),
-    # Pumping and venting: the operator's, at the microscope. State and pressure
-    # stay readable.
-    (Chamber, {"write": ALL, "command": ALL}),
-    # Homing, not for now; the stage link; the raw absolute move, which the
-    # safe one (safe_absolute_stage_movement) covers.
-    (Stage, {"command": {"home", "link", "move_absolute"}}),
-    # Every move and the insert, stop included: blocked for now, to revisit.
-    (Manipulator, {"write": ALL, "command": ALL}),
-    # The needle, heater and valve, and the coater's current and run, one by
-    # one: the agent coats through the coating service's deposit and sputter.
-    (GasInjector, {"write": ALL, "command": ALL}),
-    (SputterCoater, {"write": ALL, "command": ALL}),
-    # The safety limit the objective's moves are checked against.
-    (Objective, {"write": {"limit_position"}}),
-    # The raw absolute move: the safe one tilts flat for a large rotation and
-    # rotates first.
-    (StageMovement, {"command": {"move_absolute"}}),
-    # Starts a mill and returns at once, so nothing holds control while it
-    # mills: a run lending control would carry on beside it. run_stage and
-    # run_task hold control until the mill ends.
-    (Milling, {"command": {"start"}}),
-)
 
-_WHY = {
-    Beam: "a column setting the operator keeps; switch a beam with beam_turn_on or beam_turn_off",
-    Chamber: "pumping and venting are the operator's, at the microscope",
-    Stage: "homing and the stage link are the operator's; move with stage_move_absolute",
-    Manipulator: "the manipulator is the operator's for now",
-    GasInjector: "deposit with coating_deposit, which runs the whole sequence",
-    SputterCoater: "sputter with coating_sputter",
-    Objective: "the objective's safety limit",
-    StageMovement: "move with safe_absolute_stage_movement (stage_move_absolute)",
-    Milling: "mill with milling_run_stage or milling_run_task, which hold control until the mill ends",
-}
+def _kinds() -> Iterator[type]:
+    """Every device and service class, bases before the classes built on them."""
+    seen = set()
+    stack = [Device, Service]
+    while stack:
+        cls = stack.pop(0)
+        if cls in seen:
+            continue
+        seen.add(cls)
+        yield cls
+        stack.extend(cls.__subclasses__())
+
+
+def _inherited(cls: type, kind: str, name: str) -> bool:
+    """Whether a class *cls* builds on already marks *name*."""
+    return any(
+        base is not object and _marked(base, kind, name) for base in cls.__mro__[1:]
+    )
+
+
+def _marked(cls: type, kind: str, name: str) -> bool:
+    if kind == "class":
+        return bool(vars(cls).get("operator_only"))
+    attr = vars(cls).get(name)
+    if kind == "write":
+        return isinstance(attr, DeviceParameter) and bool(attr.operator_only)
+    return bool(getattr(attr, "__operator_only__", None))
+
+
+def _own_marks(cls: type) -> Dict[str, Dict[str, List[str]]]:
+    """The marks *cls* adds itself, by reason: {why: {"write": [...], "command":
+    [...], "class": [...]}}."""
+    found: Dict[str, Dict[str, List[str]]] = defaultdict(lambda: defaultdict(list))
+    if _marked(cls, "class", "") and not _inherited(cls, "class", ""):
+        found[vars(cls)["operator_only"]]["class"].append("")
+    for name, attr in vars(cls).items():
+        for kind in ("write", "command"):
+            if _marked(cls, kind, name) and not _inherited(cls, kind, name):
+                why = attr.operator_only if kind == "write" else attr.__operator_only__
+                found[why][kind].append(name)
+    return found
+
+
+def _device_name(cls: type) -> str:
+    first, *rest = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", cls.__name__).split()
+    return " ".join([first] + [word.lower() for word in rest])
 
 
 def rules() -> List[Dict[str, str]]:
-    """The blocklist in words, one row per kind of device: what is blocked
-    and why. The operator's Customisation dialog lists them."""
+    """The blocklist in words, one row per kind of device and reason: what is
+    blocked and why. The operator's Customisation dialog lists them."""
     rows = []
-    for cls, blocks in _BLOCKED:
-        writes, commands = blocks.get("write", ()), blocks.get("command", ())
-        if writes == ALL and commands == ALL:
-            what = "every setting and command"
-        else:
-            parts = []
-            if writes:
-                parts.append("settings " + ", ".join(sorted(writes)))
-            if commands:
-                parts.append("commands " + ", ".join(sorted(commands)))
-            what = "; ".join(parts)
-        first, *rest = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", cls.__name__).split()
-        name = " ".join([first] + [word.lower() for word in rest])
-        rows.append({"device": name, "blocked": what, "why": _WHY[cls]})
+    for cls in _kinds():
+        for why, marks in _own_marks(cls).items():
+            if marks.get("class"):
+                what = "every setting and command"
+            else:
+                parts = []
+                if marks.get("write"):
+                    parts.append("settings " + ", ".join(sorted(marks["write"])))
+                if marks.get("command"):
+                    parts.append("commands " + ", ".join(sorted(marks["command"])))
+                what = "; ".join(parts)
+            rows.append({"device": _device_name(cls), "blocked": what, "why": why})
     return rows
 
 
-def blocked(device: Device, kind: str, name: str) -> Optional[str]:
+def blocked(device: Any, kind: str, name: str) -> Optional[str]:
     """Why the agent may never use *name* (a parameter write when *kind* is
     "write", a command when "command") on *device*, or None when it may."""
-    for cls, blocks in _BLOCKED:
-        if isinstance(device, cls):
-            names = blocks.get(kind, ())
-            if names == ALL or name in names:
-                return _WHY[cls]
-    return None
+    return operator_only_reason(device, kind, name)
 
 
 def path_outside(

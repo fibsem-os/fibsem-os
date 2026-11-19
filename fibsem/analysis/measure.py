@@ -1,9 +1,9 @@
 """Measurements on a saved image, in its own values: what the agent's analysis
 tools answer, each with a figure to look at and cite as evidence.
 
-An image is read as `Planes`: a beam image is one layer of one plane, named by
-its kind (``SEM``, ``FIB``); a fluorescence stack is a layer per channel, a
-plane per z. Points and lines are in the image's pixels, as marks are.
+An image is read as `Planes` (`fibsem.analysis.images`): a beam image is one
+layer of one plane, named by its kind (``SEM``, ``FIB``); a fluorescence stack
+is a layer per channel, a plane per z. Points and lines are in the image's pixels, as marks are.
 
 - `measure_intensity`: the signal at points, per plane, against the ring
   around each, and as a ratio to a reference point.
@@ -11,101 +11,30 @@ plane per z. Points and lines are in the image's pixels, as marks are.
   full width at half maximum of its peak (or dip).
 - `image_quality`: clipping, centre and spread of the histogram (as the
   brightness and contrast routine judges a probe image), and focus.
+- `histogram`: the counts of a layer's values, its percentiles and what is
+  clipped at either end of the file's range.
+- `power_spectrum`: the radially averaged power of a layer's 2D Fourier
+  transform, the finest period with signal above the noise floor, and how
+  much stronger it is along x than y.
 """
 
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
+from fibsem.analysis.images import Planes
 from fibsem.fm.composite import auto_clim
-from fibsem.fm.preview import (
-    channel_look,
-    czyx,
-    is_fluorescence_image,
-    plane_sharpness,
-)
-from fibsem.fm.structures import FluorescenceImage
-from fibsem.imaging.export import fibsem_image_fields, saturation_value
+from fibsem.fm.preview import plane_sharpness
 from fibsem.imaging.marks import rgb_of
-from fibsem.structures.image import FibsemImage
 
 # A ring for a point's background: from this many radii out, to that many.
 RING = (2.0, 3.0)
 # The most planes a point's strip of crops shows.
 STRIP_PLANES = 9
 _DPI = 100
-
-
-@dataclass
-class Planes:
-    """An image's raw data as (layer, z, y, x), its layer names, and its pixel
-    size and z step in metres when known."""
-
-    data: np.ndarray
-    names: List[str]
-    pixel_size: Optional[float] = None
-    z_step: Optional[float] = None
-    full_value: Optional[float] = None
-    fluorescence: bool = False
-
-    @property
-    def planes(self) -> int:
-        return self.data.shape[1]
-
-    def layer(self, name: Optional[str]) -> Tuple[str, np.ndarray]:
-        """``(name, (z, y, x) data)`` of the layer *name*, the first when None.
-        ValueError names the layers there are."""
-        if name is None:
-            return self.names[0], self.data[0]
-        if name not in self.names:
-            raise ValueError(
-                f"no layer {name}: the image's layers are {', '.join(self.names)}"
-            )
-        return name, self.data[self.names.index(name)]
-
-    def plane_range(self, planes: Optional[Sequence[int]]) -> List[int]:
-        """*planes* checked against the stack, every plane when None."""
-        if planes is None:
-            return list(range(self.planes))
-        bad = [z for z in planes if not 0 <= z < self.planes]
-        if bad:
-            raise ValueError(
-                f"plane {bad[0]} is outside the stack's 0 to {self.planes - 1}"
-            )
-        return list(planes)
-
-
-def load_planes(path: str) -> Planes:
-    """The image at *path*, a beam image or a fluorescence stack, as `Planes`."""
-    if is_fluorescence_image(path):
-        image = FluorescenceImage.load(path)
-        data = czyx(image)
-        channels = list(image.metadata.channels)
-        names = [channel_look(channels, i, len(data))[0] for i in range(len(data))]
-        md = image.metadata
-        return Planes(
-            data=data,
-            names=names,
-            pixel_size=md.pixel_size_x,
-            z_step=md.pixel_size_z if data.shape[1] > 1 else None,
-            full_value=saturation_value(data),
-            fluorescence=True,
-        )
-    image = FibsemImage.load(path)
-    data = np.asarray(image.data)
-    if data.ndim != 2:
-        raise ValueError(f"{path} is not a single greyscale image")
-    md = image.metadata
-    return Planes(
-        data=data[None, None],
-        names=[fibsem_image_fields(image).kind if md is not None else "Image"],
-        pixel_size=md.pixel_size.x if md is not None and md.pixel_size else None,
-        full_value=saturation_value(data),
-    )
 
 
 # --- intensity at points -------------------------------------------------------
@@ -548,6 +477,245 @@ def _signal_range(data: np.ndarray, full: Optional[float]) -> Dict[str, Any]:
     return answer
 
 
+# --- histogram and power spectrum ---------------------------------------------
+
+
+def _region(
+    image: Planes,
+    channel: Optional[str],
+    plane: Optional[int],
+    box: Optional[Sequence[float]],
+) -> Tuple[str, np.ndarray]:
+    """``(name, 2D data)`` of the layer *channel* on *plane* (else the max
+    projection), cut to *box* ``[x, y, width, height]`` when given."""
+    name, stack = image.layer(channel)
+    if plane is not None:
+        image.plane_range([plane])
+        data = stack[plane]
+    else:
+        data = stack[0] if image.planes == 1 else stack.max(axis=0)
+    if box is None:
+        return name, data
+    if len(box) != 4:
+        raise ValueError("box is [x, y, width, height]")
+    x, y, w, h = (int(round(v)) for v in box)
+    height, width = data.shape
+    left, top = max(0, x), max(0, y)
+    right, bottom = min(width, x + w), min(height, y + h)
+    if right - left < 2 or bottom - top < 2:
+        raise ValueError(
+            f"box {list(box)} holds less than 2x2 pixels of the {width}x{height} image"
+        )
+    return name, data[top:bottom, left:right]
+
+
+def histogram(
+    image: Planes,
+    channel: Optional[str] = None,
+    plane: Optional[int] = None,
+    bins: int = 64,
+    box: Optional[Sequence[float]] = None,
+) -> Dict[str, Any]:
+    """The counts of the layer *channel*'s values in *bins* equal bins, on
+    *plane* (else the max projection) and only in *box* when given.
+
+    The bins span the file's range (0 to its full value) when that is
+    known, else its lowest to highest value. Answers the edges and counts,
+    the percentiles, and the percent of pixels at the range's ends:
+    clipped_low at its lowest value, clipped_high at its highest
+    (saturated, when the full value is known)."""
+    if not 2 <= bins <= 1024:
+        raise ValueError("bins is 2 to 1024")
+    name, data = _region(image, channel, plane, box)
+    values = data.astype(np.float64).ravel()
+    low, high = float(values.min()), float(values.max())
+    full = image.full_value
+    span = (0.0, float(full)) if full else (low, high if high > low else low + 1.0)
+    counts, edges = np.histogram(values, bins=bins, range=span)
+    p1, p5, median, p95, p99 = np.percentile(values, (1, 5, 50, 95, 99))
+    top = float(full) if full else high
+    return {
+        "channel": name,
+        "plane": plane,
+        "box": list(box) if box is not None else None,
+        "pixels": int(values.size),
+        "range": [span[0], span[1]],
+        "edges": [round(float(e), 4) for e in edges],
+        "counts": [int(c) for c in counts],
+        "percentiles": {
+            "min": low,
+            "p1": float(p1),
+            "p5": float(p5),
+            "median": float(median),
+            "p95": float(p95),
+            "p99": float(p99),
+            "max": high,
+        },
+        "mean": round(float(values.mean()), 4),
+        "std": round(float(values.std()), 4),
+        "clipped_low": round(
+            100.0 * np.count_nonzero(values <= span[0]) / values.size, 3
+        ),
+        "clipped_high": round(100.0 * np.count_nonzero(values >= top) / values.size, 3),
+        "range_used": round((high - low) / (span[1] - span[0]), 4),
+    }
+
+
+def histogram_figure(image: Planes, result: Dict[str, Any]) -> np.ndarray:
+    """The counts as bars on a log scale, the percentiles marked."""
+    figure, grid = _figure(1, 1, row_height=3.0, width=7.0)
+    axes = figure.add_subplot(grid[0, 0])
+    edges = np.asarray(result["edges"])
+    counts = np.asarray(result["counts"], dtype=float)
+    axes.bar(
+        edges[:-1],
+        np.maximum(counts, 0.8),
+        width=np.diff(edges),
+        align="edge",
+        color=_DIM,
+        edgecolor=_BACKGROUND,
+        lw=0.3,
+        log=True,
+    )
+    shown = result["percentiles"]
+    for key, style in (("p1", ":"), ("median", "-"), ("p99", ":")):
+        axes.axvline(shown[key], color=_MARK, lw=1, ls=style)
+    axes.set_xlim(edges[0], edges[-1])
+    where = f"plane {result['plane']}" if result["plane"] is not None else ""
+    if result["box"] is not None:
+        where = (where + " box " + ",".join(f"{v:.0f}" for v in result["box"])).strip()
+    title = (
+        f"{result['channel']} {where}  median {shown['median']:.4g}, "
+        f"p1 {shown['p1']:.4g}, p99 {shown['p99']:.4g}  "
+        f"clipped {result['clipped_low']:.2g}% / {result['clipped_high']:.2g}%"
+    )
+    axes.set_title(title, fontsize=8, color=_TEXT, loc="left")
+    axes.set_xlabel("value", fontsize=7, color=_TEXT)
+    axes.set_ylabel("pixels", fontsize=7, color=_TEXT)
+    _style(axes)
+    return _rgb(figure)
+
+
+# A frequency has signal when its power is this many times the noise floor.
+SIGNAL_OVER_FLOOR = 2.0
+# The noise floor: the median power of the outermost tenth of frequencies.
+FLOOR_FRACTION = 0.1
+
+
+def power_spectrum(
+    image: Planes,
+    channel: Optional[str] = None,
+    plane: Optional[int] = None,
+    box: Optional[Sequence[float]] = None,
+) -> Dict[str, Any]:
+    """The power of the layer *channel*'s 2D Fourier transform, on *plane*
+    (else the max projection) and only in *box* when given, the region
+    cut to a square and Hann-windowed so its edges add no streaks.
+
+    Answers its radial average against spatial frequency (cycles per pixel,
+    0 to 0.5), the noise floor (the median of the outermost tenth), the
+    finest period whose power is still SIGNAL_OVER_FLOOR times the floor (in
+    pixels, and in metres with the pixel size): how fine the detail is that
+    the image holds, which falls with defocus or drift. anisotropy is the
+    power along x over the power along y in the middle frequencies: near 1
+    for a round probe, far from it for astigmatism, drift or scan lines."""
+    name, data = _region(image, channel, plane, box)
+    side = min(data.shape)
+    if side < 16:
+        raise ValueError(f"a power spectrum needs at least 16x16 pixels, not {side}")
+    top = (data.shape[0] - side) // 2
+    left = (data.shape[1] - side) // 2
+    square = data[top : top + side, left : left + side].astype(np.float64)
+    square -= square.mean()
+    window = np.outer(np.hanning(side), np.hanning(side))
+    power = np.abs(np.fft.fftshift(np.fft.fft2(square * window))) ** 2
+    centre = side // 2
+    yy, xx = np.indices(power.shape)
+    dy, dx = yy - centre, xx - centre
+    radius = np.hypot(dx, dy)
+    shells = np.arange(1, side // 2)
+    ring = np.rint(radius).astype(int)
+    total = np.bincount(ring.ravel(), power.ravel())
+    count = np.bincount(ring.ravel())
+    radial = total[shells] / np.maximum(count[shells], 1)
+    frequency = shells / side
+    outer = max(1, int(round(len(radial) * FLOOR_FRACTION)))
+    floor = float(np.median(radial[-outer:]))
+    above = np.nonzero(radial > SIGNAL_OVER_FLOOR * floor)[0]
+    cutoff = float(frequency[above[-1]]) if len(above) else None
+    # The middle frequencies, away from the DC peak and the noise: power in
+    # a 30 degree wedge about each axis.
+    middle = (radius >= side * 0.05) & (radius <= side * 0.25)
+    angle = np.degrees(np.arctan2(np.abs(dy), np.abs(dx)))
+    along_x = float(power[middle & (angle <= 15)].mean())
+    along_y = float(power[middle & (angle >= 75)].mean())
+    pixel = image.pixel_size
+    finest_px = 1.0 / cutoff if cutoff else None
+    return {
+        "channel": name,
+        "plane": plane,
+        "box": list(box) if box is not None else None,
+        "size_px": side,
+        "pixel_size": pixel,
+        "frequency": [round(float(f), 5) for f in frequency],
+        "radial_power": [float(f"{v:.4g}") for v in radial],
+        "noise_floor": float(f"{floor:.4g}"),
+        "cutoff": cutoff,
+        "finest_period_px": round(finest_px, 3) if finest_px else None,
+        "finest_period_m": finest_px * pixel if finest_px and pixel else None,
+        "anisotropy": round(along_x / along_y, 3) if along_y > 0 else None,
+    }
+
+
+def spectrum_figure(image: Planes, result: Dict[str, Any]) -> np.ndarray:
+    """The region's log power, the cutoff drawn as a circle, beside its
+    radial average with the noise floor and cutoff."""
+    from matplotlib.patches import Circle
+
+    _, data = _region(image, result["channel"], result["plane"], result["box"])
+    side = result["size_px"]
+    top = (data.shape[0] - side) // 2
+    left = (data.shape[1] - side) // 2
+    square = data[top : top + side, left : left + side].astype(np.float64)
+    square -= square.mean()
+    window = np.outer(np.hanning(side), np.hanning(side))
+    power = np.log10(np.abs(np.fft.fftshift(np.fft.fft2(square * window))) ** 2 + 1e-12)
+    figure, grid = _figure(1, 2, row_height=3.2, width=8.0)
+    axes = figure.add_subplot(grid[0, 0])
+    vmin, vmax = np.percentile(power, (5, 99.9))
+    axes.imshow(power, cmap="gray", vmin=vmin, vmax=vmax, interpolation="nearest")
+    if result["cutoff"]:
+        axes.add_patch(
+            Circle(
+                (side // 2, side // 2),
+                result["cutoff"] * side,
+                fill=False,
+                lw=0.8,
+                ls="--",
+                color=_MARK,
+            )
+        )
+    axes.set_xticks([])
+    axes.set_yticks([])
+    axes = figure.add_subplot(grid[0, 1])
+    axes.semilogy(result["frequency"], result["radial_power"], color=_MARK, lw=1.2)
+    axes.axhline(result["noise_floor"], color=_DIM, lw=0.8, ls=":")
+    axes.axhline(SIGNAL_OVER_FLOOR * result["noise_floor"], color=_DIM, lw=0.8, ls="--")
+    title = "no detail above the noise floor"
+    if result["cutoff"]:
+        axes.axvline(result["cutoff"], color=_MARK, lw=0.8, ls="--")
+        title = f"finest period {result['finest_period_px']:.3g} px"
+        if result["finest_period_m"]:
+            unit, scale = _length_unit(result["finest_period_m"])
+            title += f" ({result['finest_period_m'] / scale:.3g} {unit})"
+    if result["anisotropy"] is not None:
+        title += f", x/y {result['anisotropy']:.2f}"
+    axes.set_title(title, fontsize=8, color=_TEXT, loc="left")
+    axes.set_xlabel("frequency (cycles per pixel)", fontsize=7, color=_TEXT)
+    _style(axes)
+    return _rgb(figure)
+
+
 # --- figures -------------------------------------------------------------------
 
 _BACKGROUND = "#16181d"
@@ -571,7 +739,7 @@ def _figure(rows: int, columns: int, row_height: float, width: Optional[float] =
 
 def _style(axes) -> None:
     axes.set_facecolor(_BACKGROUND)
-    axes.tick_params(colors=_DIM, labelsize=6)
+    axes.tick_params(which="both", colors=_DIM, labelsize=6)
     for spine in axes.spines.values():
         spine.set_edgecolor(_DIM)
 

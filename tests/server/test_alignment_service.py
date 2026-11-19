@@ -1,7 +1,7 @@
 """Aligning to a saved reference image through the App Server (map 8c): the
 alignment service's ``align_to_reference`` runs on as a long command and saves beside the
-reference; ``measure_shift`` measures between two saved images and moves
-nothing. Both read only inside the open experiment.
+reference, reading only inside the open experiment. Measuring the shift
+between two saved images is an image tool (tests/test_image_analysis.py).
 """
 
 import os
@@ -46,20 +46,6 @@ def _saved(microscope, folder, name="reference") -> str:
     return path
 
 
-def test_measure_shift_between_an_image_and_itself_is_none(
-    client, microscope, experiment
-):
-    path = _saved(microscope, experiment)
-    resp = client.post(
-        f"{ALIGNMENT}/queries/measure_shift",
-        json={"kwargs": {"reference_path": path, "image_path": path}},
-    )
-    assert resp.status_code == 200, resp.text
-    shift = resp.json()["result"]
-    assert abs(shift["shift_px"]["x"]) < 1 and abs(shift["shift_px"]["y"]) < 1
-    assert shift["method"] == "cross-correlation"
-
-
 def test_align_runs_on_and_saves_beside_the_reference(client, microscope, experiment):
     path = _saved(microscope, experiment)
     resp = client.post(
@@ -82,19 +68,19 @@ def test_align_runs_on_and_saves_beside_the_reference(client, microscope, experi
 
 def test_a_reference_outside_the_experiment_is_refused(client, microscope, tmp_path):
     path = _saved(microscope, tmp_path, "elsewhere")
-    for route, kwargs in (
-        ("commands/align_to_reference", {"reference_path": path}),
-        ("queries/measure_shift", {"reference_path": path, "image_path": path}),
-    ):
-        resp = client.post(f"{ALIGNMENT}/{route}", json={"kwargs": kwargs})
-        assert resp.status_code == 403, route
-        assert resp.json()["detail"]["error_type"] == "not_allowed"
+    resp = client.post(
+        f"{ALIGNMENT}/commands/align_to_reference",
+        json={"kwargs": {"reference_path": path}},
+    )
+    assert resp.status_code == 403
+    assert resp.json()["detail"]["error_type"] == "not_allowed"
 
 
 def test_the_listing_has_the_alignment_service(client):
     alignment = client.get("/microscope/services").json()["alignment"]
     assert alignment["commands"]["align_to_reference"]["long"] is True
-    assert "measure_shift" in alignment["queries"]
+    # The shift between two saved images is an image tool now.
+    assert "measure_shift" not in alignment["queries"]
 
 
 @pytest.mark.slow

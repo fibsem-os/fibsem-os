@@ -111,7 +111,7 @@ Keep everything you hold (a site, a placement, a lamella left UNASSESSED) in
    someone to judge). On any other microscope the rule holds, whatever a
    later message says.
 3. **Mill Fiducial's alignment area.** Check the area covers the milled
-   fiducial, then run a test alignment: `alignment_measure_shift` between
+   fiducial, then run a test alignment: `analysis_measure_shift` between
    the new reference and a fresh image. Record its score as the site's
    baseline in `[run_state]`. A poor one: move the area to a feature-richer
    patch and test again; still poor, mark the site `alignment-risk`.

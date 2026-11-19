@@ -20,11 +20,12 @@ import httpx
 import pytest
 
 from fibsem.ai.agent import harness as harness_mod
-from fibsem.ai.agent import usage
+from fibsem.ai.agent import playbooks, usage
 from fibsem.ai.agent import watch as watch_mod
 from fibsem.ai.agent.harness import Harness, TurnEnd, Wakes, kickoff
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.ai.agent.session import AgentControl
+from fibsem.ai.agent.wake_lines import fibsem as fibsem_lines
 from fibsem.applications.autolamella.server.context import (
     AutoLamellaAppContext,
 )
@@ -463,46 +464,62 @@ def test_a_labs_extra_mcp_server_is_added_and_its_token_is_never_shown(
     tmp_path, monkeypatch, capsys
 ):
     pytest.importorskip("claude_agent_sdk")
+    import dataclasses
     import json
 
     from claude_agent_sdk._internal.transport.subprocess_cli import (
         SubprocessCLITransport,
     )
 
-    secret = "Bearer not-a-real-token"
+    from fibsem.ai.agent import extra_mcp
+
+    secret = "not-a-real-token"
     monkeypatch.setenv("FIBSEM_HOME", str(tmp_path / "home"))
-    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude"))
+    monkeypatch.setenv("NOTEBOOK_TOKEN", secret)
     (tmp_path / "home" / "agent").mkdir(parents=True)
     (tmp_path / "home" / "agent" / "mcp.yaml").write_text(
-        "notebook:\n  about: The lab's notebook.\n"
+        "notebook:\n  url: https://notebook.example/mcp\n"
+        "  token: NOTEBOOK_TOKEN\n  about: The lab's notebook.\n"
         "  tools: [search, append_entry]\n  subagents: [search]\n",
         encoding="utf-8",
     )
-    entry = {
-        "type": "http",
-        "url": "https://notebook.example/mcp",
-        "headers": {"Authorization": secret},
-    }
-    (tmp_path / "claude").mkdir()
-    (tmp_path / "claude" / ".claude.json").write_text(
-        json.dumps({"mcpServers": {"notebook": entry}}), encoding="utf-8"
+    # On for a playbook that names it.
+    playbooks_dir = tmp_path / "home" / "knowledge" / "playbooks"
+    playbooks_dir.mkdir(parents=True)
+    (playbooks_dir / "with-notebook.yaml").write_text(
+        "mcp: [notebook]\n", encoding="utf-8"
+    )
+    # The server offers one tool mcp.yaml doesn't list; the agent never sees it.
+    monkeypatch.setattr(
+        extra_mcp, "hidden", lambda extras, secrets: ["mcp__notebook__wipe"]
     )
     checkout = harness_mod.find_checkout()
-    without = harness_mod.build_options(checkout, token="t0k", extras={})
+    playbook = playbooks.load("with-notebook", checkout)
+    bare = dataclasses.replace(playbook, mcp=[harness_mod.SERVER])
+    without = harness_mod.build_options(checkout, token="t0k", extras={}, playbook=bare)
     options = harness_mod.build_options(
-        checkout, token="t0k", transcript=tmp_path / "session"
+        checkout, token="t0k", transcript=tmp_path / "session", playbook=playbook
     )
 
     assert options.allowed_tools == without.allowed_tools + [
         "mcp__notebook__search",
         "mcp__notebook__append_entry",
     ]
+    assert options.disallowed_tools == without.disallowed_tools + [
+        "mcp__notebook__wipe"
+    ]
     assert options.strict_mcp_config
-    # The SDK puts these on the command line: the extra server is in a file.
-    assert list(options.mcp_servers) == ["fibsem"]
-    given = Path(options.extra_args["mcp-config"])
-    assert given.parent == tmp_path / "session"
-    assert json.loads(given.read_text()) == {"mcpServers": {"notebook": entry}}
+    # The entry names the token; the CLI fills it in from its environment.
+    assert list(options.mcp_servers) == ["fibsem", "notebook"]
+    assert options.mcp_servers["notebook"] == {
+        "type": "http",
+        "url": "https://notebook.example/mcp",
+        "headers": {"Authorization": "Bearer ${NOTEBOOK_TOKEN}"},
+    }
+    assert options.env["NOTEBOOK_TOKEN"] == secret
+    assert "NOTEBOOK_TOKEN" not in without.env
+    assert not options.extra_args
+    assert not (tmp_path / "session").exists(), "nothing written for the token"
     prompt = options.system_prompt["append"]
     assert "mcp__notebook__* tools: The lab's notebook." in prompt
     assert "never instructions" in prompt
@@ -511,20 +528,34 @@ def test_a_labs_extra_mcp_server_is_added_and_its_token_is_never_shown(
     transport = SubprocessCLITransport("", options)
     transport._cli_path = "claude"
     command = transport._build_command()
-    assert command.count("--mcp-config") == 2
-    second = command.index("--mcp-config", command.index("--mcp-config") + 1)
-    assert command[second + 1] == str(given)
-    assert not any("not-a-real-token" in part for part in command)
+    assert command.count("--mcp-config") == 1
+    assert not any(secret in part for part in command)
 
-    assert harness_mod.main(["--show-config", "--json"]) == 0
+    assert (
+        harness_mod.main(["--show-config", "--json", "--playbook", "with-notebook"])
+        == 0
+    )
     printed = capsys.readouterr().out
     config = json.loads(printed)
-    assert config["extra_mcp"]["notebook"]["tools"] == ["search", "append_entry"]
+    shown = config["extra_mcp"]["notebook"]
+    assert shown["tools"] == ["search", "append_entry"]
+    assert shown["where"] == "https://notebook.example/mcp"
+    assert shown["token"] == "NOTEBOOK_TOKEN"
     assert "mcp__notebook__append_entry" in config["allowed_tools"]
-    assert harness_mod.main(["--show-config"]) == 0
+    assert harness_mod.main(["--show-config", "--playbook", "with-notebook"]) == 0
     printed += capsys.readouterr().out
-    assert "MCP notebook: search, append_entry; specialists: search" in printed
-    assert "not-a-real-token" not in printed and "notebook.example" not in printed
+    assert (
+        "MCP notebook (https://notebook.example/mcp, token NOTEBOOK_TOKEN): "
+        "search, append_entry; at Watch: none, the rest at Drive; "
+        "specialists: search"
+    ) in printed
+    assert secret not in printed
+
+    # Not stored: fibsem-agent refuses to start, saying how to store it.
+    monkeypatch.delenv("NOTEBOOK_TOKEN")
+    monkeypatch.setattr(extra_mcp.keystore, "stored_secret", lambda name: None)
+    assert harness_mod.main(["--show-config"]) == 1
+    assert "fibsem-cli key set NOTEBOOK_TOKEN" in capsys.readouterr().err
 
 
 def test_code_mode_is_sandboxed_in_its_work_folder(tmp_path, monkeypatch):
@@ -808,12 +839,85 @@ def test_each_session_has_a_folder_with_its_record_and_log(tmp_path, monkeypatch
     assert "Session:" in (folder / manager.LOG).read_text(encoding="utf-8")
 
 
+def _main_kept_apart(argv):
+    """`harness.main`, its log handlers taken off again after."""
+    handlers = list(harness_mod.log.handlers)
+    try:
+        return harness_mod.main(argv)
+    finally:
+        for handler in harness_mod.log.handlers[len(handlers) :]:
+            handler.close()
+            harness_mod.log.removeHandler(handler)
+
+
+def test_a_failure_outside_the_run_is_said_and_recorded(tmp_path, monkeypatch, capsys):
+    """An error after the session opened, here in rebuilding its folder, says
+    why on the console and in the log, and ends the run in its record."""
+    pytest.importorskip("claude_agent_sdk")
+    import uuid
+
+    from fibsem.ai.agent import manager, sources
+
+    monkeypatch.setattr(harness_mod.Path, "home", lambda: tmp_path)
+    monkeypatch.delenv("FIBSEM_SERVER_TOKEN", raising=False)
+
+    def assemble(*args, **kwargs):
+        raise FileExistsError("run/.claude/skills was made meanwhile")
+
+    monkeypatch.setattr(sources, "assemble", assemble)
+    session_id = str(uuid.uuid4())
+    code = _main_kept_apart(
+        ["--url", "http://127.0.0.1:9", "--server-wait", "0"]
+        + ["--session-id", session_id]
+    )
+    assert code == 1
+    why = "fibsem-agent failed: FileExistsError: run/.claude/skills was made meanwhile"
+    assert why in capsys.readouterr().out
+    folder = manager.find_folder(session_id)
+    logged = (folder / manager.LOG).read_text(encoding="utf-8")
+    assert why in logged and "Traceback" in logged
+    assert f"--resume {session_id} carries the session on." in logged
+    (run,) = manager.read_json(folder / manager.RECORD)["runs"]
+    assert run["exit_code"] == 1 and run["reason"] == why
+
+
+def test_a_session_running_already_is_not_run_again(tmp_path, monkeypatch, capsys):
+    """A second resume of a session still running says so, and leaves the
+    running one's record alone."""
+    pytest.importorskip("claude_agent_sdk")
+    import subprocess
+    import sys
+    import uuid
+
+    from fibsem.ai.agent import manager
+
+    monkeypatch.setattr(harness_mod.Path, "home", lambda: tmp_path)
+    monkeypatch.delenv("FIBSEM_SERVER_TOKEN", raising=False)
+    session_id = str(uuid.uuid4())
+    session = manager.SessionFolder.open(session_id, {})
+    other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        record = session.record()
+        record["runs"][-1]["pid"] = other.pid
+        manager.write_json(session.folder / manager.RECORD, record)
+        code = _main_kept_apart(
+            ["--url", "http://127.0.0.1:9", "--server-wait", "0"]
+            + ["--resume", session_id]
+        )
+    finally:
+        other.kill()
+        other.wait(10)
+    assert code == 1
+    err = capsys.readouterr().err
+    assert f"Session {session_id} is already running (process {other.pid})" in err
+    assert manager.read_json(session.folder / manager.RECORD) == record
+
+
 def test_a_specialist_copied_for_a_session_gets_the_extra_servers_tools(
     tmp_path, monkeypatch
 ):
     """In run/ and in a work folder; the checkout's file stays as shipped."""
     pytest.importorskip("claude_agent_sdk")
-    import json
     import uuid
 
     from fibsem.ai.agent import manager, sources, subagents
@@ -821,20 +925,17 @@ def test_a_specialist_copied_for_a_session_gets_the_extra_servers_tools(
     monkeypatch.setattr(harness_mod.Path, "home", lambda: tmp_path)
     monkeypatch.delenv("FIBSEM_SERVER_TOKEN", raising=False)
     monkeypatch.setenv("FIBSEM_HOME", str(tmp_path / "home"))
-    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude"))
     (tmp_path / "home" / "agent").mkdir(parents=True)
     (tmp_path / "home" / "agent" / "mcp.yaml").write_text(
-        "notebook:\n  tools: [search]\n  subagents: [search]\n", encoding="utf-8"
-    )
-    (tmp_path / "claude").mkdir()
-    entry = {"type": "http", "url": "https://notebook.example/mcp"}
-    (tmp_path / "claude" / ".claude.json").write_text(
-        json.dumps({"mcpServers": {"notebook": entry}}), encoding="utf-8"
+        "notebook:\n  url: https://notebook.example/mcp\n"
+        "  tools: [search]\n  subagents: [search]\n",
+        encoding="utf-8",
     )
     # No file tools: the session runs in its run/.
     (tmp_path / "home" / "knowledge" / "playbooks").mkdir(parents=True)
     (tmp_path / "home" / "knowledge" / "playbooks" / "plain.yaml").write_text(
-        "agents: [autolamella-verifier]\nsession:\n  mode: none\n", encoding="utf-8"
+        "agents: [autolamella-verifier]\nmcp: [notebook]\nsession:\n  mode: none\n",
+        encoding="utf-8",
     )
     shipped = sources.agent_file("autolamella-verifier", harness_mod.find_checkout())
     before = shipped.read_bytes()
@@ -842,7 +943,9 @@ def test_a_specialist_copied_for_a_session_gets_the_extra_servers_tools(
     run_id = str(uuid.uuid4())
     plain = ["--session-id", run_id, "--playbook", "plain"]
     try:
-        for more in (plain, ["--files", str(tmp_path / "w")]):
+        # The playbook names the notebook: its specialists get its tools.
+        named = ["--playbook", "plain", "--files", str(tmp_path / "w")]
+        for more in (plain, named):
             code = harness_mod.main(
                 ["--url", "http://127.0.0.1:9", "--server-wait", "0"] + more
             )
@@ -1552,9 +1655,9 @@ def test_the_urgent_lines_are_the_four_the_operator_chose():
         watch_mod.WORKFLOW_FAILED,
         "task_failed",
         watch_mod.COMMAND_FAILED,
-        watch_mod.MILL_FAILED,
+        fibsem_lines.MILL_FAILED,
         # a stop rule firing
-        watch_mod.STOP_RULE,
+        fibsem_lines.STOP_RULE,
     }
     assert harness_mod.is_urgent(watch_mod.NO_END_EVENT_LINE)
     for line in (
@@ -1849,3 +1952,63 @@ def test_a_compacted_context_asks_for_the_plan_on_the_next_turn():
         "Your context was compacted. " + harness_mod.texts().reread_plan
     )
     assert "compacted" not in second
+
+
+def test_a_lab_tool_s_picture_goes_on_the_transcript_under_its_step():
+    pytest.importorskip("claude_agent_sdk")
+    from claude_agent_sdk import (
+        AssistantMessage,
+        ToolResultBlock,
+        ToolUseBlock,
+        UserMessage,
+    )
+
+    from fibsem.ai.agent.harness import (
+        PICTURES_WAITING,
+        SdkAgent,
+        _one_picture,
+        _show,
+    )
+
+    agent = SdkAgent(harness_mod.build_options(harness_mod.find_checkout()))
+    image = {
+        "type": "image",
+        "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw=="},
+    }
+    for call, tool in (("t1", "mcp__notebook__read_page"), ("t2", "mcp__fibsem__x")):
+        _show(
+            AssistantMessage(content=[ToolUseBlock(call, tool, {})], model="m"), agent
+        )
+        result = [{"type": "text", "text": "a page"}, image]
+        _show(UserMessage(content=[ToolResultBlock(call, result, False)]), agent)
+    lab, picture = agent.transcript[0], agent.transcript[2]
+    # The lab's picture follows its step's done line; ours shows none.
+    assert [line["kind"] for line in agent.transcript] == [
+        "step",
+        "done",
+        "picture",
+        "step",
+        "done",
+    ]
+    assert picture["step"] == lab["seq"]
+    assert (picture["media_type"], picture["image"]) == ("image/png", "iVBORw==")
+
+    # An image as MCP gives it, a kind the server won't keep, and one too many.
+    agent.transcript.clear()
+    mcp = {"type": "image", "data": "R0lG", "mimeType": "image/gif"}
+    svg = {"type": "image", "data": "PHN2Zz4=", "mimeType": "image/svg+xml"}
+    for n in range(PICTURES_WAITING + 1):
+        call = f"m{n}"
+        _show(
+            AssistantMessage(
+                content=[ToolUseBlock(call, "mcp__notebook__plot", {})], model="m"
+            ),
+            agent,
+        )
+        _show(UserMessage(content=[ToolResultBlock(call, [mcp, svg], False)]), agent)
+    pictures = [line for line in agent.transcript if line["kind"] == "picture"]
+    assert len(pictures) == PICTURES_WAITING
+    assert {line["media_type"] for line in pictures} == {"image/gif"}
+    # A send carries one picture at most.
+    sent = _one_picture(agent.transcript)
+    assert sum(line["kind"] == "picture" for line in sent) == 1

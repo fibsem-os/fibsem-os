@@ -23,6 +23,8 @@ logger = logging.getLogger(__name__)
 
 FOLDER = "agent"
 PREFIXES = ("plan-", "transcript-")
+# The pictures its transcript shows, ``pictures/<session id>-<line>.<ext>``.
+PICTURES = "pictures"
 
 
 def _waiting(session_id: str) -> Path:
@@ -98,3 +100,11 @@ class AgentFiles:
                     logger.warning(
                         "could not move %s into %s", path, target, exc_info=True
                     )
+        for path in (source / PICTURES).glob(f"{session_id}-*"):
+            moved = target / PICTURES / path.name
+            try:
+                moved.parent.mkdir(parents=True, exist_ok=True)
+                if not moved.exists():
+                    shutil.move(str(path), moved)
+            except OSError:
+                logger.warning("could not move %s into %s", path, target, exc_info=True)

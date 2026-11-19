@@ -11,7 +11,7 @@ intake steps and the re-read lines, as files beside the playbooks.
                       none gets only the tools for any instrument
 
 A playbook names its kind (``instrument:``); the shipped base playbook sets
-``fibsem``. The files are fibsemOS's own, or an installed plugin's for its own
+``fibsem``, and ``none`` is for a playbook with no instrument (`NONE`). The files are fibsemOS's own, or an installed plugin's for its own
 kind (`sources.plugin_roots`), never the lab's: they carry the safety wording.
 A plugin can't replace a shipped kind. A leading ``<!-- -->`` comment is a
 note for whoever edits the file, not part of the text. ``{name}`` fills in a
@@ -34,6 +34,9 @@ from fibsem.ai.agent.catalog import Devices
 INSTRUMENT_DIR = Path(sources.CLAUDE) / "fibsem-agent" / "instruments"
 # The kind a playbook that names none is for: the only one there is.
 DEFAULT = "fibsem"
+# A playbook with no instrument (``instrument: none``): its words are a kind
+# like any other's, with no devices, and it has no fibsem server.
+NONE = "none"
 # Each file's sections ("" for a file that is one text), and the values each
 # may fill in.
 FILES: Dict[str, Dict[str, set]] = {

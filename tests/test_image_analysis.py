@@ -1,16 +1,18 @@
-"""Measurements on saved images (`fibsem.imaging.analysis`): intensity at points
+"""Measurements on saved images (`fibsem.analysis`): intensity at points
 per plane, a line's profile and FWHM, and image quality."""
+
+from pathlib import Path
 
 import numpy as np
 import pytest
 
+from fibsem.analysis import measure as analysis
+from fibsem.analysis.images import Planes, load_planes
 from fibsem.fm.structures import (
     FluorescenceChannelMetadata,
     FluorescenceImage,
     FluorescenceImageMetadata,
 )
-from fibsem.imaging import analysis
-from fibsem.imaging.analysis import Planes
 
 
 def _spot(shape, x, y, sigma, amplitude):
@@ -148,8 +150,171 @@ def test_a_stack_on_disk_reads_as_its_channels_and_planes(tmp_path):
     )
     path = str(tmp_path / "stack.ome.tiff")
     FluorescenceImage(data=data, metadata=metadata).save(path)
-    planes = analysis.load_planes(path)
+    planes = load_planes(path)
     assert planes.names == ["GFP"] and planes.planes == 5
     assert planes.pixel_size == pytest.approx(1e-7)
     assert planes.z_step == pytest.approx(3e-7)
     assert planes.full_value == 65535
+
+
+def test_a_plain_picture_reads_as_one_plane_with_no_scale(tmp_path):
+    from PIL import Image
+
+    rgb = np.zeros((20, 30, 3), dtype=np.uint8)
+    rgb[5:10, 5:10] = 255
+    path = str(tmp_path / "figure.png")
+    Image.fromarray(rgb).save(path)
+    planes = load_planes(path)
+    assert planes.data.shape == (1, 1, 20, 30)
+    assert planes.names == ["Image"] and planes.pixel_size is None
+    assert planes.data[0, 0, 7, 7] == 255
+
+
+def test_a_format_no_reader_reads_is_refused_with_the_readers_named(tmp_path):
+    path = tmp_path / "notes.txt"
+    path.write_text("not an image")
+    with pytest.raises(ValueError, match="fluorescence stack, beam image, picture"):
+        load_planes(str(path))
+
+
+def test_the_tools_work_over_any_folder_and_refuse_paths_outside_it(tmp_path):
+    from PIL import Image
+
+    from fibsem.analysis.tools import ImageRefused, ImageTools
+
+    root = tmp_path / "data"
+    root.mkdir()
+    picture = np.tile(np.arange(64, dtype=np.uint8) * 4, (32, 1))
+    Image.fromarray(picture).save(root / "ramp.png")
+    tools = ImageTools(lambda: str(root))
+
+    answer = tools.line_profile("ramp.png", [0, 16], [63, 16])
+    assert answer.measurement == "profile-0-16-63-16"
+    assert Path(answer.path).parts[-2:] == ("drawn", "ramp-profile-0-16-63-16.png")
+    assert answer.result["values"][0] < answer.result["values"][-1]
+
+    with pytest.raises(ImageRefused) as outside:
+        tools.image_quality("../elsewhere.png")
+    assert outside.value.error_type == "not_allowed"
+    with pytest.raises(ImageRefused) as closed:
+        ImageTools(lambda: None).image_quality("ramp.png")
+    assert closed.value.error_type == "no_experiment"
+
+
+def test_a_shift_is_measured_between_two_files_with_no_microscope(tmp_path):
+    from fibsem.analysis.tools import ImageRefused, ImageTools
+    from fibsem.structures.image import FibsemImage
+    from fibsem.structures.settings import MicroscopeState
+
+    image = FibsemImage.generate_blank_image(resolution=(256, 192), random=True)
+    image.metadata.microscope_state = MicroscopeState()
+    image.save(str(tmp_path / "reference.tif"))
+    image.data = np.roll(image.data, 6, axis=1)
+    image.save(str(tmp_path / "moved.tif"))
+    tools = ImageTools(lambda: str(tmp_path))
+
+    answer = tools.measure_shift("reference.tif", "moved.tif", compare=True)
+    assert abs(abs(answer.shift["shift_px"]["x"]) - 6) < 1
+    assert set(answer.comparison) >= {"shifts_px", "agreement"}
+
+    with pytest.raises(ImageRefused, match="method is one of"):
+        tools.measure_shift("reference.tif", "moved.tif", method="guess")
+
+
+def _beam(data, pixel_size=None, full_value=255.0):
+    return Planes(
+        data=data[None, None],
+        names=["SEM"],
+        pixel_size=pixel_size,
+        full_value=full_value,
+    )
+
+
+def test_a_histogram_spans_the_file_s_range_and_says_what_is_clipped():
+    data = np.zeros((40, 50), dtype=np.uint8)
+    data[:, 25:] = 255  # half crushed, half saturated
+    data[:10, :5] = 100
+    answer = analysis.histogram(_beam(data), bins=16)
+
+    assert answer["range"] == [0.0, 255.0]
+    assert len(answer["counts"]) == 16 and sum(answer["counts"]) == data.size
+    assert answer["clipped_high"] == pytest.approx(50.0)
+    assert answer["clipped_low"] == pytest.approx(100 * (1000 - 50) / 2000)
+    assert answer["percentiles"]["max"] == 255.0
+
+    boxed = analysis.histogram(_beam(data), box=[0, 0, 5, 10])
+    assert boxed["pixels"] == 50 and boxed["percentiles"]["min"] == 100.0
+    with pytest.raises(ValueError, match="2x2"):
+        analysis.histogram(_beam(data), box=[100, 100, 5, 5])
+    with pytest.raises(ValueError, match="bins"):
+        analysis.histogram(_beam(data), bins=1)
+
+
+def test_a_power_spectrum_finds_finer_detail_in_a_sharper_image():
+    from scipy.ndimage import gaussian_filter
+
+    rng = np.random.default_rng(0)
+    scene = rng.normal(0, 200, (128, 128))
+    noise = rng.normal(0, 1, (128, 128))
+    sharp = 100 + gaussian_filter(scene, 1) + noise
+    blurred = 100 + gaussian_filter(scene, 3) + noise
+
+    fine = analysis.power_spectrum(_beam(sharp, pixel_size=2e-9))
+    coarse = analysis.power_spectrum(_beam(blurred, pixel_size=2e-9))
+    assert coarse["finest_period_px"] > fine["finest_period_px"]
+    assert coarse["finest_period_m"] == pytest.approx(coarse["finest_period_px"] * 2e-9)
+    assert 0.5 < fine["anisotropy"] < 2
+
+    # Lines across x put their power along y: anisotropy far below 1.
+    streaked = 100 + gaussian_filter(scene, (1, 4)) + noise
+    assert analysis.power_spectrum(_beam(streaked))["anisotropy"] < 0.5
+    # Noise alone holds no detail above its own floor.
+    assert analysis.power_spectrum(_beam(noise))["cutoff"] is None
+    with pytest.raises(ValueError, match="16x16"):
+        analysis.power_spectrum(_beam(sharp), box=[0, 0, 10, 10])
+
+
+def test_the_histogram_and_spectrum_tools_save_their_figures(tmp_path):
+    from PIL import Image
+
+    from fibsem.analysis.tools import ImageTools
+
+    rng = np.random.default_rng(1)
+    Image.fromarray(rng.integers(0, 255, (64, 64), dtype=np.uint8)).save(
+        tmp_path / "noise.png"
+    )
+    tools = ImageTools(lambda: str(tmp_path))
+
+    histogram = tools.histogram("noise.png", box=[0, 0, 32, 32])
+    assert histogram.measurement == "histogram-box-0-0-32-32"
+    assert Path(histogram.path).parts[-2:] == (
+        "drawn",
+        "noise-histogram-box-0-0-32-32.png",
+    )
+    spectrum = tools.power_spectrum("noise.png")
+    assert Path(spectrum.path).name == "noise-spectrum.png"
+    assert Path(spectrum.path).is_file() and spectrum.result["size_px"] == 64
+
+
+def test_thickness_is_read_off_a_fib_image_in_any_folder(tmp_path):
+    from fibsem.analysis.tools import ImageRefused, ImageTools
+    from fibsem.structures.settings import BeamType, MicroscopeState
+    from tests.test_lamella_thickness import band_image
+
+    image = band_image(235)
+    image.metadata.microscope_state = MicroscopeState()
+    image.metadata.image_settings.beam_type = BeamType.ION
+    image.save(str(tmp_path / "lamella_ib.tif"))
+    tools = ImageTools(lambda: str(tmp_path))
+
+    answer = tools.measure_thickness("lamella_ib.tif")
+    assert answer["thickness_nm"]["mean"] == pytest.approx(235, abs=10)
+    assert answer["centre_from"] == "image_centre"
+    assert answer["window_from"] == "default" and answer["window_um"] == [10.0, 4.0]
+    assert Path(answer["saved_to"]).parts[-2:] == ("thickness", "lamella_ib")
+    assert "item_name" not in answer
+
+    image.metadata.image_settings.beam_type = BeamType.ELECTRON
+    image.save(str(tmp_path / "lamella_eb.tif"))
+    with pytest.raises(ImageRefused, match="SEM image"):
+        tools.measure_thickness("lamella_eb.tif")

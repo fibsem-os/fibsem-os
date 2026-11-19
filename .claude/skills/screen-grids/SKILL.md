@@ -57,9 +57,9 @@ When you pick sites (cells, squares):
   often arrive coated, so you will also have to pick on coated grids.
 - Read a large overview in parts: `experiment_read_file` with `cells` cuts it
   into named cells (A1, B3) with their stage positions, and
-  `experiment_crop_image` with `cells` gives up to 8 of them at full
+  `analysis_crop_image` with `cells` gives up to 8 of them at full
   detail. A point read off a crop goes to
-  `experiment_get_image_stage_position` with that `crop`.
+  `analysis_map_pixel_to_stage` with that `crop`.
 - Prefer the FIB image for picking cells when you have it (at the milling
   angle): good cells are often easier to tell there than on the SEM
   overview. A FIB image doses the sample, so keep the current low and the

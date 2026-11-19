@@ -28,6 +28,10 @@ SPUTTER_COATER_RESOURCE = "sputter_coater"
 
 
 class SputterCoater(Device):
+    # The current and the run one by one: the agent sputters through the coating
+    # service.
+    operator_only = "sputter with coating_sputter"
+
     current = DeviceParameter(float, unit="A", doc="The sputter current.")
     inserted = DeviceParameter(bool, doc="The coater is in its working position.")
 

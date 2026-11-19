@@ -32,6 +32,10 @@ GIS_RESOURCE = "gis"
 
 
 class GasInjector(Device):
+    # The needle, heater and valve one by one: the agent deposits through the
+    # coating service, which runs the whole sequence.
+    operator_only = "deposit with coating_deposit, which runs the whole sequence"
+
     gas = DeviceParameter(str, doc="The gas in use.")
     state = DeviceParameter(InsertableDeviceState, doc="Where the needle is.")
     heated = DeviceParameter(bool, doc="The heater is on.")
