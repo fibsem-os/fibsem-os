@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from fibsem.ai.evals.__main__ import main
 from fibsem.ai.evals.core import catalogue, episode, segments
 
@@ -135,3 +137,49 @@ def test_cli_check(tmp_path, capsys):
 def test_cli_catalogue(capsys):
     assert main(["catalogue"]) == 0
     assert "setup_placement" in capsys.readouterr().out
+
+
+def test_segmenter_prepare(tmp_path):
+    import yaml
+
+    from fibsem.ai.evals.core import segmenter
+
+    ep = _episode(tmp_path)
+    folder = segmenter.prepare(ep)
+    digest = (folder / segmenter.EVENTS_DIGEST).read_text().splitlines()
+    assert len(digest) == 4
+    assert digest[0].startswith("s-1\t")
+    assert "setup_ib.tif" in digest[0]
+    cat = yaml.safe_load((folder / segmenter.CATALOGUE).read_text())
+    assert any(t["task"] == "setup_placement" for t in cat["tasks"])
+    assert "episode: ep" in (folder / segmenter.PROMPT).read_text()
+
+
+def test_segmenter_may_only_write_segments(tmp_path):
+    import asyncio
+
+    sdk = pytest.importorskip("claude_agent_sdk")
+    PermissionResultAllow, PermissionResultDeny = (
+        sdk.PermissionResultAllow,
+        sdk.PermissionResultDeny,
+    )
+
+    from fibsem.ai.evals.core import segmenter
+
+    ep = _episode(tmp_path)
+    check = segmenter._may_use(ep)
+    ok = asyncio.run(
+        check("Write", {"file_path": str(ep.path / "segments.yaml")}, None)
+    )
+    assert isinstance(ok, PermissionResultAllow)
+    for tool, data in (
+        ("Write", {"file_path": str(ep.experiment / "events.jsonl")}),
+        ("Bash", {"command": "ls"}),
+    ):
+        assert isinstance(asyncio.run(check(tool, data, None)), PermissionResultDeny)
+
+
+def test_cli_segment_dry_run(tmp_path):
+    ep = _episode(tmp_path)
+    assert main(["episode", "segment", str(ep.path), "--dry-run"]) == 0
+    assert (ep.path / "segmenter" / "prompt.md").is_file()

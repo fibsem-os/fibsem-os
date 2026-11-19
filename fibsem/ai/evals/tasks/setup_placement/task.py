@@ -147,5 +147,6 @@ TASK = EvalTask(
         inputs={
             "fib_image": "the FIB image at the milling angle the placement was decided on",
         },
+        cut="fibsem.ai.evals.tasks.setup_placement.cut:cut",
     ),
 )

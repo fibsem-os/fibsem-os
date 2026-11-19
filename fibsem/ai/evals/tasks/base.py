@@ -28,7 +28,8 @@ class FromRun:
     # names a file in the experiment (or a value) for each.
     inputs: Dict[str, str]
     # "module:function" building the case from a confirmed segment,
-    # cut(segment, episode, folder) -> case data; None until written.
+    # cut(segment, inputs, folder) -> the case's own fields (brief, inputs);
+    # None until written.
     cut: Optional[str] = None
 
 

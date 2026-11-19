@@ -15,10 +15,12 @@ from fibsem import paths
 from fibsem.ai.agent import manager, playbooks, sources
 from fibsem.ai.evals import tasks as eval_tasks
 from fibsem.ai.evals.core import catalogue as catalogue_mod
+from fibsem.ai.evals.core import cut as cut_mod
 from fibsem.ai.evals.core import episode as episode_mod
 from fibsem.ai.evals.core import matrix as matrix_mod
 from fibsem.ai.evals.core import replay as replay_mod
 from fibsem.ai.evals.core import report as report_mod
+from fibsem.ai.evals.core import segmenter as segmenter_mod
 from fibsem.ai.evals.core import segments as segments_mod
 from fibsem.ai.evals.core import serve as serve_mod
 from fibsem.ai.evals.core import trace as trace_mod
@@ -249,6 +251,22 @@ def _parser() -> argparse.ArgumentParser:
         "check", help="check an episode's segments.yaml against its record"
     )
     seg_check.add_argument("episode", type=Path)
+    segment = episode_sub.add_parser(
+        "segment",
+        help="propose the episode's segments with an agent (uses your API key); "
+        "--dry-run writes its prompt and inputs only",
+    )
+    segment.add_argument("episode", type=Path)
+    segment.add_argument("--model", default=None)
+    segment.add_argument("--effort", default=None)
+    segment.add_argument("--budget-usd", type=float, default=5.0)
+    segment.add_argument("--dry-run", action="store_true")
+    from_run = sub.add_parser(
+        "from-run",
+        help="a case from each kept segment of an episode, keyed later",
+    )
+    from_run.add_argument("episode", type=Path)
+    from_run.add_argument("--out", type=Path, required=True, help="the cases folder")
     catalogue = sub.add_parser(
         "catalogue",
         help="the tasks a case can be cut from a real run for, as the segmenter "
@@ -261,6 +279,22 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv=None) -> int:
     args = _parser().parse_args(argv)
 
+    if args.command == "from-run":
+        try:
+            ep = episode_mod.Episode.load(args.episode)
+            made = cut_mod.cut_episode(ep, args.out)
+        except (episode_mod.EpisodeError, cut_mod.CutError) as e:
+            print(e, file=sys.stderr)
+            return 2
+        for folder in made["made"]:
+            print(f"cut      {folder}")
+        for why in made["skipped"]:
+            print(f"skipped  {why}")
+        print(
+            f"{len(made['made'])} cases, {len(made['skipped'])} skipped; key them next"
+        )
+        return 0
+
     if args.command == "catalogue":
         text = yaml.safe_dump(catalogue_mod.catalogue(), sort_keys=False, width=100)
         if args.write:
@@ -269,6 +303,26 @@ def main(argv=None) -> int:
         else:
             print(text)
         return 0
+
+    if args.command == "episode" and args.episode_command == "segment":
+        try:
+            ep = episode_mod.Episode.load(args.episode)
+        except episode_mod.EpisodeError as e:
+            print(e, file=sys.stderr)
+            return 2
+        if args.dry_run:
+            folder = segmenter_mod.prepare(ep)
+            print(f"Wrote the segmenter's prompt and inputs to {folder}")
+            return 0
+        result = segmenter_mod.run(ep, args.model, args.budget_usd, args.effort)
+        data = segments_mod.load(ep)
+        found = data.get("segments") or []
+        new = sum(1 for s in found if not s.get("task"))
+        spent = (data.get("segmenter") or {}).get("spent_usd")
+        print(f"{len(found)} segments, {new} with no task yet; spent ${spent}")
+        for problem in result.problems:
+            print(f"PROBLEM  {problem}")
+        return 0 if result.ok else 1
 
     if args.command == "episode" and args.episode_command == "check":
         try:

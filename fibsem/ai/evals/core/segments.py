@@ -138,6 +138,8 @@ def check(episode: Episode, data: Optional[Dict[str, Any]] = None) -> Check:
             if float(by_id[str(end)].get("timestamp") or 0) < cut:
                 say(f"{sid}: end_event comes before start_event")
 
+        if not isinstance(segment.get("facts") or {}, dict):
+            say(f"{sid}: facts is not a mapping")
         inputs = segment.get("inputs") or {}
         if not isinstance(inputs, dict):
             say(f"{sid}: inputs is not a mapping")

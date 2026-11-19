@@ -201,5 +201,6 @@ TASK = EvalTask(
         inputs={
             "passes": "each pass up to and including the one the run stopped after: its name, the SEM and FIB images taken after it, and the thickness measured, if any",
         },
+        cut="fibsem.ai.evals.tasks.polishing.cut:cut",
     ),
 )
