@@ -173,3 +173,27 @@ def test_a_format_no_reader_reads_is_refused_with_the_readers_named(tmp_path):
     path.write_text("not an image")
     with pytest.raises(ValueError, match="fluorescence stack, beam image, picture"):
         load_planes(str(path))
+
+
+def test_the_tools_work_over_any_folder_and_refuse_paths_outside_it(tmp_path):
+    from PIL import Image
+
+    from fibsem.analysis.tools import ImageRefused, ImageTools
+
+    root = tmp_path / "data"
+    root.mkdir()
+    picture = np.tile(np.arange(64, dtype=np.uint8) * 4, (32, 1))
+    Image.fromarray(picture).save(root / "ramp.png")
+    tools = ImageTools(lambda: str(root))
+
+    answer = tools.line_profile("ramp.png", [0, 16], [63, 16])
+    assert answer.measurement == "profile-0-16-63-16"
+    assert answer.path.endswith("drawn/ramp-profile-0-16-63-16.png")
+    assert answer.result["values"][0] < answer.result["values"][-1]
+
+    with pytest.raises(ImageRefused) as outside:
+        tools.image_quality("../elsewhere.png")
+    assert outside.value.error_type == "not_allowed"
+    with pytest.raises(ImageRefused) as closed:
+        ImageTools(lambda: None).image_quality("ramp.png")
+    assert closed.value.error_type == "no_experiment"

@@ -19,7 +19,7 @@ import json
 import os
 import tempfile
 from dataclasses import asdict
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -28,6 +28,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.routing import APIRoute
 
 from fibsem.ai.agent.calls import current_call
+from fibsem.analysis.tools import ImageRefused, ImageTools
 from fibsem.server import exports, files, planes
 from fibsem.server.agent.record import build_record_router, cited_evidence
 from fibsem.server.agent.record import described as _with_text
@@ -150,6 +151,7 @@ from fibsem.server.responses import (
     TaskOutputs,
     Thickness,
     answer,
+    refused,
 )
 from fibsem.tools import bug_report
 from fibsem.util.timestamps import to_datetime
@@ -350,8 +352,112 @@ def _download(content: bytes, name: str) -> Response:
     )
 
 
+def _image_answer(call: Callable[[], Any]) -> Response:
+    """An image tool's answer (`_typed`), or its `ImageRefused` as the HTTP
+    error."""
+    try:
+        return _typed(call())
+    except ImageRefused as refusal:
+        raise _refusal_error(refused(refusal.error_type, refusal.message)) from None
+
+
+def _draw_options(body: DrawOptions, *planes: str) -> Dict[str, Any]:
+    options = _given(body, "crosshair", "metadata_bar", "channels", "looks", *planes)
+    if body.box is not None:
+        if body.box[2] <= 0 or body.box[3] <= 0:
+            raise _missing_field("box is [x, y, width, height] in pixels.")
+        options["box"] = list(body.box)
+    return options
+
+
+def build_analysis_router(tools: ImageTools) -> APIRouter:
+    """The image tools' routes (`fibsem.analysis.tools`), over *tools*' root:
+    a saved image's metadata, a point on it as a stage position and back, a
+    drawing of it, two side by side, and measurements on it. Read routes:
+    each saves its picture beside the image, and acts on nothing."""
+    router = APIRouter(route_class=_AsSentRoute)
+    saved_image = "a saved image inside the experiment"
+
+    @router.get("/experiment/images/metadata", response_model=SavedImageMetadata)
+    def image_metadata(path: str):
+        return _image_answer(lambda: tools.metadata(path))
+
+    @router.get("/experiment/images/stage_position", response_model=SavedImagePosition)
+    def image_stage_position(
+        path: str,
+        x: Optional[float] = None,
+        y: Optional[float] = None,
+        fx: Optional[float] = None,
+        fy: Optional[float] = None,
+        crop: Optional[str] = None,
+    ):
+        # crop: the point is read off a crop's picture, a cell's name (B3) or
+        # "x,y,width,height".
+        px = None if x is None or y is None else [x, y]
+        fraction = None if fx is None or fy is None else [fx, fy]
+        if crop is not None and "," in crop:
+            crop = _numbers(crop)
+        return _image_answer(lambda: tools.pixel_to_stage(path, px, fraction, crop))
+
+    @router.post("/experiment/images/pixels", response_model=SavedImagePixels)
+    def image_pixels(body: PixelsBody):
+        # A POST because it takes a list a GET could not carry.
+        path = _required_text(body, "path", saved_image)
+        positions = body.stage_positions
+        if not positions:
+            raise _missing_field(
+                "Pass stage_positions: a non-empty list of stage positions "
+                "({x, y, z, r, t, coordinate_system})."
+            )
+        return _image_answer(lambda: tools.stage_to_pixel(path, positions))
+
+    @router.post("/experiment/images/drawn", response_model=ImageDrawn)
+    def draw_image(body: DrawBody):
+        # A POST because the picture is saved beside the image.
+        path = _required_text(body, "path", saved_image)
+        options = _draw_options(body, "plane")
+        return _image_answer(lambda: tools.draw_image(path, body.marks, **options))
+
+    @router.post("/experiment/images/pair", response_model=ImagePairDrawn)
+    def draw_pair(body: ImagePairBody):
+        before = _required_text(body, "before", saved_image)
+        after = _required_text(body, "after", saved_image)
+        options = _draw_options(body, "before_plane", "after_plane")
+        options.pop("crosshair", None)
+        options.update(_given(body, "share_looks"))
+        return _image_answer(
+            lambda: tools.draw_pair(before, after, body.marks, **options)
+        )
+
+    @router.post("/experiment/analysis/intensity", response_model=ImageMeasured)
+    def measure_intensity(body: IntensityBody):
+        # A POST because its figure is saved beside the image.
+        path = _required_text(body, "path", saved_image)
+        if not body.points:
+            raise _missing_field("Pass points: a list of [x, y] in the image's pixels.")
+        points = [list(p) for p in body.points]
+        options = _given(body, "radius_px", "channel", "reference", "planes")
+        return _image_answer(lambda: tools.measure_intensity(path, points, **options))
+
+    @router.post("/experiment/analysis/profile", response_model=ImageMeasured)
+    def line_profile(body: ProfileBody):
+        path = _required_text(body, "path", saved_image)
+        options = _given(body, "width_px", "channel", "plane", "dip")
+        start, end = list(body.start), list(body.end)
+        return _image_answer(lambda: tools.line_profile(path, start, end, **options))
+
+    @router.get("/experiment/analysis/quality", response_model=ImageMeasured)
+    def image_quality(
+        path: str, channel: Optional[str] = None, plane: Optional[int] = None
+    ):
+        return _image_answer(lambda: tools.image_quality(path, channel, plane))
+
+    return router
+
+
 def build_app_router(context: "AppContext") -> APIRouter:
     router = _router()
+    router.include_router(build_analysis_router(context.images))
 
     @router.get("/workflow/status", response_model=AppStatus)
     def app_status():
@@ -587,28 +693,6 @@ def build_app_router(context: "AppContext") -> APIRouter:
     def display_images():
         return _typed(context.display_images())
 
-    @router.get("/experiment/images/metadata", response_model=SavedImageMetadata)
-    def image_metadata(path: str):
-        return _typed(context.image_metadata(path))
-
-    @router.get("/experiment/images/stage_position", response_model=SavedImagePosition)
-    def image_stage_position(
-        path: str,
-        x: Optional[float] = None,
-        y: Optional[float] = None,
-        fx: Optional[float] = None,
-        fy: Optional[float] = None,
-        crop: Optional[str] = None,
-    ):
-        # Any saved image in the experiment, beam or FM: a point on it as a
-        # stage position, from the image's own metadata. crop: the point is
-        # read off a crop's picture, a cell's name (B3) or "x,y,width,height".
-        px = None if x is None or y is None else [x, y]
-        fraction = None if fx is None or fy is None else [fx, fy]
-        if crop is not None and "," in crop:
-            crop = _numbers(crop)
-        return _typed(context.image_stage_position(path, px, fraction, crop))
-
     @router.post(
         "/experiment/images/markers", response_model=MarkersDrawn, tags=[LAMELLAE]
     )
@@ -622,57 +706,6 @@ def build_app_router(context: "AppContext") -> APIRouter:
                 body.path, body.grid_name, **_given(body, "fov", "current")
             )
         )
-
-    def _draw_options(body: DrawOptions, *planes: str) -> Dict[str, Any]:
-        options = _given(
-            body, "crosshair", "metadata_bar", "channels", "looks", *planes
-        )
-        if body.box is not None:
-            if body.box[2] <= 0 or body.box[3] <= 0:
-                raise _missing_field("box is [x, y, width, height] in pixels.")
-            options["box"] = list(body.box)
-        return options
-
-    @router.post("/experiment/images/drawn", response_model=ImageDrawn)
-    def draw_image(body: DrawBody):
-        # A POST because the picture is saved beside the image, as markers are.
-        path = _required_text(body, "path", "a saved image inside the experiment")
-        return _typed(
-            context.draw_image(path, body.marks, **_draw_options(body, "plane"))
-        )
-
-    @router.post("/experiment/images/pair", response_model=ImagePairDrawn)
-    def draw_pair(body: ImagePairBody):
-        before = _required_text(body, "before", "a saved image inside the experiment")
-        after = _required_text(body, "after", "a saved image inside the experiment")
-        options = _draw_options(body, "before_plane", "after_plane")
-        options.pop("crosshair", None)
-        options.update(_given(body, "share_looks"))
-        return _typed(context.draw_pair(before, after, body.marks, **options))
-
-    @router.post("/experiment/analysis/intensity", response_model=ImageMeasured)
-    def measure_intensity(body: IntensityBody):
-        # A POST because its figure is saved beside the image, as a drawing is.
-        path = _required_text(body, "path", "a saved image inside the experiment")
-        if not body.points:
-            raise _missing_field("Pass points: a list of [x, y] in the image's pixels.")
-        points = [list(p) for p in body.points]
-        options = _given(body, "radius_px", "channel", "reference", "planes")
-        return _typed(context.measure_intensity(path, points, **options))
-
-    @router.post("/experiment/analysis/profile", response_model=ImageMeasured)
-    def line_profile(body: ProfileBody):
-        path = _required_text(body, "path", "a saved image inside the experiment")
-        options = _given(body, "width_px", "channel", "plane", "dip")
-        return _typed(
-            context.line_profile(path, list(body.start), list(body.end), **options)
-        )
-
-    @router.get("/experiment/analysis/quality", response_model=ImageMeasured)
-    def image_quality(
-        path: str, channel: Optional[str] = None, plane: Optional[int] = None
-    ):
-        return _typed(context.image_quality(path, channel, plane))
 
     @router.post(
         "/experiment/items/{item_name}/milling/drawn",
@@ -695,19 +728,6 @@ def build_app_router(context: "AppContext") -> APIRouter:
                 item_name, task_names, body.image_path, body.background, **options
             )
         )
-
-    @router.post("/experiment/images/pixels", response_model=SavedImagePixels)
-    def image_pixels(body: PixelsBody):
-        # A POST on the read router because it computes, never acts: stage
-        # positions as points on a saved image, a list a GET could not carry.
-        path = _required_text(body, "path", "a saved image inside the experiment")
-        positions = body.stage_positions
-        if not positions:
-            raise _missing_field(
-                "Pass stage_positions: a non-empty list of stage positions "
-                "({x, y, z, r, t, coordinate_system})."
-            )
-        return _typed(context.image_pixels(path, positions))
 
     # -- an experiment's files: the open one's, or a past one's, read only ------
 
