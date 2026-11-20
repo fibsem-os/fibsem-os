@@ -818,6 +818,24 @@ export interface components {
             /** @default false */
             unload_at_end?: boolean;
         };
+        /** @description POST /app/experiment/analysis/grid_squares: the grid-bar lattice on a
+         *     saved image, *limit* squares and the *points* to check against the bars;
+         *     fitted in *box* and preferring *pitch_um* when given. */
+        GridSquaresBody: {
+            box?: [
+                number,
+                number,
+                number,
+                number
+            ] | null;
+            limit?: number | null;
+            path: string;
+            pitch_um?: number | null;
+            points?: [
+                number,
+                number
+            ][] | null;
+        };
         GridSummary: {
             completed_tasks: string[];
             current_task: string | null;

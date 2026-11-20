@@ -52,6 +52,7 @@ from fibsem.server.bodies import (
     GridQualityBody,
     GridRequirementsBody,
     GridRunBody,
+    GridSquaresBody,
     HistogramBody,
     ImageExportBody,
     ImagePairBody,
@@ -496,6 +497,17 @@ def build_analysis_router(tools: ImageTools) -> APIRouter:
         options = _given(body, "channel", "plane", "points")
         box = list(body.box) if body.box is not None else None
         return _image_answer(lambda: tools.power_spectrum(path, box=box, **options))
+
+    @router.post("/experiment/analysis/grid_squares", response_model=ImageMeasured)
+    def grid_squares(body: GridSquaresBody):
+        path = _required_text(body, "path", saved_image)
+        points = [list(p) for p in body.points] if body.points else None
+        options = _given(body, "limit", "pitch_um")
+        if body.box is not None:
+            options["box"] = list(body.box)
+        return _image_answer(
+            lambda: tools.find_grid_squares(path, points=points, **options)
+        )
 
     @router.post("/experiment/analysis/thickness", response_model=Thickness)
     def measure_thickness(body: ThicknessBody):
