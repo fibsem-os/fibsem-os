@@ -405,9 +405,13 @@ checks get dropped. If two conflict, ask which wins. Read it again after a
 a long session costs more than the last, and an automatic compaction keeps
 only a summary. Under fibsem-agent, `context_reset` starts a fresh context of
 the same session (same chat, budget, plan and experiment) when your turn
-ends, from your skills, the plan and a handoff note you write. The harness
-tells you once when the context passes a size; whether to act on it is
-yours. It is worth it at a natural boundary when the context is large: a
+ends, from your skills, the plan and a handoff note you write. At a
+natural point past the playbook's suggestion (300k by default) the harness
+says once that you may reset there; whether to is yours. Past its ceiling
+(500k) a reset is due: you are asked at each natural point until you do, and
+you may put it off with one line saying what is in flight, until the ask
+turns firm. Past that the CLI compacts on its own. A reset is worth it at a
+natural boundary when the context is large: a
 block of work done (screening, the sites approved, a lamella's tasks), before
 a long unattended stretch, or before going quiet for a long time (the next
 wake of a large context with a cold cache is dear). Not mid-task, and not

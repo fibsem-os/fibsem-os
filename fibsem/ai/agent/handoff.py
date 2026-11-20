@@ -21,6 +21,7 @@ Needs nothing from the SDK at import.
 import json
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from fibsem.ai.agent import instruments, usage
@@ -81,6 +82,54 @@ WAKE = "WAKE a fresh context: start from the handoff note above."
 FACTS_HEADING = "Where things stood (read by the harness as the context ended)"
 # How long each read of the App Server may take (s).
 FACTS_TIMEOUT_S = 10.0
+# The wake-up that starts a fresh context a resume began (`Handoff.recovered`).
+RECOVERED_WAKE = "WAKE a fresh context: rebuild from the record, as above."
+# Why a resume starts a fresh context instead of reloading the conversation.
+TOO_LARGE = (
+    "its last conversation was too large to reload ({used} tokens of context, "
+    "above the playbook's resume_max_context of {limit})."
+)
+RELOAD_FAILED = "its last conversation could not be reloaded ({why})."
+# A natural point to reset: something the agent was waiting for ended, and
+# nothing in the same wake failed, waits on the agent or is still milling.
+ENDS = frozenset({"workflow_ended", "task_completed", "command_ended", "digest_due"})
+NOT_NOW = frozenset(
+    {
+        "workflow_failed",
+        "task_failed",
+        "command_failed",
+        "mill_failed",
+        "stop_rule",
+        "mill_stage_started",
+        "proposal",
+        "suggestion",
+        "request",
+        "message",
+        "quiet",
+    }
+)
+SUGGEST = (
+    "Context: {used} tokens, and every turn re-reads all of it. This is a "
+    "natural point: if your plan is up to date and nothing is in flight, "
+    "context_reset now starts a fresh context from your plan and a handoff note; "
+    "if not, carry on."
+)
+DUE = (
+    "Context: {used} tokens, above this session's ceiling of {ceiling}: a fresh "
+    "context is due. At this natural point, bring your plan up to date and call "
+    "context_reset with a handoff note. If something you can't hand over is in "
+    "flight, say why in one line and carry on; you'll be asked again at the "
+    "next natural point."
+)
+DUE_FIRMLY = (
+    "Context: {used} tokens, above this session's ceiling of {ceiling}, and "
+    "you have been asked {asked} times. Call context_reset now, with a handoff "
+    "note, unless a mill or a move is running this moment. The CLI compacts "
+    "the context on its own at {compact}, with a generic summary."
+)
+# Asked this many times past the ceiling, the ask is firm.
+FIRM_AFTER = 3
+NO_NOTE = "None: no earlier context of this session wrote one."
 
 
 @dataclass
@@ -385,6 +434,19 @@ class Handoff:
         # A size said of the earlier context is not this one's.
         self._lines = []
 
+    def recovered(self, why: str, skills: List[str], note: Optional[str]) -> None:
+        """A resume started a fresh context instead of reloading the last
+        conversation, *why*: its first turn rebuilds from the record and
+        *note*, the session's latest handoff note."""
+        self.contexts += 1
+        self.pending = None
+        self._prompt = self.words.handoff_recovered.format(
+            why=why,
+            skills=", ".join(skills) or "none",
+            note=(note or "").strip() or NO_NOTE,
+        )
+        self._lines = []
+
     def failed(self, why: str) -> None:
         self._lines.append(FAILED.format(why=why))
 
@@ -419,6 +481,65 @@ class Handoff:
             prompt += f"\n\n{line}"
         self._prompt, self._lines = None, []
         return prompt
+
+
+def natural_point(kinds: Iterable[str]) -> bool:
+    """Whether a wake whose lines are of *kinds* is a natural point to start
+    a fresh context: something ended, and nothing failed, waits on the agent
+    or is milling."""
+    kinds = set(kinds)
+    return bool(kinds & ENDS) and not kinds & NOT_NOW
+
+
+class Ceiling:
+    """When the agent is told about its context's size: once past *suggest*,
+    and at every natural point past *ceiling*, more firmly after
+    `FIRM_AFTER`. A fresh context starts the count again."""
+
+    def __init__(
+        self,
+        suggest: Optional[int] = None,
+        ceiling: Optional[int] = None,
+        compact: Optional[int] = None,
+    ) -> None:
+        self.suggest = suggest
+        self.ceiling = ceiling
+        self.compact = compact
+        self.suggested = False
+        self.asked = 0
+
+    def fresh(self) -> None:
+        self.suggested = False
+        self.asked = 0
+
+    def line(self, used: Optional[int], kinds: Iterable[str]) -> Optional[str]:
+        """What the wake says about the context, or None: only at a natural
+        point."""
+        if not used or not natural_point(kinds):
+            return None
+        if self.ceiling and used >= self.ceiling:
+            self.asked += 1
+            words = DUE_FIRMLY if self.asked > FIRM_AFTER else DUE
+            return words.format(
+                used=usage.short(used),
+                ceiling=usage.short(self.ceiling),
+                asked=self.asked - 1,
+                compact=usage.short(self.compact) if self.compact else "its window",
+            )
+        if self.suggest and used >= self.suggest and not self.suggested:
+            self.suggested = True
+            return SUGGEST.format(used=usage.short(used))
+        return None
+
+
+def latest_note(path: Path) -> Optional[str]:
+    """The newest note in a session's handoff file (`FILE`), or None."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    start = text.rfind("## Handoff to context ")
+    return text[start:].strip() or None if start >= 0 else None
 
 
 def skills_to_read(

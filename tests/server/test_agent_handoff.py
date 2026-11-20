@@ -314,8 +314,8 @@ def test_the_tool_is_on_the_harness_server_and_compaction_is_told_what_to_keep()
     answer = asyncio.run(matcher.hooks[0]({"trigger": "auto"}, None, None))
     assert answer == {"systemMessage": WORDS.handoff_compact}
     assert "see the plan" in WORDS.handoff_compact
-    # The CLI keeps its own compaction window unless the playbook sets one.
-    assert handoff_mod.COMPACT_WINDOW_ENV not in options.env
+    # The base playbook's compaction window, the ceiling's backstop.
+    assert options.env[handoff_mod.COMPACT_WINDOW_ENV] == "700000"
     playbook = playbooks.load("fibsem-agent", checkout)
     playbook.session.compact_window = 600_000
     options = harness_mod.build_options(checkout, playbook=playbook)
@@ -333,8 +333,11 @@ def test_a_playbook_sets_the_marks_and_the_compact_window(tmp_path):
         with pytest.raises(playbooks.PlaybookError, match="context_marks"):
             playbooks._session(bad, path)
     base = playbooks.shipped_base(harness_mod.find_checkout())
-    assert base.session.context_marks == [300000, 500000, 700000]
-    assert base.session.compact_window is None
+    # The base playbook's ceiling replaces the marks (`handoff.Ceiling`).
+    assert base.session.context_marks is None
+    assert base.session.context_suggest == 300_000
+    assert base.session.context_ceiling == 500_000
+    assert base.session.compact_window == 700_000
 
 
 def test_an_instrument_kind_without_handoff_words_takes_the_default_kinds(tmp_path):

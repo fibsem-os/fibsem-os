@@ -70,6 +70,31 @@ def context_text(context: Optional[dict]) -> Optional[str]:
     return text
 
 
+def last_context(path: Path) -> Optional[int]:
+    """How much the agent's last call in *path* (a session's usage file) read:
+    how full its context was as the session stopped. None when no call of
+    the agent itself is there. A fresh context's first call counts from
+    there."""
+    try:
+        with open(path, "rb") as file:
+            file.seek(0, 2)
+            size = file.tell()
+            # The last calls are enough: a line is a few hundred bytes.
+            file.seek(max(0, size - 256 * 1024))
+            tail = file.read().decode("utf-8", errors="replace")
+    except OSError:
+        return None
+    for text in reversed(tail.splitlines()):
+        try:
+            call = json.loads(text)
+        except ValueError:
+            continue
+        if isinstance(call, dict) and call.get("agent") is None:
+            counts = {key: int(call.get(key) or 0) for key in FIELDS}
+            return prompt(counts) or None
+    return None
+
+
 class Calls:
     """The model calls of a run, each one line in *path* (none when None).
 
