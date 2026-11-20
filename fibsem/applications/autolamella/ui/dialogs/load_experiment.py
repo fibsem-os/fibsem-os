@@ -566,7 +566,8 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         """Populate the recent-experiments list from user preferences."""
         self.list_recent_experiments.clear()
 
-        recents = get_recent_experiments()
+        # AutoLamella's experiments: the recents list is shared by every app.
+        recents = get_recent_experiments(app="autolamella")
 
         if not recents:
             placeholder = QtWidgets.QListWidgetItem("No recent experiments")
