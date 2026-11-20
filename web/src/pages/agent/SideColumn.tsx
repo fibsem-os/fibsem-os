@@ -357,7 +357,7 @@ export function SafetyRow({ actions, compact }: { actions: SafetyAction[]; compa
         ))}
         <button
           className="cursor-pointer rounded border border-input bg-transparent p-1.5 text-foreground hover:bg-accent"
-          aria-label="Stop"
+          aria-label="Stop agent"
           title={error ?? STOP_TIP}
           disabled={busy}
           onClick={stop}
@@ -371,7 +371,7 @@ export function SafetyRow({ actions, compact }: { actions: SafetyAction[]; compa
       <div className="flex gap-2">
         <Button className="flex items-center gap-1.5" title={STOP_TIP} disabled={busy} onClick={stop}>
           <Square size={12} fill="currentColor" />
-          Stop
+          Stop agent
         </Button>
         {actions.map((a) => (
           <SafetyButton key={a.label} action={a} />

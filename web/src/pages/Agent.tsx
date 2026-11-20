@@ -821,13 +821,11 @@ export function AgentPage() {
           </div>
         </div>
       </div>
-      {(panel || instrument) && (
-        <SideColumn
-          tabs={tabs}
-          footer={instrument && <SafetyRow actions={safety} />}
-          rail={instrument && <SafetyRow actions={safety} compact />}
-        />
-      )}
+      <SideColumn
+        tabs={tabs}
+        footer={<SafetyRow actions={safety} />}
+        rail={<SafetyRow actions={safety} compact />}
+      />
       <PlanDialog plan={plan.data} open={planOpen} onOpenChange={setPlanOpen} />
     </div>
   );
