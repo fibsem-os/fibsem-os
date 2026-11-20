@@ -501,6 +501,7 @@ class CommandInfo:
     available: bool
     doc: str
     long: bool = False
+    safety: str = ""
 
 
 def command(
@@ -510,6 +511,7 @@ def command(
     long: bool = False,
     line: Optional[Callable[..., Dict[str, Any]]] = None,
     operator_only: str = "",
+    safety: str = "",
 ) -> Any:
     """Mark a device method as a command. It stays a plain method.
 
@@ -522,6 +524,9 @@ def command(
     agent's request, as the operator approves it (`fibsem.util.wording.Line`).
     ``operator_only`` says why an agent may never run it, at any level
     (`operator_only_reason`); a subclass overriding the method keeps it.
+    ``safety`` marks a command that makes the instrument safe (blank a beam),
+    named as its button reads ("Blank beam"): it takes no control, so it runs
+    while a mill or a move holds it, and the agent may run it only at Drive.
 
     A numpy value among its arguments reaches the method as the plain Python it
     holds (`fibsem.util.plain`), so no driver is handed numpy.
@@ -537,6 +542,8 @@ def command(
             method.__command_line__ = line  # type: ignore[attr-defined]
         if operator_only:
             method.__operator_only__ = operator_only  # type: ignore[attr-defined]
+        if safety:
+            method.__device_safety__ = safety  # type: ignore[attr-defined]
         return method
 
     return mark(fn) if fn is not None else mark
@@ -1037,6 +1044,7 @@ class _Controllable:
                 available=True if available is None else bool(available(self)),
                 doc=inspect.getdoc(attr) or "",
                 long=bool(getattr(attr, "__device_long__", False)),
+                safety=getattr(attr, "__device_safety__", ""),
             )
         return found
 

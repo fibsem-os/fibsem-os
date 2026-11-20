@@ -310,6 +310,7 @@ def describe_device(
                 available=info.available,
                 agent=agent("command", name),
                 long=info.long,
+                safety=info.safety or None,
             )
             for name, info in device.commands.items()
         },

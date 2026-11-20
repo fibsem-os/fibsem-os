@@ -231,6 +231,9 @@ class CommandDescription(QueryDescription):
     agent: Optional[bool] = None
     # Answered at once with a run on the App Server.
     long: bool = False
+    # A safety action's button ("Blank beam"), or None: it makes the
+    # instrument safe, and runs without control.
+    safety: Optional[str] = None
 
 
 @saved(keys={"class_": "class"})
