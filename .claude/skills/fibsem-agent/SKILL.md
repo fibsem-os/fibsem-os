@@ -83,7 +83,9 @@ Every launch starts at Watch; nothing in a file raises it.
   Say so once and stop.
 - **Watch**: you read everything and add notes. You can't decide, start,
   stop, re-queue or edit. Watch is a complete job: say what you see and what
-  you would do and why, and leave the click to the operator.
+  you would do and why, and leave the click to the operator. Say something
+  when something needs saying: a run going as planned needs no play-by-play,
+  and every turn you take re-reads your whole context.
 - **Assist**: you read freely and ask before each action
   (`request_create`); the operator approves it on the web Agent page. See
   *Asking at Assist*.
@@ -268,6 +270,19 @@ failed run, task, mill or command, and a milling monitor's trigger. The next tur
 then may still have finished: read where things stand before you act, and
 never repeat a relative move without checking.
 
+What wakes you is yours to choose, with the `wake_on` tool (fibsem-agent
+only; called with nothing it says what wakes you now and what is held).
+Under `all` every line wakes you. Under `digest` routine lines (a task
+finishing normally, a check that passed) wait and arrive together at the
+top of a later wake, `Held for you ...`; anything that needs you (messages,
+the level, proposals, failures, skipped tasks, deadlines, your wake-ups)
+wakes you at once whatever you set. The playbook's default is digest at
+Watch and all at Assist and Drive; once you set your own it holds until you
+change it. Choose by your job: leading a run you check every result as it
+comes, so keep `all`; watching the operator's run, a digest tells you what
+went well and you still hear what didn't. A digest cut at its size says
+so; `app_get_events` has the full record.
+
 If your harness can't keep a background process alive while you are idle
 (spawned subagents usually can't: the watcher dies with your turn), don't go
 idle expecting a line. Run the watcher in the foreground with your tool
@@ -287,7 +302,9 @@ Its lines:
 - `MILL STAGE STARTED` and `MILL ENDED`: every mill, whoever started it (see
   *Milling*). `MILL READING`: a milling monitor triggered or failed (see
   *Milling monitors*). `COMMAND ENDED`: a long command ended (not one
-  you were waiting for with `service_wait_for_run`: its answer has the end).
+  you were waiting for with `service_wait_for_run`: its answer has the end;
+  under fibsem-agent one whose end you read with it comes in your next
+  wake's held lines instead of waking you).
 - `AUTOFOCUS` and `ALIGNMENT`: every one, whoever ran it (a task's own
   included), with its check: `passed`, `unchecked`, or `doubtful (why)` (the
   working distance moved more than 0.1 mm or the best focus is at the sweep's

@@ -17,6 +17,11 @@
       wake_max_min: 240              # the longest wake-up the agent can set
       deadline_warn_min: 30          # a deadline wakes it this long before
       quiet_min: 20                  # a quiet running workflow wakes it after
+      wake_on_watch: digest          # what wakes it at Watch: all or digest
+      wake_on_assist: all            # ... at Assist
+      wake_on_drive: all             # ... at Drive
+      digest_min: 30                 # held routine lines come this long after
+      digest_lines: 20               # ... or once this many are held
     skills: [autolamella]            # read at the start of the job
     optional:                        # read only when the job needs them
       - skill: autolamella-polishing
@@ -120,7 +125,14 @@ SESSION = (
     "quiet_min",
     "context_marks",
     "compact_window",
+    "wake_on_watch",
+    "wake_on_assist",
+    "wake_on_drive",
+    "digest_min",
+    "digest_lines",
 )
+# What wakes the agent at each level (`wake_policy`).
+WAKE_ON = ("wake_on_watch", "wake_on_assist", "wake_on_drive")
 # Numbers above 0, and the type each is read as.
 NUMBERS = {
     "max_budget_usd": float,
@@ -129,6 +141,8 @@ NUMBERS = {
     "deadline_warn_min": float,
     "quiet_min": float,
     "compact_window": int,
+    "digest_min": float,
+    "digest_lines": int,
 }
 MODES = ("none", "files", "code")
 LEVELS = ("watch", "assist", "drive")
@@ -162,6 +176,15 @@ class SessionSettings:
     compact_window: Optional[int] = None
     """The CLI's auto-compact window, in tokens (100k to 1M); None leaves the
     CLI's own, which compacts near the model's window."""
+    wake_on_watch: Optional[str] = None
+    """What wakes the agent at Watch until it sets its own (`wake_policy`):
+    ``all`` lines, or ``digest``, routine ones held and given together."""
+    wake_on_assist: Optional[str] = None
+    wake_on_drive: Optional[str] = None
+    digest_min: Optional[float] = None
+    """Held routine lines come this many minutes after the first was held."""
+    digest_lines: Optional[int] = None
+    """Held routine lines come once this many are held."""
 
     def merged(self, child: "SessionSettings") -> "SessionSettings":
         """This, with *child*'s settings winning where it has them."""
@@ -508,7 +531,7 @@ def _session(value: Any, path: Path, efforts=()) -> SessionSettings:
     if unknown:
         raise PlaybookError(f"{path}: unknown session setting(s) {', '.join(unknown)}")
     found = {}
-    for key in ("level", "model", "effort", "mode", "folder"):
+    for key in ("level", "model", "effort", "mode", "folder", *WAKE_ON):
         given = value.get(key)
         if given is None:
             continue
@@ -535,6 +558,11 @@ def _session(value: Any, path: Path, efforts=()) -> SessionSettings:
         raise PlaybookError(f"{path}: session level is one of {', '.join(LEVELS)}")
     if found.get("mode", "none") not in MODES:
         raise PlaybookError(f"{path}: session mode is one of {', '.join(MODES)}")
+    for key in WAKE_ON:
+        if found.get(key, "all") not in wake_lines.WAKE_MODES:
+            raise PlaybookError(
+                f"{path}: session {key} is one of {', '.join(wake_lines.WAKE_MODES)}"
+            )
     if efforts and found.get("effort", efforts[0]) not in efforts:
         raise PlaybookError(f"{path}: session effort is one of {', '.join(efforts)}")
     return SessionSettings(**found)

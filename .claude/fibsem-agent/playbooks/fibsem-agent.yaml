@@ -50,6 +50,18 @@ session:
   # The CLI compacts the context near the model's window unless this sets
   # its auto-compact window (tokens, 100000 to 1000000). Unset by default.
   # compact_window: 600000
+  # What wakes the agent at each level, until it sets its own with wake_on:
+  # all (every watcher line) or digest (routine lines, such as a task finishing
+  # normally or an autofocus that passed, held and given together). At Drive
+  # and Assist it checks each result as it comes; at Watch it is told what went
+  # well in a digest, and anything that needs it at once.
+  wake_on_watch: digest
+  wake_on_assist: all
+  wake_on_drive: all
+  # A digest comes this many minutes after its first line was held, or once
+  # this many lines are held, or with the next line that wakes the agent.
+  digest_min: 30
+  digest_lines: 20
 # Read first, every session.
 skills: [fibsem-agent, fibsem-microscope]
 reminders:

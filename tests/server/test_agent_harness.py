@@ -20,7 +20,7 @@ import httpx
 import pytest
 
 from fibsem.ai.agent import harness as harness_mod
-from fibsem.ai.agent import playbooks, usage
+from fibsem.ai.agent import playbooks, usage, wake_policy
 from fibsem.ai.agent import watch as watch_mod
 from fibsem.ai.agent.harness import Harness, TurnEnd, Wakes, kickoff
 from fibsem.ai.agent.levels import AgentLevel
@@ -392,6 +392,7 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
         "ToolSearch",
         "SendMessage",
         harness_mod.WAKE_TOOL,
+        harness_mod.WAKE_ON_TOOL,
         *harness_mod.PLAYBOOK_TOOLS,
         harness_mod.HANDOFF_TOOL,
     ] + [f"Agent({name})" for name in _all().agents]
@@ -2169,3 +2170,47 @@ def test_a_lab_tool_s_picture_goes_on_the_transcript_under_its_step():
     # A send carries one picture at most.
     sent = _one_picture(agent.transcript)
     assert sum(line["kind"] == "picture" for line in sent) == 1
+
+
+# --- what wakes the agent (wake_on) ---------------------------------------------
+
+
+def test_at_watch_routine_lines_wait_for_a_line_that_wakes_the_agent(session, caplog):
+    """The real watch on the real App Server: at Watch, under digest, a task's
+    start and end wait, and come at the top of the turn an operator's message
+    starts. Raised to Drive, every line wakes the agent again."""
+    policy = wake_policy.WakeOn(
+        wake_policy.Settings(watch="digest", every_min=60, after_lines=0)
+    )
+    agent = ScriptedAgent()
+    running = _harness(session, agent, wake_on=policy)
+    assert wait_for(lambda: agent.prompts, timeout=20), "no kickoff"
+    # The level, read as the watch started.
+    assert policy.level == "watch" and policy.mode == "digest"
+
+    buffer = session.recorder.buffer
+    buffer.append("task_started", {"item_name": "01-a", "task_name": "Setup"})
+    buffer.append("task_completed", {"item_name": "01-a", "task_name": "Setup"})
+    assert wait_for(lambda: len(_heard(caplog, "EVENT")) >= 2, timeout=20)
+    time.sleep(4 * POLL_S)
+    assert len(agent.prompts) == 1, "a routine line woke the agent at Watch"
+    assert len(policy.held) == 2
+
+    message_id = AgentControl(session).message("how is it going?")
+    assert wait_for(lambda: len(agent.prompts) >= 2, timeout=20), "no turn"
+    digest, lines = agent.prompts[1].split("\n\nThe watcher printed:\n")
+    assert digest.splitlines()[1:] == [
+        "EVENT task_started 01-a Setup",
+        "EVENT task_completed 01-a Setup",
+    ]
+    assert lines.startswith(f"MESSAGE id={message_id} from the operator")
+
+    assert AgentControl(session).set_level(AgentLevel.DRIVE) is None
+    assert wait_for(lambda: len(agent.prompts) >= 3, timeout=20), "no level turn"
+    assert (
+        "What wakes you now: wake_on all, the default at drive." in (agent.prompts[2])
+    )
+    buffer.append("task_started", {"item_name": "02-b", "task_name": "Setup"})
+    assert wait_for(lambda: len(agent.prompts) >= 4, timeout=20), "no task turn"
+    assert agent.prompts[3] == "The watcher printed:\nEVENT task_started 02-b Setup"
+    assert running.stop() == 0
