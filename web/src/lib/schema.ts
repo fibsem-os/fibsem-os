@@ -1175,6 +1175,8 @@ export interface components {
             is_failure: boolean;
             item_name: string;
             milling_angle: number | null;
+            /** @default  */
+            notes: string;
             poi: {
                 name: string | null;
                 /** @default 0 */
