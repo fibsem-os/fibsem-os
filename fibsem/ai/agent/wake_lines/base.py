@@ -1,8 +1,10 @@
 """What every kind's lines share (`wake_lines`)."""
 
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple, Union
 
-Line = Optional[Tuple[str, str]]
+# (kind, text), or (kind, text, facts) with what the line says in data
+# (`watch.Wake.facts`); None for no line.
+Line = Optional[Union[Tuple[str, str], Tuple[str, str, Dict[str, Any]]]]
 Lines = Dict[str, Callable[[Dict[str, Any]], Line]]
 
 

@@ -25,8 +25,10 @@ you ask. If they leave the run to you, read autolamella-lead.
 - **Learn from what they correct.** When they decide a proposal differently
   from what you suggested, or mark one of your pictures, read their reason
   and apply it to the next lamella. Say back the rule you take from it.
-- **Report as tasks complete**: a line per task, what happened and what is
-  next.
+- **Report as tasks complete**: what happened and what is next, when it
+  tells the operator something they don't see on the screen. A run of tasks
+  that went as planned is one line, not one each; a digest of held lines
+  needs a word only if it shows something.
 
 ## When the operator leaves
 

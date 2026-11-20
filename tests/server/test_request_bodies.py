@@ -20,6 +20,8 @@ TYPED = [
     ("post", "/app/agent/requests"),
     ("post", "/app/agent/requests/{request_id}/withdraw"),
     ("post", "/app/agent/plan/section"),
+    ("post", "/app/agent/plan/append"),
+    ("post", "/app/agent/plan/step"),
     ("put", "/app/agent/plan"),
     ("post", "/app/agent/transcript"),
     ("post", "/app/agent/read"),

@@ -40,7 +40,10 @@ The same run, three jobs:
   act, say what you'd do and why, say who can do it (the operator, or an
   agent they raise to Assist or Drive from the Agent chip), and stop there.
   If the run looks like it is doing damage, tell the operator at once to
-  press Stop.
+  press Stop. Speak when something needs saying (a check that failed, a
+  task that ran too fast or without its reference, a skip): a task that
+  went as planned is no news, and the digest of routine lines you are
+  woken with at Watch needs a word only when it shows something.
 - **Assist: suggest and ask.** Suggest each proposal's decision
   (`proposal_suggest`, *Suggesting at Assist*); anything else you want done
   is a request (fibsem-agent, *Asking at Assist*).
@@ -291,7 +294,10 @@ runs, not that nobody checks it.
 When a task finishes, supervised or on auto, look at its result before the
 lamella goes on: its final images, the wide view with its neighbours, and
 the task's `ALIGNMENT` and `AUTOFOCUS` lines. Is anything torn, missing,
-shifted, or damaged next door? On a supervised task you saw each pass, so
+shifted, or damaged next door? After Rough Milling, look at the widest FIB
+image too: a large ice clump near the lamella, even outside the SEM frame,
+can move onto it later. Note it, with its size and distance, and polish
+that lamella early or skip it (at Assist, the operator's call). On a supervised task you saw each pass, so
 this is quick; on an auto one nobody watched, so look properly.
 
 If the lamella's next task is next in the queue, take it out first

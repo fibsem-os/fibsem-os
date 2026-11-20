@@ -5,7 +5,8 @@ Every session has a folder, ``~/.fibsem/agent/sessions/<date>-<session id>/``:
 ``session.json`` (what it runs with, and each run's start and end, written by
 ``fibsem-agent``), its log, its model calls' tokens (``usage.jsonl``), the
 Claude Code transcript (``transcript.jsonl``, and ``transcript/`` for the
-specialists), and ``manager.json`` when a manager started it.
+specialists), the agent's handoff notes (``handoff.md``) once it has started
+a fresh context, and ``manager.json`` when a manager started it.
 A resumed session runs again in the same folder.
 
 The manager starts each agent detached, so agents keep running when the
@@ -41,6 +42,13 @@ OUTPUT = "fibsem-agent-output.txt"
 STOP = "stop"
 # In the record: the newest event id the agent was given, for a resume.
 EVENT_AFTER = "event_after"
+# In the record: each fresh context after the session's first, oldest first:
+# its CLI conversation and the session's spend when it started.
+CONTEXTS = "contexts"
+# The agent's handoff notes (`handoff`), newest last.
+HANDOFF = "handoff.md"
+# The wake policy the agent set itself, in the record (`SessionFolder.keep_wake_on`).
+WAKE_ON = "wake_on"
 # The agent's own files, when it was given no folder.
 WORK = "work"
 # Without a work folder a session runs in run/, which holds only its skills.
@@ -253,6 +261,16 @@ class SessionFolder:
             record.update(found)
             self._write(record)
 
+    def keep_wake_on(self, state: Optional[dict]) -> None:
+        """The wake policy the agent set itself (`wake_policy.WakeOn.state`),
+        so a resume keeps it; None for the playbook's default."""
+        record = self.record()
+        if state is None:
+            record.pop(WAKE_ON, None)
+        else:
+            record[WAKE_ON] = state
+        self._write(record)
+
     def keep_event_cursor(self, event_id: str) -> None:
         """The id of the newest event the agent has been given, so a resume
         watches from after it (`watch.watch` ``after``)."""
@@ -260,11 +278,47 @@ class SessionFolder:
         record[EVENT_AFTER] = event_id
         self._write(record)
 
+    def keep_context(self, conversation_id: str, spent_before_usd: float) -> None:
+        """A fresh context started (`handoff`): its CLI conversation, which a
+        resume carries on, and the session's spend before it."""
+        record = self.record()
+        record.setdefault(CONTEXTS, []).append(
+            {
+                "conversation_id": conversation_id,
+                "started": timestamps.now().isoformat(),
+                "spent_before_usd": spent_before_usd,
+            }
+        )
+        self._write(record)
+
+    def keep_handoff(self, text: str) -> None:
+        """A handoff note, after the earlier ones."""
+        with open(self.folder / HANDOFF, "a", encoding="utf-8") as file:
+            file.write(text if text.endswith("\n") else text + "\n")
+            file.write("\n")
+
     def _write(self, record: dict) -> None:
         try:
             write_json(self.folder / RECORD, record)
         except OSError as error:
             log.warning("Couldn't write %s: %s", self.folder / RECORD, error)
+
+
+def conversation(record: dict) -> Optional[str]:
+    """The CLI conversation a resume of the session carries on: its newest
+    fresh context's, else the session's own id."""
+    contexts = [c for c in record.get(CONTEXTS) or [] if isinstance(c, dict)]
+    if contexts and contexts[-1].get("conversation_id"):
+        return contexts[-1]["conversation_id"]
+    return record.get("session_id")
+
+
+def context_spend(record: dict) -> float:
+    """What the session had spent before its newest context: the CLI's total
+    for that conversation starts there."""
+    contexts = [c for c in record.get(CONTEXTS) or [] if isinstance(c, dict)]
+    spent = contexts[-1].get("spent_before_usd") if contexts else None
+    return float(spent) if isinstance(spent, (int, float)) else 0.0
 
 
 def watch_for_stop(

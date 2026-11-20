@@ -43,8 +43,14 @@ held and why) at each task boundary, at each failure and at least every 30
 minutes, and one
 `[decision]` note per site list, placement and polishing pass with the image
 paths, your decision, the Verifier's answer and what you did, its image as
-the evidence. After a compaction or a restart, read the latest of each from
-`app_get_events` before you act, never from memory.
+the evidence. After a compaction, a restart or a fresh context, read the
+latest of each from `app_get_events` before you act, never from memory.
+
+**Fresh contexts** (fibsem-agent, *A fresh context*): this run's natural
+boundaries are after the sites are approved, after the first lamella's
+recipe card, between lamellae in the batch once a lamella's task set is done,
+and before the review. A fresh `[run_state]` note first makes the handoff
+note short.
 
 Each lamella also carries its own working `notes` (autolamella, *A
 lamella's record*): rewrite them with `item_update` after every task or
@@ -159,6 +165,8 @@ Gather this before you decide, and give the Verifier the same:
   file name you built. Take any the task didn't with `beam_acquire_image`
   and a `path` (e.g. the lamella's folder), at the question: the run lends
   you the microscope only while it waits on one;
+- the widest FIB image the lamella has (Rough Milling's, around 100 µm)
+  and the latest at that field of view, for ice near the lamella;
 - `item_measure_thickness` on the post-pass image, with its warnings;
 - the pass's `ALIGNMENT` line, the site's baseline and whether it is
   `alignment-risk`, the working distance against the session's;

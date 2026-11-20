@@ -145,6 +145,27 @@ class PlanSectionBody:
 
 
 @dataclass
+class PlanAppendBody:
+    """POST /app/agent/plan/append: lines added at the end of one section."""
+
+    __pydantic_config__ = STRICT
+
+    section: str
+    text: str
+
+
+@dataclass
+class PlanStepBody:
+    """POST /app/agent/plan/step: one Steps box ticked, or unticked."""
+
+    __pydantic_config__ = STRICT
+
+    step: str
+    done: bool = True
+    group: Optional[str] = None
+
+
+@dataclass
 class PlanBody:
     """PUT /app/agent/plan: the whole plan, its sections under ## headings."""
 
@@ -161,6 +182,17 @@ class TranscriptBody:
 
     session_id: str
     entries: List[Any] = field(default_factory=list)
+
+
+@dataclass
+class HandoffBody:
+    """POST /app/agent/handoff: a handoff note fibsem-agent keeps as the agent
+    starts a fresh context."""
+
+    __pydantic_config__ = STRICT
+
+    session_id: str
+    text: str
 
 
 @dataclass

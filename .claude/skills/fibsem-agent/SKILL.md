@@ -83,12 +83,17 @@ Every launch starts at Watch; nothing in a file raises it.
   Say so once and stop.
 - **Watch**: you read everything and add notes. You can't decide, start,
   stop, re-queue or edit. Watch is a complete job: say what you see and what
-  you would do and why, and leave the click to the operator.
+  you would do and why, and leave the click to the operator. Say something
+  when something needs saying: a run going as planned needs no play-by-play,
+  and every turn you take re-reads your whole context.
 - **Assist**: you read freely and ask before each action
   (`request_create`); the operator approves it on the web Agent page. See
   *Asking at Assist*.
 - **Drive**: you act yourself: decide proposals, start and stop workflows,
   edit configuration and, with the microscope served, use the microscope.
+
+A tool's description ends with the level it needs; one that names no level
+works at every level, Watch included.
 
 A refusal names its reason in `detail.error_type`:
 
@@ -100,8 +105,9 @@ A refusal names its reason in `detail.error_type`:
   Stop acting at once, say where you left things, and keep watching. Don't
   ask to be raised again unless they ask you to continue.
 - `agent_off`: you are off. Report it once and stop.
-- `not_allowed`: you may never use that write or command, at any level (the
-  listings mark it `agent: false`), and no request makes it allowed. Say what
+- `not_allowed`: you may never use that write or command, at any level (`device_list` and
+  `service_list` name it under `agent_false`; the describe tools mark it
+  `agent: false`), and no request makes it allowed. Say what
   you wanted and that it is the operator's to do.
 
 Every other refusal is an HTTP error too, never a 200 answer: its `detail`
@@ -264,6 +270,19 @@ failed run, task, mill or command, and a milling monitor's trigger. The next tur
 then may still have finished: read where things stand before you act, and
 never repeat a relative move without checking.
 
+What wakes you is yours to choose, with the `wake_on` tool (fibsem-agent
+only; called with nothing it says what wakes you now and what is held).
+Under `all` every line wakes you. Under `digest` routine lines (a task
+finishing normally, a check that passed) wait and arrive together at the
+top of a later wake, `Held for you ...`; anything that needs you (messages,
+the level, proposals, failures, skipped tasks, deadlines, your wake-ups)
+wakes you at once whatever you set. The playbook's default is digest at
+Watch and all at Assist and Drive; once you set your own it holds until you
+change it. Choose by your job: leading a run you check every result as it
+comes, so keep `all`; watching the operator's run, a digest tells you what
+went well and you still hear what didn't. A digest cut at its size says
+so; `app_get_events` has the full record.
+
 If your harness can't keep a background process alive while you are idle
 (spawned subagents usually can't: the watcher dies with your turn), don't go
 idle expecting a line. Run the watcher in the foreground with your tool
@@ -283,7 +302,9 @@ Its lines:
 - `MILL STAGE STARTED` and `MILL ENDED`: every mill, whoever started it (see
   *Milling*). `MILL READING`: a milling monitor triggered or failed (see
   *Milling monitors*). `COMMAND ENDED`: a long command ended (not one
-  you were waiting for with `service_wait_for_run`: its answer has the end).
+  you were waiting for with `service_wait_for_run`: its answer has the end;
+  under fibsem-agent one whose end you read with it comes in your next
+  wake's held lines instead of waking you).
 - `AUTOFOCUS` and `ALIGNMENT`: every one, whoever ran it (a task's own
   included), with its check: `passed`, `unchecked`, or `doubtful (why)` (the
   working distance moved more than 0.1 mm or the best focus is at the sweep's
@@ -366,6 +387,11 @@ one section at a time with `plan_set_section`:
   its own as `![caption](path)`, the path relative to the experiment folder
   (`lamella-01/polish.png`); the Agent page shows it. **Summary**: at the end.
 
+For a small change, don't resend the section: `plan_append` adds a line
+(a Progress line, a rule, a new box) and `plan_check_step` ticks a box by
+its text. Each write answers the section's length and the boxes done, not
+the plan.
+
 Every instruction goes in the moment it arrives: a standing rule in Rules,
 a task as a Steps box. Read the plan before each step (`plan_get`). Tick a box
 only when it is done and you have said so; a rule stays until the operator
@@ -373,6 +399,24 @@ lifts it or the session ends. A new instruction adds to the plan and never
 replaces what is there unless the operator says so: new instructions are when
 checks get dropped. If two conflict, ask which wins. Read it again after a
 `PLAN EDITED` line, a wake-up, and when your context was compacted.
+
+**A fresh context.** Every turn re-reads your whole context, so each step of
+a long session costs more than the last, and an automatic compaction keeps
+only a summary. Under fibsem-agent, `context_reset` starts a fresh context of
+the same session (same chat, budget, plan and experiment) when your turn
+ends, from your skills, the plan and a handoff note you write. The harness
+tells you once when the context passes a size; whether to act on it is
+yours. It is worth it at a natural boundary when the context is large: a
+block of work done (screening, the sites approved, a lamella's tasks), before
+a long unattended stretch, or before going quiet for a long time (the next
+wake of a large context with a cold cache is dear). Not mid-task, and not
+while a decision waits on the operator's answer. The operator may also ask for
+one. First bring the plan up to date (Steps ticked, Progress written, every
+rule in Rules), then write the note for an agent who knows the skills but
+nothing of today: what is in flight with its ids, the next steps concretely,
+and what the record doesn't hold. A figure in it says where it came from.
+A specialist you were carrying on with (a Verifier kept for a lamella's
+later passes) does not come with you: say in the note what it had settled.
 
 Limits the operator sets are Rules too ("don't change the milling
 currents"). A rule with a time is a deadline: write it as `by 07:00` or

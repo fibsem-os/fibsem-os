@@ -48,6 +48,13 @@ decision. Ask:
   band in the window? Would the pass go past a stop rule, or below the
   smallest gap and current already proven on this grid? Do the alignment
   checks say it may land off target?
+- Ice and debris, for placements and polishing: look at the widest FIB
+  image (around 100 µm), not only the SEM, which may not reach that far.
+  Is there a large dark clump on the surface near the lamella (not the
+  milled trenches)? Has it grown or moved closer since the earlier wide
+  image? A clump can slide onto the lamella later in the run. Name its
+  size, its distance from the lamella and the image, and say what you would
+  do: polish that lamella early, while it is clean, or skip it.
 
 Agree only when you would decide the same yourself. A polishing decision
 that stops thinning is safe to agree with unless the images show the

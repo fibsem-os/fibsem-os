@@ -5,6 +5,10 @@ intake steps and the re-read lines, as files beside the playbooks.
         prompt.md     the harness prompt
         intake.md     ## start, ## resumed, ## goal
         reread.md     ## proposals, ## plan, ## level
+        handoff.md    ## start, ## mark, ## compact: a fresh context's first
+                      prompt, the context-size line, and what compaction
+                      keeps (`handoff`); optional: the default kind's if
+                      missing, and without one the agent has no fresh context
         devices.yaml  what it has, so the agent is offered the tools on them:
                       ``microscope: true`` for a FIB-SEM (every tool), else
                       ``devices:`` and ``services:``, each a list of names;
@@ -46,6 +50,14 @@ FILES: Dict[str, Dict[str, set]] = {
     "intake.md": {"start": set(), "resumed": set(), "goal": {"goal"}},
     "reread.md": {"proposals": set(), "plan": set(), "level": set()},
 }
+# Files a kind may leave out: the default kind's are used instead.
+OPTIONAL: Dict[str, Dict[str, set]] = {
+    "handoff.md": {
+        "start": {"skills", "read_before", "note", "file"},
+        "mark": {"used", "window", "turn_cost"},
+        "compact": set(),
+    },
+}
 _NOTE = re.compile(r"\A\s*<!--.*?-->\s*", re.S)
 _SECTION = re.compile(r"^## +(\S.*?)\s*$", re.M)
 
@@ -66,6 +78,9 @@ class Texts:
     reread_proposals: str
     reread_plan: str
     reread_level: str
+    handoff_start: str = ""
+    handoff_mark: str = ""
+    handoff_compact: str = ""
 
 
 def _folders(checkout: Optional[Path]) -> Dict[str, Path]:
@@ -97,25 +112,18 @@ def load(kind: Optional[str], checkout: Path) -> Texts:
         )
     folder = folders[kind]
     found: Dict[str, Dict[str, str]] = {}
-    for name, sections in FILES.items():
+    for name, sections in {**FILES, **OPTIONAL}.items():
         path = folder / name
+        if not path.is_file() and name in OPTIONAL:
+            path = folders.get(DEFAULT, folder) / name
+            if not path.is_file():
+                found[name] = dict.fromkeys(sections, "")
+                continue
         if not path.is_file():
             raise InstrumentError(f"{path} is missing")
-        texts = _sections(path.read_text(encoding="utf-8"), set(sections) != {""})
-        for section, allowed in sections.items():
-            if section not in texts:
-                raise InstrumentError(f"{path} has no '## {section}' section")
-            try:
-                unknown = _fields(texts[section]) - allowed
-            except ValueError as error:
-                raise InstrumentError(f"{path}: a stray brace: {error}") from None
-            if unknown:
-                raise InstrumentError(
-                    f"{path}: {section or 'the text'} fills in "
-                    f"{', '.join(sorted(unknown))}, which nothing gives"
-                )
-        found[name] = texts
+        found[name] = _read(path, sections)
     intake, reread = found["intake.md"], found["reread.md"]
+    handoff = found["handoff.md"]
     return Texts(
         kind=kind,
         prompt=found["prompt.md"][""],
@@ -125,7 +133,28 @@ def load(kind: Optional[str], checkout: Path) -> Texts:
         reread_proposals=reread["proposals"],
         reread_plan=reread["plan"],
         reread_level=reread["level"],
+        handoff_start=handoff["start"],
+        handoff_mark=handoff["mark"],
+        handoff_compact=handoff["compact"],
     )
+
+
+def _read(path: Path, sections: Dict[str, set]) -> Dict[str, str]:
+    """*path*'s sections, each checked for the values it may fill in."""
+    texts = _sections(path.read_text(encoding="utf-8"), set(sections) != {""})
+    for section, allowed in sections.items():
+        if section not in texts:
+            raise InstrumentError(f"{path} has no '## {section}' section")
+        try:
+            unknown = _fields(texts[section]) - allowed
+        except ValueError as error:
+            raise InstrumentError(f"{path}: a stray brace: {error}") from None
+        if unknown:
+            raise InstrumentError(
+                f"{path}: {section or 'the text'} fills in "
+                f"{', '.join(sorted(unknown))}, which nothing gives"
+            )
+    return texts
 
 
 DEVICES_FILE = "devices.yaml"

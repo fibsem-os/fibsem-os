@@ -206,6 +206,8 @@ export interface components {
             available: boolean;
             /** @default false */
             long: boolean;
+            /** @default  */
+            reason: string;
             returns: string | null;
             signature: string;
         };
@@ -284,9 +286,16 @@ export interface components {
             error: string | null;
             run: components["schemas"]["RunAnswer"] | null;
         };
-        /** @description How full its context is, in tokens. */
+        /** @description One part of the context and its size, as the CLI's ``/context`` names
+         *     it: "System prompt", "MCP tools", "Messages". */
+        ContextPart: {
+            name: string;
+            tokens: number;
+        };
+        /** @description How full its context is, in tokens, and of what. */
         ContextUse: {
             compact_at: number | null;
+            parts: components["schemas"]["ContextPart"][] | null;
             used: number | null;
             window: number | null;
         };
@@ -814,6 +823,12 @@ export interface components {
         HTTPValidationError: {
             detail: components["schemas"]["ValidationError"][];
         };
+        /** @description POST /app/agent/handoff: a handoff note fibsem-agent keeps as the agent
+         *     starts a fresh context. */
+        HandoffBody: {
+            session_id: string;
+            text: string;
+        };
         /** @description POST /app/experiment/analysis/histogram: a saved image's values, on a
          *     plane and in a box when given. */
         HistogramBody: {
@@ -1332,6 +1347,8 @@ export interface components {
             } | null;
             native_max: number | null;
             native_unit: string | null;
+            /** @default  */
+            reason: string;
             settable: boolean;
         };
         MicroscopeInfo: {
@@ -1570,6 +1587,8 @@ export interface components {
             } | null;
             native_max: number | null;
             native_unit: string | null;
+            /** @default  */
+            reason: string;
             settable: boolean;
             type: string;
             type_path: string | null;
@@ -1622,6 +1641,11 @@ export interface components {
                 [key: string]: unknown;
             } | null;
         };
+        /** @description POST /app/agent/plan/append: lines added at the end of one section. */
+        PlanAppendBody: {
+            section: string;
+            text: string;
+        };
         /** @description PUT /app/agent/plan: the whole plan, its sections under ## headings. */
         PlanBody: {
             markdown: string;
@@ -1634,6 +1658,13 @@ export interface components {
         };
         PlanStep: {
             grid: string;
+            step: string;
+        };
+        /** @description POST /app/agent/plan/step: one Steps box ticked, or unticked. */
+        PlanStepBody: {
+            /** @default true */
+            done?: boolean;
+            group?: string | null;
             step: string;
         };
         PlaybookSkill: {
@@ -1732,6 +1763,8 @@ export interface components {
                 [key: string]: unknown;
             };
             available: boolean;
+            /** @default  */
+            reason: string;
             returns: string | null;
             signature: string;
         };
@@ -1908,11 +1941,13 @@ export interface components {
         };
         /** @description The session as the server holds it. */
         ReportedSession: {
+            budget_set_usd: number | null;
             budget_usd: number | null;
             checklist: components["schemas"]["ChecklistItem"][] | null;
             client: string | null;
             code: boolean | null;
             context: components["schemas"]["ContextUse"] | null;
+            contexts: number | null;
             deadlines: components["schemas"]["Deadline"][] | null;
             effort: string | null;
             ended: boolean | null;
@@ -1926,6 +1961,8 @@ export interface components {
             model: string | null;
             playbook: components["schemas"]["PlaybookState"] | null;
             reason: string | null;
+            reset_asked_at: string | null;
+            reset_asked_in: number | null;
             resumed: boolean | null;
             session_id: string | null;
             skills: string[] | null;

@@ -2,10 +2,12 @@
 edit.
 
 The agent writes it at intake under its playbook's headings (Brief, Playbook,
-Rules, Steps, Progress, Summary by default) and keeps it up to date, one
-section at a time (``plan_set_section``). The operator reads it on the Agent
-page and can edit it; the agent is told which sections changed (a ``PLAN
-EDITED`` line) and reads it again. It replaces the agent's checklist: the
+Rules, Steps, Progress, Summary by default) and keeps it up to date: a
+section at a time (``plan_set_section``), a line added to one
+(``plan_append``) or a Steps box ticked (``plan_check_step``). Each answers
+the section written and the step counts, not the plan. The operator reads it
+on the Agent page and can edit it; the agent is told which sections changed
+(a ``PLAN EDITED`` line) and reads it again. It replaces the agent's checklist: the
 session's ``checklist`` is read from it (the Rules as standing rules, the
 Steps' boxes as items).
 
@@ -31,7 +33,7 @@ import os
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
@@ -44,7 +46,7 @@ from fibsem.server.auth import (
     refusal_error,
     require_level,
 )
-from fibsem.server.bodies import PlanBody, PlanSectionBody
+from fibsem.server.bodies import PlanAppendBody, PlanBody, PlanSectionBody, PlanStepBody
 
 logger = logging.getLogger(__name__)
 
@@ -150,6 +152,47 @@ def steps(text: str) -> List[Dict[str, Any]]:
                 {"group": group, "text": box.group(2), "done": box.group(1) != " "}
             )
     return found
+
+
+def check(
+    text: str, step: str, done: bool, group: Optional[str] = None
+) -> Tuple[str, str]:
+    """*text*, the Steps, with one box ticked (*done*) or unticked, and that
+    box's text. The box reads *step* exactly (case aside), else is the only
+    one that starts with it; under the ``###`` *group* when one is given."""
+    want, group = step.strip(), (group or "").strip()
+    if not want or "\n" in want:
+        raise _invalid("step is a Steps box's text, or the start of it.")
+    lines, boxes, under = text.splitlines(), [], ""
+    for i, line in enumerate(lines):
+        heading = _GROUP.match(line)
+        if heading:
+            under = heading.group(1)
+            continue
+        box = _BOX.match(line)
+        if box and (not group or under.lower() == group.lower()):
+            boxes.append((i, under, box.group(2)))
+    low = want.lower()
+    found = [b for b in boxes if b[2] == want] or [
+        b for b in boxes if b[2].lower() == low
+    ]
+    found = found or [b for b in boxes if b[2].lower().startswith(low)]
+    where = f" under ### {group}" if group else ""
+    if not found:
+        raise refusal_error(
+            404, "not_found", f"No Steps box{where} reads or starts with '{want}'."
+        )
+    if len(found) > 1:
+        named = "; ".join(f"{g} / {t}" if g else t for _, g, t in found[:10])
+        raise refusal_error(
+            409,
+            "ambiguous",
+            f"'{want}' matches {len(found)} Steps boxes{where}: {named}. "
+            "Give more of its text, or its group.",
+        )
+    i, _, boxed = found[0]
+    lines[i] = re.sub(r"\[( |x|X)\]", "[x]" if done else "[ ]", lines[i], count=1)
+    return "\n".join(lines), boxed
 
 
 def _short(text: str) -> str:
@@ -282,6 +325,22 @@ class PlanStore:
             "updated_by": self.updated_by,
         }
 
+    def written(self, name: str, **more: Any) -> Dict[str, Any]:
+        """The answer to a write: the section written and its length (0 once
+        removed), the sample and the Steps' boxes done of all, not the plan."""
+        found = steps(self.sections.get("Steps", ""))
+        return {
+            "session_id": self.session_id,
+            "section": name,
+            "length": len(self.sections.get(name, "")),
+            **more,
+            "sample": sample(self.sections) or self.experiment_sample(),
+            "done": sum(1 for s in found if s["done"]),
+            "total": len(found),
+            "updated": self.updated,
+            "updated_by": self.updated_by,
+        }
+
     def experiment_sample(self) -> Optional[str]:
         try:
             return self._experiment_sample() or None
@@ -359,8 +418,8 @@ def build_agent_plan_router(
     experiment_path: Callable[[], Optional[str]],
     emit: Optional[Callable[..., None]] = None,
 ) -> APIRouter:
-    """``/app/agent/plan``: the agent writes it a section at a time, the
-    operator edits it whole, both read it. *emit* puts an event on the record."""
+    """``/app/agent/plan``: the agent writes it a section, a line or a box at
+    a time, the operator edits it whole, both read it. *emit* puts an event on the record."""
     router = APIRouter(
         prefix="/app/agent", dependencies=[Depends(require_level(AgentLevel.WATCH))]
     )
@@ -381,7 +440,7 @@ def build_agent_plan_router(
         except Exception:  # noqa: BLE001 - the record never costs the edit
             logger.debug("could not record %s", kind, exc_info=True)
 
-    def _save(request: Request, sections: Dict[str, str]) -> Dict[str, Any]:
+    def _save(request: Request, sections: Dict[str, str]) -> PlanStore:
         auth: AuthConfig = request.app.state.auth
         by = (
             "operator"
@@ -417,7 +476,7 @@ def build_agent_plan_router(
             )
         if by == "operator" and changed:
             _record(PLAN_EDITED, {"sections": changed, "session_id": session_id}, by)
-        return store.answer()
+        return store
 
     @router.get("/plan")
     def get_plan(request: Request):
@@ -430,16 +489,38 @@ def build_agent_plan_router(
         # the playbook the session runs, for what an example is kept under
         return {**store.answer(), "playbook": name or None}
 
+    def _sections(request: Request) -> Dict[str, str]:
+        return dict(_store(request).current(_session_id(request.app.state.auth)))
+
     @router.post("/plan/section")
     def set_section(request: Request, body: PlanSectionBody):
         name, text = _name(body.section), _text(body.text)
-        store = _store(request)
-        sections = dict(store.current(_session_id(request.app.state.auth)))
+        sections = _sections(request)
         if text:
             sections[name] = text
         else:
             sections.pop(name, None)
-        return _save(request, sections)
+        return _save(request, sections).written(name)
+
+    @router.post("/plan/append")
+    def append(request: Request, body: PlanAppendBody):
+        name, text = _name(body.section), _text(body.text)
+        if not text:
+            raise _invalid("text is the line to add, not empty.")
+        sections = _sections(request)
+        was = sections.get(name, "")
+        sections[name] = f"{was}\n{text}" if was else text
+        if len(sections[name]) > MAX_SECTION:
+            raise _invalid(f"A section is at most {MAX_SECTION} characters.")
+        return _save(request, sections).written(name)
+
+    @router.post("/plan/step")
+    def check_step(request: Request, body: PlanStepBody):
+        sections = _sections(request)
+        sections["Steps"], boxed = check(
+            sections.get("Steps", ""), body.step, body.done, body.group
+        )
+        return _save(request, sections).written("Steps", step=boxed, checked=body.done)
 
     @router.put("/plan")
     def put_plan(request: Request, body: PlanBody):
@@ -449,6 +530,6 @@ def build_agent_plan_router(
                 "markdown is the whole plan, its sections under ## headings."
             )
         sections = {n: _text(t) for n, t in parse(markdown).items()}
-        return _save(request, {n: t for n, t in sections.items() if t})
+        return _save(request, {n: t for n, t in sections.items() if t}).answer()
 
     return router

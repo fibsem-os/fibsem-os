@@ -61,26 +61,107 @@ def test_the_agent_writes_its_plan_a_section_at_a_time_beside_the_experiment(ser
         "steps",
         "### Sites\n- [x] Pick sites\n- [ ] Setup\n\n### Polish\n- [ ] 01",
     )
-    answer = section(agent, "Brief", "Sample: yeast\nWhere do the granules sit?").json()
-    assert answer["sample"] == "yeast"
-    assert [s["name"] for s in answer["sections"]] == ["Steps", "Brief"]
-    assert answer["steps"] == [
+    brief = "Sample: yeast\nWhere do the granules sit?"
+    answer = section(agent, "Brief", brief).json()
+    # A write answers the section and the step counts, not the plan.
+    assert answer == {
+        "session_id": "s1",
+        "section": "Brief",
+        "length": len(brief),
+        "sample": "yeast",
+        "done": 1,
+        "total": 3,
+        "updated": answer["updated"],
+        "updated_by": "agent",
+    }
+    plan = agent.get("/app/agent/plan").json()
+    assert [s["name"] for s in plan["sections"]] == ["Steps", "Brief"]
+    assert plan["steps"] == [
         {"group": "Sites", "text": "Pick sites", "done": True},
         {"group": "Sites", "text": "Setup", "done": False},
         {"group": "Polish", "text": "01", "done": False},
     ]
-    assert answer["done"] == 1 and answer["updated_by"] == "agent"
     kept = (experiment / "agent" / "plan-s1.md").read_text(encoding="utf-8")
     assert kept.index("## Brief") < kept.index("## Steps"), "the default order"
-    assert kept == answer["markdown"]
+    assert kept == plan["markdown"]
     assert [(k, p["sample"], a) for k, p, a in recorded] == [
         (SAMPLE_SET, "yeast", "agent")
     ]
     # Empty text removes a section; a heading inside one is refused.
+    assert section(agent, "Steps", "").json()["length"] == 0
     assert "Steps" not in [
-        s["name"] for s in section(agent, "Steps", "").json()["sections"]
+        s["name"] for s in agent.get("/app/agent/plan").json()["sections"]
     ]
     assert section(agent, "Rules", "## Rules\n- x").status_code == 422
+
+
+def append(client, name, text):
+    return client.post("/app/agent/plan/append", json={"section": name, "text": text})
+
+
+def tick(client, step, **more):
+    return client.post("/app/agent/plan/step", json={"step": step, **more})
+
+
+def test_a_line_is_added_to_a_section_without_sending_it_whole(server):
+    agent, operator, recorded, _, _ = server
+    answer = append(agent, "progress", "Started.").json()
+    assert answer["section"] == "Progress" and answer["length"] == len("Started.")
+    assert append(agent, "Progress", "Milled 01.").json()["length"] == len(
+        "Started.\nMilled 01."
+    )
+    append(agent, "Steps", "### Polish\n- [ ] 01")
+    assert agent.get("/app/agent/plan").json()["sections"] == [
+        {"name": "Progress", "text": "Started.\nMilled 01."},
+        {"name": "Steps", "text": "### Polish\n- [ ] 01"},
+    ]
+    assert append(agent, "Progress", "").status_code == 422
+    assert append(agent, "Progress", "## Done").status_code == 422
+    # The plan's rules hold: a deadline is dated, the sample named once is
+    # recorded, and the operator's line wakes the agent.
+    append(agent, "Rules", "- Finish by 07:00")
+    rules = agent.get("/app/agent/plan").json()["sections"]
+    assert f"Finish by {deadline('07:00'):%Y-%m-%d %H:%M}" in str(rules)
+    section(agent, "Brief", "The question.")
+    assert append(agent, "Brief", "Sample: yeast").json()["sample"] == "yeast"
+    assert [(k, p["sample"]) for k, p, _ in recorded] == [(SAMPLE_SET, "yeast")]
+    append(operator, "Rules", "- Stop at 180 nm")
+    assert recorded[-1][0] == PLAN_EDITED and recorded[-1][1]["sections"] == ["Rules"]
+
+
+def test_one_step_is_ticked_by_its_text_or_the_start_of_it(server):
+    agent, _, _, _, _ = server
+    section(
+        agent,
+        "Steps",
+        "### Sites\n- [ ] Pick sites\n- [ ] Setup 01\n- [ ] Setup 02\n\n"
+        "### Polish\n- [ ] 01\n- [ ] Polish 02",
+    )
+    answer = tick(agent, "pick").json()
+    assert answer["step"] == "Pick sites" and answer["checked"] is True
+    assert (answer["section"], answer["done"], answer["total"]) == ("Steps", 1, 5)
+    assert tick(agent, "Polish 02").json()["done"] == 2
+    assert tick(agent, "Polish 02", done=False).json()["done"] == 1
+    # Several boxes start with it: refused, naming them.
+    refused = tick(agent, "Setup")
+    assert refused.status_code == 409
+    detail = refused.json()["detail"]
+    assert detail["error_type"] == "ambiguous"
+    assert "Sites / Setup 01" in detail["message"]
+    assert tick(agent, "01").json()["step"] == "01", "its exact text first"
+    assert tick(agent, "Setup 0", group="sites").status_code == 409
+    assert tick(agent, "Pick", group="Polish").status_code == 404
+    missing = tick(agent, "Coat")
+    assert missing.status_code == 404
+    assert missing.json()["detail"]["error_type"] == "not_found"
+    assert tick(agent, "  ").status_code == 422
+    assert agent.get("/app/agent/plan").json()["steps"] == [
+        {"group": "Sites", "text": "Pick sites", "done": True},
+        {"group": "Sites", "text": "Setup 01", "done": False},
+        {"group": "Sites", "text": "Setup 02", "done": False},
+        {"group": "Polish", "text": "01", "done": True},
+        {"group": "Polish", "text": "Polish 02", "done": False},
+    ]
 
 
 def test_the_sample_is_written_once_then_only_the_operator_changes_it(server):

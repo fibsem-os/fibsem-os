@@ -45,6 +45,10 @@ agree. What
 you saw goes on the grid's card with `grid_set_note`, so the next session
 finds it with the grid.
 
+Screening reviewed, and later the sites approved, are natural points for a
+fresh context (fibsem-agent, *A fresh context*): the grid cards, the plan and
+the sites hold what the next step needs.
+
 ## Finding sites
 
 When you pick sites (cells, squares):
