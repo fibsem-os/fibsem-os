@@ -749,3 +749,13 @@ def test_show_config_says_what_wakes_the_agent(capsys, tmp_path, monkeypatch):
         "Wakes:    every line at Drive and Assist; at Watch, routine lines in a "
         "digest every 30 min or 20 lines (the agent changes it with wake_on)"
     )
+
+
+def test_the_agent_prompt_cache_lasts_as_long_as_the_policy_counts_on():
+    """The CLI keeps the main conversation's cache for the TTL fibsem-agent
+    sets, and the digest's "gone cold" is that long; specialists keep the
+    CLI's own."""
+    ttl = harness_mod.CLI_ENV["CLAUDE_CODE_PROMPT_CACHE_TTL"]
+    assert ttl == wake_policy.PROMPT_CACHE_TTL == "1h"
+    assert wake_policy.CACHE_COLD_S == 60 * 60
+    assert "CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL" not in harness_mod.CLI_ENV
