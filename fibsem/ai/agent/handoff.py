@@ -77,17 +77,6 @@ TOO_LARGE = (
     "above the playbook's resume_max_context of {limit})."
 )
 RELOAD_FAILED = "its last conversation could not be reloaded ({why})."
-# Said once the context passes the playbook's context_limit.
-OVER_LIMIT = (
-    "WAKE Your context is {used} tokens, above this session's limit of {limit}. "
-    "Bring your plan up to date and call context_reset in this turn, with a "
-    "handoff note, then end your turn. If you don't, fibsem-agent starts the "
-    "fresh context itself when this turn ends, without your note."
-)
-LIMIT_REACHED = (
-    "the context passed the session's limit of {limit} tokens and the agent "
-    "did not call context_reset."
-)
 NO_NOTE = "None: no earlier context of this session wrote one."
 
 

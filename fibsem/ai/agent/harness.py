@@ -1151,7 +1151,6 @@ class Harness:
         wake_on: Optional[wake_policy.WakeOn] = None,
         recover: Optional[str] = None,
         latest_note: Optional[Callable[[], Optional[str]]] = None,
-        context_limit: Optional[int] = None,
     ) -> None:
         self._agent = agent
         # Fresh contexts (`handoff`); None for a session that can't start one.
@@ -1163,10 +1162,6 @@ class Harness:
         # Reads the session's latest handoff note, for a fresh context
         # fibsem-agent starts itself.
         self._latest_note = latest_note or (lambda: None)
-        # Over this context the agent is asked for a fresh context, once; a
-        # turn after that without one starts it here (`_hold_to_limit`).
-        self._context_limit = context_limit
-        self._limit_asked = False
         self._keep_context = keep_context
         self._carried_usd = spent_carried_usd
         # What wakes the agent; with none given, every line does.
@@ -1559,56 +1554,9 @@ class Harness:
         elif end.subtype != "success":
             log.warning("The turn ended with %s.", end.subtype)
         if fresh:
-            self._limit_asked = False
             await self._fresh_context()
-        else:
-            await self._hold_to_limit(end.context)
         await self._report()
         return True
-
-    async def _hold_to_limit(self, context: Optional[dict]) -> None:
-        """After a turn with no fresh context asked for: a context over the
-        playbook's ``context_limit`` asks the agent for one in its next turn,
-        and if that turn ends without it, starts one here."""
-        limit = self._context_limit
-        used = (context or {}).get("used")
-        if (
-            not limit
-            or not used
-            or used < limit
-            or self._handoff is None
-            or not self._words.handoff_recovered
-        ):
-            self._limit_asked = False
-            return
-        if not self._limit_asked:
-            self._limit_asked = True
-            log.warning(
-                "The context is %s tokens, over its limit of %s: the agent is "
-                "asked for a fresh context.",
-                usage.short(used),
-                usage.short(limit),
-            )
-            self._put(
-                self._watcher,
-                watch_mod.Wake(
-                    ALARM,
-                    handoff_mod.OVER_LIMIT.format(
-                        used=usage.short(used), limit=usage.short(limit)
-                    ),
-                ),
-            )
-            return
-        self._limit_asked = False
-        try:
-            await self._recover(
-                handoff_mod.LIMIT_REACHED.format(limit=usage.short(limit)),
-                reconnect=True,
-            )
-        except Exception as error:  # noqa: BLE001 - it carries on in this one
-            log.warning("A fresh context could not start: %s", error, exc_info=True)
-            return
-        self._put(self._watcher, watch_mod.Wake(ALARM, handoff_mod.RECOVERED_WAKE))
 
     async def _keep_unstarted_handoff(self) -> None:
         """A handoff note the agent wrote in the turn the run ended on: kept
@@ -1650,8 +1598,7 @@ class Harness:
 
     async def _recover(self, why: str, reconnect: bool) -> None:
         """Carry the session on in a fresh context fibsem-agent starts itself,
-        *why* (a resume that can't reload the last conversation, a context
-        over its limit): with *reconnect*, start a new
+        *why* (a resume that can't reload the last conversation): with *reconnect*, start a new
         conversation now; without, the agent started in one `main` chose.
         Its first turn rebuilds from the plan, the latest handoff note and
         the record."""
@@ -3480,7 +3427,6 @@ def _main(argv, opened: List["sessions.SessionFolder"]) -> int:
         wake_on=wake_on,
         recover=recover,
         latest_note=lambda: handoff_mod.latest_note(session.folder / sessions.HANDOFF),
-        context_limit=playbook.session.context_limit,
         about={
             "harness": "fibsem-agent",
             "code": work is not None and code,

@@ -4,9 +4,8 @@ skills to read, {read_before} the others read before, {note} the agent's
 handoff note, {file} where it is kept. mark: said once when the context
 first passes a size; {used}, {window} in tokens, {turn_cost} in dollars.
 compact: what the CLI's compaction is asked to keep, if it ever runs.
-recovered: the first prompt of a fresh context fibsem-agent starts itself (a
-resume that can't reload the last conversation, or a context over its
-limit); {why} says why, {skills} as start's, {note}
+recovered: the first prompt of a fresh context fibsem-agent starts itself, for
+a resume that can't reload the last conversation; {why} says why, {skills} as start's, {note}
 the session's latest handoff note, or that there is none. -->
 
 ## start

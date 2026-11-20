@@ -1,5 +1,5 @@
 """A fresh context fibsem-agent starts itself: a resume whose last
-conversation is too large or won't reload, and a context over its limit.
+conversation is too large or can't be loaded.
 
 The harness against a real App Server, as in ``test_agent_handoff.py``; only
 the model is stood in.
@@ -77,14 +77,13 @@ def test_the_latest_handoff_note_is_the_last_in_the_file(tmp_path):
     assert handoff_mod.latest_note(path) == "## Handoff to context 3, b\n\nsecond"
 
 
-def test_every_shipped_kind_has_words_for_it_and_the_base_playbook_sets_both():
+def test_every_shipped_kind_has_words_for_it_and_the_base_playbook_sets_it():
     checkout = harness_mod.find_checkout()
     for kind in instruments.kinds(checkout):
         words = instruments.load(kind, checkout)
         assert "{" not in words.handoff_recovered.format(why="w", skills="s", note="n")
     base = playbooks.load("fibsem-agent", checkout)
     assert base.session.resume_max_context == 700_000
-    assert base.session.context_limit == 800_000
 
 
 # --- the harness --------------------------------------------------------------
@@ -196,47 +195,6 @@ def test_a_new_session_that_dies_still_stops(session):
     running = _harness(session, agent, handoff=_handoff())
     assert running.ended(30) == 1
     assert not agent.conversations
-
-
-def test_a_context_over_its_limit_is_asked_for_a_reset_then_given_one(session):
-    big = {"used": 850_000, "window": 1_000_000}
-
-    async def reply(prompt):
-        # Turns 1 and 2 run over the limit; the agent never resets.
-        if len(agent.prompts) <= 2:
-            return TurnEnd(context=big)
-        return TurnEnd(context={"used": 40_000, "window": 1_000_000})
-
-    agent = ResettingAgent(reply)
-    running = _harness(session, agent, handoff=_handoff(), context_limit=800_000)
-    asyncio.run(asyncio.sleep(2.0))
-    running.stop()
-    assert "above this session's limit of 800k" in agent.prompts[1]
-    assert len(agent.conversations) == 1
-    ((at, _),) = agent.conversations
-    assert at == 2, "the reset came after the turn that was asked"
-    assert agent.prompts[2].startswith(RECOVERED)
-    assert "did not call context_reset" in agent.prompts[2]
-
-
-def test_an_agent_that_resets_when_asked_gets_no_second_reset(session):
-    big = {"used": 850_000, "window": 1_000_000}
-    handoff = _handoff()
-
-    async def reply(prompt):
-        if len(agent.prompts) == 2:
-            handoff.request({"done": "a", "in_flight": "none", "next": "Polish 22."})
-            return TurnEnd(context=big)
-        if len(agent.prompts) == 1:
-            return TurnEnd(context=big)
-        return TurnEnd(context={"used": 40_000})
-
-    agent = ResettingAgent(reply)
-    running = _harness(session, agent, handoff=handoff, context_limit=800_000)
-    asyncio.run(asyncio.sleep(2.0))
-    running.stop()
-    assert len(agent.conversations) == 1
-    assert agent.prompts[2].startswith(WORDS.handoff_start.split(". ")[0])
 
 
 async def _done(end):

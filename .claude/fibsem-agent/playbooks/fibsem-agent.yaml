@@ -56,10 +56,6 @@ session:
   # carries the session on in a fresh context rebuilt from the plan, the
   # handoff notes and the experiment's record.
   resume_max_context: 700000
-  # Above this context (tokens), the agent is told to call context_reset in
-  # its next turn, and if it doesn't, fibsem-agent starts the fresh context
-  # itself as that turn ends: no conversation grows past it.
-  context_limit: 800000
   # What wakes the agent at each level, until it sets its own with wake_on:
   # all (every watcher line) or digest (routine lines, such as a task finishing
   # normally or an autofocus that passed, held and given together). At Drive

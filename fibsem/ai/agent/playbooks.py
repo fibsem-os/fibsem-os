@@ -126,7 +126,6 @@ SESSION = (
     "context_marks",
     "compact_window",
     "resume_max_context",
-    "context_limit",
     "wake_on_watch",
     "wake_on_assist",
     "wake_on_drive",
@@ -144,7 +143,6 @@ NUMBERS = {
     "quiet_min": float,
     "compact_window": int,
     "resume_max_context": int,
-    "context_limit": int,
     "digest_min": float,
     "digest_lines": int,
 }
@@ -185,11 +183,6 @@ class SessionSettings:
     context was below this many tokens; above it, or when the reload fails,
     the session carries on in a fresh context rebuilt from its record
     (`handoff`). None always reloads it."""
-    context_limit: Optional[int] = None
-    """Above this many tokens of context, the agent is told to call
-    context_reset in its next turn; if it doesn't, fibsem-agent starts the
-    fresh context itself as that turn ends, so no conversation grows without
-    end. None leaves it to the agent and the CLI's compaction."""
     wake_on_watch: Optional[str] = None
     """What wakes the agent at Watch until it sets its own (`wake_policy`):
     ``all`` lines, or ``digest``, routine ones held and given together."""
