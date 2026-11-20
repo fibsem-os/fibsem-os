@@ -1367,6 +1367,8 @@ class Waiting:
 
     proposal: str
     who: str
+    # The agent decides it now (Drive, listening): nothing for the operator to do.
+    agent_reviewing: bool = False
 
 
 @dataclass

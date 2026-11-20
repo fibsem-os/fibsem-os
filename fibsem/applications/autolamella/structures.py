@@ -301,7 +301,10 @@ class Lamella(SiteItem):
     poi: Point = field(
         default_factory=lambda: Point(0.0, 0.0)
     )  # point of interest within lamella area (milling coordinate system)
-    description: str = ""  # free-text note about the lamella
+    description: str = ""  # what the lamella is: where it came from, why, its target
+    # Working notes on where the lamella stands now, rewritten as it goes. The
+    # dated history and its reasoning are the experiment's notes.
+    notes: str = ""
     # The grid this lamella sits on: GridRecord.id, or None when the experiment
     # does not track grids (every experiment before grid records existed). A
     # back-reference only; grid -> lamella is derived by filtering on it.
