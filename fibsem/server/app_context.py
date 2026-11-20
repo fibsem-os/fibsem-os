@@ -173,6 +173,9 @@ class AppContext:
 
     # The app the operator works in, as the App Server names it to the agent.
     app_name = "fibsemOS"
+    # The ``app`` its experiments are written with: its recents list shows those,
+    # not another app's. None: every app's.
+    experiment_app: Optional[str] = None
     # Whether creating or opening an experiment waits for a FIB/SEM
     # microscope. An app for another instrument says False.
     experiments_need_microscope = True
@@ -779,8 +782,12 @@ class AppContext:
         }
 
     def recent_experiments(self) -> List[Dict[str, Any]]:
-        """The recents list, via the never-raising peek layer."""
-        return [self.experiment_entry(s) for s in get_recent_experiments()]
+        """The recents list, via the never-raising peek layer: this app's
+        experiments (`experiment_app`), not another app's."""
+        return [
+            self.experiment_entry(s)
+            for s in get_recent_experiments(app=self.experiment_app)
+        ]
 
     def saved_experiments(
         self,

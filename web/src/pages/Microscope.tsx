@@ -58,6 +58,21 @@ function stageRows(v: Values): Row[] {
 function display(value: unknown, spec: ParameterSpec): string | null {
   if (typeof value === "boolean") return value ? "Yes" : "No";
   if (typeof value === "string") return words(value);
+  // A vector or a dict of readings (a shift {x, y}, a size [w, h]): each part
+  // shown as the parameter's unit says, so the card isn't empty for them.
+  if (Array.isArray(value)) {
+    const parts = value.map((part) => display(part, spec));
+    return parts.length && parts.every((part) => part != null) ? parts.join(" × ") : null;
+  }
+  if (value != null && typeof value === "object") {
+    const parts = Object.entries(value)
+      .map(([key, part]) => {
+        const text = display(part, spec);
+        return text == null ? null : `${key} ${text}`;
+      })
+      .filter((part): part is string => part != null);
+    return parts.length ? parts.join(" · ") : null;
+  }
   if (typeof value !== "number") return null;
   const d = spec.display ?? {};
   if (d.scale != null) return `${+(value * d.scale).toFixed(d.decimals ?? 2)}${d.unit ?? ""}`;

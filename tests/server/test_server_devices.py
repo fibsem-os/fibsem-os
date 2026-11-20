@@ -120,20 +120,23 @@ def blank_is_safety(microscope, monkeypatch):
     """A FIB/SEM declares no safety action (Stop is enough there): mark the
     beam's blank as one, as another instrument would mark its own."""
     blank = type(microscope.beams[BeamType.ION]).blank
-    monkeypatch.setattr(blank, "__device_safety__", "Blank beam", raising=False)
+    monkeypatch.setattr(blank, "__device_safety__", True, raising=False)
+    monkeypatch.setattr(blank, "__device_label__", "Blank beam", raising=False)
 
 
 def test_the_listing_names_a_safety_action(read_client, blank_is_safety):
-    """The page's safety buttons come from the listing: a command marked
-    ``safety`` names its button, any other has none."""
+    """The page's safety buttons come from the listing: a safety command
+    with a ``label`` names its button, any other has none."""
     commands = read_client.get("/microscope/devices").json()["ion"]["commands"]
-    assert commands["blank"]["safety"] == "Blank beam"
-    assert commands["unblank"]["safety"] is None
+    assert commands["blank"]["safety"] is True
+    assert commands["blank"]["label"] == "Blank beam"
+    assert commands["unblank"]["safety"] is False
+    assert commands["unblank"]["label"] == ""
 
 
 def test_a_fibsem_declares_no_safety_action(read_client):
     for spec in read_client.get("/microscope/devices").json().values():
-        assert not any(c["safety"] for c in spec["commands"].values()), spec["name"]
+        assert not any(c["label"] for c in spec["commands"].values()), spec["name"]
 
 
 def test_a_safety_action_runs_whoever_is_in_control(

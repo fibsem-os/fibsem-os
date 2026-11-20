@@ -215,6 +215,8 @@ class ParameterDescription:
     native_unit: Optional[str] = None
     # Whether the agent may set it; None where the server has no blocklist.
     agent: Optional[bool] = None
+    # Why it can't be set now, when it can at other times.
+    reason: str = ""
 
 
 @dataclass
@@ -224,6 +226,8 @@ class QueryDescription:
     arguments: Dict[str, Any]
     returns: Optional[str]
     available: bool
+    # Why it is not available now, when it says.
+    reason: str = ""
 
 
 @dataclass
@@ -231,9 +235,11 @@ class CommandDescription(QueryDescription):
     agent: Optional[bool] = None
     # Answered at once with a run on the App Server.
     long: bool = False
-    # A safety action's button ("Blank beam"), or None: it makes the
-    # instrument safe, and runs without control.
-    safety: Optional[str] = None
+    # A safety action (`command`'s ``safety``): it runs during a Safety Halt,
+    # and takes no control of the microscope.
+    safety: bool = False
+    # Its button pinned on the Agent page ("Close valves"); empty for none.
+    label: str = ""
 
 
 @saved(keys={"class_": "class"})
@@ -268,6 +274,7 @@ class MetadataAnswer:
     settable: bool
     native_max: Optional[float]
     native_unit: Optional[str]
+    reason: str = ""
 
 
 @dataclass

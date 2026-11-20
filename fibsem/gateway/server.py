@@ -110,6 +110,16 @@ class Caller:
     may_switch: bool
 
 
+def _settings(body: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """A start's app settings, ``{name: value}``; refused when not a dict."""
+    settings = body.get("settings")
+    if settings is None:
+        return None
+    if not isinstance(settings, dict):
+        raise _refused(422, "bad_setting", "settings is {name: value}.")
+    return settings
+
+
 def _refused(status: int, error_type: str, message: str) -> HTTPException:
     return HTTPException(status, detail={"error_type": error_type, "message": message})
 
@@ -183,7 +193,7 @@ def build_gateway_app(
     @app.post("/gateway/start", response_model=GatewayState)
     def start(body: Dict[str, Any], found: Caller = Depends(switcher)):
         """``{app, window, experiment | last, create, force, connect,
-        configuration}``:
+        configuration, settings}``:
         stop the running app and start this one, with its window at this PC
         (the default) or without, connecting *configuration* (the default one)
         as it starts when *connect*."""
@@ -201,6 +211,7 @@ def build_gateway_app(
                 connect=None if body.get("connect") is None else bool(body["connect"]),
                 configuration=body.get("configuration"),
                 create=bool(body.get("create", False)),
+                settings=_settings(body),
             ),
         )
 
@@ -378,13 +389,15 @@ def build_gateway_app(
     @app.put("/gateway/defaults", response_model=GatewayDefaults)
     def put_defaults(body: Dict[str, Any], found: Caller = Depends(caller)):
         """``{configuration, connect, app, window, playbook, level,
-        budget_usd}``: the operator only."""
+        budget_usd, settings, apps}``: the operator only. Saved as
+        *app*'s own choices too (`apps`), the other apps' kept."""
         if not found.operator:
             raise _refused(403, "operator_only", "Only the operator sets defaults.")
         try:
             defaults = GatewayDefaults.checked(body)
         except GatewayRefused as refusal:
             raise _refused(refusal.status, refusal.error_type, str(refusal)) from None
+        defaults = defaults.merged(read_defaults(defaults_file))
         save_defaults(defaults, defaults_file)
         return defaults
 
