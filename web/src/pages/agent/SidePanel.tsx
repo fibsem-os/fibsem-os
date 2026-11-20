@@ -11,6 +11,9 @@ import { cn } from "@/lib/utils";
 const SOON_MIN = 30;
 
 const WARN = "text-[var(--fibsem-warn-color)]";
+/** Context sizes, in tokens, from which the panel shows it orange, then red. */
+const CONTEXT_WARN = 400_000;
+const CONTEXT_HIGH = 800_000;
 
 const dollars = (value: number) => (Number.isInteger(value) ? `$${value}` : `$${value.toFixed(2)}`);
 
@@ -369,10 +372,13 @@ export function SidePanel({
     deadlines,
     checklist,
   } = session;
-  // How near the context is to compaction: a warning from 80%.
-  const contextFull = context?.compact_at || context?.window;
+  // The bar spans the window (else the compaction point); the context is
+  // orange from CONTEXT_WARN and red from CONTEXT_HIGH tokens.
+  const contextFull = context?.window || context?.compact_at;
   const contextShare = contextFull ? context!.used / contextFull : 0;
-  const contextLow = !ended && contextShare >= 0.8;
+  const contextLevel =
+    !context || ended ? null : context.used >= CONTEXT_HIGH ? "high" : context.used >= CONTEXT_WARN ? "warn" : null;
+  const contextText = contextLevel === "high" ? "text-destructive" : contextLevel === "warn" ? WARN : "";
   return (
     <div className="flex flex-col gap-3.5 text-[13px] leading-[1.45]">
       {(goal || deadlines?.length) ? (
@@ -408,7 +414,7 @@ export function SidePanel({
         </Section>
       ) : null}
       {(budget != null || spent != null || context) && (
-        <Section title="Budget">
+        <Section title="Usage">
           {(budget != null || spent != null) && (
             <p
               className={cn("m-0", budgetLow && WARN)}
@@ -418,6 +424,7 @@ export function SidePanel({
                   : undefined
               }
             >
+              <span className="text-muted-foreground">Budget </span>
               {ended ? (
                 budget != null ? (
                   `${dollars(spent ?? 0)} of ${dollars(budget)}`
@@ -452,26 +459,42 @@ export function SidePanel({
           ) : null}
           {context && (
             <p
-              className={cn("m-0 mt-1.5", contextLow ? WARN : "text-muted-foreground")}
+              className={cn("m-0 mt-2.5", contextText)}
               title={context.compact_at ? `Compacts at ${count(context.compact_at)}` : undefined}
             >
-              Context {count(context.used)}
+              <span className="text-muted-foreground">Context </span>
+              {count(context.used)}
               {context.window ? ` of ${count(context.window)}` : " tokens"}
             </p>
           )}
           {contextFull ? (
-            // Filled to where the CLI compacts, else to the whole window.
-            <div
-              className="mt-1.5 h-[3px] rounded-sm bg-accent"
-              title={`${Math.round(100 * contextShare)}% of ${context?.compact_at ? "the way to compaction" : "the window"}`}
-            >
+            <div className="relative mt-1.5 h-[3px] rounded-sm bg-accent">
               <div
                 className={cn(
                   "h-full rounded-sm",
-                  contextLow ? "bg-[var(--fibsem-warn-color)]" : "bg-muted-foreground/70",
+                  contextLevel === "high"
+                    ? "bg-destructive"
+                    : contextLevel === "warn"
+                      ? "bg-[var(--fibsem-warn-color)]"
+                      : "bg-muted-foreground/70",
                 )}
                 style={{ width: `${Math.min(100, 100 * contextShare)}%` }}
               />
+              {/* Ticks where the context turns orange, then red. */}
+              {[CONTEXT_WARN, CONTEXT_HIGH].map(
+                (mark, i) =>
+                  mark < contextFull && (
+                    <div
+                      key={mark}
+                      className={cn(
+                        "absolute -top-[2px] h-[7px] w-[2px] rounded-sm",
+                        i ? "bg-destructive/80" : "bg-[var(--fibsem-warn-color)]/80",
+                      )}
+                      style={{ left: `${(100 * mark) / contextFull}%` }}
+                      title={`${count(mark)}: ${i ? "red" : "orange"} from here`}
+                    />
+                  ),
+              )}
             </div>
           ) : null}
         </Section>
