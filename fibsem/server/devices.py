@@ -104,12 +104,15 @@ from fibsem.ai.agent.calls import current_call
 from fibsem.cancellation import NothingToStop, OperationCancelledError
 from fibsem.codec import decode, encode
 from fibsem.devices.core import (
+    CommandUnavailable,
     Device,
     DeviceFault,
     ParameterMetadata,
+    ParameterOutOfRange,
     ParameterReadOnly,
     ParameterUnavailable,
     ResourceBusy,
+    SafetyHalted,
 )
 from fibsem.devices.entries import (
     build_device_entries,
@@ -185,6 +188,9 @@ WS_PROTOCOL = "websockets-sansio"
 ERROR_STATUS = {
     ParameterUnavailable: 404,
     ParameterReadOnly: 409,
+    CommandUnavailable: 409,  # not available now; the message says why
+    SafetyHalted: 409,  # the instrument's Safety Halt: the operator clears it
+    ParameterOutOfRange: 422,  # outside the limits of a parameter that refuses
     OperationCancelledError: 409,  # stopped: a sweep, a mill
     ResourceBusy: 409,  # held by someone else: a scanner live on the other beam
     NothingToStop: 409,  # a stop with nothing running
@@ -308,6 +314,7 @@ def describe_device(
                 arguments=_arguments(device, name),
                 returns=_returns(device, name),
                 available=info.available,
+                reason=info.reason,
                 agent=agent("command", name),
                 long=info.long,
             )
@@ -319,6 +326,7 @@ def describe_device(
                 arguments=_arguments(device, name),
                 returns=_returns(device, name),
                 available=info.available,
+                reason=info.reason,
             )
             for name, info in getattr(device, "queries", {}).items()
         },
@@ -364,6 +372,7 @@ def metadata_payload(metadata: ParameterMetadata) -> MetadataAnswer:
         settable=metadata.settable,
         native_max=metadata.native_max,
         native_unit=metadata.native_unit,
+        reason=metadata.reason,
     )
 
 
@@ -804,7 +813,7 @@ def build_device_router(
         return answer(
             metadata_payload(
                 run(
-                    lambda: parameter_of(device, parameter).metadata,
+                    lambda: parameter_of(device, parameter).effective_metadata(),
                     f"{noun} {device}.{parameter}",
                 )
             )
@@ -851,6 +860,13 @@ def build_device_router(
         if paths is not None:
             kwargs = paths(kwargs)
         check(d, "command", command, kwargs)
+        info = d.commands[command]
+        if not info.available:
+            why = f": {info.reason}" if info.reason else ""
+            raise refusal(
+                CommandUnavailable(f"{device}.{command} is not available now{why}"),
+                what,
+            )
         if long_commands and d.commands[command].long:
             release = adopt_control(request) if adopt_control is not None else None
             agent_call = current_call()
