@@ -18,7 +18,7 @@ from fibsem.alignment import (
     _calculate_shift,
     compare_alignment_methods,
 )
-from fibsem.analysis import measure
+from fibsem.analysis import coincidence, lattice, measure
 from fibsem.analysis.answers import (
     ImageDrawn,
     ImageMeasured,
@@ -33,7 +33,11 @@ from fibsem.analysis.images import load_planes
 from fibsem.analysis.root import FileRefusal, resolve
 from fibsem.conversions import image_to_microscope_image_coordinates
 from fibsem.fm.preview import is_fluorescence_image
-from fibsem.geometry.saved_images import image_point_to_stage_position, stage_projector
+from fibsem.geometry.saved_images import (
+    image_point_to_stage_position,
+    image_points_to_stage,
+    stage_projector,
+)
 from fibsem.imaging.cells import from_crop
 from fibsem.imaging.marks import (
     draw,
@@ -283,6 +287,96 @@ class ImageTools:
             ).to_dict()
         return ImageShift(reference, image, shift, comparison)
 
+    def coincidence_offset(
+        self,
+        sem_path: str,
+        sem_point: Optional[List[float]],
+        fib_path: str,
+        fib_point: Optional[List[float]],
+        sem_crop: Any = None,
+        fib_crop: Any = None,
+        pairs: Optional[List[Dict[str, Any]]] = None,
+        tolerance_um: Optional[float] = None,
+    ) -> ImageMeasured:
+        """The vertical move that brings features picked in both the saved
+        SEM and FIB images to coincidence
+        (`fibsem.analysis.coincidence.coincidence_offset`): one at
+        *sem_point* and *fib_point*, or *pairs* (``{sem, fib, label?}``).
+        With a picture of every pair, labelled, and where each lands in the
+        FIB, saved as ``drawn/<sem>-<fib>-coincidence.png`` beside the SEM
+        image. Points read off a crop's picture name that crop (*sem_crop*,
+        *fib_crop*: a cell's name or a box), as `pixel_to_stage` takes it."""
+        if pairs is None:
+            if sem_point is None or fib_point is None:
+                raise ImageRefused("invalid", "Give sem_point and fib_point, or pairs.")
+            pairs = [{"sem": sem_point, "fib": fib_point}]
+        elif sem_point is not None or fib_point is not None:
+            raise ImageRefused(
+                "invalid", "Give sem_point and fib_point, or pairs, not both."
+            )
+        sem_target, fib_target = self.image(sem_path), self.image(fib_path)
+        sem, fib = _beam_image(sem_target, sem_path), _beam_image(fib_target, fib_path)
+        try:
+            pairs = [
+                {
+                    **pair,
+                    "sem": _uncropped_point(sem_target, sem_crop, pair["sem"], None)[0]
+                    if sem_crop is not None
+                    else pair["sem"],
+                    "fib": _uncropped_point(fib_target, fib_crop, pair["fib"], None)[0]
+                    if fib_crop is not None
+                    else pair["fib"],
+                }
+                for pair in pairs
+            ]
+            result = coincidence.coincidence_offset(
+                sem,
+                fib,
+                pairs,
+                None if tolerance_um is None else float(tolerance_um) * 1e-6,
+            )
+        except (ValueError, KeyError, TypeError) as exc:
+            raise ImageRefused("invalid", f"{type(exc).__name__}: {exc}") from None
+        sem_marks, fib_marks = [], []
+        for pair, (x, y) in ((p, p["sem_px"]) for p in result["pairs"]):
+            sem_marks.append({"x": x, "y": y, "label": pair["label"]})
+            fx, fy = pair["fib_px"]
+            fib_marks.append({"x": fx, "y": fy, "label": pair["label"]})
+            if "after_fib_px" in pair:
+                ax, ay = pair["after_fib_px"]
+                fib_marks.append(
+                    {
+                        "x": ax,
+                        "y": ay,
+                        "shape": "target",
+                        "label": f"{pair['label']} after",
+                    }
+                )
+        try:
+            left = draw(
+                sem_target,
+                _checked_marks({"points": sem_marks}, sem_target),
+                crosshair=True,
+            )
+            right = draw(
+                fib_target,
+                _checked_marks({"points": fib_marks}, fib_target),
+                crosshair=True,
+            )
+        except ValueError as exc:
+            raise ImageRefused("invalid", str(exc)) from None
+        saved = drawn_path(
+            sem_target,
+            f"{image_stem(sem_target)}-{image_stem(fib_target)}-coincidence",
+        )
+        return ImageMeasured(
+            sem_path,
+            "coincidence",
+            {"sem_path": sem_path, "fib_path": fib_path, **result},
+            saved,
+            save_drawn(side_by_side(left.rgb, right.rgb), saved),
+        )
+
     def _measured(self, path: str, run, figure=None, name: str = "") -> ImageMeasured:
         """*run* (and its *figure*, saved as ``drawn/<image>-<name>.png``) on
         the saved image *path*."""
@@ -328,11 +422,14 @@ class ImageTools:
         channel: Optional[str] = None,
         plane: Optional[int] = None,
         dip: bool = False,
+        points: Optional[int] = None,
     ) -> ImageMeasured:
         """A saved image's values along a line, and the FWHM of its peak (or
-        *dip*), with a figure (`fibsem.analysis.measure.line_profile`)."""
+        *dip*), with a figure (`fibsem.analysis.measure.line_profile`). The
+        answer leaves the per-pixel samples out; *points* adds the profile
+        resampled to that many (`fibsem.analysis.measure.profile_summary`)."""
         line = "-".join(str(round(v)) for v in (*start, *end))
-        return self._measured(
+        answer = self._measured(
             path,
             lambda image: measure.line_profile(
                 image, start, end, width_px, channel, plane, dip
@@ -340,6 +437,11 @@ class ImageTools:
             measure.profile_figure,
             f"profile-{line}",
         )
+        try:
+            answer.result = measure.profile_summary(answer.result, points)
+        except ValueError as exc:
+            raise ImageRefused("invalid", str(exc)) from None
+        return answer
 
     def image_quality(
         self, path: str, channel: Optional[str] = None, plane: Optional[int] = None
@@ -375,16 +477,60 @@ class ImageTools:
         channel: Optional[str] = None,
         plane: Optional[int] = None,
         box: Optional[List[float]] = None,
+        points: Optional[int] = None,
     ) -> ImageMeasured:
         """A saved image's radially averaged power spectrum, the finest
         period with signal and its anisotropy, with a figure
-        (`fibsem.analysis.measure.power_spectrum`)."""
-        return self._measured(
+        (`fibsem.analysis.measure.power_spectrum`). The answer leaves the
+        radial average out; *points* adds it resampled to that many
+        (`fibsem.analysis.measure.spectrum_summary`)."""
+        answer = self._measured(
             path,
             lambda image: measure.power_spectrum(image, channel, plane, box),
             measure.spectrum_figure,
             _measure_name("spectrum", plane, box),
         )
+        try:
+            answer.result = measure.spectrum_summary(answer.result, points)
+        except ValueError as exc:
+            raise ImageRefused("invalid", str(exc)) from None
+        return answer
+
+    def find_grid_squares(
+        self,
+        path: str,
+        points: Optional[List[List[float]]] = None,
+        limit: Optional[int] = None,
+        box: Optional[List[float]] = None,
+        pitch_um: Optional[float] = None,
+    ) -> ImageMeasured:
+        """The grid-bar lattice on a saved image (fitted in *box*, preferring
+        *pitch_um* when given), its squares and *points* checked against the
+        bars (`fibsem.analysis.lattice`), each with the stage position under
+        it when the image says where it was taken; the figure saved as
+        ``drawn/<image>-grid.png``."""
+        target = self.image(path)
+        try:
+            planes = load_planes(target)
+            fit = lattice.fit_lattice(planes, box, pitch_um)
+            result = lattice.grid_answer(fit, planes.pixel_size, points, limit)
+        except ValueError as exc:
+            raise ImageRefused("invalid", str(exc)) from None
+        measured = result.get("candidate") or result
+        placed = [
+            p
+            for p in measured.get("squares", []) + measured.get("points", [])
+            if p.get("bar_distance_px", 0) is not None
+        ]
+        try:
+            stages = image_points_to_stage(target, [p["px"] for p in placed])
+        except Exception:  # noqa: BLE001 - a picture or a file with no geometry
+            stages = [None] * len(placed)
+        for p, stage in zip(placed, stages):
+            p["stage_position"] = None if stage is None else stage.to_dict()
+        saved = drawn_path(target, f"{image_stem(target)}-grid")
+        plot = save_drawn(lattice.grid_figure(planes, fit, result), saved)
+        return ImageMeasured(path, "grid", result, saved, plot)
 
     def measure_thickness(
         self,

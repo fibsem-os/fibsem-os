@@ -204,7 +204,7 @@ TOOLS = (
     ToolSpec(
         name="analysis_measure_profile",
         returns="ImageMeasured",
-        description="A saved image's values along a line from start to end ([x, y] pixels), a sample per pixel, each the mean across width_px, on one plane of a fluorescence stack (plane) or its max projection. Answers the samples and their distance (in metres too when the pixel size is known), and the full width at half maximum of the profile's peak (its dip with dip=true) above the baseline, the median of the profile's outer fifths: fwhm_px (fwhm_m), with where it crosses the half level. fwhm is null when the profile doesn't fall to half on both sides: draw a longer line. For a spot's size, a lamella's edge, a bar's width. Saves a figure beside the image as drawn/<image>-profile-<x0>-<y0>-<x1>-<y1>.png: the line on the image and the profile with its FWHM. Cite that path as evidence. Nothing moves.",
+        description="A saved image's values along a line from start to end ([x, y] pixels), a sample per pixel, each the mean across width_px, on one plane of a fluorescence stack (plane) or its max projection. Answers the line's length (in metres too when the pixel size is known), min, max, the extremum and where it is, and the full width at half maximum of the profile's peak (its dip with dip=true) above the baseline, the median of the profile's outer fifths: fwhm_px (fwhm_m), with where it crosses the half level. fwhm is null when the profile doesn't fall to half on both sides: draw a longer line. The samples themselves are left out; points=N adds the profile resampled to N samples (distance_px, values). For a spot's size, a lamella's edge, a bar's width. Saves a figure beside the image as drawn/<image>-profile-<x0>-<y0>-<x1>-<y1>.png: the line on the image and the profile with its FWHM. Cite that path as evidence. Nothing moves.",
         method="POST",
         path="/app/experiment/analysis/profile",
         level="watch",
@@ -226,13 +226,62 @@ TOOLS = (
                 "optional: measure the profile's dip, not its peak (default false)",
                 bool,
             ),
+            "points": arg(
+                "optional: also answer the profile resampled to this many samples, 2 to 10000 (default none; a line shorter than that comes per pixel)",
+                int,
+            ),
         },
-        optional=("width_px", "channel", "plane", "dip"),
+        optional=("width_px", "channel", "plane", "dip", "points"),
+    ),
+    ToolSpec(
+        name="analysis_measure_coincidence_offset",
+        returns="ImageMeasured",
+        description="SEM/FIB coincidence from features you picked yourself in a saved SEM image and a saved FIB image taken at one stage position: one feature as sem_point and fib_point, or 2 to 10 as pairs, each {sem: [x, y], fib: [x, y], label?} on the same feature, in each image's full-resolution pixels; points read off a crop's picture take that crop (sem_crop, fib_crop), converted for you. Converts with the images' own pixel sizes and the pair's stage geometry (the geometry alignment_check_coincidence uses). Answers per pair its offsets from each image centre (x right, y up) and the dy and dx it alone gives; vertical_move: the dy to hand stage_vertical_move with beam_type ION, the median of the pairs that agree, with from_pairs naming them, and direction in words; dz, the height error as alignment_check_coincidence reports it; stage_move_m, the raw stage move that dy makes; per pair after_fib_px, where its FIB point lands (the SEM view is unchanged; a feature lands at its SEM offset foreshortened, so one centred in the SEM ends centred in both); spread_m across pairs. A pair whose dy or dx is off the others' median by more than tolerance_m (2 um or 4 pixels unless you give tolerance_um) carries disagrees: it may be another feature, or the sample may not be flat; you decide. Two pairs that disagree, or no majority agreeing, give no vertical_move: each pair's own dy stands, for you to choose from. dx is what no stage move changes: one pair's differing dx marks a wrong match; a dx common to all (above 5 um, in warnings) is a beam offset. Refuses images that are not one electron and one ion image, or that lack pixel size or geometry; images whose recorded stage positions differ are measured, with a warning saying by how much. Saves a picture beside the SEM image as drawn/<sem>-<fib>-coincidence.png: every pair labelled in both images, and where each lands in the FIB. Check it before moving. Nothing moves.",
+        method="POST",
+        path="/app/experiment/analysis/coincidence",
+        level="watch",
+        router="analysis",
+        params={
+            "sem_path": "the saved SEM (electron) image's path inside the experiment folder",
+            "fib_path": "the saved FIB (ion) image of the same place, taken without moving the stage",
+            "sem_point": arg(
+                "one feature's [x, y] in the SEM image's full-resolution pixels (with fib_point; or pairs)",
+                List[float],
+            ),
+            "fib_point": arg(
+                "the same feature's [x, y] in the FIB image's full-resolution pixels",
+                List[float],
+            ),
+            "pairs": arg(
+                "instead of sem_point and fib_point, up to 10 features: [{sem: [x, y], fib: [x, y], label: optional short name}, ...]",
+                list,
+            ),
+            "sem_crop": arg(
+                "optional: the crop the SEM points were read off: a cell's name (B3) from analysis_crop_image, or its box [x, y, width, height]",
+                Union[str, List[float]],
+            ),
+            "fib_crop": arg(
+                "optional: the crop the FIB points were read off, as sem_crop",
+                Union[str, List[float]],
+            ),
+            "tolerance_um": arg(
+                "optional: how far, in um, a pair's dy or dx may be off the others' before it is flagged (default 2 um or 4 pixels)",
+                float,
+            ),
+        },
+        optional=(
+            "sem_point",
+            "fib_point",
+            "pairs",
+            "sem_crop",
+            "fib_crop",
+            "tolerance_um",
+        ),
     ),
     ToolSpec(
         name="analysis_measure_quality",
         returns="ImageMeasured",
-        description="Whether a saved image is good enough to go on with. A beam image is judged as auto brightness/contrast judges one: the fraction of pixels clipped black and white (only areas wider than a few pixels count), the centre and spread of the bulk of its histogram on the file's range, problems in words (empty when it meets the targets), and unusable when it is mostly black, white or flat. A fluorescence channel has no such targets: its percentiles, saturated (% of pixels at the file's full value) and range_used (the 99.9th percentile as a fraction of it). focus is the mean Laplacian: only comparable between images of one scene at one magnification. For a fluorescence stack, each plane's sharpness relative to the sharpest, and which that is. Measured on plane, else a stack's max projection. Nothing is saved; nothing moves.",
+        description="Measures of a saved image, to weigh with how it looks: whether it is good enough for what you need is yours to say. A beam image is measured as auto brightness/contrast measures one: the fraction of pixels clipped black and white (only areas wider than a few pixels count), and the centre and spread of the bulk of its histogram on the file's range. problems and unusable are what that routine would say against its own targets, which were set on its probe images, not on your sample: a hint, where an image can serve with a problem named or fail you with none. A fluorescence channel has no such targets: its percentiles, saturated (% of pixels at the file's full value) and range_used (the 99.9th percentile as a fraction of it). focus is the mean Laplacian: only comparable between images of one scene at one magnification. For a fluorescence stack, each plane's sharpness relative to the sharpest, and which that is. Measured on plane, else a stack's max projection. Nothing is saved; nothing moves.",
         method="GET",
         path="/app/experiment/analysis/quality",
         level="watch",
@@ -273,7 +322,7 @@ TOOLS = (
     ToolSpec(
         name="analysis_measure_power_spectrum",
         returns="ImageMeasured",
-        description="The power spectrum of a saved image (a beam image, or a fluorescence channel on plane, else its max projection), only in box when given: the region cut to a square, windowed, and its 2D Fourier power averaged in rings. Answers radial_power against frequency (cycles per pixel, 0 to 0.5), the noise_floor (median power of the outermost tenth), cutoff (the highest frequency still twice the floor) as finest_period_px (and finest_period_m with the pixel size): the finest detail the image holds, which grows coarser with defocus, drift or a worn probe. anisotropy is the power along x over along y in the middle frequencies: near 1 for a round probe, far from it with astigmatism, drift or scan lines. Compare images of one scene at one magnification; a featureless area has no detail to find. Saves a figure beside the image as drawn/<image>-spectrum.png (-plane-<n>, -box-... when given): the log power with the cutoff circle, and the radial average. Cite that path as evidence. Nothing moves.",
+        description="The power spectrum of a saved image (a beam image, or a fluorescence channel on plane, else its max projection), only in box when given: the region cut to a square, windowed, and its 2D Fourier power averaged in rings. Answers the noise_floor (median power of the outermost tenth), cutoff (the highest frequency still twice the floor) as finest_period_px (and finest_period_m with the pixel size): the finest detail the image holds, which grows coarser with defocus, drift or a worn probe. anisotropy is the power along x over along y in the middle frequencies: near 1 for a round probe, far from it with astigmatism, drift or scan lines. The radial average itself is left out; points=N adds it resampled to N frequencies (frequency in cycles per pixel, 0 to 0.5, and radial_power). Compare images of one scene at one magnification; a featureless area has no detail to find. Saves a figure beside the image as drawn/<image>-spectrum.png (-plane-<n>, -box-... when given): the log power with the cutoff circle, and the radial average. Cite that path as evidence. Nothing moves.",
         method="POST",
         path="/app/experiment/analysis/spectrum",
         level="watch",
@@ -289,8 +338,12 @@ TOOLS = (
                 "optional: only this region, [x, y, width, height] in the image's pixels; at least 16 px on its short side",
                 List[float],
             ),
+            "points": arg(
+                "optional: also answer the radial average resampled to this many frequencies, 2 to 1000 (default none)",
+                int,
+            ),
         },
-        optional=("channel", "plane", "box"),
+        optional=("channel", "plane", "box", "points"),
     ),
     ToolSpec(
         name="analysis_measure_thickness",
@@ -339,5 +392,33 @@ TOOLS = (
             ),
         },
         optional=("method", "compare", "agreement_px"),
+    ),
+    ToolSpec(
+        name="analysis_find_grid_squares",
+        returns="ImageMeasured",
+        description="A fit of the grid-bar lattice on a saved image (SEM, a tilted FIB view, or a stitched overview), to help with where the bars and square centres are; check it against its overlay and the image. Answers lattice (per direction a, b: step_px between square centres, pitch, bar width, bar angle; px and m in the image plane, so a tilted view's are foreshortened), quality (score, explained, shifts, and the cutoffs that shaped the answer) and warnings. When the fit is not accepted, lattice is null with reason and the best candidate is under candidate, same shape, drawn on the figure: weigh it with your own reading of the image. squares: the limit squares nearest the first point (else the image centre), each with id (r<row>c<col>, only for this answer), centre px and stage_position, in_view (all its film in the image), match (how clearly its bars show, 0 to 1) and extrapolated (outside box). Each of points ([x, y] px, a candidate site) answers bar_distance (to the nearest bar edge, negative on a bar), offset from its square's centre, px and m, and its square. box fits only that region (a tile, the part on the grid); pitch_um prefers candidates whose longer step is near it and says if the fit disagrees. Saves drawn/<image>-grid.png with every square's fitted outline. Nothing moves.",
+        method="POST",
+        path="/app/experiment/analysis/grid_squares",
+        level="watch",
+        router="analysis",
+        params={
+            "path": "a saved image file path inside the experiment folder",
+            "points": arg(
+                "optional: [[x, y], ...] candidate sites in the image's full-resolution pixels",
+                List[List[float]],
+            ),
+            "limit": arg(
+                "optional: how many squares to list, 0 to 200 (default 9)", int
+            ),
+            "box": arg(
+                "optional: fit only this region, [x, y, width, height] in the image's pixels; answers stay in the whole image's pixels",
+                List[float],
+            ),
+            "pitch_um": arg(
+                "optional: the expected bar pitch in um if known (about 127 for 200 mesh), compared with the longer step",
+                float,
+            ),
+        },
+        optional=("points", "limit", "box", "pitch_um"),
     ),
 )

@@ -126,6 +126,24 @@ def test_a_playbook_turns_its_subagents_on_and_its_optional_skills_too(lab, chec
     assert on.subagents() == ["my-checker"]
 
 
+def test_the_site_finder_is_on_with_screening(lab, checkout):
+    found = playbooks.load("autolamella", checkout)
+    assert found.optional_skill("screen-grids").agents == ["autolamella-site-finder"]
+    assert "autolamella-site-finder" in found.optional_skill("autolamella-lead").agents
+    on = playbooks.Reminders()
+    on.set(found, "named by the operator")
+    on.loaded("screen-grids")
+    assert on.subagents() == ["autolamella-site-finder"]
+    # Named by two of its optional skills, it is offered once.
+    assert found.all_agents().count("autolamella-site-finder") == 1
+    assert _all().agents.count("autolamella-site-finder") == 1
+    # The correlative playbook screens grids too.
+    correlative = playbooks.load("autolamella-correlative", checkout)
+    assert correlative.optional_skill("screen-grids").agents == [
+        "autolamella-site-finder"
+    ]
+
+
 def test_the_transcript_says_which_subagents_are_on(lab, checkout):
     said = []
     control = harness_mod.PlaybookControl(

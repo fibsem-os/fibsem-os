@@ -513,9 +513,10 @@ Every read works at Watch.
 | What's it asking? | `proposal_list` |
 | How has the run gone? | `experiment_get_task_history`; `workflow_get_summary` for the last workflow started in this app session |
 | Why did it fail? | `app_get_log` with the `task_id`, `level=WARNING` |
-| Is this image good enough to go on with? | `analysis_measure_quality` |
+| What do an image's histogram and focus say, to weigh with how it looks? | `analysis_measure_quality` |
 | How bright is a target, and against what? | `analysis_measure_intensity` with a `reference` point (a bead, the bulk); `correlation_refine_point`'s `z_fit` for its plane and width in z |
 | How wide is a spot, an edge or a bar? | `analysis_measure_profile` (`fwhm`; null means draw a longer line) |
+| How far off coincidence is a feature I found in both beams? | `analysis_measure_coincidence_offset` (the `dy` for `stage_vertical_move`) |
 | Grids | `grid_list`, `grid_get`, `grid_get_markers`, `experiment_render_markers` |
 | Grids on the hardware now | `grid_get_inventory` (which grid is loaded), `grid_get_current` |
 | Files | `experiment_list_files`, `experiment_read_file`, `analysis_crop_image` |

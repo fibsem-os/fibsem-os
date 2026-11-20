@@ -668,6 +668,40 @@ class ProfileBody:
     channel: Optional[str] = None
     plane: Optional[Plane] = None
     dip: Optional[Flag] = None
+    points: Optional[Annotated[int, Strict(), Field(ge=2, le=10000)]] = None
+
+
+@dataclass
+class PointPair:
+    """One feature: where it is in the SEM image and in the FIB image."""
+
+    __pydantic_config__ = STRICT
+
+    sem: Point
+    fib: Point
+    label: Optional[Annotated[str, Field(min_length=1, max_length=24)]] = None
+
+
+@dataclass
+class CoincidenceOffsetBody:
+    """POST /app/experiment/analysis/coincidence: features picked in a saved
+    SEM image and in a saved FIB image, one (sem_point, fib_point) or
+    several (pairs)."""
+
+    __pydantic_config__ = STRICT
+
+    sem_path: str
+    fib_path: str
+    sem_point: Optional[Point] = None
+    fib_point: Optional[Point] = None
+    pairs: Optional[Annotated[List[PointPair], Field(min_length=1, max_length=10)]] = (
+        None
+    )
+    # the crop each point was read off: a cell's name or [x, y, width, height]
+    sem_crop: Optional[Union[str, Tuple[float, float, float, float]]] = None
+    fib_crop: Optional[Union[str, Tuple[float, float, float, float]]] = None
+    # how far a pair's dy or dx may be off the others' before it is flagged
+    tolerance_um: Optional[float] = None
 
 
 @dataclass
@@ -687,7 +721,8 @@ class HistogramBody:
 @dataclass
 class SpectrumBody:
     """POST /app/experiment/analysis/spectrum: a saved image's power
-    spectrum, on a plane and in a box when given."""
+    spectrum, on a plane and in a box when given; *points* adds its radial
+    average resampled to that many frequencies."""
 
     __pydantic_config__ = STRICT
 
@@ -695,6 +730,22 @@ class SpectrumBody:
     channel: Optional[str] = None
     plane: Optional[Plane] = None
     box: Optional[Tuple[float, float, float, float]] = None
+    points: Optional[Annotated[int, Strict(), Field(ge=2, le=1000)]] = None
+
+
+@dataclass
+class GridSquaresBody:
+    """POST /app/experiment/analysis/grid_squares: the grid-bar lattice on a
+    saved image, *limit* squares and the *points* to check against the bars;
+    fitted in *box* and preferring *pitch_um* when given."""
+
+    __pydantic_config__ = STRICT
+
+    path: str
+    points: Optional[List[Point]] = None
+    limit: Optional[Annotated[int, Strict(), Field(ge=0, le=200)]] = None
+    box: Optional[Tuple[float, float, float, float]] = None
+    pitch_um: Optional[Annotated[float, Field(gt=0)]] = None
 
 
 @dataclass
@@ -724,6 +775,23 @@ class MillingDrawnBody:
     scan_direction: Optional[Flag] = None
     alignment_area: Optional[Flag] = None
     metadata_bar: Optional[Flag] = None
+
+
+@dataclass
+class MillingOverviewBody:
+    """POST /app/experiment/images/milling: items' milling drawn on an
+    overview of their grid. Items by name, or every item of ``grid_name``;
+    the overview at ``path`` or the grid's latest SEM overview; a ``box``
+    ([x, y, width, height] in its pixels) to show instead of the items'
+    neighbourhood."""
+
+    __pydantic_config__ = STRICT
+
+    item_names: Optional[Union[str, List[str]]] = None
+    grid_name: Optional[str] = None
+    path: Optional[str] = None
+    task_names: Optional[Union[str, List[str]]] = None
+    box: Optional[Tuple[float, float, float, float]] = None
 
 
 @dataclass

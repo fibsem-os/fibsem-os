@@ -37,8 +37,8 @@ def take_reference_images(
     microscope: FibsemMicroscope, image_settings: ImageSettings
 ) -> tuple[FibsemImage, FibsemImage]:
     """An electron and an ion image with the same settings
-    (`microscope.imaging.reference_images`)."""
-    eb_image, ib_image = microscope.imaging.reference_images(image_settings)
+    (`microscope.imaging.acquire_pair`)."""
+    eb_image, ib_image = microscope.imaging.acquire_pair(image_settings)
     return eb_image, ib_image
 
 
@@ -49,8 +49,8 @@ def acquire_channels(
     acquire_fib: bool = True,
 ) -> tuple[Optional[FibsemImage], Optional[FibsemImage]]:
     """An SEM and/or FIB image with the same settings, None for one not asked for
-    (`microscope.imaging.reference_images`)."""
-    sem_image, fib_image = microscope.imaging.reference_images(
+    (`microscope.imaging.acquire_pair`)."""
+    sem_image, fib_image = microscope.imaging.acquire_pair(
         image_settings, electron=acquire_sem, ion=acquire_fib
     )
     return sem_image, fib_image
@@ -65,8 +65,8 @@ def acquire_set_of_channels(
     acquire_fib: bool = True,
 ) -> list[tuple[Optional[FibsemImage], Optional[FibsemImage]]]:
     """SEM and/or FIB images at each field of view in ``hfws``, saved as
-    ``<filename>_res_01``, ``_res_02`` ... (`microscope.imaging.reference_image_sets`)."""
-    sets = microscope.imaging.reference_image_sets(
+    ``<filename>_res_01``, ``_res_02`` ... (`microscope.imaging.acquire_pairs`)."""
+    sets = microscope.imaging.acquire_pairs(
         image_settings, hfws, filename=filename, electron=acquire_sem, ion=acquire_fib
     )
     return [(sem, fib) for sem, fib in sets]

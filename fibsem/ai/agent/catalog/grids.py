@@ -3,7 +3,7 @@
 from typing import Any, Dict, List, Tuple
 
 from fibsem.ai.agent.catalog.spec import ToolSpec, arg, kwargs_body
-from fibsem.server.parts import GRIDS
+from fibsem.server.parts import GRIDS, LAMELLAE
 from fibsem.util import wording
 
 
@@ -177,6 +177,32 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "grid_name": "the grid name",
             "filename": "an overview basename from grid_list / grid_get, or any saved image's path in the experiment",
         },
+    ),
+    ToolSpec(
+        name="grid_draw_milling",
+        returns="MillingOnOverview",
+        description="Items' milling patterns drawn on an overview of their grid, to check layout before milling: each pattern's outline (trench, stress relief, fiducial, polishing) carried from the item's FIB frame at its pose onto the grid's latest SEM overview (or any saved image with stage metadata), cropped to the items with a grid square's margin so the bars show. Judge a fiducial or trench on a bar by eye. Answers per item its footprint's box on the sample surface (metres from the overview centre) and its nearest neighbour's edge-to-edge distance and which cuts, the nearest pair (drawn as a line), what could not be placed, and caveats on the projection. Saved as drawn/<image>-milling.png beside the overview (replaced when drawn again): cite it as evidence. Items on another grid than the overview's are refused. Nothing moves.",
+        method="POST",
+        path="/app/experiment/images/milling",
+        level="watch",
+        router="app",
+        part=LAMELLAE,
+        params={
+            "item_names": arg(
+                "the items to draw (default: every item on grid_name)", List[str]
+            ),
+            "grid_name": "the grid whose items and latest SEM overview to use (default: the items' grid)",
+            "path": "optional: an overview or other saved image inside the experiment to draw on",
+            "task_names": arg(
+                "optional: the milling tasks to draw (default: every milling task)",
+                List[str],
+            ),
+            "box": arg(
+                "optional: draw this region instead, [x, y, width, height] in the image's pixels",
+                List[float],
+            ),
+        },
+        optional=("item_names", "grid_name", "path", "task_names", "box"),
     ),
     ToolSpec(
         name="grid_add",

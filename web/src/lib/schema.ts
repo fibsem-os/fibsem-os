@@ -198,6 +198,35 @@ export interface components {
             state: "open" | "done" | "always";
             text: string;
         };
+        /** @description POST /app/experiment/analysis/coincidence: features picked in a saved
+         *     SEM image and in a saved FIB image, one (sem_point, fib_point) or
+         *     several (pairs). */
+        CoincidenceOffsetBody: {
+            fib_crop?: string | [
+                number,
+                number,
+                number,
+                number
+            ] | null;
+            fib_path: string;
+            fib_point?: [
+                number,
+                number
+            ] | null;
+            pairs?: components["schemas"]["PointPair"][] | null;
+            sem_crop?: string | [
+                number,
+                number,
+                number,
+                number
+            ] | null;
+            sem_path: string;
+            sem_point?: [
+                number,
+                number
+            ] | null;
+            tolerance_um?: number | null;
+        };
         CommandDescription: {
             agent: boolean | null;
             arguments: {
@@ -788,6 +817,24 @@ export interface components {
             task_names: string[];
             /** @default false */
             unload_at_end?: boolean;
+        };
+        /** @description POST /app/experiment/analysis/grid_squares: the grid-bar lattice on a
+         *     saved image, *limit* squares and the *points* to check against the bars;
+         *     fitted in *box* and preferring *pitch_um* when given. */
+        GridSquaresBody: {
+            box?: [
+                number,
+                number,
+                number,
+                number
+            ] | null;
+            limit?: number | null;
+            path: string;
+            pitch_um?: number | null;
+            points?: [
+                number,
+                number
+            ][] | null;
         };
         GridSummary: {
             completed_tasks: string[];
@@ -1429,6 +1476,42 @@ export interface components {
             scan_direction?: boolean | null;
             task_names: string | string[];
         };
+        MillingOnOverview: {
+            caveats: string[];
+            closest: {
+                [key: string]: unknown;
+            } | null;
+            grid_name: string | null;
+            image: string;
+            items: {
+                [key: string]: unknown;
+            }[];
+            path: string;
+            plot: {
+                [key: string]: string;
+            };
+            task_names: string[];
+            unplaced: {
+                [key: string]: string;
+            }[];
+        };
+        /** @description POST /app/experiment/images/milling: items' milling drawn on an
+         *     overview of their grid. Items by name, or every item of ``grid_name``;
+         *     the overview at ``path`` or the grid's latest SEM overview; a ``box``
+         *     ([x, y, width, height] in its pixels) to show instead of the items'
+         *     neighbourhood. */
+        MillingOverviewBody: {
+            box?: [
+                number,
+                number,
+                number,
+                number
+            ] | null;
+            grid_name?: string | null;
+            item_names?: string | string[] | null;
+            path?: string | null;
+            task_names?: string | string[] | null;
+        };
         /** @description A new name. */
         NameBody: {
             name: string;
@@ -1687,6 +1770,18 @@ export interface components {
             /** @default 0 */
             y: number;
         };
+        /** @description One feature: where it is in the SEM image and in the FIB image. */
+        PointPair: {
+            fib: [
+                number,
+                number
+            ];
+            label?: string | null;
+            sem: [
+                number,
+                number
+            ];
+        };
         /** @description POST .../items/{item_name}/move_to: a pose name from the item. */
         PoseBody: {
             pose: string;
@@ -1701,6 +1796,7 @@ export interface components {
             ];
             path: string;
             plane?: number | null;
+            points?: number | null;
             start: [
                 number,
                 number
@@ -2274,7 +2370,8 @@ export interface components {
             name: string;
         };
         /** @description POST /app/experiment/analysis/spectrum: a saved image's power
-         *     spectrum, on a plane and in a box when given. */
+         *     spectrum, on a plane and in a box when given; *points* adds its radial
+         *     average resampled to that many frequencies. */
         SpectrumBody: {
             box?: [
                 number,
@@ -2285,6 +2382,7 @@ export interface components {
             channel?: string | null;
             path: string;
             plane?: number | null;
+            points?: number | null;
         };
         /** @description One image of an item's stack: the file one run recorded under a role. */
         StackSlice: {

@@ -274,7 +274,7 @@ def test_reference_images_leave_the_settings_alone(microscope, tmp_path):
         path=str(tmp_path),
         filename="ref",
     )
-    eb, ib = microscope.imaging.reference_images(settings)
+    eb, ib = microscope.imaging.acquire_pair(settings)
     assert eb.metadata.image_settings.beam_type is BeamType.ELECTRON
     assert ib.metadata.image_settings.beam_type is BeamType.ION
     assert settings.beam_type is BeamType.ION
@@ -282,7 +282,7 @@ def test_reference_images_leave_the_settings_alone(microscope, tmp_path):
     sem, fib = acquire.acquire_channels(microscope, settings, acquire_sem=False)
     assert sem is None and fib is not None
 
-    sets = microscope.imaging.reference_image_sets(
+    sets = microscope.imaging.acquire_pairs(
         settings, [200e-6, 80e-6], filename="ref", ion=False
     )
     assert [pair[1] for pair in sets] == [None, None]
