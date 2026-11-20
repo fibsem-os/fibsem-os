@@ -146,6 +146,7 @@ from fibsem.server.images import (
     image_list_bytes,
     is_image_list,
     is_image_result,
+    own_summary,
     tiff_bytes,
 )
 from fibsem.server.kept_reads import KeptReads, read_wait, with_age
@@ -822,10 +823,16 @@ def build_device_router(
         """A command's result as JSON. An image list, or with *preview* any
         image, answers what an agent reads: a summary, its saved path and a
         small JPEG (image_answer). So does an image under ``image`` in a dict
-        (a tiled overview's answer)."""
+        (a tiled overview's answer), and another instrument's image always
+        (`own_summary`: it has no data form of its own)."""
         if (preview and is_image_result(result)) or is_image_list(result):
             return image_answer(result)
-        if isinstance(result, dict) and isinstance(result.get("image"), FibsemImage):
+        if own_summary(result) is not None:  # another instrument's: no data form
+            return image_answer(result)
+        if isinstance(result, dict) and (
+            isinstance(result.get("image"), FibsemImage)
+            or own_summary(result.get("image")) is not None
+        ):
             return json_answer(
                 {**result, "image": image_answer(result["image"])}, preview
             )

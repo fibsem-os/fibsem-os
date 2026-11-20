@@ -57,8 +57,9 @@ class FakeGateway:
         connect=None,
         configuration=None,
         create=False,
+        settings=None,
     ):
-        self.create = create
+        self.create, self.settings = create, settings
         return self._do(
             RUNNING,
             who,
@@ -650,8 +651,33 @@ def test_the_operator_saves_the_pages_defaults(with_defaults):
     r = client.put("/gateway/defaults", json=saved, headers=_as(OPERATOR_TOKEN))
     assert r.status_code == 200 and r.json()["budget_usd"] == 20.0
     read = client.get("/gateway/defaults", headers=_as(OPERATOR_TOKEN)).json()
-    assert read == {**saved, "budget_usd": 20.0}
+    assert {k: read[k] for k in saved} == {**saved, "budget_usd": 20.0}
+    assert read["apps"]["autolamella"]["playbook"] == "autolamella-lead"
     assert json.loads(path.read_text())["level"] == "drive"
+
+
+def test_each_app_keeps_its_own_defaults(with_defaults):
+    """An app for another instrument keeps its playbook and settings apart."""
+    client, _ = with_defaults
+    put = lambda body: client.put(
+        "/gateway/defaults", json=body, headers=_as(OPERATOR_TOKEN)
+    )
+    assert (
+        put({"app": "autolamella", "playbook": "autolamella-lead"}).status_code == 200
+    )
+    r = put(
+        {
+            "app": "other",
+            "playbook": "other-playbook",
+            "window": False,
+            "settings": {"url": "http://127.0.0.1:9000"},
+        }
+    )
+    assert r.status_code == 200, r.text
+    read = client.get("/gateway/defaults", headers=_as(OPERATOR_TOKEN)).json()
+    assert read["app"] == "other"
+    assert read["apps"]["autolamella"]["playbook"] == "autolamella-lead"
+    assert read["apps"]["other"]["settings"] == {"url": "http://127.0.0.1:9000"}
 
 
 def test_defaults_refuse_what_the_page_could_not_use(with_defaults):

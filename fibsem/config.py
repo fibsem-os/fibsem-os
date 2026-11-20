@@ -674,12 +674,17 @@ def record_recent_experiment(experiment_yaml_path: str) -> None:
     )
 
 
-def get_recent_experiments(prune_missing: bool = True) -> List[ExperimentSummary]:
+def get_recent_experiments(
+    prune_missing: bool = True, app: Optional[str] = None
+) -> List[ExperimentSummary]:
     """Return display info for recent experiments, most-recent-first.
 
     Args:
         prune_missing: If True, drop paths that no longer exist on disk and
             save the pruned list.
+        app: Only the experiments this application wrote (an experiment's
+            ``app``; one that can't be read says none and stays): the list is
+            one per account, shared by every app. None: all of them.
     """
     infos = [peek_experiment(p) for p in recent_experiment_paths()]
 
@@ -689,8 +694,10 @@ def get_recent_experiments(prune_missing: bool = True) -> List[ExperimentSummary
             _recent_state(writable=True).save_section(
                 RECENT_EXPERIMENTS, [info.path for info in kept]
             )
-        return kept
+        infos = kept
 
+    if app is not None:
+        infos = [info for info in infos if info.app in (None, app)]
     return infos
 
 

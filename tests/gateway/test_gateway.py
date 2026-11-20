@@ -544,3 +544,65 @@ def test_nothing_is_taken_back_when_the_app_is_gone(tmp_path, fakes, held_by_ano
     if held_by_another:
         first.stop("operator", "page")
     assert started.pid
+
+
+def _other_gateway(tmp_path, fakes):
+    """A gateway with an app for an instrument that isn't a FIB-SEM: no
+    experiment, no microscope connection, no window, two settings of its own."""
+    from dataclasses import replace
+
+    from fibsem.tools.apps import AppSetting
+
+    other = replace(
+        _app("serve"),
+        name="Other",
+        opens_experiments=False,
+        connects_microscope=False,
+        has_window=False,
+        settings=(
+            AppSetting("url", "Its server", "http://127.0.0.1:9000"),
+            AppSetting("work-dir", "Work folder"),
+        ),
+    )
+    registry = {"other": other}
+    return Gateway(
+        home=tmp_path,
+        app_registry=lambda: registry,
+        last=lambda: "/experiments/grid3",
+        recent=lambda: [],
+        new_folder=lambda: "/experiments",
+        discovery=lambda: fakes.found,
+        running=lambda url: fakes.running,
+        configurations=lambda: CONFIGURATIONS,
+    )
+
+
+def test_an_app_is_passed_only_what_it_takes_and_its_own_settings(tmp_path, fakes):
+    gateway = _other_gateway(tmp_path, fakes)
+    apps = gateway.state().apps
+    assert [
+        (a.has_window, a.opens_experiments, a.connects_microscope) for a in apps
+    ] == [(False, False, False)]
+    assert [s["name"] for s in apps[0].settings] == ["url", "work-dir"]
+    # With its window asked for: it has none, so it runs headless.
+    state = gateway.start_app(
+        "operator",
+        "page",
+        app="other",
+        window=True,
+        last=True,
+        connect=True,
+        settings={"work-dir": "/tmp/w"},
+    )
+    assert state.window is False
+    log = _log(gateway.stop("operator", "page"))
+    assert "serving --url http://127.0.0.1:9000 --work-dir /tmp/w" in log
+    assert "--last" not in log and "--no-connect" not in log and "--config" not in log
+
+
+def test_a_setting_an_app_doesnt_take_is_refused(tmp_path, fakes):
+    gateway = _other_gateway(tmp_path, fakes)
+    with pytest.raises(GatewayRefused) as refused:
+        gateway.start_app("operator", "page", app="other", settings={"port": "1"})
+    assert refused.value.error_type == "bad_setting"
+    assert "takes no setting port" in str(refused.value)
