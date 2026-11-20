@@ -167,6 +167,8 @@ Gather this before you decide, and give the Verifier the same:
   file name you built. Take any the task didn't with `beam_acquire_image`
   and a `path` (e.g. the lamella's folder), at the question: the run lends
   you the microscope only while it waits on one;
+- the widest FIB image the lamella has (Rough Milling's, around 100 µm)
+  and the latest at that field of view, for ice near the lamella;
 - `item_measure_thickness` on the post-pass image, with its warnings;
 - the pass's `ALIGNMENT` line, the site's baseline and whether it is
   `alignment-risk`, the working distance against the session's;

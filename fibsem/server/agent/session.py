@@ -12,7 +12,9 @@ for fibsem-agent's deadline wake-ups. A session starting, its goal changing and
 its end go on the record, and so does the spend first reaching 80% of the
 budget; the spend and the checklist in between are state, read with GET.
 The operator may set the running session a new budget (``PUT
-/app/agent/budget``, the operator's token only), which fibsem-agent keeps to.
+/app/agent/budget``, the operator's token only), which fibsem-agent keeps to,
+and ask it for a fresh context (``POST /app/agent/context-reset``, the same):
+that goes on the record, and the watcher tells the agent.
 
 Which of the operator's messages the agent has read goes on the record too
 (``POST /app/agent/read``): fibsem-agent says so as a turn carrying them
@@ -47,6 +49,7 @@ SESSION_GOAL = "agent_session_goal"
 SESSION_ENDED = "agent_session_ended"
 SESSION_BUDGET = "agent_session_budget"
 MESSAGES_READ = "agent_messages_read"
+CONTEXT_RESET_ASKED = "agent_context_reset_asked"
 # A message's id (`AgentControl.message`), and how many one report names.
 _MESSAGE_ID = re.compile(r"^[0-9a-f]{1,32}$")
 MAX_READ = 50
@@ -189,6 +192,38 @@ def build_agent_session_router(
         session = {**session, "budget_usd": budget, "budget_set_usd": budget}
         auth.agent_session = session
         logger.info("The operator set the agent's budget to $%g.", budget)
+        return {"session": with_plan(request, session)}
+
+    @router.post(
+        "/context-reset",
+        response_model=AgentSession,
+        response_model_exclude_none=True,
+        dependencies=[Depends(require_operator())],
+    )
+    def ask_context_reset(request: Request):
+        """The operator asks the running agent for a fresh context: on the
+        record, where the watcher tells the agent, which hands off at its
+        next quiet moment (``context_reset``)."""
+        auth: AuthConfig = request.app.state.auth
+        session = auth.agent_session
+        if session is None or session.get("ended"):
+            raise refusal_error(409, "no_session", "No agent session is running.")
+        asked = datetime.now().astimezone().isoformat(timespec="seconds")
+        session = {
+            **session,
+            "reset_asked_at": asked,
+            "reset_asked_in": session.get("contexts") or 1,
+        }
+        auth.agent_session = session
+        if emit is not None:
+            emit(
+                CONTEXT_RESET_ASKED,
+                {
+                    "session_id": session.get("session_id"),
+                    "context": session["reset_asked_in"],
+                },
+            )
+        logger.info("The operator asked the agent for a fresh context.")
         return {"session": with_plan(request, session)}
 
     @router.post("/read")

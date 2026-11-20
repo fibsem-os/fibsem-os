@@ -297,7 +297,10 @@ runs, not that nobody checks it.
 When a task finishes, supervised or on auto, look at its result before the
 lamella goes on: its final images, the wide view with its neighbours, and
 the task's `ALIGNMENT` and `AUTOFOCUS` lines. Is anything torn, missing,
-shifted, or damaged next door? On a supervised task you saw each pass, so
+shifted, or damaged next door? After Rough Milling, look at the widest FIB
+image too: a large ice clump near the lamella, even outside the SEM frame,
+can move onto it later. Note it, with its size and distance, and polish
+that lamella early or skip it (at Assist, the operator's call). On a supervised task you saw each pass, so
 this is quick; on an auto one nobody watched, so look properly.
 
 If the lamella's next task is next in the queue, take it out first

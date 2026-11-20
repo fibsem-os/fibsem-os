@@ -131,6 +131,13 @@ ALIGNMENT = "alignment"
 NOTE = "note"
 MESSAGE = "message"
 PLAN_EDITED = "plan_edited"
+CONTEXT_RESET = "context_reset"
+# The operator asked for a fresh context (``POST /app/agent/context-reset``).
+CONTEXT_RESET_LINE = (
+    "CONTEXT RESET ASKED by the operator: at your next quiet moment (between "
+    "steps, never during a mill), bring the plan up to date and call "
+    "context_reset with your handoff note. Without that tool, tell the operator."
+)
 LEVEL = "level"
 LEVEL_LOWERED = "level_lowered"
 # The operator stopped the agent, a run or a mill.
@@ -332,6 +339,8 @@ def _print_events(events, since, say, marked=None, lines=None):
         elif kind == event_kinds.AGENT_PLAN_EDITED:
             sections = ", ".join(str(s) for s in p.sections or [])
             out(PLAN_EDITED, f"PLAN EDITED by the operator: {sections}")
+        elif kind == event_kinds.AGENT_CONTEXT_RESET_ASKED:
+            out(CONTEXT_RESET, CONTEXT_RESET_LINE)
         elif kind == event_kinds.AGENT_LEVEL_SET:
             line = _level_line(p)
             if line:
