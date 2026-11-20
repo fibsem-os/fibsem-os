@@ -25,6 +25,7 @@ Every microscope with a stage has one, ``microscope.sample_handling``, built by
 from __future__ import annotations
 
 import logging
+import re
 from copy import deepcopy
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
@@ -209,6 +210,7 @@ class GridMagazine:
         ):
             self._do_load(slot)
         working.loaded_grid = grid
+        self._remember_on_stage(grid, slot)
         logger.info(f"Loaded grid '{grid.name}' from {slot_name} into {working.name}.")
         return grid
 
@@ -227,7 +229,142 @@ class GridMagazine:
         ):
             self._do_unload(working)
         working.loaded_grid = None
+        self._remember_on_stage(None)
         logger.info(f"Unloaded grid '{name}' from {working.name}.")
+
+    # -- the grid on the stage, named without an exchange ------------------
+
+    def name_stage_grid(
+        self, grid_name: str, home_slot: Optional[str] = None
+    ) -> SampleGrid:
+        """Say which grid is on the stage, by name, without a load cycle.
+
+        For a grid the loader's record lost or never had: after the application
+        restarts, a loader that keeps no name for the grid on the stage reads it
+        as unnamed (``Grid-on-stage``) or not at all, and a run then refuses
+        every lamella on it. Nothing moves. *home_slot* is the magazine slot it
+        came from, where it goes back on unload; without one, a default name
+        ``Grid-NN`` goes home to ``Slot-NN`` when that slot reads empty, as the
+        loader names that slot's grid, and any other name has no home slot.
+
+        Refused when the loader reads a grid of that name in the magazine (it
+        is there, not on the stage), when *home_slot* holds another grid, and
+        when the loader reports nothing on the stage. Kept in the session state,
+        so the next start of the application knows it too.
+        """
+        name = grid_name.strip()
+        if not name:
+            raise GridExchangeError("The grid on the stage needs a name.")
+        if self._stage_reports_empty():
+            raise GridExchangeError(
+                "The loader reports no grid on the stage: load one instead."
+            )
+        working = self.working_slot
+        current = working.loaded_grid
+        found = self.find_grid(name)
+        if found is not None and found.loaded_grid is not current:
+            raise GridExchangeError(
+                f"The loader reads '{name}' in {found.name}, in the magazine, "
+                "not on the stage. If that is out of date, read the inventory "
+                "again first."
+            )
+        if home_slot is None and found is not None:
+            home_slot = found.name
+        if home_slot is None:
+            home_slot = self._default_home(name)
+        home: Optional[GridSlot] = None
+        if home_slot is not None:
+            home = self._magazine_slot(home_slot)
+            held = home.loaded_grid
+            if held is not None and held is not current and held.name != name:
+                raise GridExchangeError(
+                    f"{home_slot} holds '{held.name}', so the grid on the stage "
+                    "cannot have come from there."
+                )
+        grid = SampleGrid(
+            name=name,
+            description=current.description if current is not None else "",
+            radius=current.radius if current is not None else GRID_RADIUS,
+        )
+        # Wherever the old name was kept as home, it is not this grid's home now.
+        for slot in self.slots.values():
+            if current is not None and slot.loaded_grid is current and slot is not home:
+                slot.loaded_grid = None
+        working.loaded_grid = grid
+        if home is not None:
+            home.loaded_grid = grid
+            try:
+                self._write_slot_description(home)
+            except Exception as e:  # noqa: BLE001 - named here; the slot keeps its own
+                logger.warning(
+                    f"Could not write '{name}' to {home.name}'s description: {e}. "
+                    "It is named on the stage; the slot keeps its own name after "
+                    "an unload."
+                )
+        self._remember_on_stage(grid, home)
+        session_of(self.parent).record(
+            "grid_named_on_stage",
+            {
+                "grid": name,
+                "previous": current.name if current is not None else None,
+                "slot": home.name if home is not None else None,
+                "working_slot": working.name,
+            },
+        )
+        logger.info(
+            f"Named the grid on the stage '{name}'"
+            + (f", from {home.name}" if home is not None else "")
+            + (f" (was '{current.name}')." if current is not None else ".")
+        )
+        return grid
+
+    def _default_home(self, name: str) -> Optional[str]:
+        """``Slot-NN`` for a default name ``Grid-NN``, when that slot reads empty:
+        the name the loader gives the grid in that slot."""
+        match = _DEFAULT_NAME.fullmatch(name)
+        if match is None or not self.scanned:
+            return None
+        slot_name = _slot_name(int(match.group(1)) - 1)
+        slot = self.slots.get(slot_name)
+        if slot is None or slot.loaded_grid is not None:
+            return None
+        if slot_name in self.unknown_slots:
+            return None
+        return slot_name
+
+    def _remember_on_stage(
+        self, grid: Optional[SampleGrid], home: Optional[GridSlot] = None
+    ) -> None:
+        """Keep which grid is on the stage, and its home slot, in the session state:
+        a loader that keeps no name for the grid on the stage gives it back
+        unnamed after a restart, and this names it again. Written by scripts
+        too, since it says what the hardware holds, not what anyone chose."""
+        value = (
+            {"grid": grid.name, "slot": home.name if home is not None else None}
+            if grid is not None
+            else None
+        )
+        try:
+            session_state_for(self.parent, writable=True).save_section(
+                LOADER_ON_STAGE, value
+            )
+        except Exception as e:  # noqa: BLE001 - the record is a convenience
+            logger.warning(f"Could not keep the grid on the stage: {e}")
+
+    def _remembered_on_stage(self) -> Optional[Dict[str, Any]]:
+        try:
+            value = session_state_for(self.parent).load_section(LOADER_ON_STAGE)
+        except Exception as e:  # noqa: BLE001 - nothing remembered
+            logger.warning(f"Could not read the grid on the stage: {e}")
+            return None
+        if not isinstance(value, dict) or not value.get("grid"):
+            return None
+        return value
+
+    def _stage_reports_empty(self) -> bool:
+        """Whether the hardware says the stage holds no grid. Nothing to ask in
+        memory."""
+        return False
 
     # -- hardware hooks ----------------------------------------------------
 
@@ -310,6 +447,9 @@ class DeviceGridMagazine(GridMagazine):
             return StageSample()
         return self.device.on_stage.get_value()
 
+    def _stage_reports_empty(self) -> bool:
+        return self._on_stage().present is False
+
     def _apply(self, magazine: Magazine) -> None:
         if magazine.slots:
             self.capacity = len(magazine.slots)
@@ -357,16 +497,58 @@ class DeviceGridMagazine(GridMagazine):
             working.loaded_grid = on_stage
         # Something may be on the stage that we did not load: reflect the hardware.
         reported = self._on_stage()
+        if working.loaded_grid is None and reported.present is not False:
+            working.loaded_grid = self._restore_on_stage(reported)
         if working.loaded_grid is None and reported.present is True:
             working.loaded_grid = SampleGrid(
-                name=reported.description.strip() or "Grid-on-stage"
+                name=reported.description.strip() or UNNAMED_STAGE_GRID
             )
         elif working.loaded_grid is not None and reported.present is False:
             working.loaded_grid = None
+            self._remember_on_stage(None)
+
+    def _restore_on_stage(self, reported: StageSample) -> Optional[SampleGrid]:
+        """The grid the session state says is on the stage, back in the working
+        slot and its home slot, after a restart that lost it; None when nothing
+        is remembered, or the hardware says otherwise: a name of its own on the
+        stage, or the remembered grid back in its home slot."""
+        remembered = self._remembered_on_stage()
+        if remembered is None:
+            return None
+        name = str(remembered["grid"])
+        described = reported.description.strip()
+        if described and described != name:
+            return None
+        home = self.slots.get(str(remembered.get("slot") or ""))
+        if home is not None and home.loaded_grid is not None:
+            if home.loaded_grid.name == name:
+                return None  # back in the magazine: unloaded behind our back
+            home = None  # another grid is there now; keep the name, not the home
+        found = self.find_grid(name)
+        if found is not None:
+            return None  # in the magazine by the loader's read
+        grid = SampleGrid(name=name)
+        if home is not None:
+            home.loaded_grid = grid
+        logger.info(
+            f"The grid on the stage is '{name}', as remembered from the last "
+            "session" + (f" (from {home.name})." if home is not None else ".")
+        )
+        return grid
 
 
 def _slot_name(index: int) -> str:
     return f"Slot-{index + 1:02d}"
+
+
+# What a grid on the stage is called when the loader gives it no name and none
+# is remembered: name it with ``set_current``.
+UNNAMED_STAGE_GRID = "Grid-on-stage"
+# Which grid is on the stage, and its home slot: session state, for a loader
+# that forgets the name of the grid on the stage across a restart.
+LOADER_ON_STAGE = "loader_on_stage"
+# The name the loader gives the grid in slot NN when its description is blank.
+_DEFAULT_NAME = re.compile(r"Grid-(\d+)")
 
 
 # --- A command as the operator reads it, in an agent's request (wording) ---
@@ -447,6 +629,21 @@ def _inventory_line(
         "what": "Grids",
         "change": "Scan the magazine slot by slot, to read which grids it holds",
     }
+
+
+def _set_current_line(
+    kwargs: Dict[str, Any], ctx: wording.ActionContext
+) -> Dict[str, Any]:
+    name = str(kwargs.get("grid_name"))
+    inventory = _queried(ctx, "get_inventory")
+    now = _loaded(inventory) if isinstance(inventory, list) else None
+    change = f"Name the grid on the stage '{name}'"
+    if now and now != name:
+        change += f" (the loader's record has '{now}')"
+    slot = kwargs.get("slot_name")
+    if slot:
+        change += f", from {slot}"
+    return {"what": "Grids", "change": change + "; nothing moves"}
 
 
 def _slots(ctx: wording.ActionContext) -> List[Dict[str, Any]]:
@@ -763,6 +960,30 @@ class SampleHandling(Service):
         return {
             "slot": slot.name if slot is not None else None,
             "grid": grid.name if grid is not None else None,
+        }
+
+    @command(line=_set_current_line)
+    def set_current(
+        self, grid_name: str, slot_name: Optional[str] = None
+    ) -> Dict[str, Optional[str]]:
+        """Say which grid is on the stage, by name, without a load cycle: for a
+        grid the loader's record lost (after a restart it reads unnamed, as
+        ``Grid-on-stage``, or not at all), so a run accepts its lamellae.
+        *slot_name* is the magazine slot it came from, if known. Nothing moves.
+        Only with a loader: on a fixed holder, name the grid in its slot
+        (``assign_grid``). Answers the working slot, the grid, and its home
+        slot (None when not known)."""
+        if self.magazine is None:
+            raise GridExchangeError(
+                "No loader: every grid is named in its holder slot. Rename it "
+                "there instead."
+            )
+        grid = self.magazine.name_stage_grid(grid_name, slot_name or None)
+        home = self.magazine.find_grid(grid.name)
+        return {
+            "slot": self.magazine.working_slot.name,
+            "grid": grid.name,
+            "home_slot": home.name if home is not None else None,
         }
 
     @query

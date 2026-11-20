@@ -529,6 +529,7 @@ def test_cancel_clears_the_waiting_request(client, app):
 # The arguments a named tool cannot be called without.
 _AXES = {axis: 0.0 for axis in "xyzrt"}
 _SAMPLE_ARGUMENTS = {
+    "grid_set_current": {"grid_name": "G2"},
     "stage_stable_move": {"dx": 1e-6, "dy": 0.0},
     "stage_fm_stable_move": {"dx": 1e-6, "dy": 0.0},
     "stage_move_to_device": {"device": "FM"},

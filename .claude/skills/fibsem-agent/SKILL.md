@@ -317,7 +317,8 @@ Its lines:
   before you report.
 - `GAP`: events were lost. Re-read `/app/workflow/proposals` and
   `/app/workflow/status`. `RESTARTED`: the app restarted, and the watcher
-  reads it from the start.
+  reads it from the start. With an autoloader, check the grid on the stage
+  before you plan a run (screen-grids, *After the app restarts*).
 - `AGENT OFF` and `AGENT BACK`: the operator set the level to Off and back.
 - `STOPPED by the operator: <what>`: the operator stopped a run, a task, a
   mill, or you (`Stop the agent`: your level is now Watch and your action on
@@ -517,7 +518,7 @@ Every read works at Watch.
 | How bright is a target, and against what? | `analysis_measure_intensity` with a `reference` point (a bead, the bulk); `correlation_refine_point`'s `z_fit` for its plane and width in z |
 | How wide is a spot, an edge or a bar? | `analysis_measure_profile` (`fwhm`; null means draw a longer line) |
 | Grids | `grid_list`, `grid_get`, `grid_get_markers`, `experiment_render_markers` |
-| Grids on the hardware now | `grid_get_inventory` (which grid is loaded), `grid_get_current` |
+| Grids on the hardware now | `grid_get_inventory` (which grid is loaded), `grid_get_current`; `grid_set_current` names the grid on the stage on the operator's word |
 | Files | `experiment_list_files`, `experiment_read_file`, `analysis_crop_image` |
 | A file to read in your own folder | `experiment_fetch_file` saves it as it is on your machine |
 | A past experiment | the same tools with `experiment`, its `relative_path` from `experiment_list_all`; only one the operator named or their goal asks for, and every read goes on the record |

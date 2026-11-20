@@ -131,6 +131,8 @@ class GridCardWidget(RecordCard):
     quality_changed = Signal(object)  # GridRecord
     load_requested = Signal(object)  # GridRecord
     unload_requested = Signal(object)  # GridRecord
+    # The grid is on the stage already, under no name or another (a restart).
+    on_stage_requested = Signal(object)  # GridRecord
     rename_requested = Signal(object, str)  # GridRecord, new name
     # The operator's note on the grid: what the report prints beside the verdict.
     note_requested = Signal(object, str)  # GridRecord, the note
@@ -184,6 +186,10 @@ class GridCardWidget(RecordCard):
         self._action_unload = menu.addAction(
             fibsem_icon(ICON_UNLOAD, color=tokens.GRAY_ICON_COLOR), "Unload"
         )
+        self._action_on_stage = menu.addAction(
+            fibsem_icon("mdi:map-marker-check-outline", color=tokens.GRAY_ICON_COLOR),
+            "Is on the stage…",
+        )
         self._action_rename = menu.addAction(
             fibsem_icon("mdi:pencil-outline", color=tokens.GRAY_ICON_COLOR),
             "Rename…",
@@ -199,6 +205,9 @@ class GridCardWidget(RecordCard):
         self._action_load.triggered.connect(lambda: self.load_requested.emit(self.grid))
         self._action_unload.triggered.connect(
             lambda: self.unload_requested.emit(self.grid)
+        )
+        self._action_on_stage.triggered.connect(
+            lambda: self.on_stage_requested.emit(self.grid)
         )
         self._action_rename.triggered.connect(self._on_rename)
         self._action_note.triggered.connect(self._on_edit_note)
@@ -379,6 +388,16 @@ class GridCardWidget(RecordCard):
         self._action_load.setEnabled(present and can)
         self._action_unload.setVisible(self._has_loader and self.loaded)
         self._action_unload.setEnabled(can)
+        # Is on the stage names the grid there without an exchange, for one the
+        # loader's record lost; not for one the loader reads in the magazine.
+        self._action_on_stage.setVisible(self._has_loader and not self.loaded)
+        self._action_on_stage.setEnabled(can and not present)
+        self._action_on_stage.setToolTip(
+            "The loader reads it in the magazine: Load it instead."
+            if present
+            else "It is on the stage, but the loader's record lost it, as after "
+            "a restart: say so, without a load. Nothing moves."
+        )
         fixed = grid_has_run(grid)
         self._action_rename.setEnabled(self._edits_enabled and not fixed)
         self._action_rename.setToolTip(NAME_FIXED_REASON if fixed else "")
@@ -448,6 +467,9 @@ class GridCardContainer(CardContainer):
     quality_changed = Signal(object)  # GridRecord
     load_requested = Signal(object)  # GridRecord
     unload_requested = Signal(object)  # GridRecord
+    on_stage_requested = Signal(object)  # GridRecord
+    # The grid is on the stage already, under no name or another (a restart).
+    on_stage_requested = Signal(object)  # GridRecord
     rename_requested = Signal(object, str)  # GridRecord, new name
     # The operator's note on the grid: what the report prints beside the verdict.
     note_requested = Signal(object, str)  # GridRecord, the note
@@ -468,6 +490,7 @@ class GridCardContainer(CardContainer):
         card.quality_changed.connect(self.quality_changed)
         card.load_requested.connect(self.load_requested)
         card.unload_requested.connect(self.unload_requested)
+        card.on_stage_requested.connect(self.on_stage_requested)
         card.rename_requested.connect(self.rename_requested)
         card.note_requested.connect(self.note_requested)
         card.remove_requested.connect(self.remove_requested)

@@ -61,7 +61,10 @@ haven't used this session (every read here works at Watch):
   you, and nothing moves to an uncalibrated slot.
 - `grid_get_inventory` and `grid_get_current`: which grid is on the stage and
   whether the stage is at a slot. With no grids loaded in the app, ask the
-  operator which sample is under the beam if the goal doesn't say.
+  operator which sample is under the beam if the goal doesn't say. After the
+  app restarts, check them against the grid you know is there; if they
+  disagree, ask the operator, and never run loader commands to find out
+  (screen-grids, *After the app restarts*).
 - `microscope_get_state`: each beam's voltage, current, working distance and
   scan rotation, the detectors' type and mode, the stage position. Say what
   you read, and anything that looks wrong for the task (a milling current on
