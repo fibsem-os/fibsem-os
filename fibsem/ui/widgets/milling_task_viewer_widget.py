@@ -4,7 +4,7 @@ import copy
 import logging
 from typing import TYPE_CHECKING, Callable, List, Optional
 
-from qtpy.QtCore import QTimer, Signal
+from qtpy.QtCore import QEvent, QTimer, Signal
 from qtpy.QtWidgets import QVBoxLayout, QWidget
 
 from fibsem import conversions
@@ -120,6 +120,7 @@ class MillingTaskViewerWidget(QWidget):
     def _connect_signals(self) -> None:
         self.config_widget.settings_changed.connect(self._on_settings_changed)
         self.config_widget.eye_toggled.connect(self._on_eye_toggled)
+        self.config_widget.installEventFilter(self)
 
     # ------------------------------------------------------------------
     # Section visibility API
@@ -197,6 +198,11 @@ class MillingTaskViewerWidget(QWidget):
             self._fib_canvas.canvas_right_clicked.connect(self._on_canvas_right_click)
             controller.overlay_edited.connect(self._on_overlay_edited)
         self._schedule_pattern_update()
+
+    def eventFilter(self, obj, event) -> bool:
+        if event.type() == QEvent.EnabledChange:  # a locked editor's patterns stay put
+            self._schedule_pattern_update()
+        return super().eventFilter(obj, event)
 
     def closeEvent(self, event) -> None:
         if self._controller is not None and self._fib_canvas is not None:
@@ -278,7 +284,7 @@ class MillingTaskViewerWidget(QWidget):
         # this menu -- it has to be turned away itself while a mill is running.
         # Offering "Move Patterns Here" over a lamella being milled invites
         # exactly the edit the lock exists to prevent.
-        if self.is_milling:
+        if self.is_milling or not self.isEnabled():
             return
         if self._fib_image is None or self._fib_image.metadata is None:
             return
@@ -427,6 +433,8 @@ class MillingTaskViewerWidget(QWidget):
                 background_stages=self._background_milling_stages,
                 selected_index=selected_index,
                 visible=self._patterns_visible,
+                # Disabled with this widget, and by the run controls while milling.
+                draggable=self.config_widget.isEnabled(),
             ),
         )
 

@@ -224,3 +224,34 @@ def test_a_drag_is_refused_while_milling(widget):
     _drag(widget, 0, 3e-6, -2e-6)
 
     assert _points(widget)[0] == (0.0, 0.0)
+
+
+class _Controller:
+    """Keeps the milling spec the viewer last pushed to the FIB canvas."""
+
+    def set_overlay(self, beam, spec) -> None:
+        self.spec = spec
+
+    def set_alignment_display(self, *args) -> None:
+        pass
+
+
+def test_patterns_do_not_drag_while_the_editor_is_disabled(widget):
+    widget._controller = _Controller()
+    for enabled in (False, True):
+        widget.setEnabled(enabled)
+        _app.processEvents()
+        assert widget._controller.spec.draggable is enabled
+
+
+def test_patterns_do_not_drag_while_milling(widget):
+    class _RunningThread:
+        def is_alive(self) -> bool:
+            return True
+
+    widget._controller = _Controller()
+    widget.milling_widget._milling_thread = _RunningThread()
+    widget.milling_widget._update_button_states()
+    _app.processEvents()
+
+    assert widget._controller.spec.draggable is False
