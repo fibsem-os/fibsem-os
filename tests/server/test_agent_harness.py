@@ -12,6 +12,7 @@ import re
 import sys
 import threading
 import time
+import types
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -1811,6 +1812,46 @@ def test_the_transcript_is_sent_and_kept_while_the_server_cant_take_it():
     assert path == "/app/agent/transcript" and body["session_id"] == "scripted"
     (entry,) = body["entries"]
     assert entry["verb"] == "Ran" and "at" not in entry and entry["age_s"] >= 0
+
+
+def test_a_line_the_server_refuses_does_not_lose_a_subagent_runs_end():
+    """A subagent's long last words once made the server refuse the whole
+    send, its run's end with it, and the page showed the run running."""
+    from fibsem.server.agent import transcript as transcript_route
+
+    assert harness_mod.TRANSCRIPT_TEXT == transcript_route.MAX_TEXT
+    options = types.SimpleNamespace(resume=None, session_id="s1", model=None, cwd=None)
+    agent = harness_mod.SdkAgent(options)
+    call = agent.line("step", "Find sites", verb="Asked", subagent="site-finder")
+    agent.line("said", "x" * 5000, run=call)
+    assert len(agent.transcript[-1]["text"]) == harness_mod.TRANSCRIPT_TEXT
+
+    class Response:
+        def __init__(self, status_code):
+            self.status_code = status_code
+
+    class Client:
+        def __init__(self):
+            self.kept = []
+
+        def request(self, method, path, json=None, timeout=None):
+            entries = json["entries"]
+            if any(e["kind"] not in transcript_route.KINDS for e in entries):
+                return Response(422)
+            self.kept += entries
+            return Response(200)
+
+    now = time.monotonic()
+    agent = ScriptedAgent()
+    agent.transcript = [
+        {"seq": 2, "kind": "nonsense", "text": "x", "at": now},
+        {"seq": 3, "kind": "done", "text": "6 sites", "step": 1, "at": now},
+    ]
+    harness = Harness(agent, lambda: None)
+    harness._client = client = Client()
+    asyncio.run(harness._send_transcript())
+    assert [e["seq"] for e in client.kept] == [3]
+    assert agent.transcript == []
 
 
 def test_the_transcript_goes_soon_after_a_line_not_on_the_ten_second_clock(

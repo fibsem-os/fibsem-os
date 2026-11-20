@@ -174,6 +174,10 @@ TRANSCRIPT_SOON_S = 1.0
 TRANSCRIPT_EVERY_S = 10.0
 TRANSCRIPT_BATCH = 200
 TRANSCRIPT_KEEP = 2000
+# A line's words at most, as the App Server takes them
+# (`fibsem.server.agent.transcript.MAX_TEXT`): a subagent's last words, its
+# answer, run longer.
+TRANSCRIPT_TEXT = 2000
 # A lab tool's pictures on the transcript (`_show_pictures`): at most this many
 # from one result, this many waiting to be sent, and this big (base64, under
 # the server's 5 MB). A send carries one picture at most.
@@ -2024,14 +2028,29 @@ class Harness:
             for line in batch
         ]
 
+        def send(some) -> int:
+            response = client.request(
+                "POST",
+                "/app/agent/transcript",
+                json={"session_id": session_id, "entries": some},
+                timeout=10.0,
+            )
+            return getattr(response, "status_code", 200)
+
         def post():
             try:
-                client.request(
-                    "POST",
-                    "/app/agent/transcript",
-                    json={"session_id": session_id, "entries": entries},
-                    timeout=10.0,
-                )
+                if send(entries) != 422 or len(entries) == 1:
+                    return True
+                # The server refuses a whole send for one line it can't take:
+                # the rest go one at a time, so a step's end isn't lost with it
+                # and the page doesn't show the step running for ever.
+                for entry in entries:
+                    if send([entry]) == 422:
+                        log.warning(
+                            "The App Server refused a transcript line: %s %.80r",
+                            entry.get("kind"),
+                            entry.get("text"),
+                        )
                 return True
             except Exception:
                 log.debug("Sending the transcript failed.", exc_info=True)
@@ -2307,6 +2326,8 @@ class SdkAgent:
     def line(self, kind: str, text: str, **extra) -> int:
         """Keep a printed line for the transcript; its number."""
         self._seq += 1
+        if len(text) > TRANSCRIPT_TEXT:
+            text = text[: TRANSCRIPT_TEXT - 1] + "…"
         self.transcript.append(
             {
                 "seq": self._seq,

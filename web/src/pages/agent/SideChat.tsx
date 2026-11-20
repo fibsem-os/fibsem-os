@@ -65,28 +65,30 @@ export function SideChat({ rows, agent }: { rows: RecentRow[]; agent: AgentState
           </div>
         )}
       </div>
-      <div className="sticky bottom-0 mt-3 flex flex-col gap-1.5 bg-background pt-2">
-        <textarea
-          aria-label="Side question"
-          rows={2}
-          maxLength={LIMIT}
-          placeholder="Ask on the side…"
-          className="w-full resize-none rounded-md border border-input bg-card px-2.5 py-1.5 text-[13px] text-foreground outline-none focus:border-primary"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              void send();
-            }
-          }}
-        />
-        <div className="flex items-center justify-between gap-2">
-          <span className="min-w-0 text-[12px] text-destructive">{error}</span>
+      {/* Pinned to the bottom of the tab, over its bottom padding too, so
+          the answers scroll out of sight behind it, not under it. */}
+      <div className="sticky -bottom-4 -mx-6 mt-3 flex flex-col gap-1 border-t border-border bg-background px-6 pt-2.5 pb-4">
+        <div className="flex items-end gap-2">
+          <textarea
+            aria-label="Side question"
+            rows={2}
+            maxLength={LIMIT}
+            placeholder="Ask on the side…"
+            className="min-w-0 flex-1 resize-none rounded-md border border-input bg-card px-2.5 py-1.5 text-[13px] text-foreground outline-none focus:border-primary"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                void send();
+              }
+            }}
+          />
           <Button variant="primary" disabled={busy || !draft.trim()} onClick={() => void send()}>
             Ask
           </Button>
         </div>
+        {error && <span className="text-[12px] text-destructive">{error}</span>}
       </div>
     </div>
   );
