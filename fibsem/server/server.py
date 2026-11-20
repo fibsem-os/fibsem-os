@@ -197,7 +197,7 @@ def _blocked_route(served: ServedInstrument) -> Callable[[str, str], Optional[st
 
 def _safety_action(request: Request, command: str) -> bool:
     """Whether *command* on the route's device or service makes the instrument
-    safe (``command(safety=...)``, a beam's blank)."""
+    safe (``command(safety=...)``)."""
     part = "services" if f"{MICROSCOPE}/services/" in request.url.path else "devices"
     found = request.app.state.served.find(part, request.path_params.get("device", ""))
     info = getattr(found, "commands", {}).get(command) if found is not None else None

@@ -388,7 +388,7 @@ class Beam(Device):
         self.on.write_through(False)
         return bool(self.on.get_value())
 
-    @command(available=lambda beam: "blanked" in beam.parameters, safety="Blank beam")
+    @command(available=lambda beam: "blanked" in beam.parameters)
     def blank(self) -> None:
         """Blank the beam."""
         self.blanked.set_value(True)

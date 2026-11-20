@@ -1,5 +1,15 @@
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, BookOpen, Check, ChevronDown, ChevronRight, ListChecks, ListFilter, Loader } from "lucide-react";
+import {
+  ArrowDown,
+  BookOpen,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  ListChecks,
+  ListFilter,
+  Loader,
+  Microscope,
+} from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Popup } from "@/components/ui/popup";
 import { api, imageUrl } from "@/lib/api";
@@ -590,6 +600,7 @@ export function AgentPage() {
     {
       id: "session",
       label: "Session",
+      icon: <ListChecks size={14} />,
       render: () =>
         panel ?? (
           <p className="m-0 text-[13px] text-muted-foreground">
@@ -602,6 +613,7 @@ export function AgentPage() {
     tabs.push({
       id: "microscope",
       label: "Microscope",
+      icon: <Microscope size={14} />,
       menu: <MicroscopeCustomise fibsem={fibsem} shown={shown} onChange={setShown} />,
       render: () => <MicroscopeTab fibsem={fibsem} shown={shown} onOpenPage={() => openPage("/ui/microscope")} />,
     });

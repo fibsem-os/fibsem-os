@@ -115,7 +115,15 @@ def test_the_chamber_is_read_but_never_pumped_or_vented(read_client, armed_clien
         assert resp.json()["detail"]["error_type"] == "not_allowed"
 
 
-def test_a_beam_lists_its_blank_as_a_safety_action(read_client):
+@pytest.fixture
+def blank_is_safety(microscope, monkeypatch):
+    """A FIB/SEM declares no safety action (Stop is enough there): mark the
+    beam's blank as one, as another instrument would mark its own."""
+    blank = type(microscope.beams[BeamType.ION]).blank
+    monkeypatch.setattr(blank, "__device_safety__", "Blank beam", raising=False)
+
+
+def test_the_listing_names_a_safety_action(read_client, blank_is_safety):
     """The page's safety buttons come from the listing: a command marked
     ``safety`` names its button, any other has none."""
     commands = read_client.get("/microscope/devices").json()["ion"]["commands"]
@@ -123,9 +131,16 @@ def test_a_beam_lists_its_blank_as_a_safety_action(read_client):
     assert commands["unblank"]["safety"] is None
 
 
-def test_a_safety_action_runs_whoever_is_in_control(read_client, microscope):
-    # Blanking must reach the beam while a run holds control, as a stop does,
-    # and the agent may make things safe only at Drive.
+def test_a_fibsem_declares_no_safety_action(read_client):
+    for spec in read_client.get("/microscope/devices").json().values():
+        assert not any(c["safety"] for c in spec["commands"].values()), spec["name"]
+
+
+def test_a_safety_action_runs_whoever_is_in_control(
+    read_client, microscope, blank_is_safety
+):
+    # A safety action must reach its device while a run holds control, as a
+    # stop does, and the agent may make things safe only at Drive.
     blank = "/microscope/devices/ion/commands/blank"
     beam = microscope.beams[BeamType.ION]
     beam.unblank()

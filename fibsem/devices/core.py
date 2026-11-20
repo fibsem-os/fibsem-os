@@ -524,8 +524,8 @@ def command(
     agent's request, as the operator approves it (`fibsem.util.wording.Line`).
     ``operator_only`` says why an agent may never run it, at any level
     (`operator_only_reason`); a subclass overriding the method keeps it.
-    ``safety`` marks a command that makes the instrument safe (blank a beam),
-    named as its button reads ("Blank beam"): it takes no control, so it runs
+    ``safety`` marks a command that makes the instrument safe, named as its
+    button reads ("Close valves"): it takes no control, so it runs
     while a mill or a move holds it, and the agent may run it only at Drive.
 
     A numpy value among its arguments reaches the method as the plain Python it

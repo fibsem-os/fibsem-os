@@ -7,7 +7,8 @@ import { api } from "@/lib/api";
 import type { DeviceListing } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-/** One tab of the column. *menu* sits in the tab row while the tab is open
+/** One tab of the column, its *icon* beside its label and alone on the folded
+ * rail. *menu* sits in the tab row while the tab is open
  * (the Microscope tab's Customise); *closable* tabs show an x that calls *onClose*. */
 export interface ColumnTab {
   id: string;
@@ -66,8 +67,8 @@ function useActiveTab(tabs: ColumnTab[]): [string | undefined, (id: string) => v
 
 /** The agent page's right-hand column: tabs over one body, a row pinned at the
  * bottom in every tab (*footer*, the Stop and safety buttons), and the left edge
- * dragged to resize it, from 340 px to half the window. Folded, it is a rail that
- * keeps *rail* (Stop) in reach. Width, fold and tab are kept per browser. */
+ * dragged to resize it, from 340 px to half the window. Folded, it is a rail of
+ * the tabs' icons that keeps *rail* (Stop) in reach. Width, fold and tab are kept per browser. */
 export function SideColumn({
   tabs,
   footer,
@@ -117,12 +118,23 @@ export function SideColumn({
         >
           <ChevronLeft size={15} />
         </button>
-        <button
-          className="mt-3 cursor-pointer border-0 bg-transparent p-0 text-[12px] text-muted-foreground [writing-mode:vertical-rl] hover:text-foreground"
-          onClick={() => fold(false)}
-        >
-          {tabs.map((t) => t.label).join(" · ")}
-        </button>
+        <div className="mt-2 flex flex-col items-center gap-1">
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              className="relative cursor-pointer rounded border-0 bg-transparent p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+              aria-label={t.label}
+              title={t.label}
+              onClick={() => {
+                setActive(t.id);
+                fold(false);
+              }}
+            >
+              {t.icon ?? <span className="text-[12px]">{t.label[0]}</span>}
+              {t.badge && <span className="absolute -top-0.5 -right-0.5">{t.badge}</span>}
+            </button>
+          ))}
+        </div>
         <div className="mt-auto flex flex-col items-center gap-2">{rail}</div>
       </aside>
     );
@@ -250,8 +262,6 @@ export function useSafetyActions(enabled: boolean): SafetyAction[] {
 
 const STOP_TIP =
   "Stop the agent: it drops to Watch and stops what it is doing on the microscope. A running workflow keeps its own Stop.";
-const RED =
-  "border-[var(--fibsem-semantic-error-color)] bg-[var(--fibsem-semantic-error-color)] text-white hover:bg-[var(--fibsem-semantic-error-hover-color)]";
 
 function useRun() {
   const client = useQueryClient();
@@ -346,7 +356,7 @@ export function SafetyRow({ actions, compact }: { actions: SafetyAction[]; compa
           <SafetyButton key={a.label} action={a} compact />
         ))}
         <button
-          className={cn("cursor-pointer rounded border p-1.5", RED)}
+          className="cursor-pointer rounded border border-input bg-transparent p-1.5 text-foreground hover:bg-accent"
           aria-label="Stop"
           title={error ?? STOP_TIP}
           disabled={busy}
@@ -359,7 +369,7 @@ export function SafetyRow({ actions, compact }: { actions: SafetyAction[]; compa
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex gap-2">
-        <Button className={cn("flex items-center gap-1.5", RED)} title={STOP_TIP} disabled={busy} onClick={stop}>
+        <Button className="flex items-center gap-1.5" title={STOP_TIP} disabled={busy} onClick={stop}>
           <Square size={12} fill="currentColor" />
           Stop
         </Button>
