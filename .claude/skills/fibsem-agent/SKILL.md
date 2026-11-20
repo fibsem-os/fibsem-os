@@ -418,8 +418,12 @@ wake of a large context with a cold cache is dear). Not mid-task, and not
 while a decision waits on the operator's answer. The operator may also ask for
 one. First bring the plan up to date (Steps ticked, Progress written, every
 rule in Rules), then write the note for an agent who knows the skills but
-nothing of today: what is in flight with its ids, the next steps concretely,
-and what the record doesn't hold. A figure in it says where it came from.
+nothing of today: what is in flight and what it means, the next steps
+concretely, and what the record doesn't hold. The harness adds what it can
+read itself to the end of the note (the workflow and its task, proposals
+waiting, your pending requests, long commands you started, your wake-up, the
+budget) with their ids, so don't copy those. A figure in it says where it
+came from.
 A specialist you were carrying on with (a Verifier kept for a lamella's
 later passes) does not come with you: say in the note what it had settled.
 

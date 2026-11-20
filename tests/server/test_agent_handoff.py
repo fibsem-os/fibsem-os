@@ -8,6 +8,7 @@ Claude Code CLI: what a real CLI does with a new conversation is not tested.
 """
 
 import asyncio
+import json
 import uuid
 
 import pytest
@@ -132,6 +133,12 @@ def test_a_reset_starts_a_new_conversation_when_the_turn_ends(session):
 
     assert contexts == [(conversation, 2.0)]
     assert len(kept) == 1 and "## Handoff to context 2, " in kept[0]
+    # The harness read the rest itself, after the agent's own parts.
+    assert f"### {handoff_mod.FACTS_HEADING}" in fresh
+    assert fresh.index("Stop thicker.") < fresh.index(handoff_mod.FACTS_HEADING)
+    assert "- Workflow: not running" in fresh
+    assert "- Budget: $2.00 spent of $2.50." in fresh
+    assert handoff_mod.FACTS_HEADING in kept[0]
     assert handoff.contexts == 2
 
     reported = control.reported_session()
@@ -475,3 +482,160 @@ def test_lines_held_for_a_digest_reach_the_fresh_context(session):
     assert "EVENT task_started 01-a Setup" in fresh
     assert "EVENT task_completed 01-a Setup" in fresh
     assert not policy.held
+
+
+def test_only_the_running_session_adds_handoff_notes(session):
+    with _http(session) as http:
+        note = {"session_id": "scripted", "text": "## Handoff to context 2"}
+        refused = http.post("/app/agent/handoff", json=note)
+        assert refused.status_code == 409, "no session is running"
+        assert refused.json()["detail"]["error_type"] == "not_running"
+        http.post("/app/agent/session", json={"session_id": "scripted"})
+        other = http.post(
+            "/app/agent/handoff", json={**note, "session_id": "someone-else"}
+        )
+        assert other.status_code == 409
+        kept = http.post("/app/agent/handoff", json=note)
+        assert kept.status_code == 200, kept.text
+        assert kept.json()["path"] == "agent/handoff-scripted.md"
+        http.post("/app/agent/session", json={"session_id": "scripted", "ended": True})
+        assert http.post("/app/agent/handoff", json=note).status_code == 409
+
+
+def _result(data):
+    return [{"type": "text", "text": json.dumps(data)}]
+
+
+def test_the_long_commands_started_are_kept_until_seen_to_end():
+    runs = handoff_mod.Runs(kept=2)
+    started = {
+        "run_id": "r1",
+        "service": "milling",
+        "command": "run",
+        "started_at": "2026-11-20T18:00:00+11:00",
+        "state": "running",
+    }
+    runs.saw(_result({"result": started}))
+    runs.saw(_result({"run": {**started, "run_id": "r2"}}))
+    runs.saw("not json")
+    assert [r["run_id"] for r in runs.running] == ["r1", "r2"]
+    runs.saw(_result({"run": {**started, "state": "done"}}))
+    assert [r["run_id"] for r in runs.running] == ["r2"]
+    runs.saw(_result({"result": {**started, "run_id": "r3"}}))
+    runs.saw(_result({"result": {**started, "run_id": "r4"}}))
+    assert [r["run_id"] for r in runs.running] == ["r3", "r4"]
+
+
+class _Answer:
+    def __init__(self, status_code, data=None):
+        self.status_code, self._data = status_code, data
+
+    def json(self):
+        return self._data
+
+
+class _Server:
+    """The App Server's answers by path, for `handoff.facts`."""
+
+    def __init__(self, answers):
+        self.answers, self.asked = answers, []
+
+    def request(self, method, path, params=None, timeout=None):
+        self.asked.append((path, params))
+        found = self.answers.get(path)
+        if isinstance(found, Exception):
+            raise found
+        return found if found is not None else _Answer(404)
+
+
+def test_the_facts_say_what_runs_and_waits():
+    run = {"run_id": "r1", "service": "milling", "command": "run"}
+    server = _Server(
+        {
+            "/app/workflow/status": _Answer(
+                200,
+                {
+                    "workflow": {
+                        "running": True,
+                        "phase": "held",
+                        "current_task": "Setup",
+                        "current_item": "Lamella-02",
+                        "queue_position": 2,
+                        "queue_total": 6,
+                        "waiting_on": "an answer to its proposal",
+                        "asking": [
+                            {
+                                "item_id": "i2",
+                                "item_name": "Lamella-02",
+                                "task_name": "Setup",
+                                "proposal_id": "p-7",
+                            }
+                        ],
+                    },
+                    "progress": {"label": "Milling", "step": "Rough", "numbers": "2/3"},
+                },
+            ),
+            "/app/agent/requests": _Answer(
+                200,
+                {
+                    "requests": [
+                        {"request_id": "q1", "status": "pending", "reason": "Move"},
+                        {"request_id": "q0", "status": "applied", "reason": "Old"},
+                    ]
+                },
+            ),
+            "/microscope/services/milling/run": _Answer(
+                200, {"run": {**run, "state": "running"}}
+            ),
+        }
+    )
+    text = handoff_mod.facts(
+        server,
+        runs=[run, {**run, "run_id": "r0", "service": "imaging"}],
+        wake_up="'check the mill' at 18:40",
+        budget_usd=50.0,
+        spent_usd=12.3,
+    )
+    assert text.splitlines() == [
+        "- Workflow: held, task Setup on Lamella-02 (2 of 6); waiting on an answer "
+        "to its proposal.",
+        "- Proposal p-7 waits for an answer: Setup on Lamella-02.",
+        "- On the microscope now: Milling, Rough (2/3).",
+        "- Your request q1 waits for the operator: Move",
+        "- Long command milling.run you started is running: run_id r1.",
+        "- Long command imaging.run, run_id r0: running when last seen (HTTP 404 "
+        "reading it now).",
+        "- Wake-up set: 'check the mill' at 18:40.",
+        "- Budget: $12.30 spent of $50.00.",
+    ]
+    assert ("/microscope/services/milling/run", {"run_id": "r1", "wait": 0}) in (
+        server.asked
+    )
+
+
+def test_a_run_that_ended_or_was_followed_is_left_out():
+    run = {"run_id": "r1", "service": "milling", "command": "run"}
+    for answer in (
+        {**run, "state": "done"},
+        {**run, "run_id": "r2", "state": "running"},
+    ):
+        server = _Server(
+            {
+                "/app/workflow/status": _Answer(200, {"workflow": {"running": False}}),
+                "/app/agent/requests": _Answer(200, {"requests": []}),
+                "/microscope/services/milling/run": _Answer(200, {"run": answer}),
+            }
+        )
+        assert handoff_mod.facts(server, runs=[run]) == "- Workflow: not running."
+
+
+def test_facts_that_cannot_be_read_are_said():
+    server = _Server({"/app/workflow/status": ConnectionError("gone")})
+    text = handoff_mod.facts(server, spent_usd=1.0)
+    assert text.splitlines() == [
+        "- Workflow: could not read it (ConnectionError).",
+        "- Your requests: could not read them (HTTP 404).",
+        "- Spent: $1.00 (no budget set).",
+    ]
+    # Without a server, only what the harness holds.
+    assert handoff_mod.facts(None, budget_usd=5.0) == "- Budget: $0.00 spent of $5.00."

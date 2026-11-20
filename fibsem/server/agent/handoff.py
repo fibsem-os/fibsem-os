@@ -1,11 +1,12 @@
 """The agent's handoff notes: what it wrote for a fresh context of its session.
 
 When the agent starts a fresh context (``context_reset``,
-`fibsem.ai.agent.handoff`), ``fibsem-agent`` posts its note here. The notes
-go to ``agent/handoff-<session id>.md`` in the session's experiment, beside
-its plan and transcript, or its own folder until one is open (`agent_files`),
-each after the earlier ones, so the operator can read why and where the agent
-started over. Self-reported, like the transcript.
+`fibsem.ai.agent.handoff`), ``fibsem-agent`` posts its note here; only the
+running session's are taken. The notes go to ``agent/handoff-<session
+id>.md`` in the session's experiment, beside its plan and transcript, or its
+own folder until one is open (`agent_files`), each after the earlier ones, so
+the operator can read why and where the agent started over. Self-reported,
+like the transcript.
 """
 
 import re
@@ -50,6 +51,17 @@ def build_agent_handoff_router(
                 422,
                 "invalid",
                 "session_id is the session's id: letters, digits, - and _.",
+            )
+        # Only the running session's own notes: another caller at Watch can't
+        # write into a session that isn't its.
+        auth: AuthConfig = request.app.state.auth
+        running = auth.agent_session or {}
+        if running.get("ended") or running.get("session_id") != body.session_id:
+            raise refusal_error(
+                409,
+                "not_running",
+                f"Session {body.session_id} is not the agent session running "
+                "here: only it adds handoff notes.",
             )
         text = body.text.strip()
         if not text or len(text) > MAX_TEXT:
