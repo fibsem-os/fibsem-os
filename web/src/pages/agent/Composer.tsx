@@ -1,5 +1,5 @@
 import { ChevronDown, Paperclip, Square } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Facts } from "@/components/ui/card";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -268,9 +268,19 @@ function AttachLong({
   );
 }
 
+// How long "Sent" stays beside the Send button.
+const SAID_MS = 4000;
+
 export function Composer({ agent, attach, onSent }: { agent: AgentState; attach: Attachments; onSent: () => void }) {
   const [draft, setDraft] = useState("");
   const [said, setSaid] = useState<string | null>(null);
+  // A moment's confirmation only: the message itself then shows, marked "Not read
+  // yet" until the agent reads it, so the note would only go stale here.
+  useEffect(() => {
+    if (!said) return;
+    const timer = setTimeout(() => setSaid(null), SAID_MS);
+    return () => clearTimeout(timer);
+  }, [said]);
   // Pasted text that would take the message past LIMIT, waiting to be attached.
   const [long, setLong] = useState<string | null>(null);
   const { act, busy, error, setError } = useAct();

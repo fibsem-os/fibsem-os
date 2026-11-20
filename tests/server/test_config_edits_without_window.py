@@ -117,6 +117,33 @@ def test_an_item_patch_needs_no_window(tmp_path):
     assert lamella.description == "checked"
 
 
+def test_working_notes_are_rewritten_beside_the_description(tmp_path):
+    """notes is its own field: an item patch rewrites it whole, the item's
+    detail answers it, the description stays, and it is saved."""
+    from fibsem.applications.autolamella.structures import Lamella
+
+    context, experiment, _scope = _context(tmp_path)
+    lamella = experiment.positions[0]
+    lamella.description = "square 3, cell 2"
+    for text in ("rough milled; polish next", "polished to 180 nm; done"):
+        result = context.apply_item_patch(
+            lamella.name, {"notes": text}, item_fields_version(lamella)
+        )
+        assert result["applied"], result
+    assert lamella.notes == "polished to 180 nm; done"
+    assert lamella.description == "square 3, cell 2"
+    detail = context.item_detail(lamella.name)
+    assert (detail.description, detail.notes) == (
+        "square 3, cell 2",
+        "polished to 180 nm; done",
+    )
+    assert Lamella.from_dict(lamella.to_dict()).notes == "polished to 180 nm; done"
+    # a lamella saved before notes existed reads with none
+    saved = lamella.to_dict()
+    saved.pop("notes")
+    assert Lamella.from_dict(saved).notes == ""
+
+
 def test_the_editors_copy_and_global_edit_save_the_protocol(tmp_path):
     """The lamella editor's Apply to other lamellae, with the base protocol
     too, and the protocol editor's Global Edit: config_edits functions, the

@@ -46,6 +46,10 @@ paths, your decision, the Verifier's answer and what you did, its image as
 the evidence. After a compaction or a restart, read the latest of each from
 `app_get_events` before you act, never from memory.
 
+Each lamella also carries its own working `notes` (autolamella, *A
+lamella's record*): rewrite them with `item_update` after every task or
+decision on it, so its state is on the lamella as well as in `[run_state]`.
+
 **Operator messages** win over the intake and over the Verifier. Update
 `[intake]` and `[run_state]`, and say back what you will do differently.
 Keep everything you hold (a site, a placement, a lamella left UNASSESSED) in
