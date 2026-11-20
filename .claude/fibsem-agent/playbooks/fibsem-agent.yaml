@@ -50,6 +50,12 @@ session:
   # The CLI compacts the context near the model's window unless this sets
   # its auto-compact window (tokens, 100000 to 1000000). Unset by default.
   # compact_window: 600000
+  # A resume reloads the last conversation only while its context was below
+  # this many tokens: a larger one costs nearly the whole window on every turn
+  # and compacts at once. Above it, or when the reload fails, fibsem-agent
+  # carries the session on in a fresh context rebuilt from the plan, the
+  # handoff notes and the experiment's record.
+  resume_max_context: 700000
   # What wakes the agent at each level, until it sets its own with wake_on:
   # all (every watcher line) or digest (routine lines, such as a task finishing
   # normally or an autofocus that passed, held and given together). At Drive

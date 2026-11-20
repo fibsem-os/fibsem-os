@@ -125,6 +125,7 @@ SESSION = (
     "quiet_min",
     "context_marks",
     "compact_window",
+    "resume_max_context",
     "wake_on_watch",
     "wake_on_assist",
     "wake_on_drive",
@@ -141,6 +142,7 @@ NUMBERS = {
     "deadline_warn_min": float,
     "quiet_min": float,
     "compact_window": int,
+    "resume_max_context": int,
     "digest_min": float,
     "digest_lines": int,
 }
@@ -176,6 +178,11 @@ class SessionSettings:
     compact_window: Optional[int] = None
     """The CLI's auto-compact window, in tokens (100k to 1M); None leaves the
     CLI's own, which compacts near the model's window."""
+    resume_max_context: Optional[int] = None
+    """A resume reloads the session's last conversation only while its
+    context was below this many tokens; above it, or when the reload fails,
+    the session carries on in a fresh context rebuilt from its record
+    (`handoff`). None always reloads it."""
     wake_on_watch: Optional[str] = None
     """What wakes the agent at Watch until it sets its own (`wake_policy`):
     ``all`` lines, or ``digest``, routine ones held and given together."""
