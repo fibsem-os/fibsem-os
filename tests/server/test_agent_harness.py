@@ -2070,6 +2070,39 @@ def test_a_server_of_another_api_version_ends_the_agent_at_once(caplog):
     assert running.harness._resumable is False
 
 
+def test_compacting_shows_as_a_running_step_until_it_ends():
+    """The CLI's "compacting" status opens a step, so the page shows the
+    agent at work rather than frozen; the boundary closes it and says so."""
+    pytest.importorskip("claude_agent_sdk")
+    from claude_agent_sdk import SystemMessage
+
+    from fibsem.ai.agent.harness import SdkAgent, _show
+
+    agent = SdkAgent(harness_mod.build_options(harness_mod.find_checkout()))
+    status = SystemMessage(subtype="status", data={"status": "compacting"})
+    _show(status, agent)
+    _show(status, agent)  # said twice, one step
+    (step,) = agent.transcript
+    assert (step["kind"], step["verb"], step["text"]) == (
+        "step",
+        "Compacted",
+        "the context",
+    )
+    _show(
+        SystemMessage(
+            subtype="compact_boundary",
+            data={"compact_metadata": {"trigger": "auto", "pre_tokens": 812000}},
+        ),
+        agent,
+    )
+    _show(SystemMessage(subtype="status", data={"status": None}), agent)
+    done, said = agent.transcript[1:]
+    assert done["kind"] == "done" and done["step"] == step["seq"]
+    assert said["kind"] == "context"
+    assert said["text"] == "Context compacted: 812k tokens before, automatically"
+    assert agent._compacting is None
+
+
 def test_a_compacted_context_asks_for_the_plan_on_the_next_turn():
     pytest.importorskip("claude_agent_sdk")
     from claude_agent_sdk import SystemMessage

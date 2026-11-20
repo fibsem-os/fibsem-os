@@ -233,6 +233,8 @@ def describe(record: Mapping[str, Any], asked: Optional[Asked] = None) -> Text:
     if kind == k.AGENT_PLAN_EDITED:
         sections = p.get("sections") or []
         return _text("plan edited", detail=", ".join(map(str, sections)) or None)
+    if kind == k.AGENT_CONTEXT_RESET_ASKED:
+        return _text("context reset", detail="You asked the agent for a fresh context")
     if kind == k.AGENT_SAMPLE_SET:
         was, sample = p.get("was"), p.get("sample")
         return _text("sample", detail=f"{was} → {sample}" if was else sample)

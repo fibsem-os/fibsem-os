@@ -8,6 +8,7 @@ from fibsem.ai.agent.levels import AgentLevel
 from fibsem.instrument_id import instrument_id
 from fibsem.server import AuthConfig
 from fibsem.server.agent.session import (
+    CONTEXT_RESET_ASKED,
     SESSION_BUDGET,
     SESSION_ENDED,
     SESSION_GOAL,
@@ -275,3 +276,36 @@ def test_the_operator_sets_the_budget_and_the_agents_reports_keep_it(server):
     fresh = client.post("/app/agent/session", json={"session_id": "s2"}).json()
     assert "budget_set_usd" not in fresh["session"]
     assert _kinds(recorded) == [SESSION_STARTED, SESSION_STARTED]
+
+
+def test_the_operator_asks_for_a_fresh_context_on_the_record(server):
+    auth, client, recorded = server
+    auth.operator_token = "op-token"
+    operator = TestClient(client.app, headers={"Authorization": "Bearer op-token"})
+    assert operator.post("/app/agent/context-reset").status_code == 409
+    body = {"session_id": "s1", "contexts": 2}
+    client.post("/app/agent/session", json=body)
+    # The agent can't ask for itself here: it has context_reset.
+    assert client.post("/app/agent/context-reset").status_code == 403
+    response = operator.post("/app/agent/context-reset")
+    assert response.status_code == 200
+    session = response.json()["session"]
+    assert session["reset_asked_in"] == 2 and session["reset_asked_at"]
+    assert recorded[-1] == (CONTEXT_RESET_ASKED, {"session_id": "s1", "context": 2})
+    # The harness's next report keeps it, and can't set it.
+    session = client.post("/app/agent/session", json={"contexts": 3}).json()
+    assert session["session"]["reset_asked_in"] == 2
+    body = {"reset_asked_in": 3}
+    assert client.post("/app/agent/session", json=body).status_code == 422
+
+
+def test_the_context_reports_its_parts():
+    body = {
+        "session_id": "s1",
+        "context": {
+            "used": 50000,
+            "parts": [{"name": "Messages", "tokens": 30000}],
+        },
+    }
+    session, _ = report(AuthConfig.generate(level=AgentLevel.WATCH), body)
+    assert session["context"]["parts"] == [{"name": "Messages", "tokens": 30000}]

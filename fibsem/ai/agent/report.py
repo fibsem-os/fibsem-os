@@ -21,6 +21,7 @@ MAX_ITEM = 200
 MAX_SKILLS = 20
 MAX_CHECKLIST = 50
 MAX_HOOKS = 20
+MAX_PARTS = 20
 
 Text = Annotated[str, StringConstraints(max_length=MAX_TEXT, strip_whitespace=True)]
 Item = Annotated[
@@ -43,12 +44,22 @@ class Tokens:
 
 
 @dataclass
+class ContextPart:
+    """One part of the context and its size, as the CLI's ``/context`` names
+    it: "System prompt", "MCP tools", "Messages"."""
+
+    name: Item
+    tokens: Count
+
+
+@dataclass
 class ContextUse:
-    """How full its context is, in tokens."""
+    """How full its context is, in tokens, and of what."""
 
     used: Optional[Count] = None
     window: Optional[Count] = None
     compact_at: Optional[Count] = None
+    parts: Optional[Annotated[List[ContextPart], Field(max_length=MAX_PARTS)]] = None
 
 
 @dataclass
@@ -144,6 +155,10 @@ class ReportedSession(SessionReport):
     # The budget the operator set (``PUT /app/agent/budget``), which
     # fibsem-agent keeps to; a report can't set it.
     budget_set_usd: Optional[float] = None
+    # When the operator last asked for a fresh context (``POST
+    # /app/agent/context-reset``), and the context it was asked in.
+    reset_asked_at: Optional[str] = None
+    reset_asked_in: Optional[int] = None
     # The instrument it is connected to and the experiment open there, as the
     # server knows them: ids, which a rename does not change. The serial
     # number is what the microscope reports, when it reports one.

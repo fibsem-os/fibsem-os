@@ -60,6 +60,7 @@ from fibsem.ai.agent import (
 )
 from fibsem.ai.agent import handoff as handoff_mod
 from fibsem.ai.agent import manager as sessions
+from fibsem.ai.agent import report as report_mod
 from fibsem.ai.agent import watch as watch_mod
 from fibsem.ai.agent.catalog import INSTRUMENT_ENV
 from fibsem.ai.agent.report import SessionReport, plain
@@ -370,6 +371,28 @@ def turn_prompt(
     if said & {ALARM, watch_mod.PLAN_EDITED}:
         prompt += "\n\n" + words.reread_plan
     return prompt
+
+
+def context_parts(categories) -> List[Dict[str, Any]]:
+    """The CLI's ``/context`` categories as the session reports them: each
+    part's name and tokens, without the free space and the tools only named
+    (deferred), at most `report_mod.MAX_PARTS`."""
+    parts = []
+    for category in categories if isinstance(categories, list) else []:
+        if not isinstance(category, dict) or category.get("isDeferred"):
+            continue
+        name = " ".join(str(category.get("name") or "").split())[: report_mod.MAX_ITEM]
+        tokens = category.get("tokens")
+        if (
+            not name
+            or name.lower() == "free space"
+            or isinstance(tokens, bool)
+            or not isinstance(tokens, (int, float))
+            or tokens <= 0
+        ):
+            continue
+        parts.append({"name": name, "tokens": int(tokens)})
+    return parts[: report_mod.MAX_PARTS]
 
 
 # The kinds of the harness's own wake-ups: the agent's timer, and a deadline.
@@ -2022,6 +2045,8 @@ class SdkAgent:
         # A tool call's line and when it was made, by the call's id: its
         # result says it is done, or that it failed.
         self._steps: dict = {}
+        # While the CLI compacts the context: its line and when it began.
+        self._compacting: Optional[tuple] = None
         # Called after each line is kept (`Harness._send_transcript_every`).
         self.on_line: Optional[Callable[[], None]] = None
         self.cwd = Path(options.cwd) if options.cwd else None
@@ -2084,6 +2109,7 @@ class SdkAgent:
         self.compacted = False
         self.skills_read = []
         self._steps = {}
+        self._compacting = None
         self._cost_usd = None
         self.calls.new_context()
         if old is not None:
@@ -2147,7 +2173,10 @@ class SdkAgent:
             "compact_at": reply.get("autoCompactThreshold"),
         }
         found = {key: int(value) for key, value in found.items() if value}
-        return found if "used" in found else context
+        if "used" not in found:
+            return context
+        parts = context_parts(reply.get("categories"))
+        return {**found, "parts": parts} if parts else found
 
     def _turn_line(self, result, end: TurnEnd) -> str:
         """ "Turn ended: success, 12 steps, $0.41 ($12.30 so far). ..." """
@@ -2315,6 +2344,27 @@ def _line(agent, kind: str, text: str, **extra) -> Optional[int]:
     return keep(kind, text, **extra) if keep is not None else None
 
 
+def _compacting(agent) -> None:
+    """The CLI began compacting the context: a step that runs until it ends."""
+    if getattr(agent, "_compacting", None) is not None:
+        return
+    log.info("Compacting the context.")
+    seq = _line(agent, "step", "the context", verb="Compacted")
+    if seq is not None:
+        agent._compacting = (seq, time.monotonic())
+
+
+def _compacted(agent) -> None:
+    """The compaction ended: its step is done."""
+    began = getattr(agent, "_compacting", None)
+    if began is None:
+        return
+    agent._compacting = None
+    _line(
+        agent, "done", "", step=began[0], took_s=round(time.monotonic() - began[1], 1)
+    )
+
+
 def _show(message, agent: SdkAgent) -> None:
     """One SDK message on the console and in the log, readably."""
     from claude_agent_sdk import (
@@ -2357,6 +2407,13 @@ def _show(message, agent: SdkAgent) -> None:
                     log.warning(
                         "MCP server %s is %s.", server.get("name"), server.get("status")
                     )
+        elif message.subtype == "status":
+            # The CLI says "compacting" as it starts and clears it when done:
+            # the page shows a running step meanwhile, not a frozen agent.
+            if data.get("status") == "compacting":
+                _compacting(agent)
+            else:
+                _compacted(agent)
         elif message.subtype == "compact_boundary":
             agent.compacted = True
             meta = data.get("compact_metadata") or {}
@@ -2364,6 +2421,19 @@ def _show(message, agent: SdkAgent) -> None:
                 "Context compacted (%s, %s tokens before).",
                 meta.get("trigger"),
                 meta.get("pre_tokens"),
+            )
+            _compacted(agent)
+            before = meta.get("pre_tokens")
+            _line(
+                agent,
+                "context",
+                "Context compacted: "
+                + (f"{before / 1000:.0f}k tokens before, " if before else "")
+                + (
+                    "by the agent"
+                    if meta.get("trigger") == "manual"
+                    else "automatically"
+                ),
             )
     elif isinstance(message, AssistantMessage):
         for block in message.content:

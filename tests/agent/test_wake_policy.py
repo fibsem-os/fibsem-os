@@ -92,6 +92,7 @@ def test_every_line_the_watch_says_is_in_the_table():
         watch_mod.MESSAGE,
         watch_mod.ASIDE,
         watch_mod.PLAN_EDITED,
+        watch_mod.CONTEXT_RESET,
         watch_mod.LEVEL,
         watch_mod.LEVEL_LOWERED,
         watch_mod.OPERATOR_STOP,
@@ -759,3 +760,41 @@ def test_the_agent_prompt_cache_lasts_as_long_as_the_policy_counts_on():
     assert ttl == wake_policy.PROMPT_CACHE_TTL == "1h"
     assert wake_policy.CACHE_COLD_S == 60 * 60
     assert "CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL" not in harness_mod.CLI_ENV
+
+
+def test_the_operator_asking_for_a_fresh_context_wakes_the_agent():
+    from fibsem.server.agent.session import CONTEXT_RESET_ASKED
+    from fibsem.workflows.events import kinds as event_kinds
+
+    assert CONTEXT_RESET_ASKED == event_kinds.AGENT_CONTEXT_RESET_ASKED
+    assert wake_lines.needs(watch_mod.CONTEXT_RESET) == wake_lines.WAKE
+    assert watch_mod.CONTEXT_RESET in wake_lines.ALWAYS
+    assert "context_reset" in watch_mod.CONTEXT_RESET_LINE
+
+
+def test_the_context_parts_leave_out_free_space_and_deferred_tools():
+    categories = [
+        {"name": "System prompt", "tokens": 3000, "color": "x"},
+        {"name": "MCP tools", "tokens": 9000, "color": "x", "isDeferred": True},
+        {"name": "Messages", "tokens": 120000.0, "color": "x"},
+        {"name": "Free space", "tokens": 800000, "color": "x"},
+        {"name": "Empty", "tokens": 0},
+        {"name": "", "tokens": 5},
+        "junk",
+    ]
+    assert harness_mod.context_parts(categories) == [
+        {"name": "System prompt", "tokens": 3000},
+        {"name": "Messages", "tokens": 120000},
+    ]
+    assert harness_mod.context_parts(None) == []
+
+
+def test_the_watch_tells_the_agent_the_operator_asked_for_a_fresh_context():
+    event = {
+        "kind": "agent_context_reset_asked",
+        "payload": {"session_id": "s1", "context": 1},
+        "seq": 1,
+    }
+    printed = []
+    watch_mod._print_events([event], 0, printed.append)
+    assert printed == [watch_mod.CONTEXT_RESET_LINE]
