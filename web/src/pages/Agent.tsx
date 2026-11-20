@@ -5,6 +5,7 @@ import {
   Bot,
   Check,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   ListChecks,
   ListFilter,
@@ -312,7 +313,7 @@ type Shared = {
   running: (step: TranscriptLine) => boolean;
   now?: string | null;
   calls: boolean;
-  /** Opens a run in its own tab of the side column. */
+  /** Shows a run in the side column's Subagents tab. */
   onOpen?: (call: TranscriptLine) => void;
 };
 
@@ -445,7 +446,7 @@ function RunBadge({ badge }: { badge: { text: string; warn: boolean } | null }) 
 
 /** A subagent's run, where the agent called it: one card with what it was
  * asked, whether it still runs, and its answer once it gives one. Its own steps
- * and words fold under it; Open shows the run in its own tab of the side column.
+ * and words fold under it; Open shows the run in the side column's Subagents tab.
  * *tab*: the run as that tab shows it, its lines always open. */
 function RunCard({
   call,
@@ -522,7 +523,7 @@ function RunCard({
   );
 }
 
-/** The session's subagent runs, newest first: each opens its tab. */
+/** The session's subagent runs, newest first: each opens in the Subagents tab. */
 function SubagentList({
   calls,
   answered,
@@ -537,8 +538,7 @@ function SubagentList({
   const clock = useClock(calls.some((c) => !answered.has(stepKey(c.session_id, c.seq)) && running(c)));
   if (!calls.length) return null;
   return (
-    <section className="mt-4 border-t pt-3">
-      <div className="mb-1 text-[12px] font-semibold text-muted-foreground">Subagents</div>
+    <section>
       {[...calls].reverse().map((c) => {
         const answer = answered.get(stepKey(c.session_id, c.seq));
         const state = runState(c, answer, !answer && running(c), clock);
@@ -849,9 +849,10 @@ export function AgentPage() {
   // Files dragged over the chat: enter and leave fire for each child, so count them.
   const drags = useRef(0);
   const [dragging, setDragging] = useState(false);
-  // Subagent runs opened in the side column, by their call's key; *focus*
-  // brings one to the front, then clears so opening it again does too.
-  const [openRuns, setOpenRuns] = useState<string[]>([]);
+  // The subagent run the Subagents tab shows, by its call's key (null: the
+  // list); *focus* brings the tab to the front, then clears so opening a run
+  // again does too.
+  const [shownRun, setShownRun] = useState<string | null>(null);
   const [focus, setFocus] = useState<string | null>(null);
   useEffect(() => {
     if (focus) setFocus(null);
@@ -900,9 +901,8 @@ export function AgentPage() {
   const heard = isWorking && !a.stopped;
   const idx = indexLines(entries, heard);
   const openRun = (call: TranscriptLine) => {
-    const key = stepKey(call.session_id, call.seq);
-    setOpenRuns((open) => (open.includes(key) ? open : [...open, key]));
-    setFocus(`run:${key}`);
+    setShownRun(stepKey(call.session_id, call.seq));
+    setFocus("subagents");
   };
   const panel = hasPanel(session) ? (
     <SidePanel session={session} plan={plan.data} budgetLow={a.budget_low} onOpenPlan={() => setPlanOpen(true)} />
@@ -912,16 +912,12 @@ export function AgentPage() {
       id: "session",
       label: "Session",
       icon: <ListChecks size={14} />,
-      render: () => (
-        <>
-          {panel ?? (
-            <p className="m-0 text-[13px] text-muted-foreground">
-              The agent's goal, plan and budget show here once it reports them.
-            </p>
-          )}
-          <SubagentList calls={idx.calls} answered={idx.answered} running={idx.running} onOpen={openRun} />
-        </>
-      ),
+      render: () =>
+        panel ?? (
+          <p className="m-0 text-[13px] text-muted-foreground">
+            The agent's goal, plan and budget show here once it reports them.
+          </p>
+        ),
     },
   ];
   if (instrument)
@@ -941,32 +937,42 @@ export function AgentPage() {
     ) : undefined,
     render: () => <SideChat rows={asides} agent={a} />,
   });
-  for (const key of openRuns) {
-    const call = idx.calls.find((c) => stepKey(c.session_id, c.seq) === key);
-    if (!call) continue;
-    const answer = idx.answered.get(key);
-    const live = !answer && idx.running(call);
+  if (idx.calls.length) {
+    const call = idx.calls.find((c) => stepKey(c.session_id, c.seq) === shownRun);
+    const answer = call && idx.answered.get(shownRun!);
     tabs.push({
-      id: `run:${key}`,
-      label: agentName(call.subagent ?? ""),
+      id: "subagents",
+      label: "Subagents",
       icon: <Bot size={14} />,
-      badge: live ? <span className="block size-1.5 rounded-full bg-primary" aria-label="running" /> : undefined,
-      closable: true,
-      onClose: () => setOpenRuns((open) => open.filter((k) => k !== key)),
-      render: () => (
-        <RunCard
-          tab
-          call={call}
-          answer={answer}
-          live={live}
-          answered={idx.answered}
-          pictures={idx.pictures}
-          runs={idx.runs}
-          running={idx.running}
-          now={a.now}
-          calls={calls}
-        />
-      ),
+      badge: idx.calls.some((c) => !idx.answered.has(stepKey(c.session_id, c.seq)) && idx.running(c)) ? (
+        <span className="block size-1.5 rounded-full bg-primary" aria-label="one is running" />
+      ) : undefined,
+      render: () =>
+        call ? (
+          <div className="flex flex-col gap-3">
+            <button
+              className="flex w-fit cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-[12px] text-muted-foreground hover:text-foreground"
+              onClick={() => setShownRun(null)}
+            >
+              <ChevronLeft size={13} />
+              All runs ({idx.calls.length})
+            </button>
+            <RunCard
+              tab
+              call={call}
+              answer={answer}
+              live={!answer && idx.running(call)}
+              answered={idx.answered}
+              pictures={idx.pictures}
+              runs={idx.runs}
+              running={idx.running}
+              now={a.now}
+              calls={calls}
+            />
+          </div>
+        ) : (
+          <SubagentList calls={idx.calls} answered={idx.answered} running={idx.running} onOpen={openRun} />
+        ),
     });
   }
   return (
