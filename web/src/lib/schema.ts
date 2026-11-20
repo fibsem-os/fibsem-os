@@ -204,10 +204,15 @@ export interface components {
                 [key: string]: unknown;
             };
             available: boolean;
+            /** @default  */
+            label: string;
             /** @default false */
             long: boolean;
+            /** @default  */
+            reason: string;
             returns: string | null;
-            safety: string | null;
+            /** @default false */
+            safety: boolean;
             signature: string;
         };
         /** @description A patch to a task config, or its milling stages reordered, against
@@ -1333,6 +1338,8 @@ export interface components {
             } | null;
             native_max: number | null;
             native_unit: string | null;
+            /** @default  */
+            reason: string;
             settable: boolean;
         };
         MicroscopeInfo: {
@@ -1571,6 +1578,8 @@ export interface components {
             } | null;
             native_max: number | null;
             native_unit: string | null;
+            /** @default  */
+            reason: string;
             settable: boolean;
             type: string;
             type_path: string | null;
@@ -1733,6 +1742,8 @@ export interface components {
                 [key: string]: unknown;
             };
             available: boolean;
+            /** @default  */
+            reason: string;
             returns: string | null;
             signature: string;
         };

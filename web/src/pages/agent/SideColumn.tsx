@@ -229,8 +229,8 @@ export interface SafetyAction {
 
 const ROUTES = ["/microscope/devices", "/microscope/services"] as const;
 
-/** The safety actions the served devices and services declare
- * (`command(safety=...)`), one per button label: blanking two beams is one
+/** The safety actions the served devices and services pin a button for
+ * (`command(safety=True, label=...)`), one per label: blanking two beams is one
  * "Blank beams" button. */
 export function useSafetyActions(enabled: boolean): SafetyAction[] {
   const listings = useQueries({
@@ -245,13 +245,13 @@ export function useSafetyActions(enabled: boolean): SafetyAction[] {
   listings.forEach((listing, i) => {
     for (const [name, spec] of Object.entries(listing.data ?? {})) {
       for (const [command, info] of Object.entries(spec.commands ?? {})) {
-        if (!info.safety || info.available === false) continue;
-        const action = found.get(info.safety) ?? { label: info.safety, calls: [] };
+        if (!info.safety || !info.label || info.available === false) continue;
+        const action = found.get(info.label) ?? { label: info.label, calls: [] };
         action.calls.push({
           path: `${ROUTES[i]}/${encodeURIComponent(name)}/commands/${encodeURIComponent(command)}`,
           device: name.replace(/_/g, " "),
         });
-        found.set(info.safety, action);
+        found.set(info.label, action);
       }
     }
   });
