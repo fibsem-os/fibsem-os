@@ -294,7 +294,15 @@ export function Composer({ agent, attach, onSent }: { agent: AgentState; attach:
     setDraft("");
     attach.clear();
     onSent();
-    setSaid(connected(agent) ? "Sent · the agent reads it on its next turn" : "Sent · waiting for an agent");
+    // A /btw side question is answered here without interrupting the agent or joining its conversation.
+    const side = /^\s*\/btw\s+\S/i.test(text);
+    setSaid(
+      !connected(agent)
+        ? "Sent · waiting for an agent"
+        : side
+          ? "Sent · a side answer comes here; the agent carries on"
+          : "Sent · the agent reads it on its next turn",
+    );
   };
   return (
     <div className="flex flex-col rounded-md border border-input bg-card">
@@ -309,6 +317,7 @@ export function Composer({ agent, attach, onSent }: { agent: AgentState; attach:
         id="msg"
         rows={2}
         maxLength={LIMIT}
+        placeholder="Message the agent · start with /btw for a quick side question it answers without stopping"
         value={draft}
         onChange={(e) => {
           setDraft(e.target.value);

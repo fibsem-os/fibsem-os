@@ -41,7 +41,15 @@ observer with a doorbell, not a second driver.
    monitoring. Only the agent's level resets at every launch.
 4. The **Agent chip** in the status bar shows and sets the agent's level
    (below). Its card links to the web app's **Agent page**, where you answer
-   the agent, message it and connect one (*Connect an agent…*).
+   the agent, message it and connect one (*Connect an agent…*). Start a
+   message with `/btw` to ask a quick side question ("/btw what does the 0.72
+   mean?"): the answer comes back in the same chat, marked *Side answer*,
+   without interrupting what the agent is doing, and neither the question nor
+   the answer joins the agent's conversation. It answers only from what the
+   agent already knows, so it can't look anything up or act; an instruction
+   sent with `/btw` is not acted on, so send instructions as ordinary messages.
+   Both go on the session's record. Side answers need `fibsem-agent`; an agent
+   run another way gets a `/btw` message as an ordinary one.
 
 ## The agent's level
 

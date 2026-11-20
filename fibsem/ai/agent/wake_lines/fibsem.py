@@ -22,9 +22,34 @@ def _stage_started(event) -> Line:
 
 def _ended(event) -> Line:
     p = typed.read_payload(event)
-    return (MILL_FAILED if p.status == "failed" else MILL_ENDED), _mill_ended_line(
-        event, p
-    )
+    kind = MILL_FAILED if p.status == "failed" else MILL_ENDED
+    return kind, _mill_ended_line(event, p), {"ok": _went_as_planned(p)}
+
+
+# As fibsem.milling.tasks records a stage turned off in the protocol.
+_TURNED_OFF = "turned off in the protocol"
+
+
+def _went_as_planned(p: typed.Milling) -> bool:
+    """Whether a mill completed with every stage milled out: none skipped
+    (but those turned off in the protocol), ended early, failed or on another
+    current than asked."""
+    if p.status != "completed" or p.error:
+        return False
+    for stage in p.stages or []:
+        if not isinstance(stage, dict):
+            return False
+        if stage.get("status") == "skipped" and stage.get("reason") == _TURNED_OFF:
+            continue
+        end = stage.get("end") or {}
+        if (
+            stage.get("status") not in (None, "completed")
+            or stage.get("reason")
+            or stage.get("current_warning")
+            or end.get("kind") not in (None, "finished")
+        ):
+            return False
+    return True
 
 
 def _reading(event) -> Line:

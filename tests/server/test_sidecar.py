@@ -141,7 +141,9 @@ def test_hardware_tools_are_offered_at_watch():
 def test_each_description_names_the_level_it_needs(armed_sidecar):
     listed = asyncio.run(armed_sidecar.list_tools())
     described = {t.name: t.description for t in getattr(listed, "tools", listed)}
-    assert described["stage_get_position"].endswith("Works at Watch, Assist and Drive.")
+    # A Watch tool works at every level, so its description names none.
+    position = next(t for t in CATALOG if t.name == "stage_get_position")
+    assert described["stage_get_position"] == position.description
     assert "started itself it can stop at Assist or Drive" in described["milling_stop"]
     assert "Needs the agent at Drive" in described["stage_move_relative"]
     assert "request_create" in described["stage_move_relative"]
@@ -168,6 +170,87 @@ def test_read_tool_round_trip(armed_sidecar):
     result = asyncio.run(armed_sidecar.call_tool("stage_get_position", {}))
     text = "".join(getattr(c, "text", "") for c in _contents(result))
     assert '"position"' in text
+
+
+def test_the_listings_answer_names_and_the_describe_tools_the_rest(armed_sidecar):
+    """device_list and service_list answer each one's names, with what the
+    agent may never use; device_describe and service_describe one in full,
+    an argument schema only for the command asked about."""
+    devices = _call_json(armed_sidecar, "device_list", {})
+    stage = devices["stage"]
+    assert "position" in stage["parameters"] and "move_relative" in stage["commands"]
+    assert "move_absolute" in stage["agent_false"]["commands"]
+    assert "move_relative" not in stage["agent_false"]["commands"]
+    services = _call_json(armed_sidecar, "service_list", {})
+    assert "run_stage" in services["milling"]["commands"]
+    assert "check_stages" in services["milling"]["queries"]
+    assert "start" in services["milling"]["agent_false"]["commands"]
+
+    described = _call_json(armed_sidecar, "device_describe", {"device": "stage"})
+    assert described["parameters"]["position"]["limits"]["x"]["max"] > 0
+    assert described["commands"]["move_absolute"]["agent"] is False
+    assert all("arguments" not in c for c in described["commands"].values())
+    one = _call_json(
+        armed_sidecar,
+        "device_describe",
+        {"device": "stage", "command": "move_relative"},
+    )
+    assert "properties" in one["commands"]["move_relative"]["arguments"]
+    assert "arguments" not in one["commands"]["move_absolute"]
+    service = _call_json(armed_sidecar, "service_describe", {"service": "milling"})
+    assert service["commands"]["run_stage"]["long"] is True
+    assert "arguments" not in service["commands"]["run_stage"]
+    assert "has no command or query 'nope'" in _refused(
+        armed_sidecar, "service_describe", {"service": "milling", "command": "nope"}
+    )
+
+
+def test_saved_positions_answer_their_names_until_asked_for_one(armed_sidecar):
+    for name in ("north", "south"):
+        _call_json(armed_sidecar, "stage_save_position", {"name": name})
+    try:
+        named = _call_json(armed_sidecar, "stage_get_saved_positions", {})
+        assert set(named) == {"count", "names"}
+        assert named["names"][-2:] == ["north", "south"]
+        assert named["count"] == len(named["names"])
+        full = _call_json(
+            armed_sidecar, "stage_get_saved_positions", {"names": ["south"]}
+        )
+        assert [p["name"] for p in full["saved_positions"]] == ["south"]
+        assert "x" in full["saved_positions"][0]
+        assert "No saved position named 'east'" in _refused(
+            armed_sidecar, "stage_get_saved_positions", {"names": ["east"]}
+        )
+    finally:
+        for name in ("north", "south"):
+            _call_json(armed_sidecar, "stage_remove_saved_position", {"name": name})
+
+
+def test_grid_get_counts_a_run_s_tiles_unless_asked_for_its_files():
+    spec = next(t for t in CATALOG if t.name == "grid_get")
+    tiles = [f"tile_{r}_{c}_ib.tif" for r in range(4) for c in range(4)]
+    answer = {
+        "name": "grid-01",
+        "quality": "GOOD",
+        "overview_paths": {"FIB": "grid-01/overview.tif"},
+        "tasks": [
+            {
+                "name": "FIB Overview",
+                "status": "Completed",
+                "files": {"overview": ["overview.tif"], "overview_tiles": tiles},
+            }
+        ],
+    }
+    shaped = spec.shape(answer, {})
+    files = shaped["tasks"][0]["files"]
+    assert files["overview"] == ["overview.tif"]
+    assert files["overview_tiles"] == {
+        "count": 16,
+        "first": "tile_0_0_ib.tif",
+        "last": "tile_3_3_ib.tif",
+    }
+    assert shaped["overview_paths"] == answer["overview_paths"]
+    assert spec.shape(answer, {"files": True}) == answer
 
 
 def test_move_tool_round_trip(armed_sidecar):

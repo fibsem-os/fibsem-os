@@ -37,13 +37,14 @@ import threading
 import time
 import traceback
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from fibsem import diagnostics
 from fibsem.ai.agent import (
+    aside,
     code_mode,
     extra_mcp,
     host_link,
@@ -55,11 +56,15 @@ from fibsem.ai.agent import (
     subagents,
     usage,
     wake_lines,
+    wake_policy,
 )
+from fibsem.ai.agent import handoff as handoff_mod
 from fibsem.ai.agent import manager as sessions
+from fibsem.ai.agent import report as report_mod
 from fibsem.ai.agent import watch as watch_mod
 from fibsem.ai.agent.catalog import INSTRUMENT_ENV
 from fibsem.ai.agent.report import SessionReport, plain
+from fibsem.ai.agent.session import BUDGET_WARNING
 from fibsem.ai.agent.wake_lines import fibsem as fibsem_lines
 from fibsem.client.transport import (
     HOST_TOKEN_ENV,
@@ -87,16 +92,23 @@ RECORD_SERVER = "fibsem_record"
 # The harness's own tools, in-process: the wake-up timer (`Alarm`).
 HARNESS_SERVER = "fibsem_agent"
 WAKE_TOOL = f"mcp__{HARNESS_SERVER}__wake_after"
+# What wakes the agent (`wake_policy.WakeOn`), on the same in-process server.
+WAKE_ON_TOOL = f"mcp__{HARNESS_SERVER}__wake_on"
 # The playbook tools (`PlaybookControl`), on the same in-process server.
 PLAYBOOK_TOOLS = [
     f"mcp__{HARNESS_SERVER}__{name}"
     for name in ("playbook_list", "playbook_set", "skill_done")
 ]
+# The fresh-context tool (`handoff`), on the same in-process server.
+HANDOFF_TOOL = f"mcp__{HARNESS_SERVER}__{handoff_mod.TOOL}"
 # The server's level gate decides what the fibsem tools may do, so they need no
 # prompt; ToolSearch only finds them. The session's subagents are added
 # (`subagent_tools`).
 ALLOWED_TOOLS = (
-    [f"mcp__{SERVER}__*", "ToolSearch", "SendMessage"] + [WAKE_TOOL] + PLAYBOOK_TOOLS
+    [f"mcp__{SERVER}__*", "ToolSearch", "SendMessage"]
+    + [WAKE_TOOL, WAKE_ON_TOOL]
+    + PLAYBOOK_TOOLS
+    + [HANDOFF_TOOL]
 )
 # The only built-in tools the agent has: reading its skills, finding the
 # sidecar's tools when the CLI defers them, calling a specialist or carrying
@@ -140,6 +152,9 @@ CLI_ENV = {
     "CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1",
     "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",
     "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
+    # The agent's prompt cache lasts an hour, not the CLI's 5 min: a Watch
+    # session waits longer than that between wakes (`wake_policy`).
+    "CLAUDE_CODE_PROMPT_CACHE_TTL": wake_policy.PROMPT_CACHE_TTL,
 }
 
 # One message from the CLI: a tool result carrying an image (the Read tool on
@@ -331,11 +346,19 @@ def turn_prompt(
     lines: List[str],
     remind: Optional[List[str]] = None,
     words: Optional[instruments.Texts] = None,
+    digest: Optional[str] = None,
+    notes: Optional[List[str]] = None,
 ) -> str:
     """The watcher's lines as one turn, with what a GAP or a level change
-    asks of the agent first, and the reminders *remind* the lines call for."""
+    asks of the agent first, and the reminders *remind* the lines call for.
+    The *digest* of held lines (`wake_policy`) comes first, and *notes* about
+    what wakes the agent right after the lines."""
     words = words or texts()
-    prompt = "The watcher printed:\n" + "\n".join(lines)
+    parts = [digest] if digest else []
+    if lines:
+        parts.append("The watcher printed:\n" + "\n".join(lines))
+    parts += [note for note in notes or [] if note]
+    prompt = "\n\n".join(parts)
     if remind:
         prompt += "\n\n" + reminders.reminder(remind)
     said = watch_mod.kinds(lines)
@@ -352,6 +375,28 @@ def turn_prompt(
     if said & {ALARM, watch_mod.PLAN_EDITED}:
         prompt += "\n\n" + words.reread_plan
     return prompt
+
+
+def context_parts(categories) -> List[Dict[str, Any]]:
+    """The CLI's ``/context`` categories as the session reports them: each
+    part's name and tokens, without the free space and the tools only named
+    (deferred), at most `report_mod.MAX_PARTS`."""
+    parts = []
+    for category in categories if isinstance(categories, list) else []:
+        if not isinstance(category, dict) or category.get("isDeferred"):
+            continue
+        name = " ".join(str(category.get("name") or "").split())[: report_mod.MAX_ITEM]
+        tokens = category.get("tokens")
+        if (
+            not name
+            or name.lower() == "free space"
+            or isinstance(tokens, bool)
+            or not isinstance(tokens, (int, float))
+            or tokens <= 0
+        ):
+            continue
+        parts.append({"name": name, "tokens": int(tokens)})
+    return parts[: report_mod.MAX_PARTS]
 
 
 # The kinds of the harness's own wake-ups: the agent's timer, and a deadline.
@@ -399,6 +444,14 @@ CARRY_ON = (
     "from where you were."
 )
 
+# Said once, in the next turn, when the run's spend first reaches
+# `BUDGET_WARNING` of its budget: the CLI is given no budget, so it says none.
+BUDGET_LOW = (
+    "Budget: ${spent:.2f} of this run's ${budget:g} is spent ({used:.0f}%). "
+    "fibsem-agent stops at the end of the turn that spends the rest: tell the "
+    "operator now if the work needs more."
+)
+
 
 def is_urgent(line) -> bool:
     """Whether *line* cuts the agent's turn short (`URGENT`)."""
@@ -407,15 +460,24 @@ def is_urgent(line) -> bool:
 
 class Wakes:
     """The watcher's lines, held while the operator has the agent at Off and
-    given to the agent as one turn otherwise."""
+    given to the agent as one turn otherwise. The wake policy (*wake_on*,
+    `wake_policy.WakeOn`) holds routine lines for a digest."""
 
     def __init__(
         self,
         remind: Optional[Callable[[List[str]], List[str]]] = None,
         words: Optional[instruments.Texts] = None,
         waking: Optional[Callable[[], Optional[frozenset]]] = None,
+        wake_on: Optional[wake_policy.WakeOn] = None,
+        sizes_said: Optional[Callable[[], bool]] = None,
     ) -> None:
         self.off = False
+        # Whether the next turn already says the context's size (a mark line,
+        # `handoff`): the policy's note about it then waits.
+        self._sizes_said = sizes_said
+        self._wake_on = wake_on if wake_on is not None else wake_policy.WakeOn()
+        # What the policy says about a level line, for the next turn.
+        self._notes: List[str] = []
         # The line kinds the playbook lets wake the agent (`wake_lines.waking`),
         # read at each line: None for every line.
         self._waking = waking
@@ -428,8 +490,11 @@ class Wakes:
 
     def add(self, lines: List[str]) -> Optional[str]:
         """The next turn's prompt, or None when there is nothing to say yet."""
+        policy = self._wake_on
         for line in lines:
             kind = getattr(line, "kind", None)
+            if kind == wake_policy.DIGEST_DUE:
+                continue  # the policy knows the digest is due
             if kind == watch_mod.AGENT_OFF:
                 self.off = True
             elif kind == watch_mod.AGENT_BACK:
@@ -437,14 +502,29 @@ class Wakes:
                     # The level came back before the agent heard it go.
                     continue
                 self.off = False
+            level = (getattr(line, "facts", None) or {}).get("level")
+            if level:
+                note = policy.at_level(level)
+                if note:
+                    self._notes.append(note)
+            if policy.holds(line):
+                policy.keep_held(line)
+                continue
             self._held.append(line)
-        if self.off or not self._held or not self._wakes_now():
+        if self.off:
+            return None
+        due = policy.due()
+        if not due and (not self._held or not self._wakes_now()):
             return None
         lines, self._held = self._held, []
+        held, digest = policy.take(due or "with this wake")
         for line in lines:
             self.unread += getattr(line, "message_ids", ())
-        remind = self._remind(lines) if self._remind else None
-        return turn_prompt(lines, remind, self._words)
+        remind = self._remind(held + lines) if self._remind else None
+        notes, self._notes = self._notes, []
+        if not (self._sizes_said and self._sizes_said()):
+            notes.append(policy.idle_note())
+        return turn_prompt(lines, remind, self._words, digest, notes)
 
     def _wakes_now(self) -> bool:
         """Whether a held line wakes the agent: any, unless the playbook names
@@ -680,10 +760,26 @@ class PlaybookControl:
         return rows
 
 
-def wake_server(alarm: Alarm, control: Optional[PlaybookControl] = None):
+def wake_server(
+    alarm: Alarm,
+    control: Optional[PlaybookControl] = None,
+    handoff: Optional[handoff_mod.Handoff] = None,
+    wake_on: Optional[wake_policy.WakeOn] = None,
+):
     """The harness's in-process MCP server: the ``wake_after`` tool on
-    *alarm*, and with *control* the playbook tools."""
+    *alarm*, with *control* the playbook tools, with *handoff* the
+    ``context_reset`` tool, and with *wake_on* the ``wake_on`` tool."""
     from claude_agent_sdk import create_sdk_mcp_server, tool
+
+    more = []
+    if handoff is not None:
+
+        @tool(handoff_mod.TOOL, handoff_mod.DESCRIPTION, handoff_mod.SCHEMA)
+        async def context_reset(args):
+            said = handoff.request(args or {})
+            return {"content": [{"type": "text", "text": said}]}
+
+        more.append(context_reset)
 
     @tool(
         "wake_after",
@@ -698,8 +794,11 @@ def wake_server(alarm: Alarm, control: Optional[PlaybookControl] = None):
         said = alarm.set(float(args.get("minutes", 0)), str(args.get("reason", "")))
         return {"content": [{"type": "text", "text": said}]}
 
+    own = [wake_after]
+    if wake_on is not None:
+        own.append(wake_on_tool(wake_on))
     if control is None:
-        return create_sdk_mcp_server(HARNESS_SERVER, tools=[wake_after])
+        return create_sdk_mcp_server(HARNESS_SERVER, tools=own + more)
 
     def text(said: str) -> dict:
         return {"content": [{"type": "text", "text": said}]}
@@ -746,8 +845,55 @@ def wake_server(alarm: Alarm, control: Optional[PlaybookControl] = None):
         )
 
     return create_sdk_mcp_server(
-        HARNESS_SERVER, tools=[wake_after, playbook_list, playbook_set, skill_done]
+        HARNESS_SERVER,
+        tools=own + [playbook_list, playbook_set, skill_done] + more,
     )
+
+
+def wake_on_tool(policy: wake_policy.WakeOn):
+    """The ``wake_on`` tool on *policy*: called with nothing, it answers what
+    wakes the agent now."""
+    from claude_agent_sdk import tool
+
+    @tool(
+        "wake_on",
+        "What wakes you, and what waits for a digest. Called with nothing, it "
+        "says the policy now and how many lines are held. mode: 'all' (every "
+        "watcher line wakes you), 'digest' (routine lines, such as a task "
+        "finishing normally or an autofocus that passed, wait and come "
+        "together at the top of a later wake), or 'default' (the playbook's "
+        "for your level). every_min and after_lines: a digest comes this long "
+        "after the first line was held, or once this many are held (0: never "
+        "on that ground). wake / hold: routine line kinds, comma separated, "
+        "that wake you at once under digest, or wait under all ('none' "
+        "clears). Messages, the level, proposals, failures and your own "
+        "wake-ups always wake you. It holds until you change it.",
+        {
+            "type": "object",
+            "properties": {
+                "mode": {"type": "string", "enum": ["all", "digest", "default"]},
+                "every_min": {"type": "number", "minimum": 0},
+                "after_lines": {"type": "integer", "minimum": 0},
+                "wake": {"type": "string"},
+                "hold": {"type": "string"},
+            },
+        },
+    )
+    async def wake_on(args):
+        given = {k: v for k, v in args.items() if v not in (None, "")}
+        if not given:
+            said = policy.describe()
+        else:
+            said = policy.set(
+                mode=str(given.get("mode", "")),
+                every_min=given.get("every_min"),
+                after_lines=given.get("after_lines"),
+                wake=str(given.get("wake", "")),
+                hold=str(given.get("hold", "")),
+            )
+        return {"content": [{"type": "text", "text": said}]}
+
+    return wake_on
 
 
 @dataclass
@@ -893,6 +1039,16 @@ class Watcher:
                 pass
 
 
+def _level_of(client) -> Optional[str]:
+    """The agent level the App Server reports (``/capabilities``), or None."""
+    try:
+        response = client.request("GET", "/capabilities", timeout=10.0)
+        level = response.json().get("level") if response.status_code == 200 else None
+    except Exception:  # noqa: BLE001 - an unknown level takes the policy for none
+        return None
+    return level if isinstance(level, str) else None
+
+
 def _close(client) -> None:
     """Close a client the harness is done with, and its pooled connections."""
     try:
@@ -938,6 +1094,22 @@ class Harness:
     spend, so the operator sees them in the app. While a turn goes on, its
     tokens and the context's fill are reported every ``report_every_s``; the
     spend is known only as a turn ends.
+
+    The budget is the harness's to keep, not the CLI's: a turn that ends with
+    this run's spend at or over it ends the run, so that last turn can go
+    over. The operator may set a new budget at the App Server
+    (``PUT /app/agent/budget``); the harness takes it from the answer to a
+    report, and asks again before it ends the run. *spent_before_usd* is the
+    session's spend when this run started (its record's, on a resume): the
+    CLI's running total carries earlier runs on, the budget counts this one.
+
+    With *handoff*, the agent may start a fresh context (`handoff`): when the
+    turn that asked for one ends, the agent's ``new_context()`` starts a new
+    CLI conversation under the same session id, *keep_context* records it,
+    and the next turn starts with the handoff prompt. Lines that came in
+    meanwhile wait in the queue for that turn. The CLI's running total starts
+    again with each conversation: *spent_carried_usd* is the session's spend
+    before the current one, added to it.
     """
 
     def __init__(
@@ -950,6 +1122,7 @@ class Harness:
         retry_s: Optional[float] = None,
         goal: Optional[str] = None,
         budget_usd: Optional[float] = None,
+        spent_before_usd: Optional[float] = None,
         about: Optional[dict] = None,
         alarm: Optional[Alarm] = None,
         playbook: Optional[PlaybookControl] = None,
@@ -961,8 +1134,22 @@ class Harness:
         keep_cursor: Optional[Callable[[str], None]] = None,
         keep_where: Optional[Callable[[dict], None]] = None,
         report_every_s: float = REPORT_EVERY_S,
+        handoff: Optional[handoff_mod.Handoff] = None,
+        keep_context: Optional[Callable[[str, float], None]] = None,
+        spent_carried_usd: float = 0.0,
+        wake_on: Optional[wake_policy.WakeOn] = None,
     ) -> None:
         self._agent = agent
+        # Fresh contexts (`handoff`); None for a session that can't start one.
+        self._handoff = handoff
+        self._keep_context = keep_context
+        self._carried_usd = spent_carried_usd
+        # What wakes the agent; with none given, every line does.
+        self._wake_on = wake_on if wake_on is not None else wake_policy.WakeOn()
+        if self._wake_on.context is None:
+            self._wake_on.context = self._idle_and_context
+        # When the agent's last turn ended (monotonic), for the wake policy.
+        self._turn_ended_at: Optional[float] = None
         self._report_every_s = report_every_s
         # A turn is going on: its tokens so far are the agent's to say.
         self._in_turn = False
@@ -982,6 +1169,9 @@ class Harness:
         self._after = after
         self._keep_cursor = keep_cursor
         self._cursor_given: Optional[str] = None
+        # The newest cursor given before the wake policy's first held line:
+        # what a resume may start after while lines wait for a digest.
+        self._cursor_unheld: Optional[str] = None
         self._cursor_kept: Optional[str] = after
         # What the agent is told, for the session's instrument kind.
         self._words = words or texts()
@@ -1001,6 +1191,13 @@ class Harness:
         # What it can do (code mode, effort, skills), sent with the first report.
         self._about = dict(about or {})
         self._budget_usd = budget_usd
+        # The CLI's running total when this run started: 0 for a new session;
+        # None for a resume whose record doesn't say, and then this run's
+        # first turn is not counted (`_count_spend`).
+        self._run_from_usd: Optional[float] = spent_before_usd if resumed else 0.0
+        # `BUDGET_LOW` is said once per crossing; it waits here for a turn.
+        self._budget_warned = False
+        self._budget_note: Optional[str] = None
         # The App Server's client, once one answers: the session is reported on it.
         self._client = None
         self._turns = 0
@@ -1025,6 +1222,8 @@ class Harness:
         # The last turn was cut short by an urgent line.
         self._cut_short = False
         self._wakes = self._new_wakes()
+        # The operator's side questions (/btw): answered beside the turns.
+        self._asides = aside.Asides(agent, lambda: self._client)
         self._code = 0
         self._stop_requested = False
 
@@ -1037,7 +1236,19 @@ class Harness:
             current = playbook.reminders.playbook if playbook is not None else None
             return wake_lines.waking(current.wakes if current is not None else None)
 
-        return Wakes(remind, self._words, waking)
+        def sizes_said():
+            return self._handoff is not None and self._handoff.has_lines
+
+        return Wakes(remind, self._words, waking, self._wake_on, sizes_said)
+
+    def _idle_and_context(self) -> Tuple[Optional[float], Optional[int]]:
+        """Seconds since the agent's last turn ended, and its context's size."""
+        idle = (
+            None
+            if self._in_turn or self._turn_ended_at is None
+            else time.monotonic() - self._turn_ended_at
+        )
+        return idle, (self._context or {}).get("used")
 
     def outcome(self) -> dict:
         """How the run ended, for its session's record."""
@@ -1071,14 +1282,17 @@ class Harness:
         if self._alarm is not None:
             self._alarm.bind(self._loop, ring)
         self._deadlines.bind(self._loop, ring)
+        self._wake_on.bind(self._loop, ring)
         if self._stop_requested:
             return 0
         # The kickoff's own actions are news: the watch starts at the tail, so
         # it has to hold its place before the agent acts.
         if not await self._watch():
             return self._code
+        asides = None
         try:
             await self._agent.start()
+            asides = asyncio.ensure_future(self._asides.run())
             # The session's id is known before its first turn: reporting it
             # now lets that turn already write the plan.
             await self._report()
@@ -1091,10 +1305,13 @@ class Harness:
                 raise
             log.debug("The agent's process ended as it stopped.", exc_info=True)
         finally:
+            if asides is not None:
+                asides.cancel()
             if self._alarm is not None:
                 self._alarm.cancel()
             self._deadlines.cancel()
             # Before the watcher stops: stopping it closes the client.
+            await self._keep_unstarted_handoff()
             await self._report(ended=True)
             if self._watcher is not None:
                 self._watcher.stop()
@@ -1106,7 +1323,12 @@ class Harness:
 
     def _put(self, watcher, item) -> None:
         """An item for the next turn, on the loop; an urgent line from the
-        current watch cuts the turn going on short."""
+        current watch cuts the turn going on short. A side question is never
+        a turn's: it is answered beside them (`aside`)."""
+        if isinstance(item, watch_mod.Aside):
+            if watcher is self._watcher:
+                self._asides.add(item)
+            return
         if isinstance(item, _Cursor) and self._items.empty():
             # Its lines come before it and have all been taken, by the turn
             # going on or an earlier one: it is that turn's to keep. Queued, it
@@ -1163,6 +1385,10 @@ class Harness:
                 if isinstance(item, _Seeded):
                     # Only the first watch resumes: a later one starts at the tail.
                     self._after = None
+                    level = await asyncio.get_running_loop().run_in_executor(
+                        None, _level_of, client
+                    )
+                    self._wake_on.at_level(level, initial=True)
                     return True
                 if isinstance(item, _WatchEnded):
                     break
@@ -1200,18 +1426,24 @@ class Harness:
             end = await self._agent.turn(prompt)
         finally:
             self._in_turn = False
+            self._turn_ended_at = time.monotonic()
             interrupter.cancel()
             cutter.cancel()
             sender.cancel()
             reporter.cancel()
         self._turns += 1
         self._keep_given_cursor()
+        spent_before = self._spent_usd
         if end.cost_usd is not None:
-            self._spent_usd = end.cost_usd
+            self._count_spend(end.cost_usd + self._carried_usd)
         if end.tokens is not None:
             self._tokens = usage.add(self._tokens or usage.zero(), end.tokens)
         if end.context is not None:
             self._context = end.context
+        if self._handoff is not None:
+            known = end.cost_usd is not None and spent_before is not None
+            cost = self._spent_usd - spent_before if known else None
+            self._handoff.measure(end.context, cost)
         if self._stopping.is_set():
             return False
         session = end.session_id or getattr(self._agent, "session_id", None)
@@ -1227,15 +1459,21 @@ class Harness:
             )
             self._code = 1
             return False
-        if end.subtype == "error_max_budget_usd":
+        if self._over_budget():
+            # The operator may have raised it since the last report.
+            await self._reread_budget()
+        if self._over_budget():
             self._end_reason = "its budget is spent"
             log.error(
-                "The budget is spent (--max-budget-usd); fibsem-agent stops. "
-                "Raise it and --resume %s to carry on.",
+                "The budget is spent ($%.2f of $%g this run, --max-budget-usd); "
+                "fibsem-agent stops. Raise it and --resume %s to carry on.",
+                self._run_spent(),
+                self._budget_usd,
                 session,
             )
             self._code = 2
             return False
+        self._warn_budget()
         if end.subtype == "no_result":
             self._end_reason = "the agent's process ended"
             log.error(
@@ -1245,7 +1483,8 @@ class Harness:
             )
             self._code = 1
             return False
-        if end.subtype == "error_max_turns":
+        fresh = self._handoff is not None and self._handoff.pending is not None
+        if end.subtype == "error_max_turns" and not fresh:
             # The limit is a checkpoint, not a stop: the next turn starts at
             # once, with any lines that came in. Waiting for a line instead
             # stalls a run nobody is watching.
@@ -1255,8 +1494,78 @@ class Harness:
             self._put(self._watcher, watch_mod.Wake(ALARM, CARRY_ON))
         elif end.subtype != "success":
             log.warning("The turn ended with %s.", end.subtype)
+        if fresh:
+            await self._fresh_context()
         await self._report()
         return True
+
+    async def _keep_unstarted_handoff(self) -> None:
+        """A handoff note the agent wrote in the turn the run ended on: kept
+        with the others, though no fresh context started from it."""
+        note = self._handoff.take() if self._handoff is not None else None
+        if note is None:
+            return
+        self._handoff.keep(note)
+        session_id = getattr(self._agent, "session_id", None)
+        if self._client is not None and session_id:
+            await asyncio.get_running_loop().run_in_executor(
+                None, handoff_mod.post, self._client, session_id, note.markdown()
+            )
+
+    async def _fresh_context(self) -> None:
+        """The agent asked for a fresh context this turn: keep its note, start
+        a new conversation under the same session, and wake it with the note.
+        If the new conversation can't start, the agent carries on in this one."""
+        handoff = self._handoff
+        note = handoff.take()
+        playbook = self._playbook.reminders if self._playbook is not None else None
+        skills, read = handoff_mod.skills_to_read(
+            playbook.playbook if playbook is not None else None,
+            playbook.skills if playbook is not None else {},
+            list(getattr(self._agent, "skills_read", None) or []),
+            # Every instrument's session reads the base skill first.
+            None if self._words.kind == instruments.NONE else BASE_SKILL,
+        )
+        handoff.keep(note)
+        session_id = getattr(self._agent, "session_id", None)
+        kept = None
+        if self._client is not None and session_id:
+            kept = await asyncio.get_running_loop().run_in_executor(
+                None, handoff_mod.post, self._client, session_id, note.markdown()
+            )
+        spent = self._spent_usd or 0.0
+        try:
+            conversation = await self._agent.new_context()
+        except Exception as error:  # noqa: BLE001 - the old context carries on
+            log.warning("The fresh context could not start: %s", error, exc_info=True)
+            handoff.failed(str(error) or type(error).__name__)
+            return
+        # The new conversation's running total starts at 0.
+        self._carried_usd = spent
+        if self._keep_context is not None:
+            try:
+                self._keep_context(conversation, spent)
+            except Exception:  # noqa: BLE001 - the session goes on
+                log.debug("Keeping the new context failed.", exc_info=True)
+        where = (
+            f"{kept} in the experiment"
+            if kept
+            else "handoff.md in the session's folder on the agent's PC"
+        )
+        handoff.started(note, skills, read, where)
+        log.info(
+            "Fresh context %d (conversation %s): the agent carries on from its "
+            "handoff note.",
+            handoff.contexts,
+            conversation,
+        )
+        _line(
+            self._agent,
+            "context",
+            f"Fresh context: the agent started context {handoff.contexts} of "
+            f"this session here, from its plan and its handoff note ({where})",
+        )
+        self._put(self._watcher, watch_mod.Wake(ALARM, handoff_mod.WAKE))
 
     async def _report(self, ended: bool = False) -> None:
         """The session as it stands, to the App Server; a refusal or a server
@@ -1276,6 +1585,8 @@ class Harness:
             "turns": self._turns,
             **({} if self._goal_sent else self._about),
         }
+        if self._handoff is not None and self._handoff.contexts > 1:
+            body["contexts"] = self._handoff.contexts
         skills = list(getattr(self._agent, "skills_read", None) or [])
         if skills != self._skills_sent:
             body["skills"] = skills
@@ -1319,11 +1630,87 @@ class Harness:
                 return await loop.run_in_executor(None, post)
 
         reported = await asyncio.shield(send())
+        self._adopt_budget(reported)
         if isinstance(reported, dict) and self._keep_where is not None:
             self._keep_where(reported)
         if isinstance(reported, dict) and not ended:
             self._deadlines.set(reported.get("deadlines"))
         await self._send_transcript()
+
+    def _count_spend(self, total_usd: float) -> None:
+        """The CLI's running total after a turn: the session's spend."""
+        if self._run_from_usd is None:
+            # A resume whose earlier spend is unknown counts from here.
+            self._run_from_usd = total_usd
+        elif total_usd < self._run_from_usd:
+            # The CLI's total did not carry the earlier runs on: it starts
+            # from the spend carried into the current context.
+            self._run_from_usd = self._carried_usd
+        self._spent_usd = total_usd
+
+    def _run_spent(self) -> Optional[float]:
+        """What this run has spent, as the last turn ended."""
+        if self._spent_usd is None:
+            return None
+        return self._spent_usd - (self._run_from_usd or 0.0)
+
+    def _over_budget(self) -> bool:
+        spent = self._run_spent()
+        return (
+            bool(self._budget_usd) and spent is not None and spent >= self._budget_usd
+        )
+
+    def _warn_budget(self) -> None:
+        """`BUDGET_LOW` for the next turn, once the spend first reaches
+        `BUDGET_WARNING` of the budget; again after a new budget takes it
+        back under."""
+        spent, budget = self._run_spent(), self._budget_usd
+        if spent is None or not budget:
+            return
+        low = spent >= BUDGET_WARNING * budget
+        if low and not self._budget_warned:
+            self._budget_note = BUDGET_LOW.format(
+                spent=spent, budget=budget, used=100 * spent / budget
+            )
+        elif not low:
+            self._budget_note = None
+        self._budget_warned = low
+
+    def _adopt_budget(self, reported) -> None:
+        """The budget the operator set at the App Server for this session
+        (``budget_set_usd``), if it set one."""
+        if not isinstance(reported, dict):
+            return
+        session_id = getattr(self._agent, "session_id", None)
+        if reported.get("session_id") not in (None, session_id):
+            return
+        budget = reported.get("budget_set_usd")
+        if isinstance(budget, (int, float)) and budget > 0:
+            if budget != self._budget_usd:
+                log.info(
+                    "The operator set this run's budget to $%g (it was $%g).",
+                    budget,
+                    self._budget_usd or 0,
+                )
+                self._budget_usd = float(budget)
+
+    async def _reread_budget(self) -> None:
+        """Ask the App Server for the session's budget, in case the operator
+        set a new one; a server that can't say leaves it as it is."""
+        client = self._client
+        if client is None:
+            return
+
+        def get():
+            try:
+                response = client.request("GET", "/app/agent/session", timeout=10.0)
+                if response.status_code == 200:
+                    return response.json().get("session")
+            except Exception:
+                log.debug("Reading the session's budget failed.", exc_info=True)
+            return None
+
+        self._adopt_budget(await asyncio.get_running_loop().run_in_executor(None, get))
 
     def _usage_now(self) -> dict:
         """The run's tokens and the context's fill: as the last turn ended,
@@ -1487,6 +1874,12 @@ class Harness:
         given = self._cursor_given
         if self._keep_cursor is None or given is None or given == self._cursor_kept:
             return
+        if self._wake_on.held:
+            # Lines before it wait for a digest: a resume must give them
+            # again, so it keeps the newest cursor before the first was held.
+            given = self._cursor_unheld
+            if given is None or given == self._cursor_kept:
+                return
         try:
             self._keep_cursor(given)
         except Exception:
@@ -1522,10 +1915,17 @@ class Harness:
                 batch.append(item)
                 ended = isinstance(item, _WatchEnded)
             lines = [line for line in batch if isinstance(line, str)]
+            held_before, before = bool(self._wake_on.held), self._cursor_given
             for item in batch:
                 if isinstance(item, _Cursor):
                     self._cursor_given = item.event_id
             prompt = self._wakes.add(lines)
+            if not self._wake_on.held:
+                self._cursor_unheld = None
+            elif not held_before:
+                # This batch's lines are the first held: a resume starts
+                # no later than before them.
+                self._cursor_unheld = before
             if ended:
                 prompt = await self._rewatch(prompt)
                 if prompt is None:
@@ -1534,6 +1934,13 @@ class Harness:
                 if self._cut_short:
                     self._cut_short = False
                     prompt = f"{INTERRUPTED}\n\n{prompt}"
+                if self._budget_note:
+                    prompt, self._budget_note = (
+                        f"{prompt}\n\n{self._budget_note}",
+                        None,
+                    )
+                if self._handoff is not None:
+                    prompt = self._handoff.into(prompt)
                 return prompt
 
     async def _rewatch(self, prompt: Optional[str]) -> Optional[str]:
@@ -1611,13 +2018,25 @@ class Harness:
 class SdkAgent:
     """The agent: one ``ClaudeSDKClient`` session, its messages logged."""
 
-    def __init__(self, options, usage_path: Optional[Path] = None) -> None:
+    def __init__(
+        self,
+        options,
+        usage_path: Optional[Path] = None,
+        session_id: Optional[str] = None,
+        client_factory: Optional[Callable[[Any], Any]] = None,
+    ) -> None:
         self._options = options
         self._client = None
+        # Makes the ClaudeSDKClient for *options*; the SDK's own when None.
+        self._client_factory = client_factory
         # Each model call's tokens, a line each in the session's usage file.
         self.calls = usage.Calls(usage_path)
         self._cost_usd: Optional[float] = None
-        self.session_id: Optional[str] = options.resume or options.session_id
+        # The CLI conversation now: the session's id until a fresh context
+        # (`new_context`) starts another.
+        self.conversation_id: Optional[str] = options.resume or options.session_id
+        # The fibsem session's id, which a fresh context keeps.
+        self.session_id: Optional[str] = session_id or self.conversation_id
         self.model: Optional[str] = options.model
         self.introduced = False
         # The context was compacted: the next turn asks for the plan again.
@@ -1630,6 +2049,8 @@ class SdkAgent:
         # A tool call's line and when it was made, by the call's id: its
         # result says it is done, or that it failed.
         self._steps: dict = {}
+        # While the CLI compacts the context: its line and when it began.
+        self._compacting: Optional[tuple] = None
         # Called after each line is kept (`Harness._send_transcript_every`).
         self.on_line: Optional[Callable[[], None]] = None
         self.cwd = Path(options.cwd) if options.cwd else None
@@ -1651,10 +2072,56 @@ class SdkAgent:
         return self._seq
 
     async def start(self) -> None:
-        from claude_agent_sdk import ClaudeSDKClient
+        self._client = await self._connect(self._options)
 
-        self._client = ClaudeSDKClient(self._options)
-        await self._client.connect()
+    async def _connect(self, options):
+        if self._client_factory is not None:
+            client = self._client_factory(options)
+        else:
+            from claude_agent_sdk import ClaudeSDKClient
+
+            client = ClaudeSDKClient(options)
+        await client.connect()
+        return client
+
+    async def new_context(self) -> str:
+        """A new CLI conversation under the same session, between turns: the
+        new client is connected before the old one goes, so a side question
+        always has one, and a new one that can't start leaves the old one.
+        Its id."""
+        conversation = str(uuid.uuid4())
+        options = replace(
+            self._options,
+            resume=None,
+            continue_conversation=False,
+            session_id=conversation,
+        )
+        store = options.session_store
+        mirrored = isinstance(store, mirror.TranscriptMirror)
+        if mirrored:
+            # Its lines go on in transcript.jsonl, after the earlier context's.
+            before, store.session_id = store.session_id, conversation
+        try:
+            client = await self._connect(options)
+        except BaseException:
+            if mirrored:
+                store.session_id = before
+            raise
+        old, self._client, self._options = self._client, client, options
+        self.conversation_id = conversation
+        self.introduced = False
+        self.compacted = False
+        self.skills_read = []
+        self._steps = {}
+        self._compacting = None
+        self._cost_usd = None
+        self.calls.new_context()
+        if old is not None:
+            try:
+                await old.disconnect()
+            except Exception:  # noqa: BLE001 - the old CLI is done with
+                log.debug("Closing the earlier context failed.", exc_info=True)
+        return conversation
 
     async def turn(self, prompt: str) -> TurnEnd:
         from claude_agent_sdk import AssistantMessage, ResultMessage, ToolUseBlock
@@ -1710,7 +2177,10 @@ class SdkAgent:
             "compact_at": reply.get("autoCompactThreshold"),
         }
         found = {key: int(value) for key, value in found.items() if value}
-        return found if "used" in found else context
+        if "used" not in found:
+            return context
+        parts = context_parts(reply.get("categories"))
+        return {**found, "parts": parts} if parts else found
 
     def _turn_line(self, result, end: TurnEnd) -> str:
         """ "Turn ended: success, 12 steps, $0.41 ($12.30 so far). ..." """
@@ -1738,6 +2208,15 @@ class SdkAgent:
     async def interrupt(self) -> None:
         if self._client is not None:
             await self._client.interrupt()
+
+    async def side_question(
+        self, question: str, history: List[dict], timeout_s: float
+    ) -> Optional[str]:
+        """The CLI's answer to a side question on this session, mid-turn or
+        not: no tools, and nothing added to the conversation (`aside.ask`)."""
+        if self._client is None:
+            raise aside.Unavailable("the session hasn't started")
+        return await aside.ask(self._client, question, history, timeout_s)
 
     async def close(self) -> None:
         if self._client is not None:
@@ -1809,6 +2288,10 @@ def step(name: str, arguments: dict, cwd: Optional[Path] = None) -> tuple:
         return "Set", _clip(
             f"a wake-up in {minutes} min: {arguments.get('reason', '')}", 200
         )
+    if name == HANDOFF_TOOL:
+        return "Asked", _clip(
+            f"for a fresh context, to carry on with: {arguments.get('next', '')}", 200
+        )
     if short == "experiment_fetch_file":
         return "Fetched", _clip(arguments.get("path", ""), 160)
     text = json.dumps(arguments, ensure_ascii=False) if arguments else ""
@@ -1867,6 +2350,27 @@ def _line(agent, kind: str, text: str, **extra) -> Optional[int]:
     return keep(kind, text, **extra) if keep is not None else None
 
 
+def _compacting(agent) -> None:
+    """The CLI began compacting the context: a step that runs until it ends."""
+    if getattr(agent, "_compacting", None) is not None:
+        return
+    log.info("Compacting the context.")
+    seq = _line(agent, "step", "the context", verb="Compacted")
+    if seq is not None:
+        agent._compacting = (seq, time.monotonic())
+
+
+def _compacted(agent) -> None:
+    """The compaction ended: its step is done."""
+    began = getattr(agent, "_compacting", None)
+    if began is None:
+        return
+    agent._compacting = None
+    _line(
+        agent, "done", "", step=began[0], took_s=round(time.monotonic() - began[1], 1)
+    )
+
+
 def _show(message, agent: SdkAgent) -> None:
     """One SDK message on the console and in the log, readably."""
     from claude_agent_sdk import (
@@ -1883,9 +2387,17 @@ def _show(message, agent: SdkAgent) -> None:
         # Every turn starts with one; the first says it all.
         if message.subtype == "init" and not agent.introduced:
             agent.introduced = True
-            agent.session_id = data.get("session_id") or agent.session_id
+            conversation = data.get("session_id")
+            # The session's id stays as it started; a fresh context is a new
+            # conversation in it.
+            agent.session_id = agent.session_id or conversation
+            if hasattr(agent, "conversation_id"):
+                agent.conversation_id = conversation or agent.conversation_id
             agent.model = data.get("model") or agent.model
-            log.info("Session %s", agent.session_id)
+            if conversation and conversation != agent.session_id:
+                log.info("Session %s, conversation %s", agent.session_id, conversation)
+            else:
+                log.info("Session %s", agent.session_id)
             tools = data.get("tools") or []
             ours = [tool for tool in tools if tool.startswith(f"mcp__{SERVER}__")]
             others = [tool for tool in tools if tool not in ours]
@@ -1901,6 +2413,13 @@ def _show(message, agent: SdkAgent) -> None:
                     log.warning(
                         "MCP server %s is %s.", server.get("name"), server.get("status")
                     )
+        elif message.subtype == "status":
+            # The CLI says "compacting" as it starts and clears it when done:
+            # the page shows a running step meanwhile, not a frozen agent.
+            if data.get("status") == "compacting":
+                _compacting(agent)
+            else:
+                _compacted(agent)
         elif message.subtype == "compact_boundary":
             agent.compacted = True
             meta = data.get("compact_metadata") or {}
@@ -1908,6 +2427,19 @@ def _show(message, agent: SdkAgent) -> None:
                 "Context compacted (%s, %s tokens before).",
                 meta.get("trigger"),
                 meta.get("pre_tokens"),
+            )
+            _compacted(agent)
+            before = meta.get("pre_tokens")
+            _line(
+                agent,
+                "context",
+                "Context compacted: "
+                + (f"{before / 1000:.0f}k tokens before, " if before else "")
+                + (
+                    "by the agent"
+                    if meta.get("trigger") == "manual"
+                    else "automatically"
+                ),
             )
     elif isinstance(message, AssistantMessage):
         run = _run_of(agent, message)
@@ -1932,6 +2464,8 @@ def _show(message, agent: SdkAgent) -> None:
                     agent._steps[block.id] = (seq, time.monotonic(), block.name)
     elif isinstance(message, UserMessage) and isinstance(message.content, list):
         run = _run_of(agent, message)
+        # A subagent's results are its own, not the agent's.
+        parent = getattr(message, "parent_tool_use_id", None)
         for block in message.content:
             if not isinstance(block, ToolResultBlock):
                 continue
@@ -1954,6 +2488,11 @@ def _show(message, agent: SdkAgent) -> None:
                 _line(agent, "done", answer, step=seq, took_s=took, **run, **verdict)
                 if _lab_tool(name):
                     _show_pictures(agent, block.content, seq)
+            policy = getattr(agent, "wake_on", None)
+            if policy is not None and not block.is_error and not parent:
+                # A long command's end the agent read itself wakes no one.
+                for run_id in wake_policy.ended_runs(name, block.content):
+                    policy.saw_run_end(run_id)
 
 
 def _run_of(agent, message) -> dict:
@@ -2132,13 +2671,19 @@ def sidecar_command() -> List[str]:
     return [sys.executable, "-I", "-m", "fibsem.ai.agent.mcp.sidecar"]
 
 
+def always_loaded(playbook: Optional[playbooks.Playbook]) -> List[str]:
+    """The sidecar's arguments for the playbook's ``tools``: none without."""
+    if playbook is None or not playbook.tools:
+        return []
+    return ["--always-load", ",".join(playbook.tools)]
+
+
 def build_options(
     checkout: Path,
     url: Optional[str] = None,
     token: Optional[str] = None,
     model: Optional[str] = None,
     max_turns: Optional[int] = None,
-    max_budget_usd: Optional[float] = None,
     resume: Optional[str] = None,
     effort: Optional[str] = None,
     work: Optional[Path] = None,
@@ -2154,6 +2699,8 @@ def build_options(
     extras: Optional[Dict[str, extra_mcp.Server]] = None,
     host: Optional[str] = None,
     host_token: Optional[str] = None,
+    handoff: Optional[handoff_mod.Handoff] = None,
+    wake_on: Optional[wake_policy.WakeOn] = None,
 ):
     """The SDK session: the MCP servers the *playbook* names (``mcp``; the
     sidecar alone without one), among them the lab's (*extras*, else read;
@@ -2166,21 +2713,32 @@ def build_options(
     *playbook* the session starts on puts its rules in the prompt, and its
     reminders hold when there is no *control* to ask. With
     *transcript*, a folder, the CLI's transcript is copied there as it is
-    written (`mirror.TranscriptMirror`)."""
+    written (`mirror.TranscriptMirror`). With *handoff*, the agent has the
+    ``context_reset`` tool. The CLI's compaction is always asked to keep what
+    the instrument kind's ``handoff.md`` says, and the playbook's
+    ``compact_window`` sets where it compacts."""
     from claude_agent_sdk import ClaudeAgentOptions
 
     loaded = loaded or session_names(checkout, playbook)
     extras = extra_mcp.load() if extras is None else extras
     base = defaults()
+    compact = (
+        words or texts(playbook.instrument if playbook is not None else None)
+    ).handoff_compact
     command = sidecar_command()
+    # The playbook's tools, which the CLI loads from the first turn; each
+    # sidecar marks those it offers.
+    always = always_loaded(playbook)
     server = {
         "type": "stdio",
         "command": command[0],
-        "args": command[1:] + (["--no-record"] if host else []),
+        "args": command[1:] + (["--no-record"] if host else []) + always,
     }
     # In the CLI's environment, which the sidecar inherits: the server entry
     # goes on the CLI's command line, where anyone can list it.
     env = dict(CLI_ENV)
+    settings_now = playbook.session if playbook is not None else base
+    env.update(handoff_mod.compact_env(settings_now.compact_window))
     if url:
         env[SERVER_URL_ENV] = url
     if token:
@@ -2220,10 +2778,11 @@ def build_options(
             "type": "stdio",
             "command": command[0],
             "args": command[1:]
-            + ["--url", host, "--token-env", HOST_TOKEN_ENV, "--record-only"],
+            + ["--url", host, "--token-env", HOST_TOKEN_ENV, "--record-only"]
+            + always,
         }
     if alarm is not None:
-        servers[HARNESS_SERVER] = wake_server(alarm, control)
+        servers[HARNESS_SERVER] = wake_server(alarm, control, handoff, wake_on)
     return ClaudeAgentOptions(
         # Its .claude holds the session's skills (`sources.assemble`; CLAUDE.md
         # is off, see CLI_ENV), and none of ~/.claude: the user's own
@@ -2254,22 +2813,27 @@ def build_options(
         },
         # With a playbook control, the reminders on now, asked at each call;
         # and the lab servers' tools gated by the agent level.
-        hooks=_with_level_gate(
-            control.reminders.sdk_hooks(SERVER)
-            if control is not None
-            else reminders.sdk_hooks(playbook.hooks, SERVER)
-            if playbook
-            else None,
-            extras,
-            url,
-            token,
+        # And what the CLI's compaction keeps, should it run.
+        hooks=handoff_mod.compact_hooks(
+            _with_level_gate(
+                control.reminders.sdk_hooks(SERVER)
+                if control is not None
+                else reminders.sdk_hooks(playbook.hooks, SERVER)
+                if playbook
+                else None,
+                extras,
+                url,
+                token,
+            ),
+            compact,
         ),
         # Watcher lines carry operator-typed text: never expand an @path in it.
         verbatim_prompts=True,
         # Subagents' words too, so the transcript shows each run in full.
         forward_subagent_text=True,
+        # No max_budget_usd: given one, the CLI puts the spend in a reminder
+        # on every model call. The harness keeps the budget (`Harness`).
         max_turns=max_turns or base.max_turns,
-        max_budget_usd=max_budget_usd or base.max_budget_usd,
         model=model,
         effort=effort or base.effort,
         resume=resume,
@@ -2413,7 +2977,10 @@ def _parser() -> argparse.ArgumentParser:
         "--max-budget-usd",
         type=float,
         default=None,
-        help="what this run may spend, after which fibsem-agent stops "
+        help="what this run may spend: fibsem-agent stops at the end of the "
+        "turn that spends it, so that turn can go over (by at most its "
+        "--max-turns model calls and the subagents it called); the operator "
+        "can set a new budget while it runs, PUT /app/agent/budget "
         "(default: the playbook's)",
     )
     parser.add_argument(
@@ -2737,6 +3304,9 @@ def _main(argv, opened: List["sessions.SessionFolder"]) -> int:
         subagents.add_tools(run, loaded.agents, extra_tools)
 
     alarm = Alarm(playbook.session.wake_max_min)
+    wake_on = wake_policy.WakeOn(
+        wake_policy.Settings.of(playbook.session), keep=session.keep_wake_on
+    )
     control = PlaybookControl(
         playbooks.Reminders(),
         checkout,
@@ -2757,16 +3327,26 @@ def _main(argv, opened: List["sessions.SessionFolder"]) -> int:
         session.keep_playbook(control.reminders.state())
     if control.reminders.playbook is not None:
         log.info("Playbook: %s", control.reminders.playbook.name)
+    # Fresh contexts: a resume carries on the newest one's conversation.
+    handoff = handoff_mod.Handoff(
+        words,
+        playbook.session.context_marks,
+        keep=session.keep_handoff,
+        contexts=1 + len(record.get(sessions.CONTEXTS) or []),
+    )
+    conversation = sessions.conversation(record) if args.resume else None
+    # The agent's own wake policy, if it set one before a resume.
+    wake_on.restore(record.get(sessions.WAKE_ON))
     options = build_options(
         checkout,
         alarm=alarm,
+        wake_on=wake_on,
         control=control,
         url=args.url,
         token=token,
         model=args.model,
         max_turns=args.max_turns,
-        max_budget_usd=args.max_budget_usd,
-        resume=args.resume,
+        resume=conversation or args.resume,
         effort=args.effort,
         work=work,
         session_id=None if args.resume else session_id,
@@ -2779,10 +3359,16 @@ def _main(argv, opened: List["sessions.SessionFolder"]) -> int:
         extras=extras,
         host=args.host,
         host_token=host_token,
+        handoff=handoff,
     )
-    agent = SdkAgent(options, usage_path=session.folder / usage.FILE)
+    agent = SdkAgent(
+        options, usage_path=session.folder / usage.FILE, session_id=session_id
+    )
+    agent.calls.segment = handoff.contexts
     agent.playbook = control
+    agent.wake_on = wake_on
     control.say = lambda text: _line(agent, "context", text)
+    wake_on.say = control.say
     if named:
         control.say(f"Playbook set: {playbook.name}, {control.reminders.chosen_by}")
     harness = Harness(
@@ -2798,6 +3384,7 @@ def _main(argv, opened: List["sessions.SessionFolder"]) -> int:
         server_wait_s=args.server_wait,
         goal=args.goal,
         budget_usd=args.max_budget_usd,
+        spent_before_usd=_spent_before(record),
         playbook=control,
         words=words,
         deadline_warn_s=playbook.session.deadline_warn_min * 60,
@@ -2805,6 +3392,10 @@ def _main(argv, opened: List["sessions.SessionFolder"]) -> int:
         after=record.get(sessions.EVENT_AFTER),
         keep_cursor=session.keep_event_cursor,
         keep_where=session.keep_where,
+        handoff=handoff,
+        keep_context=session.keep_context,
+        spent_carried_usd=sessions.context_spend(record),
+        wake_on=wake_on,
         about={
             "harness": "fibsem-agent",
             "code": work is not None and code,
@@ -2837,6 +3428,17 @@ def _main(argv, opened: List["sessions.SessionFolder"]) -> int:
         signal.signal(signal.SIGINT, previous)
     session.end(code, **(outcome or harness.outcome()))
     return code
+
+
+def _spent_before(record: dict) -> Optional[float]:
+    """What a resumed session had spent when its last run ended (the CLI's
+    running total, from its record); None when no run says."""
+    spent = [
+        run["spent_usd"]
+        for run in (record.get("runs") or [])[:-1]
+        if isinstance(run.get("spent_usd"), (int, float))
+    ]
+    return max(spent) if spent else None
 
 
 def _session_id(text: str) -> str:
@@ -2892,6 +3494,11 @@ REQUIRED = (
     "wake_max_min",
     "deadline_warn_min",
     "quiet_min",
+    "wake_on_watch",
+    "wake_on_assist",
+    "wake_on_drive",
+    "digest_min",
+    "digest_lines",
 )
 
 
@@ -2952,6 +3559,15 @@ def show_config(
         "wake_max_min": playbook.session.wake_max_min,
         "deadline_warn_min": playbook.session.deadline_warn_min,
         "quiet_min": playbook.session.quiet_min,
+        # What wakes the agent at each level, until it sets its own
+        # (`wake_policy`): every line, or routine ones held for a digest.
+        "wake_on": {
+            "watch": playbook.session.wake_on_watch,
+            "assist": playbook.session.wake_on_assist,
+            "drive": playbook.session.wake_on_drive,
+            "digest_min": playbook.session.digest_min,
+            "digest_lines": playbook.session.digest_lines,
+        },
         "instrument": words.kind if words else playbook.instrument,
         # The playbook's servers, and the lab's it doesn't name (off).
         "mcp": servers,
@@ -2967,6 +3583,8 @@ def show_config(
         "skills": list(loaded.skills),
         "specialists": list(loaded.agents),
         "tools": list(tools),
+        # The fibsem tools loaded from the first turn; the CLI defers the rest.
+        "always_loaded": list(playbook.tools),
         "allowed_tools": list(allowed),
         "denied_tools": list(denied),
         # Its reminders are on from the start; the agent may propose another.
@@ -3040,6 +3658,29 @@ def _playbook_text(rows: List[dict]) -> str:
     )
 
 
+def _wake_on_text(wake_on: dict) -> str:
+    """``Wakes:    every line at Drive and Assist; at Watch, routine lines in a
+    digest every 30 min or 20 lines``."""
+    order = ("drive", "assist", "watch")
+    modes = {level: wake_on.get(level) or "all" for level in order}
+    every = [level.title() for level in order if modes[level] == "all"]
+    held = [level.title() for level in order if modes[level] != "all"]
+    parts = []
+    if every:
+        parts.append(f"every line at {' and '.join(every)}")
+    if held:
+        due = []
+        if wake_on.get("digest_min"):
+            due.append(f"every {wake_on['digest_min']:g} min")
+        if wake_on.get("digest_lines"):
+            due.append(f"{wake_on['digest_lines']} lines")
+        parts.append(
+            f"at {' and '.join(held)}, routine lines in a digest "
+            f"{' or '.join(due) or 'with the next line that wakes it'}"
+        )
+    return f"Wakes:    {'; '.join(parts)} (the agent changes it with wake_on)"
+
+
 def _config_text(config: dict) -> str:
     playbook = config["playbook"]
     lines = [
@@ -3051,12 +3692,15 @@ def _config_text(config: dict) -> str:
         f"Timers:   wake-ups up to {config['wake_max_min']:g} min, deadlines "
         f"warned {config['deadline_warn_min']:g} min before, a quiet workflow "
         f"looked at after {config['quiet_min']:g} min",
+        _wake_on_text(config["wake_on"]),
         f"Instrument: {config['instrument']}",
         f"Mode:     {config['mode']}"
         + (f" in {config['folder']}" if config["folder"] else ""),
         f"Skills:   {', '.join(config['skills'])}",
         f"Agents:   {', '.join(config['specialists'])}",
         f"Tools:    {', '.join(config['tools'])}",
+        f"Loaded:   {', '.join(config['always_loaded']) or 'none'} (the other "
+        "fibsem tools wait for ToolSearch)",
         f"Allowed:  {', '.join(config['allowed_tools'])}",
         f"Denied:   {', '.join(config['denied_tools'])}",
     ]

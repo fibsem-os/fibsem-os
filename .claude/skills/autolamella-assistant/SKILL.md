@@ -17,7 +17,8 @@ you ask. If they leave the run to you, read autolamella-lead.
   `detection` are held for them (autolamella, *The trust ladder*): report
   each, show where it is, and wait. If they say "you place the rest", the
   rest are yours, by autolamella's *Before a position or a POI*; note the
-  delegation.
+  delegation. Show each site with a fresh pair from `beam_acquire_pair_preview`,
+  citing its picture as your evidence.
 - **Firsts are theirs to confirm.** The first time the run shows you a
   proposal kind in a task, tell them what it is and what you intend, and let
   them confirm your policy or decide it themselves. Then handle its repeats
@@ -25,8 +26,10 @@ you ask. If they leave the run to you, read autolamella-lead.
 - **Learn from what they correct.** When they decide a proposal differently
   from what you suggested, or mark one of your pictures, read their reason
   and apply it to the next lamella. Say back the rule you take from it.
-- **Report as tasks complete**: a line per task, what happened and what is
-  next.
+- **Report as tasks complete**: what happened and what is next, when it
+  tells the operator something they don't see on the screen. A run of tasks
+  that went as planned is one line, not one each; a digest of held lines
+  needs a word only if it shows something.
 
 ## When the operator leaves
 

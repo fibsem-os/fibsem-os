@@ -1,9 +1,9 @@
 """The grid tools: the sample handling service's, and the experiment's grid records."""
 
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, List, Tuple
 
 from fibsem.ai.agent.catalog.spec import ToolSpec, arg, kwargs_body
-from fibsem.server.parts import GRIDS
+from fibsem.server.parts import GRIDS, LAMELLAE
 from fibsem.util import wording
 
 
@@ -73,6 +73,31 @@ def _grid_assign_items(a: Dict[str, Any], ctx: wording.ActionContext) -> Dict[st
     }
 
 
+# How many of a role's files grid_get lists before it gives their count.
+_LISTED_FILES = 3
+
+
+def _grid_files(answer: Dict[str, Any], a: Dict[str, Any]) -> Dict[str, Any]:
+    """grid_get's answer: a role with more than a few files (an overview's
+    tiles) as their count and its first and last file, unless files asks for
+    them all."""
+    if a.get("files"):
+        return answer
+
+    def cut(names: List[str]) -> Any:
+        if len(names) <= _LISTED_FILES:
+            return names
+        return {"count": len(names), "first": names[0], "last": names[-1]}
+
+    tasks = [
+        dict(task, files={role: cut(names) for role, names in task["files"].items()})
+        if isinstance(task.get("files"), dict)
+        else task
+        for task in answer.get("tasks") or []
+    ]
+    return dict(answer, tasks=tasks)
+
+
 TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="grid_list",
@@ -87,13 +112,20 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="grid_get",
         returns="GridDetail",
-        description="One grid: its summary plus every task run with the files it recorded by role, and the names of the items linked to it.",
+        description="One grid: its summary (description, quality, status, latest overviews and their paths) plus every task run with the files it recorded by role, and the names of the items linked to it. A role with more than 3 files (an overview's tiles) comes as their count and its first and last file; files=true lists them all.",
         method="GET",
         path="/app/experiment/grids/{grid_name}",
         level="watch",
         router="app",
         part=GRIDS,
-        params={"grid_name": "the grid name"},
+        params={
+            "grid_name": "the grid name",
+            "files": arg(
+                "optional: true lists every file of every run (default false)", bool
+            ),
+        },
+        optional=("files",),
+        shape=_grid_files,
     ),
     ToolSpec(
         name="grid_get_output_image",
@@ -145,6 +177,32 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "grid_name": "the grid name",
             "filename": "an overview basename from grid_list / grid_get, or any saved image's path in the experiment",
         },
+    ),
+    ToolSpec(
+        name="grid_draw_milling",
+        returns="MillingOnOverview",
+        description="Items' milling patterns drawn on an overview of their grid, to check layout before milling: each pattern's outline (trench, stress relief, fiducial, polishing) carried from the item's FIB frame at its pose onto the grid's latest SEM overview (or any saved image with stage metadata), cropped to the items with a grid square's margin so the bars show. Judge a fiducial or trench on a bar by eye. Answers per item its footprint's box on the sample surface (metres from the overview centre) and its nearest neighbour's edge-to-edge distance and which cuts, the nearest pair (drawn as a line), what could not be placed, and caveats on the projection. Saved as drawn/<image>-milling.png beside the overview (replaced when drawn again): cite it as evidence. Items on another grid than the overview's are refused. Nothing moves.",
+        method="POST",
+        path="/app/experiment/images/milling",
+        level="watch",
+        router="app",
+        part=LAMELLAE,
+        params={
+            "item_names": arg(
+                "the items to draw (default: every item on grid_name)", List[str]
+            ),
+            "grid_name": "the grid whose items and latest SEM overview to use (default: the items' grid)",
+            "path": "optional: an overview or other saved image inside the experiment to draw on",
+            "task_names": arg(
+                "optional: the milling tasks to draw (default: every milling task)",
+                List[str],
+            ),
+            "box": arg(
+                "optional: draw this region instead, [x, y, width, height] in the image's pixels",
+                List[float],
+            ),
+        },
+        optional=("item_names", "grid_name", "path", "task_names", "box"),
     ),
     ToolSpec(
         name="grid_add",

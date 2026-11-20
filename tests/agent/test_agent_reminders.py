@@ -226,5 +226,7 @@ def test_the_session_carries_the_starting_playbooks_rules_and_reminders(checkout
     options = harness_mod.build_options(checkout, playbook=base)
     assert options.skills == _all().skills
     assert options.system_prompt["append"].endswith(f"- {base.rules[-1]}")
-    assert list(options.hooks) == ["PostToolUseFailure"]
-    assert harness_mod.build_options(checkout).hooks is None, "no playbook, no hooks"
+    # The reminders, and what compaction keeps (`handoff.compact_hooks`).
+    assert list(options.hooks) == ["PostToolUseFailure", "PreCompact"]
+    hooks = harness_mod.build_options(checkout).hooks
+    assert list(hooks) == ["PreCompact"], "no playbook, no reminders"
