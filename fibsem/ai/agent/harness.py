@@ -164,6 +164,10 @@ PICTURES_WAITING = 20
 PICTURE_MAX_B64 = 6_800_000
 # The kinds the server keeps (`fibsem.server.agent.transcript.PICTURE_TYPES`).
 PICTURE_TYPES = ("image/png", "image/jpeg", "image/gif", "image/webp")
+# The tools that start a subagent: its run's lines carry the call's number.
+SUBAGENT_TOOLS = ("Agent", "Task")
+# How much of a subagent's answer its run keeps.
+SUBAGENT_ANSWER = 1500
 # While a turn goes on, its tokens and the context's fill are reported this
 # often (when they changed), not only as it ends: a turn can run for an hour.
 REPORT_EVERY_S = 30.0
@@ -1798,6 +1802,8 @@ def step(name: str, arguments: dict, cwd: Optional[Path] = None) -> tuple:
         return "Searched", _clip(arguments.get("pattern", ""), 160)
     if name == "Skill":
         return "Read", f"the {arguments.get('skill', '')} skill"
+    if name in SUBAGENT_TOOLS:
+        return "Asked", _clip(arguments.get("description", ""), 160)
     if name == WAKE_TOOL:
         minutes = arguments.get("minutes", "")
         return "Set", _clip(
@@ -1904,10 +1910,11 @@ def _show(message, agent: SdkAgent) -> None:
                 meta.get("pre_tokens"),
             )
     elif isinstance(message, AssistantMessage):
+        run = _run_of(agent, message)
         for block in message.content:
             if isinstance(block, TextBlock) and block.text.strip():
-                log.info("agent: %s", block.text.strip())
-                _line(agent, "said", block.text.strip())
+                log.info("%s: %s", "subagent" if run else "agent", block.text.strip())
+                _line(agent, "said", block.text.strip(), **run)
             elif isinstance(block, ToolUseBlock):
                 skill = block.input.get("skill") if block.name == "Skill" else None
                 if skill and skill not in agent.skills_read:
@@ -1917,10 +1924,14 @@ def _show(message, agent: SdkAgent) -> None:
                     control.loaded(skill)
                 verb, text = step(block.name, block.input, getattr(agent, "cwd", None))
                 log.info("%s %s", verb, text)
-                seq = _line(agent, "step", text, verb=verb)
+                extra = dict(run)
+                if block.name in SUBAGENT_TOOLS:
+                    extra["subagent"] = _clip(block.input.get("subagent_type", ""), 60)
+                seq = _line(agent, "step", text, verb=verb, **extra)
                 if seq is not None:
                     agent._steps[block.id] = (seq, time.monotonic(), block.name)
     elif isinstance(message, UserMessage) and isinstance(message.content, list):
+        run = _run_of(agent, message)
         for block in message.content:
             if not isinstance(block, ToolResultBlock):
                 continue
@@ -1932,12 +1943,31 @@ def _show(message, agent: SdkAgent) -> None:
             if block.is_error:
                 why = _clip(_result_text(block.content))
                 log.warning("failed: %s", why)
-                _line(agent, "failed", _clip(why, 160), step=seq, took_s=took)
+                _line(agent, "failed", _clip(why, 160), step=seq, took_s=took, **run)
             elif seq is not None:
                 # The step is done: the web page stops showing it as running.
-                _line(agent, "done", "", step=seq, took_s=took)
+                # A subagent's answer is kept on it, for its run to show.
+                answer = ""
+                if name in SUBAGENT_TOOLS:
+                    answer = _clip(_answer_text(block.content), SUBAGENT_ANSWER)
+                _line(agent, "done", answer, step=seq, took_s=took, **run)
                 if _lab_tool(name):
                     _show_pictures(agent, block.content, seq)
+
+
+def _run_of(agent, message) -> dict:
+    """``{"run": <seq>}`` for a subagent's message: the line number of the
+    Agent call that started it, so its lines show under that run; ``{}`` for
+    the agent's own."""
+    parent = getattr(message, "parent_tool_use_id", None)
+    made = getattr(agent, "_steps", {}).get(parent) if parent else None
+    return {"run": made[0]} if made is not None else {}
+
+
+def _answer_text(content) -> str:
+    """A subagent's answer, without the CLI's agentId footer."""
+    text = _result_text(content)
+    return re.split(r"\s*agentId: ", text)[0].strip()
 
 
 def find_checkout(given: Optional[str] = None) -> Optional[Path]:
@@ -2209,6 +2239,8 @@ def build_options(
         ),
         # Watcher lines carry operator-typed text: never expand an @path in it.
         verbatim_prompts=True,
+        # Subagents' words too, so the transcript shows each run in full.
+        forward_subagent_text=True,
         max_turns=max_turns or base.max_turns,
         max_budget_usd=max_budget_usd or base.max_budget_usd,
         model=model,

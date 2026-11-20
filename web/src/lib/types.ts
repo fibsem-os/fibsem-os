@@ -211,6 +211,11 @@ export interface TranscriptLine {
   path?: string;
   /** For "done" and "failed": how long the step took, in seconds. */
   took_s?: number;
+  /** A subagent's line: the seq of the Agent call that started it. */
+  run?: number;
+  /** For the Agent call that starts a subagent: the subagent's name. Its "done"
+   * line's text is the subagent's answer. */
+  subagent?: string;
   session_id: string;
 }
 

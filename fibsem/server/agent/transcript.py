@@ -12,6 +12,10 @@ A picture a lab's MCP server answered with comes as a ``picture`` line, its
 image in it (``image``, base64, and ``media_type``). It is saved beside the
 transcript, ``agent/pictures/<session id>-<line>.<ext>``, the line keeps its
 ``path`` instead, and ``GET /app/agent/transcript/pictures/<name>`` serves it.
+
+A subagent's lines carry ``run``, the ``seq`` of the Agent call that started
+it; that call's line carries ``subagent``, the subagent's name, and its ``done``
+keeps the subagent's answer.
 """
 
 import base64
@@ -64,7 +68,9 @@ def _invalid(message: str) -> HTTPException:
 def _entry(raw: Any, now: float) -> Dict[str, Any]:
     """One posted entry, checked, stamped with the server's time."""
     if not isinstance(raw, dict):
-        raise _invalid("an entry is {kind, text, verb?, step?, took_s?, age_s?}.")
+        raise _invalid(
+            "an entry is {kind, text, verb?, step?, run?, subagent?, took_s?, age_s?}."
+        )
     kind = raw.get("kind")
     if kind not in KINDS:
         raise _invalid(f"kind is one of {list(KINDS)}.")
@@ -79,7 +85,8 @@ def _entry(raw: Any, now: float) -> Dict[str, Any]:
         "kind": kind,
         "text": text.strip(),
     }
-    for key in ("seq", "step"):
+    # run: the line of the Agent call whose subagent printed this line.
+    for key in ("seq", "step", "run"):
         value = raw.get(key)
         if value is not None:
             if isinstance(value, bool) or not isinstance(value, int):
@@ -95,6 +102,11 @@ def _entry(raw: Any, now: float) -> Dict[str, Any]:
         if not isinstance(verb, str) or len(verb) > 40:
             raise _invalid("verb is a word of at most 40 characters.")
         entry["verb"] = verb
+    subagent = raw.get("subagent")
+    if subagent is not None:
+        if not isinstance(subagent, str) or len(subagent) > 60:
+            raise _invalid("subagent is the subagent's name, at most 60 characters.")
+        entry["subagent"] = subagent
     if kind == "picture":
         entry["_image"] = _picture(raw)
         if "seq" not in entry:
