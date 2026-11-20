@@ -2523,6 +2523,8 @@ export interface components {
         };
         /** @description The decision a run waits on, and who can make it. */
         Waiting: {
+            /** @default false */
+            agent_reviewing: boolean;
             proposal: string;
             who: string;
         };
