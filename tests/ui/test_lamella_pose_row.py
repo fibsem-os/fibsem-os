@@ -261,3 +261,22 @@ def test_a_run_turns_off_only_what_moves_or_reads_the_instrument(qapp):
     widget.set_instrument_actions_enabled(True)
     assert row.btn_update.isEnabled() and widget._action_use_current_obj_pos.isEnabled()
     widget.deleteLater()
+
+
+def test_the_panel_mirrors_working_notes_and_hides_them_when_empty(qapp):
+    from fibsem.applications.autolamella.ui.lamella.selected import (
+        SelectedLamellaWidget,
+    )
+
+    lamella = _lamella()
+    widget = SelectedLamellaWidget()
+    widget.set_lamella(lamella)
+    assert widget.notes_label.isHidden()
+
+    lamella.notes = "rough milled; polish next"
+    assert widget.notes_label.text() == "rough milled; polish next"
+    assert not widget.notes_label.isHidden()
+
+    widget.set_lamella(None)
+    lamella.notes = "after the panel let go"
+    assert widget.notes_label.text() == "rough milled; polish next"

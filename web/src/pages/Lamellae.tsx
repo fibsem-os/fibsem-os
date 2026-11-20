@@ -54,6 +54,28 @@ function LamellaCard(props: {
   );
 }
 
+/** What the lamella is (its description) and where it stands now (its working notes). */
+function About({ name }: { name: string }) {
+  const detail = useQuery({
+    queryKey: ["app/experiment/items", name],
+    queryFn: () => api<ItemDetail>(`/app/experiment/items/${encodeURIComponent(name)}`),
+  });
+  const description = detail.data?.description;
+  const notes = detail.data?.notes;
+  if (!description && !notes) return null;
+  return (
+    <div className="flex flex-col gap-2 border-b border-border pb-3 text-[13px]">
+      {description && <div className="whitespace-pre-wrap">{description}</div>}
+      {notes && (
+        <div>
+          <div className="text-[12px] font-semibold text-muted-foreground">Working notes</div>
+          <div className="whitespace-pre-wrap">{notes}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function LamellaePage() {
   const { closed, loaded, list, lastRun, name, setPicked, runningOn } = useItemList();
   const [filter, setFilter] = useState<HistoryFilter>(NO_FILTER);
@@ -73,7 +95,8 @@ export function LamellaePage() {
       ))}
       detail={
         name && (
-          <Card>
+          <Card className="flex flex-col gap-3">
+            <About name={name} />
             <History name={name} filter={filter} setFilter={setFilter} />
           </Card>
         )
