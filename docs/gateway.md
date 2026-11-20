@@ -9,6 +9,11 @@ the app's host, with its window at this PC (as a desktop launch opens it) or wit
 It never touches the microscope itself; the app it starts does. Without the gateway
 installed, nothing changes: desktop launches work as they always have.
 
+A PC runs one App Server at a time, and the gateway runs one app at a time. Clients on the
+PC (`fibsem-agent`, `fibsem-cli`, the `fibsem-mcp` sidecar, the gateway itself) find it
+through its discovery file, `~/.fibsem/app-server.json`. A second app's App Server is
+refused while a live one runs, and says which one (its pid and address).
+
 ## Installing it
 
 ```
@@ -50,7 +55,11 @@ on the left has four pages:
 
 - **Overview.** While nothing runs: the **Microscope** (a configuration saved on this PC,
   the default first, and **Connect when the app starts**) and the **App** (an app, an
-  experiment folder and **Show the window on this PC**), with **Start the app**. While it
+  experiment folder and **Show the window on this PC**), with **Start the app**. An app
+  shows only what its start takes: an app for an instrument that isn't a FIB-SEM may open
+  no experiment, take no microscope connection, have no window of its own (it then runs
+  without one), and have settings of its own (its server, a folder), passed to it as
+  `--<name> <value>`. While it
   runs: one row for the microscope, with Connect or Disconnect, and one for the app, with
   **Open the app** and **Stop** (Stop asks first in a dialog; with its window, it closes the window).
   Under them, the **Agent** card (below).
@@ -63,7 +72,8 @@ on the left has four pages:
     environment or the key store). The page never shows or takes a key. **Copy command**
     copies the `fibsem-cli key set` command to run on the PC.
   - **Defaults:** what Overview fills in for the microscope, the app and the agent, kept in
-    `~/.fibsem/gateway-defaults.json`. Only the operator saves them.
+    `~/.fibsem/gateway-defaults.json`, for each app: choosing an app shows its own, so one
+    app's playbook and settings don't replace another's. Only the operator saves them.
   - **Playbooks:** the playbooks on this PC, read-only.
   - **Gateway:** the version, **Restart** and **Stop**. Stopping the gateway from the page
     stops the app and any agent run. Start it again at the computer.
