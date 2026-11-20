@@ -53,7 +53,7 @@ def image_payload(image) -> Optional[Dict[str, Any]]:
 
     if isinstance(image, FluorescenceImage):
         return _fluorescence_payload(image)
-    from fibsem.server.images import own_preview, own_summary
+    from fibsem.server.images import own_preview, own_summary, preview_payload
 
     own = own_summary(image)
     if own is not None:  # another instrument's image: its scale from its summary
@@ -65,8 +65,6 @@ def image_payload(image) -> Optional[Dict[str, Any]]:
         return payload
     if hasattr(image, "metadata"):
         try:
-            from fibsem.server.images import preview_payload
-
             payload = preview_payload(image)
         except Exception:
             return None
@@ -89,9 +87,7 @@ def image_info(image, plane: Optional[int] = None) -> Optional[Dict[str, Any]]:
     *plane* is the FM plane shown (0-based), None the max projection."""
     if getattr(image, "metadata", None) is None:
         return None
-    from fibsem.server.images import own_summary
-
-    if own_summary(image) is not None:
+    if callable(getattr(image, "agent_summary", None)):  # its own (`own_summary`)
         return None
     from fibsem.fm.structures import FluorescenceImage
     from fibsem.imaging.export import image_fields

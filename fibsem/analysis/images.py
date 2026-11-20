@@ -18,6 +18,7 @@ import numpy as np
 from fibsem.fm.preview import channel_look, czyx, is_fluorescence_image
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.imaging.export import fibsem_image_fields, saturation_value
+from fibsem.plugins.loader import PluginRejected, load_entry_point_group
 from fibsem.structures.image import FibsemImage
 
 
@@ -129,7 +130,6 @@ def readers() -> List[Reader]:
     """`READERS`, then each plugin's (`READER_GROUP`). A plugin's entry that
     fails to load, or isn't a `Reader`, is reported and left out
     (`fibsem.plugins`)."""
-    from fibsem.plugins.loader import PluginRejected, load_entry_point_group
 
     def resolve(obj):
         if not isinstance(obj, Reader):
