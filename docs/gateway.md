@@ -144,9 +144,6 @@ there's nothing to restart, and passes it only to the agent, never to the app.
 remove ANTHROPIC_API_KEY` removes it. An `ANTHROPIC_API_KEY` environment variable, if set,
 is used instead.
 
-With no key stored, **Use this PC's Claude login** on the Agent card (and in Defaults)
-starts the agent on the Claude login of the PC's user instead.
-
 Anyone using this Windows login can read the key, so use a key for this microscope alone, in
 its own Console workspace with a monthly spend limit. To retire a key, disable it in the
 Console first: that stops it everywhere. Then remove it here. To replace one, store the new

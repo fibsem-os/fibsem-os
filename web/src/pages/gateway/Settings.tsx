@@ -29,8 +29,6 @@ export interface Defaults {
   budget_usd: number | null;
   /** The app's own start settings, by name. */
   settings?: Record<string, string>;
-  /** Start the agent on this PC's Claude login when no API key is stored. */
-  login?: boolean;
   /** Each app's own choices, by app key. */
   apps?: Record<string, Defaults>;
 }
@@ -336,14 +334,6 @@ function DefaultsCard({
           placeholder="The playbook's"
           aria-label="Default budget"
           className={cn(FIELD, "w-full sm:w-32")}
-        />
-      </Row>
-      <Row label="Use this PC's Claude login with no API key">
-        <input
-          type="checkbox"
-          checked={!!d.login}
-          onChange={(event) => set({ login: event.target.checked })}
-          aria-label="Use this PC's Claude login with no API key"
         />
       </Row>
       {save.error && (

@@ -41,7 +41,6 @@ class GatewayDefaults:
     level: Optional[str] = None
     budget_usd: Optional[float] = None
     settings: Dict[str, str] = field(default_factory=dict)
-    login: bool = False
     apps: Dict[str, "GatewayDefaults"] = field(default_factory=dict)
 
     def for_app(self, key: str) -> "GatewayDefaults":
@@ -98,7 +97,6 @@ class GatewayDefaults:
             window=bool(body.get("window", True)),
             budget_usd=budget,
             settings={str(k): str(v) for k, v in settings.items()},
-            login=bool(body.get("login", False)),
             apps={
                 str(key): cls.checked({**entry, "app": key})
                 for key, entry in apps.items()

@@ -973,7 +973,7 @@ function Gateway({
           {tab === "history" && (
             <History
               apps={state?.apps ?? []}
-              ready={notReady(agent.data, appUp, appStarting, !!(forApp(defaults.data, state?.app) ?? defaults.data)?.login)}
+              ready={notReady(agent.data, appUp, appStarting)}
             />
           )}
           {tab === "pairing" && (

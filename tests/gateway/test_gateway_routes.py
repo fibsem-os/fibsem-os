@@ -454,27 +454,13 @@ class FakeAgent:
             raise self.refuse
         return {"playbook": {"name": name}}
 
-    def start(
-        self,
-        playbook,
-        goal,
-        level,
-        who,
-        via,
-        budget_usd=None,
-        replace=False,
-        login=False,
-    ):
-        self.login = login
+    def start(self, playbook, goal, level, who, via, budget_usd=None, replace=False):
         self.calls.append(
             ("start", playbook, goal, level, who, via, budget_usd, replace)
         )
         return self.state()
 
-    def resume(
-        self, session_id, level, who, via, budget_usd=None, replace=False, login=False
-    ):
-        self.login = login
+    def resume(self, session_id, level, who, via, budget_usd=None, replace=False):
         self.calls.append(("resume", session_id, level, who, via, budget_usd, replace))
         return self.state()
 
@@ -685,12 +671,11 @@ def test_each_app_keeps_its_own_defaults(with_defaults):
             "playbook": "other-playbook",
             "window": False,
             "settings": {"url": "http://127.0.0.1:9000"},
-            "login": True,
         }
     )
     assert r.status_code == 200, r.text
     read = client.get("/gateway/defaults", headers=_as(OPERATOR_TOKEN)).json()
-    assert read["app"] == "other" and read["login"] is True
+    assert read["app"] == "other"
     assert read["apps"]["autolamella"]["playbook"] == "autolamella-lead"
     assert read["apps"]["other"]["settings"] == {"url": "http://127.0.0.1:9000"}
 
