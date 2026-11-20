@@ -165,6 +165,8 @@ export interface ReportedSession {
   started?: string;
   goal?: string;
   budget_usd?: number;
+  /** The budget the operator set while it ran (PUT /app/agent/budget). */
+  budget_set_usd?: number;
   spent_usd?: number;
   /** What its model calls used this run, in tokens. */
   tokens?: { input: number; output: number; cache_read: number; cache_write: number };

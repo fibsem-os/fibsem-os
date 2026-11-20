@@ -1,5 +1,9 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronDown, ChevronRight, Circle, Minus } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { api } from "@/lib/api";
 import type { AgentPlan, ReportedSession } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -258,6 +262,86 @@ function Setup({ session }: { session: ReportedSession }) {
   );
 }
 
+/** The running session's budget, set by the operator: fibsem-agent takes it
+ * with its next report, and asks again before it stops on a spent budget. */
+function BudgetDialog({
+  budget,
+  spent,
+  open,
+  onOpenChange,
+}: {
+  budget: number | undefined;
+  spent: number | undefined;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const client = useQueryClient();
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (open) {
+      setValue(budget != null ? String(budget) : "");
+      setError(null);
+    }
+  }, [open, budget]);
+  const amount = Number(value.trim().replace(/^\$/, ""));
+  const valid = value.trim() !== "" && Number.isFinite(amount) && amount > 0;
+  const below = valid && spent != null && amount <= spent;
+  const save = async () => {
+    if (!valid || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api("/app/agent/budget", { method: "PUT", body: JSON.stringify({ budget_usd: amount }) });
+      // The session and the agent's state (its budget warning) read it again.
+      await client.invalidateQueries({ queryKey: ["app/agent"] });
+      onOpenChange(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent title="Budget" className="w-[min(420px,calc(100vw-32px))]">
+        <div className="flex flex-col gap-3 px-4 py-4 text-[13px]">
+          <p className="m-0 text-muted-foreground">
+            {spent != null ? `${dollars(spent)} spent` : "Nothing spent yet"}
+            {budget != null ? ` of ${dollars(budget)} this run.` : "."} The agent keeps to the new budget from its
+            next turn.
+          </p>
+          <label className="flex items-center gap-2">
+            <span className="shrink-0">Budget ($)</span>
+            <input
+              autoFocus
+              inputMode="decimal"
+              aria-label="Budget in dollars"
+              className="min-w-0 flex-1 rounded border border-input bg-background px-2 py-1.5 text-[13px] text-foreground"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && save()}
+            />
+          </label>
+          {below && (
+            <p className={cn("m-0", WARN)}>
+              That is no more than it has spent: the agent stops at the end of its current turn.
+            </p>
+          )}
+          {error && <p className="m-0 text-destructive">{error}</p>}
+          <div className="flex justify-end gap-2">
+            <Button onClick={() => onOpenChange(false)}>Cancel</Button>
+            <Button variant="primary" disabled={!valid || busy} onClick={save}>
+              Set budget
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /** Goal and deadlines, the plan (or the agent's checklist), budget and context,
  * then the playbook on one line at the bottom. */
 export function SidePanel({
@@ -272,11 +356,13 @@ export function SidePanel({
   onOpenPlan: () => void;
 }) {
   const now = useNow(30000);
+  const [budgetOpen, setBudgetOpen] = useState(false);
   const {
     started,
     ended,
     goal,
     budget_usd: budget,
+    budget_set_usd: budgetSet,
     spent_usd: spent,
     tokens,
     context,
@@ -328,7 +414,23 @@ export function SidePanel({
                   : undefined
               }
             >
-              {budget != null ? `${dollars(spent ?? 0)} of ${dollars(budget)}` : `${dollars(spent!)} spent`}
+              {ended ? (
+                budget != null ? (
+                  `${dollars(spent ?? 0)} of ${dollars(budget)}`
+                ) : (
+                  `${dollars(spent!)} spent`
+                )
+              ) : (
+                // While it runs, a click opens the dialog that sets its budget.
+                <button
+                  className="cursor-pointer border-0 bg-transparent p-0 text-left text-inherit underline decoration-dotted underline-offset-2 hover:text-foreground"
+                  onClick={() => setBudgetOpen(true)}
+                  title="Change the budget"
+                >
+                  {budget != null ? `${dollars(spent ?? 0)} of ${dollars(budget)}` : `${dollars(spent!)} spent`}
+                </button>
+              )}
+              {budgetSet != null && <span className="text-muted-foreground"> · set by you</span>}
             </p>
           )}
           {budget ? (
@@ -356,6 +458,7 @@ export function SidePanel({
         </Section>
       )}
       <Setup session={session} />
+      <BudgetDialog budget={budget} spent={spent} open={budgetOpen} onOpenChange={setBudgetOpen} />
     </div>
   );
 }
