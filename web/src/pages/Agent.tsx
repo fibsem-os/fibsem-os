@@ -394,10 +394,15 @@ function RunCard({
   const runs = !answer && shared.running(call);
   const failed = answer?.kind === "failed";
   const verdict = answer?.verdict;
+  const badge = verdict
+    ? { text: verdict === "agree" ? "Agrees" : "Concern", warn: verdict === "concern" }
+    : answer?.attention
+      ? { text: "Needs attention", warn: true }
+      : null;
   const state = failed
     ? "Failed"
     : answer
-      ? [verdict ? "" : "Done", took(answer.took_s)].filter(Boolean).join(" · ")
+      ? [badge ? "" : "Done", took(answer.took_s)].filter(Boolean).join(" · ")
       : runs
         ? `Running · ${since(call.t, clock)}`
         : "Stopped";
@@ -415,14 +420,14 @@ function RunCard({
           )}
         >
           {runs && <Loader size={11} className="animate-spin" aria-label="running" />}
-          {verdict && (
+          {badge && (
             <span
               className={cn(
                 "rounded-full bg-muted px-2 py-px font-semibold",
-                verdict === "agree" ? "text-[var(--fibsem-ok-color)]" : "text-[var(--fibsem-warn-color)]",
+                badge.warn ? "text-[var(--fibsem-warn-color)]" : "text-[var(--fibsem-ok-color)]",
               )}
             >
-              {verdict === "agree" ? "Agrees" : "Concern"}
+              {badge.text}
             </span>
           )}
           {state}

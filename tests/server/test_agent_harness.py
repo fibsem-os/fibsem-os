@@ -1583,7 +1583,7 @@ def test_a_subagent_s_lines_are_kept_under_the_call_that_started_it():
     assert done["text"] == "Concern: the left edge."
 
 
-def test_a_verifier_s_json_answer_becomes_its_verdict_and_concern():
+def test_a_subagent_s_json_answer_gives_its_card_a_verdict_or_attention():
     from fibsem.ai.agent.harness import _answer
 
     def said(body):
@@ -1595,7 +1595,11 @@ def test_a_verifier_s_json_answer_becomes_its_verdict_and_concern():
     yes = '{"agree": true, "concern": ""}'
     text, verdict = _answer(said(f"The pass is safe.\n```json\n{yes}\n```"))
     assert (text, verdict) == ("The pass is safe.", {"verdict": "agree"})
-    # Any other answer, a JSON block without agree included, stays as it is.
+    looked = '{"cause": "x", "summary": "Move the area and retry.", "attention": true}'
+    text, flags = _answer(said(f"Found it.\n```json\n{looked}\n```"))
+    assert (text, flags) == ("Move the area and retry.", {"attention": True})
+    # Any other answer, a JSON block without agree or attention included,
+    # stays as it is.
     assert _answer(said("Six sites.")) == ("Six sites.", {})
     plain = 'Sites:\n```json\n{"sites": [1]}\n```'
     assert _answer(said(plain)) == (plain, {})

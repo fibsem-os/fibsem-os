@@ -298,6 +298,7 @@ def test_a_subagent_s_lines_keep_their_run_and_its_call_names_the_subagent(serve
         == "concern"
     )
     assert _post(client, "s1", {**done, "verdict": "maybe"}).status_code == 422
+    assert _post(client, "s1", {**done, "attention": "yes"}).status_code == 422
     assert (
         _post(client, "s1", {"kind": "said", "text": "x", "run": "1"}).status_code
         == 422

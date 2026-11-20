@@ -15,8 +15,8 @@ transcript, ``agent/pictures/<session id>-<line>.<ext>``, the line keeps its
 
 A subagent's lines carry ``run``, the ``seq`` of the Agent call that started
 it; that call's line carries ``subagent``, the subagent's name, and its ``done``
-keeps the subagent's answer, and ``verdict`` (agree or concern) when it
-gave one.
+keeps the subagent's answer, with ``verdict`` (agree or concern) and
+``attention`` (true when someone should look) when it gave them.
 """
 
 import base64
@@ -72,7 +72,7 @@ def _entry(raw: Any, now: float) -> Dict[str, Any]:
     """One posted entry, checked, stamped with the server's time."""
     if not isinstance(raw, dict):
         raise _invalid(
-            "an entry is {kind, text, verb?, step?, run?, subagent?, verdict?, took_s?, age_s?}."
+            "an entry is {kind, text, verb?, step?, run?, subagent?, verdict?, attention?, took_s?, age_s?}."
         )
     kind = raw.get("kind")
     if kind not in KINDS:
@@ -110,6 +110,11 @@ def _entry(raw: Any, now: float) -> Dict[str, Any]:
         if verdict not in VERDICTS:
             raise _invalid(f"verdict is one of {list(VERDICTS)}.")
         entry["verdict"] = verdict
+    attention = raw.get("attention")
+    if attention is not None:
+        if not isinstance(attention, bool):
+            raise _invalid("attention is true or false.")
+        entry["attention"] = attention
     subagent = raw.get("subagent")
     if subagent is not None:
         if not isinstance(subagent, str) or len(subagent) > 60:

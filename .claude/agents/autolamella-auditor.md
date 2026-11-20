@@ -46,3 +46,16 @@ review ends with the list of what you could not check.
 
 The review in markdown, under 4000 characters per section so the Run Lead
 can post each section as a note. Write no file: the Run Lead keeps it.
+
+Then end with one fenced `json` block, and nothing after it:
+
+```json
+{
+  "summary": "8 of 10 lamellae at target; 03 lost in polishing after a verdict that disagreed",
+  "attention": true
+}
+```
+
+`summary` is one sentence for the operator. `attention` is true when the
+review found something they should look at: a key decision with no verdict,
+a step that went ahead against one, a lost lamella or a hardware error.

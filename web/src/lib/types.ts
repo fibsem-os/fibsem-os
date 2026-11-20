@@ -218,6 +218,8 @@ export interface TranscriptLine {
   subagent?: string;
   /** On a subagent call's "done": whether it agreed with the decision it checked. */
   verdict?: "agree" | "concern";
+  /** On a subagent call's "done": the subagent says someone should look before going on. */
+  attention?: boolean;
   session_id: string;
 }
 

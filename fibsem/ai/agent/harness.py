@@ -1969,21 +1969,32 @@ _JSON_BLOCK = re.compile(r"```json\s*(\{.*?\})\s*```", re.DOTALL)
 
 
 def _answer(content) -> tuple:
-    """A subagent's answer, without the CLI's agentId footer, and
-    ``{"verdict": "agree" | "concern"}`` when it ends with a JSON block saying
-    ``agree`` (the Verifier's); its concern is then the answer."""
+    """A subagent's answer, without the CLI's agentId footer, and what its
+    closing JSON block says for the run's card: ``verdict`` (agree or concern)
+    from a boolean ``agree``, the Verifier's, and ``attention`` from a boolean
+    ``attention``. The answer is then the block's ``summary``, else its
+    ``concern``, else the words before the block; any other answer is kept as
+    it is."""
     text = re.split(r"\s*agentId: ", _result_text(content))[0].strip()
     blocks = _JSON_BLOCK.findall(text)
     try:
         said = json.loads(blocks[-1]) if blocks else None
     except ValueError:
         said = None
-    if not isinstance(said, dict) or not isinstance(said.get("agree"), bool):
+    if not isinstance(said, dict):
         return text, {}
-    concern = said.get("concern")
-    before = text[: text.rfind("```json")].strip()
-    words = concern if isinstance(concern, str) and concern.strip() else before
-    return words.strip(), {"verdict": "agree" if said["agree"] else "concern"}
+    flags = {}
+    if isinstance(said.get("agree"), bool):
+        flags["verdict"] = "agree" if said["agree"] else "concern"
+    if isinstance(said.get("attention"), bool):
+        flags["attention"] = said["attention"]
+    if not flags:
+        return text, {}
+    for key in ("summary", "concern"):
+        words = said.get(key)
+        if isinstance(words, str) and words.strip():
+            return words.strip(), flags
+    return text[: text.rfind("```json")].strip(), flags
 
 
 def find_checkout(given: Optional[str] = None) -> Optional[Path]:
