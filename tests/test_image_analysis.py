@@ -317,6 +317,10 @@ def test_the_histogram_and_spectrum_tools_save_their_figures(tmp_path):
     spectrum = tools.power_spectrum("noise.png")
     assert Path(spectrum.path).name == "noise-spectrum.png"
     assert Path(spectrum.path).is_file() and spectrum.result["size_px"] == 64
+    assert "radial_power" not in spectrum.result
+    curve = tools.power_spectrum("noise.png", points=8).result
+    assert len(curve["frequency"]) == len(curve["radial_power"]) == 8
+    assert curve["frequency"][0] < curve["frequency"][-1] <= 0.5
 
 
 def test_thickness_is_read_off_a_fib_image_in_any_folder(tmp_path):

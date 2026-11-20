@@ -494,7 +494,7 @@ def build_analysis_router(tools: ImageTools) -> APIRouter:
     @router.post("/experiment/analysis/spectrum", response_model=ImageMeasured)
     def power_spectrum(body: SpectrumBody):
         path = _required_text(body, "path", saved_image)
-        options = _given(body, "channel", "plane")
+        options = _given(body, "channel", "plane", "points")
         box = list(body.box) if body.box is not None else None
         return _image_answer(lambda: tools.power_spectrum(path, box=box, **options))
 

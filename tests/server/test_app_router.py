@@ -1361,6 +1361,7 @@ def test_analysis_measures_a_stack_s_points_profile_and_quality(client, host):
     )
     assert spectrum.status_code == 200, spectrum.text
     assert spectrum.json()["result"]["pixel_size"] == pytest.approx(1e-7)
+    assert "radial_power" not in spectrum.json()["result"]
 
     for url, bad in (
         ("intensity", {"path": path, "points": [[500, 1]]}),
@@ -1372,6 +1373,7 @@ def test_analysis_measures_a_stack_s_points_profile_and_quality(client, host):
         ("histogram", {"path": path, "bins": 1}),
         ("histogram", {"path": path, "box": [500, 500, 4, 4]}),
         ("spectrum", {"path": path, "box": [0, 0, 8, 8]}),
+        ("spectrum", {"path": path, "points": 1}),
     ):
         refused = client.post(f"/app/experiment/analysis/{url}", headers=AUTH, json=bad)
         assert refused.status_code == 422, bad

@@ -16,7 +16,8 @@ is a layer per channel, a plane per z. Points and lines are in the image's pixel
   clipped at either end of the file's range.
 - `power_spectrum`: the radially averaged power of a layer's 2D Fourier
   transform, the finest period with signal above the noise floor, and how
-  much stronger it is along x than y.
+  much stronger it is along x than y; `spectrum_summary` is what the tool
+  answers of it.
 """
 
 from __future__ import annotations
@@ -285,20 +286,46 @@ def profile_summary(
     """*result* (`line_profile`) without its per-pixel samples; with *points*,
     the profile resampled to that many evenly spaced samples (the per-pixel
     ones when there are no more of them than that)."""
-    summary = {k: v for k, v in result.items() if k not in ("distance_px", "values")}
+    return _summary(result, "distance_px", "values", points, (2, 3))
+
+
+def spectrum_summary(
+    result: Dict[str, Any], points: Optional[int] = None
+) -> Dict[str, Any]:
+    """*result* (`power_spectrum`) without its radial average, one value per
+    ring; with *points*, that average resampled to that many evenly spaced
+    frequencies (every ring when there are no more of them than that)."""
+    return _summary(result, "frequency", "radial_power", points, (5, None))
+
+
+def _summary(
+    result: Dict[str, Any],
+    x: str,
+    y: str,
+    points: Optional[int],
+    digits: Tuple[int, Optional[int]],
+) -> Dict[str, Any]:
+    """*result* without its curve (*x*, *y*); with *points*, the curve
+    resampled to that many evenly spaced samples of *x*, rounded to *digits*
+    decimals (None: four significant figures)."""
+    summary = {k: v for k, v in result.items() if k not in (x, y)}
     if points is None:
         return summary
     if points < 2:
         raise ValueError("points is 2 or more.")
-    distance, values = result["distance_px"], result["values"]
-    if points < len(values):
-        at = np.linspace(distance[0], distance[-1], points)
-        distance = [round(float(d), 2) for d in at]
-        values = [
-            round(float(v), 3) for v in np.interp(at, result["distance_px"], values)
-        ]
-    summary["distance_px"], summary["values"] = list(distance), list(values)
+    xs, ys = result[x], result[y]
+    if points < len(ys):
+        at = np.linspace(xs[0], xs[-1], points)
+        ys = [_rounded(v, digits[1]) for v in np.interp(at, xs, ys)]
+        xs = [_rounded(v, digits[0]) for v in at]
+    summary[x], summary[y] = list(xs), list(ys)
     return summary
+
+
+def _rounded(value: float, decimals: Optional[int]) -> float:
+    if decimals is None:
+        return float(f"{value:.4g}")
+    return round(float(value), decimals)
 
 
 def _fwhm(distance: np.ndarray, values: np.ndarray, dip: bool) -> Dict[str, Any]:
