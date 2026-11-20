@@ -868,6 +868,8 @@ def _main_kept_apart(argv):
 def test_with_no_api_key_it_refuses_to_start(tmp_path, monkeypatch, capsys):
     """No key, no start: it never falls back to this computer's Claude login,
     and it opens no session."""
+    # Without the [agent] extra it stops earlier, on the missing extra.
+    pytest.importorskip("claude_agent_sdk")
     monkeypatch.delenv(harness_mod.API_KEY, raising=False)
     monkeypatch.setattr(harness_mod, "get_secret", lambda name: None)
     from fibsem.ai.agent import manager
