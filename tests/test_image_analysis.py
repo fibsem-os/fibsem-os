@@ -390,7 +390,7 @@ def test_a_plugin_s_reader_reads_its_instrument_s_format(tmp_path, lab_reader):
     planes = load_planes(str(tmp_path / "frame.lab"))
     assert planes.names == ["Lab image"] and planes.pixel_size == 4e-10
     answer = ImageTools(lambda: str(tmp_path)).line_profile(
-        "frame.lab", [0, 16], [63, 16]
+        "frame.lab", [0, 16], [63, 16], points=64
     )
     assert answer.result["values"][0] < answer.result["values"][-1]
 
