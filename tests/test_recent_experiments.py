@@ -160,3 +160,26 @@ def test_backward_compat_missing_key(prefs_env):
     prefs = cfg.load_user_preferences()
     assert prefs.shared.user == "someone"
     assert cfg.recent_experiment_paths() == []
+
+
+def test_an_app_lists_only_its_own_recents(prefs_env):
+    """The list is one per account; each app lists what it wrote. One written
+    before experiments said is AutoLamella's, the only app then."""
+
+    def written_by(name, app):
+        path = _write_experiment(prefs_env / name, name=name)
+        if app is not None:
+            with open(path) as f:
+                data = yaml.safe_load(f)
+            with open(path, "w") as f:
+                yaml.safe_dump({"app": app, **data}, f)
+        cfg.record_recent_experiment(path)
+        return path
+
+    written_by("old", None)
+    written_by("lamellae", "autolamella")
+    written_by("slices", "volume")
+    names = lambda app: [s.name for s in cfg.get_recent_experiments(app=app)]
+    assert names("autolamella") == ["lamellae", "old"]
+    assert names("volume") == ["slices"]
+    assert names(None) == ["slices", "lamellae", "old"]

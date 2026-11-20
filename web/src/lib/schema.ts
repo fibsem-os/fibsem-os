@@ -235,6 +235,8 @@ export interface components {
             available: boolean;
             /** @default false */
             long: boolean;
+            /** @default  */
+            reason: string;
             returns: string | null;
             signature: string;
         };
@@ -1385,6 +1387,8 @@ export interface components {
             } | null;
             native_max: number | null;
             native_unit: string | null;
+            /** @default  */
+            reason: string;
             settable: boolean;
         };
         MicroscopeInfo: {
@@ -1659,6 +1663,8 @@ export interface components {
             } | null;
             native_max: number | null;
             native_unit: string | null;
+            /** @default  */
+            reason: string;
             settable: boolean;
             type: string;
             type_path: string | null;
@@ -1846,6 +1852,8 @@ export interface components {
                 [key: string]: unknown;
             };
             available: boolean;
+            /** @default  */
+            reason: string;
             returns: string | null;
             signature: string;
         };
