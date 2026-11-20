@@ -18,7 +18,7 @@ from fibsem.alignment import (
     _calculate_shift,
     compare_alignment_methods,
 )
-from fibsem.analysis import coincidence, measure
+from fibsem.analysis import coincidence, lattice, measure
 from fibsem.analysis.answers import (
     ImageDrawn,
     ImageMeasured,
@@ -33,7 +33,11 @@ from fibsem.analysis.images import load_planes
 from fibsem.analysis.root import FileRefusal, resolve
 from fibsem.conversions import image_to_microscope_image_coordinates
 from fibsem.fm.preview import is_fluorescence_image
-from fibsem.geometry.saved_images import image_point_to_stage_position, stage_projector
+from fibsem.geometry.saved_images import (
+    image_point_to_stage_position,
+    image_points_to_stage,
+    stage_projector,
+)
 from fibsem.imaging.cells import from_crop
 from fibsem.imaging.marks import (
     draw,
@@ -464,6 +468,42 @@ class ImageTools:
             measure.spectrum_figure,
             _measure_name("spectrum", plane, box),
         )
+
+    def find_grid_squares(
+        self,
+        path: str,
+        points: Optional[List[List[float]]] = None,
+        limit: Optional[int] = None,
+        box: Optional[List[float]] = None,
+        pitch_um: Optional[float] = None,
+    ) -> ImageMeasured:
+        """The grid-bar lattice on a saved image (fitted in *box*, preferring
+        *pitch_um* when given), its squares and *points* checked against the
+        bars (`fibsem.analysis.lattice`), each with the stage position under
+        it when the image says where it was taken; the figure saved as
+        ``drawn/<image>-grid.png``."""
+        target = self.image(path)
+        try:
+            planes = load_planes(target)
+            fit = lattice.fit_lattice(planes, box, pitch_um)
+            result = lattice.grid_answer(fit, planes.pixel_size, points, limit)
+        except ValueError as exc:
+            raise ImageRefused("invalid", str(exc)) from None
+        measured = result.get("candidate") or result
+        placed = [
+            p
+            for p in measured.get("squares", []) + measured.get("points", [])
+            if p.get("bar_distance_px", 0) is not None
+        ]
+        try:
+            stages = image_points_to_stage(target, [p["px"] for p in placed])
+        except Exception:  # noqa: BLE001 - a picture or a file with no geometry
+            stages = [None] * len(placed)
+        for p, stage in zip(placed, stages):
+            p["stage_position"] = None if stage is None else stage.to_dict()
+        saved = drawn_path(target, f"{image_stem(target)}-grid")
+        plot = save_drawn(lattice.grid_figure(planes, fit, result), saved)
+        return ImageMeasured(path, "grid", result, saved, plot)
 
     def measure_thickness(
         self,
