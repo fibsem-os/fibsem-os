@@ -15,7 +15,15 @@ import { Popup } from "@/components/ui/popup";
 import { api, imageUrl } from "@/lib/api";
 import { onEvents } from "@/lib/events";
 import { Markdown } from "@/lib/markdown";
-import type { AgentPlan, AgentState, Capabilities, RecentRow, ReportedSession, TranscriptLine } from "@/lib/types";
+import type {
+  AgentPlan,
+  AgentState,
+  Capabilities,
+  RecentRow,
+  ReportedSession,
+  TranscriptLine,
+  WorkflowStatus,
+} from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { ConnectCard, RequestCard, SuggestionCard } from "./agent/Cards";
 import { carriesFiles, splitAttached, useAttachments } from "./agent/attach";
@@ -475,6 +483,80 @@ function Record({
   return <>{out}</>;
 }
 
+// While something runs, its progress is read this often, as the top line reads it.
+const RUNNING_EVERY_MS = 2000;
+
+/** 75 s as "1:15", an hour and more as "1:02:05". */
+function elapsed(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  const two = (n: number) => String(n).padStart(2, "0");
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return h ? `${h}:${two(m)}:${two(s % 60)}` : `${m}:${two(s % 60)}`;
+}
+
+/** Above the message box: what runs on the microscope, live. A run's task or
+ * the agent's mill turns with a spinner, its bar fills and its time counts, and
+ * while the agent is heard it says the agent watches. Nothing running, the
+ * agent's now line, as before. */
+function LiveLine({ agent, heard, hide }: { agent: AgentState; heard: boolean; hide: boolean }) {
+  const status = useQuery({
+    queryKey: ["app/workflow/status"],
+    queryFn: () => api<WorkflowStatus>("/app/workflow/status"),
+    refetchInterval: (query) =>
+      query.state.data?.workflow.running || query.state.data?.progress ? RUNNING_EVERY_MS : false,
+  });
+  const workflow = status.data?.workflow;
+  const progress = status.data?.progress && !status.data.progress.outcome ? status.data.progress : null;
+  const task = workflow?.running
+    ? [workflow.current_task ?? "A task", workflow.current_item].filter(Boolean).join(" on ")
+    : null;
+  const text = [task ?? progress?.label ?? (progress ? null : agent.now), progress?.step, progress?.numbers]
+    .filter(Boolean)
+    .join(" · ");
+  const running = !!(task || progress);
+  // Counted from when this page first saw it run: the line has no start time.
+  const key = task ?? progress?.label ?? null;
+  const since = useRef<{ key: string | null; at: number }>({ key: null, at: 0 });
+  if (since.current.key !== key) since.current = { key, at: Date.now() };
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!running) return;
+    const tick = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(tick);
+  }, [running]);
+  if (!running)
+    return (agent.session || agent.now) && !hide ? (
+      <div className="min-h-5 text-[13px] text-muted-foreground">{agent.now}</div>
+    ) : null;
+  return (
+    <div className="flex flex-col gap-1" aria-live="polite">
+      <div className="flex min-h-5 items-center gap-1.5 text-[13px] text-muted-foreground">
+        <Loader size={13} className="shrink-0 animate-spin" aria-hidden />
+        <span className="min-w-0 truncate" title={text}>
+          {text}
+        </span>
+        <span className="ml-auto shrink-0 tabular-nums" title="How long it has run, since this page saw it start">
+          {elapsed((now - since.current.at) / 1000)}
+        </span>
+        {heard && (
+          <span className="shrink-0" title="The agent waits on the microscope's events and wakes on the next one">
+            · Agent watching
+          </span>
+        )}
+      </div>
+      {progress?.fraction != null && (
+        <div className="h-[2px] rounded-sm bg-accent">
+          <div
+            className="h-full rounded-sm bg-[var(--fibsem-primary-color)] transition-[width] duration-1000"
+            style={{ width: `${Math.min(100, 100 * progress.fraction)}%` }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AgentPage() {
   const client = useQueryClient();
   const agent = useQuery({
@@ -793,10 +875,9 @@ export function AgentPage() {
         )}
         <div className="flex flex-col gap-2.5 border-t border-border pt-3 pb-4">
           {/* Kept while a session runs, so the composer doesn't move as commands start and end.
-              The running step says it in the record; here only when no step shows it. */}
-          {(a.session || a.now) && !nowOnStep && (
-            <div className="min-h-5 text-[13px] text-muted-foreground">{a.now}</div>
-          )}
+              Live while something runs; else the running step says it in the record, and
+              here only when no step shows it. */}
+          <LiveLine agent={a} heard={isWorking && !a.stopped} hide={nowOnStep} />
           {a.waiting &&
             (a.waiting.agent_reviewing ? (
               <div className="text-[13px]">
