@@ -9,13 +9,19 @@ instrument kind's ``handoff.md`` ``start`` text with the note as its first
 prompt. The session's id, chat, budget, spend and plan stay as they were.
 Each context's model calls are re-read on every turn, so the harness also
 says once, in a wake-up, when the context first passes each of the
-playbook's ``context_marks``; the agent decides what to do about it. Needs
-nothing from the SDK at import.
+playbook's ``context_marks``; the agent decides what to do about it.
+
+The note ends with what the harness itself read as the context ended
+(`facts`): the workflow and its task, the proposals it waits on, the agent's
+pending requests, the long commands it started and has not seen end, its
+wake-up and its budget. So the agent writes what those mean, not their ids.
+Needs nothing from the SDK at import.
 """
 
+import json
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from fibsem.ai.agent import instruments, usage
 from fibsem.util import timestamps
@@ -45,8 +51,11 @@ DESCRIPTION = (
     "it at a natural boundary, not mid-task. Bring the plan up to date first, "
     "then write the note for an agent who knows the skills but nothing of "
     "today. done: what was done since the plan was last brought up to date. "
-    "in_flight: what is running or waiting (a workflow and its task, proposal "
-    "or request ids, a command's run id, a wake-up you set). next: the next "
+    "in_flight: what is running or waiting, and what it means for the next "
+    "steps; the harness adds what it can read itself (the workflow and its "
+    "task, the proposals it waits on, your pending requests, the long "
+    "commands you started, your wake-up, the budget) with their ids, so you "
+    "needn't copy those. next: the next "
     "steps, concretely. rules: the operator's standing instructions not yet in "
     "the plan's Rules. other: anything else the record doesn't hold (what you "
     "tried that failed, what to watch for). The fresh context reads its "
@@ -68,6 +77,10 @@ FAILED = (
 )
 # The wake-up that starts the fresh context's first turn.
 WAKE = "WAKE a fresh context: start from the handoff note above."
+# The note's last part: what the harness read as the context ended.
+FACTS_HEADING = "Where things stood (read by the harness as the context ended)"
+# How long each read of the App Server may take (s).
+FACTS_TIMEOUT_S = 10.0
 
 
 @dataclass
@@ -80,6 +93,8 @@ class Note:
         default_factory=lambda: timestamps.now().isoformat(timespec="seconds")
     )
     to: int = 2
+    # What the harness read as the context ended (`facts`), after the parts.
+    facts: str = ""
 
     def markdown(self) -> str:
         lines = [f"## Handoff to context {self.to}, {self.at}"]
@@ -87,7 +102,195 @@ class Note:
             text = self.parts.get(name, "").strip()
             if text:
                 lines += ["", f"### {heading}", "", text]
+        if self.facts.strip():
+            lines += ["", f"### {FACTS_HEADING}", "", self.facts.strip()]
         return "\n".join(lines) + "\n"
+
+
+def runs_in(content: Any) -> List[Dict[str, Any]]:
+    """The long commands' runs a tool result shows: a command's answer as it
+    starts one (``{"result": run}``) or service_wait_for_run's (``{"run":
+    run}``). *content* is the result as the SDK gives it (text items holding
+    JSON)."""
+    found = []
+    items = content if isinstance(content, list) else [content]
+    for item in items:
+        text = item.get("text") if isinstance(item, dict) else item
+        if not isinstance(text, str):
+            continue
+        try:
+            data = json.loads(text)
+        except ValueError:
+            continue
+        if not isinstance(data, dict):
+            continue
+        run = data.get("run", data.get("result", data))
+        if (
+            isinstance(run, dict)
+            and isinstance(run.get("run_id"), str)
+            and isinstance(run.get("service"), str)
+            and isinstance(run.get("state"), str)
+        ):
+            found.append(run)
+    return found
+
+
+class Runs:
+    """The long commands the agent (or one of its subagents) started and has
+    not seen end, by run id, from its tool results; at most *kept*."""
+
+    def __init__(self, kept: int = 20) -> None:
+        self.kept = kept
+        self._running: Dict[str, Dict[str, Any]] = {}
+
+    def saw(self, content: Any) -> None:
+        for run in runs_in(content):
+            run_id = run["run_id"]
+            if run["state"] == "running":
+                self._running[run_id] = {
+                    key: run.get(key)
+                    for key in ("run_id", "service", "command", "started_at")
+                }
+            else:
+                self._running.pop(run_id, None)
+        while len(self._running) > self.kept:
+            self._running.pop(next(iter(self._running)))
+
+    @property
+    def running(self) -> List[Dict[str, Any]]:
+        return list(self._running.values())
+
+
+def _read(client, path: str, params: Optional[dict] = None) -> Tuple[Any, str]:
+    """(GET *path*'s answer, or None, and why not when None)."""
+    try:
+        response = client.request("GET", path, params=params, timeout=FACTS_TIMEOUT_S)
+    except Exception as error:  # noqa: BLE001 - said in the facts instead
+        return None, type(error).__name__
+    if response.status_code != 200:
+        return None, f"HTTP {response.status_code}"
+    try:
+        return response.json(), ""
+    except ValueError:
+        return None, "not JSON"
+
+
+def _workflow(status: Dict[str, Any]) -> List[str]:
+    """The workflow, the proposals it waits on and what runs on the
+    microscope, from `/app/workflow/status`."""
+    lines = []
+    flow = status.get("workflow") or {}
+    if flow.get("running"):
+        what = f"Workflow: {flow.get('phase') or 'running'}"
+        if flow.get("current_task"):
+            what += f", task {flow['current_task']}"
+            if flow.get("current_item"):
+                what += f" on {flow['current_item']}"
+        if flow.get("queue_position") and flow.get("queue_total"):
+            what += f" ({flow['queue_position']} of {flow['queue_total']})"
+        if flow.get("step"):
+            what += f"; {flow['step']}"
+        if flow.get("waiting_on"):
+            what += f"; waiting on {flow['waiting_on']}"
+            if flow.get("waiting_since"):
+                what += f" since {flow['waiting_since']}"
+    else:
+        what = "Workflow: not running"
+        last = flow.get("last_run") or {}
+        if last.get("ended"):
+            what += f"; the last run ended {last['ended']}"
+            if last.get("why"):
+                what += f" ({last['why']})"
+    lines = [what + "."]
+    failed = flow.get("failed") or {}
+    if failed.get("what"):
+        lines.append(f"Failed: {failed['what']}: {failed.get('message') or ''}")
+    for asking in flow.get("asking") or []:
+        lines.append(
+            f"Proposal {asking.get('proposal_id')} waits for an answer: "
+            f"{asking.get('task_name')} on {asking.get('item_name')}."
+        )
+    progress = status.get("progress") or {}
+    if progress.get("label") and not progress.get("outcome"):
+        what = f"On the microscope now: {progress['label']}"
+        if progress.get("step"):
+            what += f", {progress['step']}"
+        if progress.get("numbers"):
+            what += f" ({progress['numbers']})"
+        lines.append(what + ".")
+    return lines
+
+
+def _runs(client, runs: Iterable[Dict[str, Any]]) -> List[str]:
+    """*runs* still running as the App Server says now; one it can't say of
+    is listed as the agent last saw it."""
+    lines = []
+    for run in runs:
+        name = f"{run.get('service')}.{run.get('command')}"
+        if client is not None:
+            read, why = _read(
+                client,
+                f"/microscope/services/{run.get('service')}/run",
+                {"run_id": run["run_id"], "wait": 0},
+            )
+            now = read.get("run") if isinstance(read, dict) else None
+            if isinstance(now, dict):
+                # Ended, or a later run on the service answered: this one ended.
+                if now.get("run_id") != run["run_id"] or now.get("state") != "running":
+                    continue
+            else:
+                lines.append(
+                    f"Long command {name}, run_id {run['run_id']}: running when "
+                    f"last seen ({why or 'no answer'} reading it now)."
+                )
+                continue
+        lines.append(
+            f"Long command {name} you started is running: run_id {run['run_id']}"
+            + (f", since {run['started_at']}" if run.get("started_at") else "")
+            + "."
+        )
+    return lines
+
+
+def facts(
+    client,
+    runs: Iterable[Dict[str, Any]] = (),
+    wake_up: Optional[str] = None,
+    budget_usd: Optional[float] = None,
+    spent_usd: Optional[float] = None,
+) -> str:
+    """What the harness reads as a context ends, for its handoff note: the
+    workflow (`/app/workflow/status`), the agent's pending requests
+    (`/app/agent/requests`) and which of *runs* still run, as the App Server
+    (*client*) answers now, and the *wake_up* and budget the harness holds.
+    Blocking; a read that fails is said, not raised."""
+    lines: List[str] = []
+    if client is not None:
+        status, why = _read(client, "/app/workflow/status")
+        if isinstance(status, dict):
+            lines += _workflow(status)
+        else:
+            lines.append(f"Workflow: could not read it ({why}).")
+        requests, why = _read(client, "/app/agent/requests")
+        if isinstance(requests, dict):
+            for request in requests.get("requests") or []:
+                if request.get("status") != "pending":
+                    continue
+                reason = str(request.get("reason") or "").strip()[:200]
+                lines.append(
+                    f"Your request {request.get('request_id')} waits for the "
+                    f"operator: {reason}"
+                )
+        else:
+            lines.append(f"Your requests: could not read them ({why}).")
+    lines += _runs(client, runs)
+    if wake_up:
+        lines.append(f"Wake-up set: {wake_up}.")
+    if budget_usd:
+        lines.append(f"Budget: ${spent_usd or 0:.2f} spent of ${budget_usd:.2f}.")
+    elif spent_usd is not None:
+        lines.append(f"Spent: ${spent_usd:.2f} (no budget set).")
+    return "\n".join(f"- {line}" for line in lines)
 
 
 class Marks:
@@ -128,6 +331,8 @@ class Handoff:
         self.marks = Marks(marks)
         self.contexts = contexts
         self.pending: Optional[Note] = None
+        # The long commands the agent started and hasn't seen end.
+        self.runs = Runs()
         self._keep = keep
         # The fresh context's first prompt, and lines for the next turn.
         self._prompt: Optional[str] = None

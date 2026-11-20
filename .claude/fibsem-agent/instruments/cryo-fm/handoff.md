@@ -8,7 +8,7 @@ You are the cryo-FM's agent, run by fibsem-agent, in a fresh context. It is the 
 1. Read these skills with the Skill tool, in this order: {skills}. You had also read {read_before}: read one again only when the work in front of you needs it.
 2. Call server_get_capabilities: work as the level it gives allows. It may have changed.
 3. Read your plan (plan_get), then where things stand: app_get_status, and service_wait_for_run with wait=0 for a long command the note says you were waiting on.
-4. Where the note and what you read differ, what you read now is right.
+4. The note's last part, "Where things stood", the harness read as your earlier context ended; the rest your earlier context wrote. Where the note and what you read differ, what you read now is right.
 5. Carry on from the note's Next, within your level.
 The watcher's lines that came in meanwhile are after the note.
 

@@ -38,7 +38,7 @@ import time
 import traceback
 import uuid
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -560,6 +560,8 @@ class Alarm:
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._timer: Optional[asyncio.TimerHandle] = None
         self.reason: Optional[str] = None
+        # When it rings, local time, while one is set.
+        self.due: Optional[datetime] = None
 
     def bind(self, loop: asyncio.AbstractEventLoop, ring: Callable[[str], None]):
         """Ring through *ring* on *loop* (`Harness.run`)."""
@@ -578,6 +580,7 @@ class Alarm:
             ALARM, f"WAKE {self.reason} (you asked {minutes:g} min ago)"
         )
         self._timer = self._loop.call_later(minutes * 60, self._rang, line)
+        self.due = datetime.now().astimezone() + timedelta(minutes=minutes)
         log.info("Wake-up in %g min: %s", minutes, self.reason)
         return (
             f"You will be woken in {minutes:g} min with: {self.reason}. A new "
@@ -587,10 +590,18 @@ class Alarm:
     def cancel(self) -> None:
         if self._timer is not None:
             self._timer.cancel()
-        self._timer, self.reason = None, None
+        self._timer, self.reason, self.due = None, None, None
+
+    @property
+    def set_for(self) -> Optional[str]:
+        """The wake-up set, as a handoff note says it; None with none set."""
+        if self._timer is None or not self.reason:
+            return None
+        at = f" at {self.due.strftime('%H:%M')}" if self.due is not None else ""
+        return f"{self.reason!r}{at}"
 
     def _rang(self, line: str) -> None:
-        self._timer, self.reason = None, None
+        self._timer, self.reason, self.due = None, None, None
         if self._ring is not None:
             self._ring(line)
 
@@ -1518,6 +1529,10 @@ class Harness:
         If the new conversation can't start, the agent carries on in this one."""
         handoff = self._handoff
         note = handoff.take()
+        # The ids and states it can read itself, so the agent needn't copy them.
+        note.facts = await asyncio.get_running_loop().run_in_executor(
+            None, self._handoff_facts
+        )
         playbook = self._playbook.reminders if self._playbook is not None else None
         skills, read = handoff_mod.skills_to_read(
             playbook.playbook if playbook is not None else None,
@@ -1566,6 +1581,21 @@ class Harness:
             f"this session here, from its plan and its handoff note ({where})",
         )
         self._put(self._watcher, watch_mod.Wake(ALARM, handoff_mod.WAKE))
+
+    def _handoff_facts(self) -> str:
+        """What the harness reads as a context ends (`handoff.facts`); a
+        failure costs the note only its facts."""
+        try:
+            return handoff_mod.facts(
+                self._client,
+                runs=self._handoff.runs.running if self._handoff else (),
+                wake_up=self._alarm.set_for if self._alarm is not None else None,
+                budget_usd=self._budget_usd,
+                spent_usd=self._run_spent(),
+            )
+        except Exception:  # noqa: BLE001 - the note goes on without them
+            log.warning("Reading the handoff facts failed.", exc_info=True)
+            return ""
 
     async def _report(self, ended: bool = False) -> None:
         """The session as it stands, to the App Server; a refusal or a server
@@ -2488,6 +2518,10 @@ def _show(message, agent: SdkAgent) -> None:
                 _line(agent, "done", answer, step=seq, took_s=took, **run, **verdict)
                 if _lab_tool(name):
                     _show_pictures(agent, block.content, seq)
+            runs = getattr(agent, "runs_started", None)
+            if runs is not None and not block.is_error:
+                # A subagent's long commands too: its lead may never read them.
+                runs.saw(block.content)
             policy = getattr(agent, "wake_on", None)
             if policy is not None and not block.is_error and not parent:
                 # A long command's end the agent read itself wakes no one.
@@ -3365,6 +3399,7 @@ def _main(argv, opened: List["sessions.SessionFolder"]) -> int:
         options, usage_path=session.folder / usage.FILE, session_id=session_id
     )
     agent.calls.segment = handoff.contexts
+    agent.runs_started = handoff.runs
     agent.playbook = control
     agent.wake_on = wake_on
     control.say = lambda text: _line(agent, "context", text)
