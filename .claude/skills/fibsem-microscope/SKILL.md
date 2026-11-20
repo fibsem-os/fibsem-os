@@ -41,7 +41,11 @@ haven't used this session (every read here works at Watch):
 
 - `microscope_get_info`: which microscope it is (manufacturer, model,
   software version, the optional hardware fitted).
-- `device_list`: what it has (beams, detectors, stage, an FM).
+- `device_list`: what it has (beams, detectors, stage, an FM), by name.
+  Before you use a parameter or command you haven't used, read it with
+  `device_describe` (`service_describe` for a service): its unit, limits,
+  choices and signature. Never write a value to find out what a parameter
+  takes; a write changes the instrument.
 - `device_get_parameter` `on` for the electron and ion beams. If one is off,
   turn it on with `beam_turn_on` (at Assist, ask first) and say so. Turn a
   beam off (`beam_turn_off`) only when the work is done or the operator asks.
@@ -128,9 +132,9 @@ Use it only when the operator gives you stage coordinates. Before a large
 stable move, `service_call_query` `project_stable_move` with the same offset
 answers where the stage would go without moving it.
 
-Measure on a preview with its own scale: `hfw / width` per preview pixel. The
-`pixelsize` in an image answer is per pixel of the full image, which is
-larger than the preview.
+Measure on a preview with its own scale: its `preview_pixelsize` (metres per
+preview pixel). The summary's `pixel_size` is per pixel of the full image,
+which is larger than the preview.
 
 The other moves, by when to use them:
 
@@ -145,7 +149,8 @@ The other moves, by when to use them:
 - `stage_move_absolute`: go back to a position you read. It tilts flat
   before a large rotation.
 - Named positions the operator keeps in the Saved Positions panel:
-  `stage_get_saved_positions`, `stage_move_to_saved_position`, and
+  `stage_get_saved_positions` (their names; with `names`, those in full),
+  `stage_move_to_saved_position`, and
   `stage_save_position` and `stage_remove_saved_position` to change them.
 
 Insert the FM objective with `fm_insert_objective` and its `tilt` (0 or

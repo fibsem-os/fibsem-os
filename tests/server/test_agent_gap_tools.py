@@ -545,6 +545,10 @@ def test_the_agent_saves_and_returns_to_a_position(driving, arctis):  # noqa: F8
     _ok(_call(driving, "stage_save_position", name="cryo"))
     saved = _ok(_call(driving, "stage_get_saved_positions"))["result"]
     assert [p["name"] for p in saved] == ["cryo"]
+    named = _ok(_call(driving, "stage_get_saved_positions", names=["cryo"]))
+    assert named["result"] == saved
+    unknown = _call(driving, "stage_get_saved_positions", names=["warm"])
+    assert unknown.status_code in (409, 422)
     stage = arctis.get_stage_position()
     stage.x += 50e-6
     arctis.move_stage_absolute(stage)

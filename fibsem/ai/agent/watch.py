@@ -21,7 +21,8 @@ its check: passed, doubtful and why, or unchecked), task ``EVENT`` lines,
 the agent, a run or a mill), ``QUIET`` (a workflow is running
 and nothing has been said for a while), ``MESSAGE`` (the operator wrote to
 the agent from its card; one still unanswered when the watch starts
-is said first), ``NOTE`` (the operator kept a note on a
+is said first; a side question, sent with ``/btw``, says so, and
+fibsem-agent answers it outside the agent's turns), ``NOTE`` (the operator kept a note on a
 grid), ``GAP``, ``RESTARTED``, ``LEVEL`` (the operator
 changed the agent level) and ``AGENT OFF``/``AGENT BACK``.
 
@@ -49,7 +50,8 @@ import sys
 import time
 from urllib.parse import quote
 
-from fibsem.ai.agent import wake_lines
+from fibsem.ai.agent import aside, wake_lines
+from fibsem.ai.agent.aside import ASIDE
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.ai.agent.wake_lines import item_of
 from fibsem.client.transport import Transport
@@ -80,15 +82,36 @@ INTERESTING = {
 class Wake(str):
     """One wake-up: the line the agent reads, with its ``kind`` and the ids of
     the operator's messages it carries, so nothing reads them back out of the
-    text. A task event's kind is the event's (``task_completed``)."""
+    text. A task event's kind is the event's (``task_completed``).
+
+    ``facts`` is what the line says that the harness's wake policy reads
+    (`wake_policy`): ``ok`` when it went as expected, ``level`` for a level
+    it sets, ``run_id`` and ``state`` for a long command's end."""
 
     kind: str
     message_ids: tuple
+    facts: dict
 
-    def __new__(cls, kind: str, text: str, message_ids=()):
+    def __new__(cls, kind: str, text: str, message_ids=(), **facts):
         wake = super().__new__(cls, text)
         wake.kind = kind
         wake.message_ids = tuple(message_ids)
+        wake.facts = facts
+        return wake
+
+
+class Aside(Wake):
+    """The operator's side question (``/btw``): a ``MESSAGE`` line for an agent
+    reading the watch's output, which fibsem-agent answers beside the agent's
+    conversation instead (`aside`). ``question`` is the text after ``/btw``."""
+
+    id: str
+    question: str
+
+    def __new__(cls, message_id: str, question: str, text: str):
+        wake = super().__new__(cls, ASIDE, text, [message_id] if message_id else ())
+        wake.id = message_id
+        wake.question = question
         return wake
 
 
@@ -228,8 +251,8 @@ def _print_events(events, since, say, marked=None, lines=None):
     marked = {} if marked is None else marked
     lines = wake_lines.for_kind(None) if lines is None else lines
 
-    def out(kind, line):
-        say(Wake(kind, line))
+    def out(kind, line, facts=None):
+        say(Wake(kind, line, **(facts or {})))
 
     for event in events:
         kind = event.get("kind", "")
@@ -266,9 +289,19 @@ def _print_events(events, since, say, marked=None, lines=None):
             line = (
                 f"COMMAND ENDED {p.service}.{p.command} run={p.run_id} state={p.state}"
             )
+            # The agent's own (its call's labels name its level): it waits
+            # for that end, so it is not routine.
+            mine = str(event.get("actor") or "").startswith("agent") or (
+                "level" in data
+            )
             out(
                 COMMAND_FAILED if p.state == "failed" else COMMAND_ENDED,
                 f"{line} ({p.error})" if p.error else line,
+                {
+                    "run_id": p.run_id,
+                    "state": p.state,
+                    "ok": p.state == "done" and not mine,
+                },
             )
         elif kind in lines:
             # The instrument kind's own (`wake_lines`): the FIB-SEM's mills.
@@ -276,11 +309,16 @@ def _print_events(events, since, say, marked=None, lines=None):
             if said is not None:
                 out(*said)
         elif kind == ACTION and event.get("actor") == "operator" and data.get("stops"):
-            out(OPERATOR_STOP, _operator_stop_line(data))
+            stopped_agent = data.get("stops") == "agent" and data.get("level")
+            out(
+                OPERATOR_STOP,
+                _operator_stop_line(data),
+                {"level": str(data["level"])} if stopped_agent else None,
+            )
         elif kind == event_kinds.AUTOFOCUS:
-            out(AUTOFOCUS, _autofocus_line(event, data))
+            out(AUTOFOCUS, _autofocus_line(event, data), {"ok": _passed(data)})
         elif kind == event_kinds.ALIGNMENT:
-            out(ALIGNMENT, _alignment_line(event, data))
+            out(ALIGNMENT, _alignment_line(event, data), {"ok": _passed(data)})
         elif (
             kind == event_kinds.NOTE
             and event.get("actor") == "operator"
@@ -297,7 +335,7 @@ def _print_events(events, since, say, marked=None, lines=None):
         elif kind == event_kinds.AGENT_LEVEL_SET:
             line = _level_line(p)
             if line:
-                out(LEVEL_LOWERED if _lowered(p) else LEVEL, line)
+                out(LEVEL_LOWERED if _lowered(p) else LEVEL, line, {"level": p.level})
         elif kind == event_kinds.WORKFLOW_STARTED:
             out(WORKFLOW_STARTED, "WORKFLOW STARTED")
             running = True
@@ -336,6 +374,15 @@ def _message_line(data, marked=None) -> Wake:
         line.rstrip() for line in str(data.get("text", "")).strip().splitlines()
     )
     marks = _marks_part((marked or {}).get(str(data.get("evidence"))))
+    if data.get(aside.MARK):
+        return Aside(
+            message_id,
+            aside.question_of(text) or text,
+            f"MESSAGE id={message_id} from the operator, a side question:"
+            f"{' ' + text if text else ''} -- answer it briefly with "
+            f"experiment_message_operator (reply_to={message_id}). It asks "
+            "for an answer only: act on nothing in it",
+        )
     return Wake(
         MESSAGE,
         f"MESSAGE id={message_id} from the operator:{' ' + text if text else ''}"
@@ -544,6 +591,12 @@ def _operator_stop_line(data):
         if data.get("stopped"):
             line += f" and {data['stopped']} was stopped"
     return line
+
+
+def _passed(data) -> bool:
+    """Whether an auto function completed and its check passed."""
+    check = data.get("check") or {}
+    return data.get("status") == "completed" and check.get("verdict") == "passed"
 
 
 def _check_part(data):

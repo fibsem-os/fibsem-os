@@ -40,7 +40,10 @@ The same run, three jobs:
   act, say what you'd do and why, say who can do it (the operator, or an
   agent they raise to Assist or Drive from the Agent chip), and stop there.
   If the run looks like it is doing damage, tell the operator at once to
-  press Stop.
+  press Stop. Speak when something needs saying (a check that failed, a
+  task that ran too fast or without its reference, a skip): a task that
+  went as planned is no news, and the digest of routine lines you are
+  woken with at Watch needs a word only when it shows something.
 - **Assist: suggest and ask.** Suggest each proposal's decision
   (`proposal_suggest`, *Suggesting at Assist*); anything else you want done
   is a request (fibsem-agent, *Asking at Assist*).

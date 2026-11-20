@@ -16,6 +16,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 
 from fibsem.acting import AGENT, OPERATOR
+from fibsem.ai.agent import aside
 from fibsem.ai.agent.levels import AgentLevel, if_allowed
 from fibsem.workflows.actions import ACTION, NOTE, action_record, note_record
 from fibsem.workflows.evidence import EVIDENCE
@@ -467,20 +468,37 @@ class AgentControl:
         where the agent's watch hears it as a ``MESSAGE`` line and answers with
         a message naming its id. *evidence*, the record of the
         image the operator marked for it (`fibsem.workflows.evidence.save`),
-        goes on the record first and the message cites it. Returns the id, or
-        None when nothing is recording, so the agent can't hear it."""
+        goes on the record first and the message cites it. A message starting
+        ``/btw`` is a side question, marked ``aside`` on the record: fibsem-agent
+        answers it outside the agent's conversation (`fibsem.ai.agent.aside`).
+        Returns the id, or None when nothing is recording, so the agent can't
+        hear it."""
         recorder = self._session.recorder
         if recorder is None:
             return None
         message_id = uuid.uuid4().hex[:8]
-        logger.info("Operator message to the agent (%s): %s", message_id, text)
+        # A side question (``/btw``) is answered beside the agent's work, from
+        # its conversation; one with marks is a message, the marks being for it.
+        side = evidence is None and aside.question_of(text) is not None
+        logger.info(
+            "Operator %s to the agent (%s): %s",
+            "side question" if side else "message",
+            message_id,
+            text,
+        )
         evidence_id = None
         if evidence is not None:
             evidence_id = evidence["evidence_id"]
             recorder.buffer.append(EVIDENCE, dict(evidence), actor=OPERATOR)
         recorder.buffer.append(
             NOTE,
-            note_record(text, to=AGENT, id=message_id, evidence=evidence_id),
+            note_record(
+                text,
+                to=AGENT,
+                id=message_id,
+                evidence=evidence_id,
+                **({aside.MARK: True} if side else {}),
+            ),
             actor=OPERATOR,
         )
         return message_id

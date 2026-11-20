@@ -20,7 +20,7 @@ import httpx
 import pytest
 
 from fibsem.ai.agent import harness as harness_mod
-from fibsem.ai.agent import playbooks, usage
+from fibsem.ai.agent import playbooks, usage, wake_policy
 from fibsem.ai.agent import watch as watch_mod
 from fibsem.ai.agent.harness import Harness, TurnEnd, Wakes, kickoff
 from fibsem.ai.agent.levels import AgentLevel
@@ -392,7 +392,9 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
         "ToolSearch",
         "SendMessage",
         harness_mod.WAKE_TOOL,
+        harness_mod.WAKE_ON_TOOL,
         *harness_mod.PLAYBOOK_TOOLS,
+        harness_mod.HANDOFF_TOOL,
     ] + [f"Agent({name})" for name in _all().agents]
     # SendMessage carries a specialist on (one Verifier per lamella's passes).
     # The checklist is a fibsem tool, so the operator sees it: no CLI todo list.
@@ -431,7 +433,9 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
     assert options.resume == "abc"
     assert options.verbatim_prompts
     assert options.max_turns == harness_mod.defaults().max_turns
-    assert options.max_budget_usd == harness_mod.defaults().max_budget_usd
+    # The harness keeps the budget: given one, the CLI says the spend in a
+    # reminder on every model call.
+    assert options.max_budget_usd is None
     # A tool result with an image in it is more than the SDK's 1 MB default.
     assert options.max_buffer_size >= 16 * 1024 * 1024
     # No developer CLAUDE.md or auto memory in an operator's agent.
@@ -439,6 +443,8 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
         "CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1",
         "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",
         "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
+        # The main conversation's prompt cache lasts an hour (`wake_policy`).
+        "CLAUDE_CODE_PROMPT_CACHE_TTL": "1h",
         "FIBSEM_SERVER_URL": "http://127.0.0.1:9",
         "FIBSEM_SERVER_TOKEN": "t0k",
     }
@@ -1159,6 +1165,86 @@ def test_an_operator_message_wakes_the_agent_and_it_answers(session):
     assert [n["payload"].get("reply_to") for n in notes] == [message_id]
 
 
+class AsideAgent(ScriptedAgent):
+    """The scripted agent with the CLI's side question stood in: it keeps
+    each question and answers it."""
+
+    def __init__(self, reply=None):
+        super().__init__(reply)
+        self.side_questions = []
+
+    async def side_question(self, question, history, timeout_s):
+        self.side_questions.append(question)
+        return "The ion beam was at 30 pA at the last image."
+
+
+def test_a_side_question_is_answered_beside_a_long_turn_and_never_reaches_it(
+    session,
+):
+    def notes():
+        return [
+            e
+            for e in session.recorder.buffer.events_since(0)["events"]
+            if e["kind"] == "note"
+        ]
+
+    async def reply(prompt):
+        if prompt != kickoff():
+            return None
+        # A long turn: it goes on until the side answer is on the record.
+        while not any(n.get("actor") != "operator" for n in notes()):
+            await asyncio.sleep(0.05)
+
+    agent = AsideAgent(reply)
+    running = _harness(session, agent)
+    assert wait_for(lambda: agent.prompts, timeout=20), "no kickoff"
+    side_id = AgentControl(session).message("/btw what current is the ion beam at?")
+    assert wait_for(
+        lambda: any(n.get("actor") != "operator" for n in notes()), timeout=20
+    ), "no side answer"
+    # Its turn sees the answer and ends.
+    time.sleep(0.5)
+    # An ordinary message after it still reaches the agent, as its next turn.
+    message_id = AgentControl(session).message("is 01 ok?")
+    assert wait_for(lambda: len(agent.prompts) >= 2, timeout=20), "no second turn"
+    time.sleep(2 * POLL_S)
+    assert running.stop() == 0
+
+    assert agent.interrupts == 0, "the side question cut the turn short"
+    assert agent.side_questions == [
+        harness_mod.aside.FRAME + "what current is the ion beam at?"
+    ]
+    assert len(agent.prompts) == 2
+    assert agent.prompts[1].startswith(
+        f"The watcher printed:\nMESSAGE id={message_id} from the operator: is 01 ok?"
+    )
+    for prompt in agent.prompts:
+        assert side_id not in prompt and "ion beam" not in prompt
+    # Both on the record: the question marked, the answer replying to it.
+    question, ordinary = [n for n in notes() if n.get("actor") == "operator"]
+    (answer,) = [n for n in notes() if n.get("actor") != "operator"]
+    assert question["payload"]["id"] == side_id
+    assert question["payload"][harness_mod.aside.MARK] is True
+    assert harness_mod.aside.MARK not in ordinary["payload"]
+    assert answer["payload"]["reply_to"] == side_id
+    assert answer["payload"]["text"] == (
+        harness_mod.aside.LEAD + "The ion beam was at 30 pA at the last image."
+    )
+
+
+def test_a_side_question_sent_before_the_agent_started_is_answered_beside_it(
+    session,
+):
+    side_id = AgentControl(session).message("/btw where is the report?")
+    agent = AsideAgent()
+    running = _harness(session, agent)
+    assert wait_for(lambda: agent.side_questions, timeout=20), "not answered"
+    time.sleep(2 * POLL_S)
+    assert running.stop() == 0
+    assert agent.prompts == [kickoff()]
+    assert all(side_id not in prompt for prompt in agent.prompts)
+
+
 def test_an_event_id_after_lines_already_taken_is_the_current_turn_s():
     # The watch says a poll's lines, then the id of its newest event: two
     # items. A turn can take the lines before the id arrives.
@@ -1789,13 +1875,82 @@ def test_stopping_interrupts_the_turn_and_closes_the_session(session):
     assert agent.closed
 
 
-def test_a_spent_budget_ends_the_run(session):
+def test_a_spent_budget_ends_the_run_at_the_end_of_its_turn(session, caplog):
     async def reply(prompt):
-        return TurnEnd("error_max_budget_usd", 5.01, "scripted")
+        return TurnEnd(cost_usd=5.01, session_id="scripted")
 
     agent = ScriptedAgent(reply)
-    assert _harness(session, agent).ended() == 2
+    running = _harness(session, agent, budget_usd=5.0)
+    assert running.ended() == 2
     assert agent.closed and len(agent.prompts) == 1
+    assert running.harness.outcome()["reason"] == "its budget is spent"
+    assert any("The budget is spent ($5.01 of $5 " in m for m in caplog.messages)
+    ended = AgentControl(session).reported_session()
+    assert ended["ended"] and ended["reason"] == "its budget is spent"
+    assert (ended["budget_usd"], ended["spent_usd"]) == (5.0, 5.01)
+
+
+def test_a_budget_the_operator_raises_keeps_the_run_going(session):
+    session.agent_auth.operator_token = "op-token"
+    spent = iter([1.0, 4.5, 5.5, 12.0])
+
+    async def reply(prompt):
+        cost = next(spent)
+        if cost == 5.5:
+            # The operator raises it while the turn that spends it goes on.
+            with httpx.Client(
+                base_url=session.app_server.url,
+                headers={"Authorization": "Bearer op-token"},
+                timeout=30,
+            ) as http:
+                raised = http.put("/app/agent/budget", json={"budget_usd": 10})
+            assert raised.status_code == 200, raised.text
+        return TurnEnd(cost_usd=cost, session_id="scripted")
+
+    agent = ScriptedAgent(reply)
+    running = _harness(session, agent, budget_usd=5.0)
+    control = AgentControl(session)
+    for turn in range(1, 4):
+        assert wait_for(lambda: len(agent.prompts) == turn, timeout=20)
+        control.message(f"carry on {turn}")
+    assert running.ended() == 2
+    assert len(agent.prompts) == 4
+    # Said once, in the turn after the spend first reached 80% of the budget.
+    said = [harness_mod.BUDGET_LOW[:8] in prompt for prompt in agent.prompts]
+    assert said == [False, False, True, False]
+    assert "$4.50 of this run's $5 is spent (90%)" in agent.prompts[2]
+    ended = control.reported_session()
+    assert (ended["budget_usd"], ended["budget_set_usd"]) == (10.0, 10.0)
+
+
+def test_a_resumed_run_counts_its_own_spend_against_the_budget():
+    def resumed(before=None):
+        return Harness(
+            ScriptedAgent(),
+            lambda: None,
+            resumed=True,
+            budget_usd=5.0,
+            spent_before_usd=before,
+        )
+
+    # The CLI's running total carries the earlier runs on.
+    harness = resumed(40.0)
+    harness._count_spend(44.0)
+    assert harness._run_spent() == 4.0 and not harness._over_budget()
+    harness._count_spend(45.5)
+    assert harness._over_budget()
+    # A total that did not carry them on is all this run's.
+    harness = resumed(40.0)
+    harness._count_spend(3.0)
+    assert harness._run_spent() == 3.0
+    # Not known: the run's first turn is not counted.
+    harness = resumed()
+    harness._count_spend(44.0)
+    harness._count_spend(46.0)
+    assert harness._run_spent() == 2.0
+    record = {"runs": [{"spent_usd": 12.5}, {"spent_usd": 40.0}, {}]}
+    assert harness_mod._spent_before(record) == 40.0
+    assert harness_mod._spent_before({"runs": [{"spent_usd": 3.0}]}) is None
 
 
 def test_a_model_that_cannot_sign_in_ends_the_run(session):
@@ -2012,3 +2167,47 @@ def test_a_lab_tool_s_picture_goes_on_the_transcript_under_its_step():
     # A send carries one picture at most.
     sent = _one_picture(agent.transcript)
     assert sum(line["kind"] == "picture" for line in sent) == 1
+
+
+# --- what wakes the agent (wake_on) ---------------------------------------------
+
+
+def test_at_watch_routine_lines_wait_for_a_line_that_wakes_the_agent(session, caplog):
+    """The real watch on the real App Server: at Watch, under digest, a task's
+    start and end wait, and come at the top of the turn an operator's message
+    starts. Raised to Drive, every line wakes the agent again."""
+    policy = wake_policy.WakeOn(
+        wake_policy.Settings(watch="digest", every_min=60, after_lines=0)
+    )
+    agent = ScriptedAgent()
+    running = _harness(session, agent, wake_on=policy)
+    assert wait_for(lambda: agent.prompts, timeout=20), "no kickoff"
+    # The level, read as the watch started.
+    assert policy.level == "watch" and policy.mode == "digest"
+
+    buffer = session.recorder.buffer
+    buffer.append("task_started", {"item_name": "01-a", "task_name": "Setup"})
+    buffer.append("task_completed", {"item_name": "01-a", "task_name": "Setup"})
+    assert wait_for(lambda: len(_heard(caplog, "EVENT")) >= 2, timeout=20)
+    time.sleep(4 * POLL_S)
+    assert len(agent.prompts) == 1, "a routine line woke the agent at Watch"
+    assert len(policy.held) == 2
+
+    message_id = AgentControl(session).message("how is it going?")
+    assert wait_for(lambda: len(agent.prompts) >= 2, timeout=20), "no turn"
+    digest, lines = agent.prompts[1].split("\n\nThe watcher printed:\n")
+    assert digest.splitlines()[1:] == [
+        "EVENT task_started 01-a Setup",
+        "EVENT task_completed 01-a Setup",
+    ]
+    assert lines.startswith(f"MESSAGE id={message_id} from the operator")
+
+    assert AgentControl(session).set_level(AgentLevel.DRIVE) is None
+    assert wait_for(lambda: len(agent.prompts) >= 3, timeout=20), "no level turn"
+    assert (
+        "What wakes you now: wake_on all, the default at drive." in (agent.prompts[2])
+    )
+    buffer.append("task_started", {"item_name": "02-b", "task_name": "Setup"})
+    assert wait_for(lambda: len(agent.prompts) >= 4, timeout=20), "no task turn"
+    assert agent.prompts[3] == "The watcher printed:\nEVENT task_started 02-b Setup"
+    assert running.stop() == 0

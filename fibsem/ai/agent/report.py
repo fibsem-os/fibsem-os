@@ -105,6 +105,9 @@ class SessionReport:
     budget_usd: Optional[Dollars] = None
     spent_usd: Optional[Dollars] = None
     turns: Optional[Count] = None
+    # How many contexts the session has had: 1, and one more for each fresh
+    # context it started (`fibsem.ai.agent.handoff`).
+    contexts: Optional[Count] = None
     tokens: Optional[Tokens] = None
     context: Optional[ContextUse] = None
     code: Optional[Flag] = None
@@ -138,6 +141,9 @@ class ReportedSession(SessionReport):
     started: Optional[str] = None
     # Read from its plan, when it keeps one.
     deadlines: Optional[List[Deadline]] = None
+    # The budget the operator set (``PUT /app/agent/budget``), which
+    # fibsem-agent keeps to; a report can't set it.
+    budget_set_usd: Optional[float] = None
     # The instrument it is connected to and the experiment open there, as the
     # server knows them: ids, which a rename does not change. The serial
     # number is what the microscope reports, when it reports one.
