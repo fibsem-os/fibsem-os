@@ -47,6 +47,8 @@ EVENT_AFTER = "event_after"
 CONTEXTS = "contexts"
 # The agent's handoff notes (`handoff`), newest last.
 HANDOFF = "handoff.md"
+# The wake policy the agent set itself, in the record (`SessionFolder.keep_wake_on`).
+WAKE_ON = "wake_on"
 # The agent's own files, when it was given no folder.
 WORK = "work"
 # Without a work folder a session runs in run/, which holds only its skills.
@@ -258,6 +260,16 @@ class SessionFolder:
         if found:
             record.update(found)
             self._write(record)
+
+    def keep_wake_on(self, state: Optional[dict]) -> None:
+        """The wake policy the agent set itself (`wake_policy.WakeOn.state`),
+        so a resume keeps it; None for the playbook's default."""
+        record = self.record()
+        if state is None:
+            record.pop(WAKE_ON, None)
+        else:
+            record[WAKE_ON] = state
+        self._write(record)
 
     def keep_event_cursor(self, event_id: str) -> None:
         """The id of the newest event the agent has been given, so a resume

@@ -422,3 +422,41 @@ def test_the_sdk_agent_starts_a_new_conversation_and_side_questions_follow(tmp_p
     assert store.path({"session_id": conversation}) == tmp_path / mirror.FILE
     assert agent.skills_read == [] and agent.calls.segment == 2
     assert [q["question"] for q in new_cli.side_questions] == ["after?"]
+
+
+def test_lines_held_for_a_digest_reach_the_fresh_context(session):
+    """At Watch under digest, routine lines that come in while the agent asks
+    for a fresh context, and while it starts, are held, then given at the top
+    of the fresh context's first turn, after its handoff note."""
+    from fibsem.ai.agent import wake_policy
+
+    policy = wake_policy.WakeOn(
+        wake_policy.Settings(watch="digest", every_min=60, after_lines=0)
+    )
+    buffer = session.recorder.buffer
+    handoff = None
+
+    async def reply(prompt):
+        if len(agent.prompts) == 1:
+            handoff.request(NOTE)
+            buffer.append("task_started", {"item_name": "01-a", "task_name": "Setup"})
+            await asyncio.sleep(1.0)
+        return TurnEnd(session_id="scripted")
+
+    async def during_reset():
+        buffer.append("task_completed", {"item_name": "01-a", "task_name": "Setup"})
+        await asyncio.sleep(1.0)
+
+    agent = ResettingAgent(reply, during_reset)
+    handoff = _handoff()
+    running = _harness(session, agent, handoff=handoff, wake_on=policy)
+    assert wait_for(lambda: len(agent.prompts) >= 2, timeout=30), "no fresh turn"
+    assert running.stop() == 0
+    fresh = agent.prompts[1]
+    assert fresh.startswith(START)
+    held = fresh.index("Held for you since ")
+    assert fresh.index("Start Setup on site 01.") < held
+    assert held < fresh.index(f"The watcher printed:\n{handoff_mod.WAKE}")
+    assert "EVENT task_started 01-a Setup" in fresh
+    assert "EVENT task_completed 01-a Setup" in fresh
+    assert not policy.held

@@ -199,6 +199,12 @@ class Handoff:
             )
         )
 
+    @property
+    def has_lines(self) -> bool:
+        """Whether the next turn carries a line of its own (a context mark, a
+        reset that failed)."""
+        return bool(self._lines)
+
     def into(self, prompt: str) -> str:
         """*prompt* as the next turn says it: after a fresh context's first
         prompt, before the lines waiting for it."""

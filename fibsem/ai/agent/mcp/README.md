@@ -275,6 +275,19 @@ fibsem-agent
   The operator's messages, the level, Stop, the watch's own state and the
   agent's own wake-ups always wake it, so `wakes: []` gives an agent that
   waits for the operator. `--show-config` shows the list.
+- **Digests.** Within that, the agent's `wake_on` policy may hold routine
+  lines (a task started or finished normally, a mill stage starting, a check
+  that passed; `wake_lines.NEEDS` is the table) and give them together at the
+  top of a later wake: with the next line that wakes it, after `digest_min`,
+  or once `digest_lines` are held. The base playbook's `session:` block sets
+  the mode per level (`wake_on_watch: digest`, `wake_on_assist` and
+  `wake_on_drive: all`); the agent changes it with the `wake_on` tool, and
+  its choice holds across level changes and a resume. The agent's transcript
+  says each change and each digest ("Woke with 7 held line(s), ..."), and the
+  harness log has every held line. A long command's end the agent already
+  read with `service_wait_for_run` never wakes it, under any policy. To turn
+  holding off, set `wake_on_watch: all` in a lab playbook, or ask the agent
+  to call `wake_on` with mode `all`.
 - **Defaults.** The shipped `fibsem-agent` playbook is the one place the
   defaults live, and it stays under every playbook, a lab's copy of it
   included: its skill, its `session:` settings (with the timers
