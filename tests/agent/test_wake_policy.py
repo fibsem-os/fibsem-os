@@ -698,6 +698,42 @@ def test_a_resume_is_not_kept_past_lines_that_wait():
     assert kept == ["s-5"]
 
 
+def test_a_resume_keeps_the_cursor_before_the_first_held_line():
+    """While lines wait for a digest, the cursor kept is the newest one before
+    the first of them, not none: a resume gives again only what waits."""
+
+    async def main():
+        kept = []
+        policy = _policy()
+        harness = harness_mod.Harness(
+            object(), lambda: None, keep_cursor=kept.append, wake_on=policy
+        )
+        harness._items, harness._urgent = asyncio.Queue(), asyncio.Event()
+        harness._stopping = asyncio.Event()
+        harness._watcher = watcher = object()
+        harness._items.put_nowait((watcher, _wake(harness_mod.ALARM, "WAKE look")))
+        harness._items.put_nowait((watcher, harness_mod._Cursor("s-1")))
+        assert await harness._next_prompt()
+        # A routine line is held; its batch's cursor is not kept.
+        for item in _lines(_task("task_completed", "01", "Setup")) + [
+            harness_mod._Cursor("s-2")
+        ]:
+            harness._items.put_nowait((watcher, item))
+        waiting = asyncio.ensure_future(harness._next_prompt())
+        for _ in range(5):
+            await asyncio.sleep(0)
+        waiting.cancel()
+        assert policy.held and harness._cursor_given == "s-2"
+        harness._keep_given_cursor()
+        assert kept == ["s-1"]
+        # Once the digest is delivered, the newest cursor is kept.
+        policy.take()
+        harness._keep_given_cursor()
+        assert kept == ["s-1", "s-2"]
+
+    asyncio.run(main())
+
+
 def test_show_config_says_what_wakes_the_agent(capsys, tmp_path, monkeypatch):
     monkeypatch.setenv("FIBSEM_HOME", str(tmp_path / "home"))
     assert harness_mod.main(["--show-config", "--json"]) == 0

@@ -373,6 +373,18 @@ def test_a_resume_carries_on_the_newest_context(tmp_path):
     )
     harness._count_spend(12.0 + harness._carried_usd)
     assert harness._spent_usd == 42.0 and harness._run_spent() == 2.0
+    # A CLI total that did not carry the resumed conversation's spend on
+    # starts from the spend carried into it, not from nothing.
+    harness = Harness(
+        ScriptedAgent(),
+        lambda: None,
+        resumed=True,
+        budget_usd=5.0,
+        spent_before_usd=40.0,
+        spent_carried_usd=30.0,
+    )
+    harness._count_spend(3.0 + harness._carried_usd)
+    assert harness._run_spent() == 3.0 and not harness._over_budget()
 
 
 # --- the SDK agent over a stand-in for the CLI --------------------------------

@@ -248,3 +248,19 @@ def test_a_long_answer_is_cut_to_fit_a_message():
     text = aside.message_text("x" * 10000)
     assert text.startswith(aside.LEAD)
     assert len(text) <= len(aside.LEAD) + aside.ANSWER_LIMIT
+
+
+def test_the_sdk_still_sends_control_requests_the_way_ask_does():
+    """`aside.ask` uses the SDK's private control-request call: an SDK that
+    renames it or its timeout fails here, not quietly at the microscope."""
+    pytest.importorskip("claude_agent_sdk")
+    import inspect
+
+    from claude_agent_sdk import ClaudeSDKClient
+    from claude_agent_sdk._internal.query import Query
+
+    send = getattr(Query, "_send_control_request", None)
+    assert send is not None
+    assert "timeout" in inspect.signature(send).parameters
+    # The client keeps its query where `ask` looks for it.
+    assert "self._query" in inspect.getsource(ClaudeSDKClient)

@@ -1139,6 +1139,9 @@ class Harness:
         self._after = after
         self._keep_cursor = keep_cursor
         self._cursor_given: Optional[str] = None
+        # The newest cursor given before the wake policy's first held line:
+        # what a resume may start after while lines wait for a digest.
+        self._cursor_unheld: Optional[str] = None
         self._cursor_kept: Optional[str] = after
         # What the agent is told, for the session's instrument kind.
         self._words = words or texts()
@@ -1610,8 +1613,9 @@ class Harness:
             # A resume whose earlier spend is unknown counts from here.
             self._run_from_usd = total_usd
         elif total_usd < self._run_from_usd:
-            # The CLI's total did not carry the earlier runs on.
-            self._run_from_usd = 0.0
+            # The CLI's total did not carry the earlier runs on: it starts
+            # from the spend carried into the current context.
+            self._run_from_usd = self._carried_usd
         self._spent_usd = total_usd
 
     def _run_spent(self) -> Optional[float]:
@@ -1841,8 +1845,11 @@ class Harness:
         if self._keep_cursor is None or given is None or given == self._cursor_kept:
             return
         if self._wake_on.held:
-            # Lines before it wait for a digest: a resume must give them again.
-            return
+            # Lines before it wait for a digest: a resume must give them
+            # again, so it keeps the newest cursor before the first was held.
+            given = self._cursor_unheld
+            if given is None or given == self._cursor_kept:
+                return
         try:
             self._keep_cursor(given)
         except Exception:
@@ -1878,10 +1885,17 @@ class Harness:
                 batch.append(item)
                 ended = isinstance(item, _WatchEnded)
             lines = [line for line in batch if isinstance(line, str)]
+            held_before, before = bool(self._wake_on.held), self._cursor_given
             for item in batch:
                 if isinstance(item, _Cursor):
                     self._cursor_given = item.event_id
             prompt = self._wakes.add(lines)
+            if not self._wake_on.held:
+                self._cursor_unheld = None
+            elif not held_before:
+                # This batch's lines are the first held: a resume starts
+                # no later than before them.
+                self._cursor_unheld = before
             if ended:
                 prompt = await self._rewatch(prompt)
                 if prompt is None:
