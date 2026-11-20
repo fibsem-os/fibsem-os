@@ -17,7 +17,7 @@ you ask. If they leave the run to you, read autolamella-lead.
   `detection` are held for them (autolamella, *The trust ladder*): report
   each, show where it is, and wait. If they say "you place the rest", the
   rest are yours, by autolamella's *Before a position or a POI*; note the
-  delegation. Show each site with a fresh pair from `beam_acquire_pair`,
+  delegation. Show each site with a fresh pair from `beam_acquire_pair_preview`,
   citing its picture as your evidence.
 - **Firsts are theirs to confirm.** The first time the run shows you a
   proposal kind in a task, tell them what it is and what you intend, and let

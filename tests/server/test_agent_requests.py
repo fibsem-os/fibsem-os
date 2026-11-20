@@ -545,7 +545,7 @@ _SAMPLE_ARGUMENTS = {
         "path": "experiment",
     },
     "beam_acquire_focus_stack": {"image_settings": {"hfw": 1e-4}, "path": "experiment"},
-    "beam_acquire_pair": {"hfw": 50e-6, "path": "experiment"},
+    "beam_acquire_pair_preview": {"hfw": 50e-6, "path": "experiment"},
     "fm_acquire_image": {"channels": [{"name": "GFP"}], "path": "experiment"},
     "milling_run_stage": {"stage": {"name": "Rough"}},
     "milling_run_task": {"config": {"name": "Mill"}, "path": "experiment"},

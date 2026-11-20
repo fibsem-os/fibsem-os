@@ -1,5 +1,5 @@
-"""beam_acquire_pair through the App Server on the Demo microscope: the imaging
-service's ``acquire_pair`` saves an SEM and a FIB image inside the open
+"""beam_acquire_pair_preview through the App Server on the Demo microscope: the imaging
+service's ``acquire_pair_preview`` saves an SEM and a FIB image inside the open
 experiment, answers compact facts and one side-by-side picture whose stated
 origin and scale take a point read off it back to each image's pixels, and
 refuses while someone else is in control or a beam is off."""
@@ -23,7 +23,7 @@ from fibsem.util import wording
 from tests.fixtures.app_contexts import ExperimentContext
 
 TOKEN = "test-token"
-SPEC = next(t for t in CATALOG if t.name == "beam_acquire_pair")
+SPEC = next(t for t in CATALOG if t.name == "beam_acquire_pair_preview")
 
 
 @pytest.fixture
@@ -112,7 +112,7 @@ def test_autocontrast_runs_only_on_the_beams_named(client, microscope):
     answer = resp.json()["result"]
     assert answer["fib"]["autocontrast"] is True
     assert answer["sem"]["autocontrast"] is False
-    assert os.path.basename(answer["sem"]["path"]).startswith("site-")
+    assert os.path.basename(answer["sem"]["path"]).startswith("pair-")
     with pytest.raises(ValueError):
         route_call(SPEC, {"hfw": 50e-6, "path": "checks", "autocontrast": ["FM"]})
 
@@ -226,7 +226,7 @@ def test_the_agent_gets_the_facts_and_one_picture(client, microscope):
     _fast(microscope)
     sidecar = build_sidecar(client, client.get("/capabilities").json())
     result = asyncio.run(
-        sidecar.call_tool("beam_acquire_pair", {"hfw": 50e-6, "path": "site"})
+        sidecar.call_tool("beam_acquire_pair_preview", {"hfw": 50e-6, "path": "site"})
     )
     if isinstance(result, tuple):
         result = result[0]

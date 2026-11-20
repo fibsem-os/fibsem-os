@@ -193,7 +193,7 @@ Before you decide or place either:
    for. The image centre is not a target; a grid-square edge with no cell
    on it is not one either.
 2. At the position proposal, take fresh SEM and FIB images with
-   `beam_acquire_pair`, saved in the lamella's folder: one picture of both,
+   `beam_acquire_pair_preview`, saved in the lamella's folder: one picture of both,
    with each image's contrast and focus measures. Check both are in focus and their brightness and
    contrast let you read them; fix them first if not (fibsem-microscope,
    *Don't judge a poor image*), and check what Setup's own autofocus did.
