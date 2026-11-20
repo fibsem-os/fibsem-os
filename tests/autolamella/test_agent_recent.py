@@ -336,6 +336,23 @@ def test_the_agent_s_answer_marks_the_message_read():
     assert [row.read != "" for row in recent.rows] == [True, False]
 
 
+def test_a_side_question_and_its_answer_are_marked_for_the_side_chat():
+    recent = RecentActions()
+    question = _message("ef56", "/btw what current is the polish at?")
+    question["payload"]["aside"] = True
+    recent.add(question)
+    recent.add(_message("gh78", "skip 05"))
+    recent.add(_record("note", {"to": "operator", "reply_to": "ef56", "text": "30 pA"}))
+    recent.add(_record("note", {"to": "operator", "reply_to": "gh78", "text": "ok"}))
+    asides = {row.text: row.aside for row in recent.rows}
+    assert asides == {
+        "/btw what current is the polish at?": True,
+        "skip 05": False,
+        "30 pA": True,
+        "ok": False,
+    }
+
+
 def test_the_agent_s_message_and_note_are_told_apart():
     recent = RecentActions()
     recent.add(_record("agent_level_set", {"level": "drive"}, actor=OPERATOR))
