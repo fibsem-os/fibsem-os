@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 # is either derived, hardware-adjacent, an *outcome* rather than an input
 # (milling_angle is recorded from where Setup put the stage — writing it
 # would move nothing), or the record itself.
-ITEM_PATCH_FIELDS = ("poi", "alignment_area", "description", "defect")
+ITEM_PATCH_FIELDS = ("poi", "alignment_area", "description", "notes", "defect")
 
 
 def item_fields_version(lamella) -> str:
@@ -152,7 +152,7 @@ def _apply(experiment, level, item_name, task_name, patch, version, actor) -> di
 
 
 # The workflow fields a task-config patch may not set, and the verb that sets each.
-_ITEM_NONE_TYPES = {"description": str}
+_ITEM_NONE_TYPES = {"description": str, "notes": str}
 
 
 def _not_editable(path: str) -> Optional[str]:
