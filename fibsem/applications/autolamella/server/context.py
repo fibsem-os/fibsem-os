@@ -158,6 +158,8 @@ class LamellaDetail(ItemDetail):
     is_failure: bool = False
     milling_angle: Optional[float] = None
     defect: Optional[Dict[str, Any]] = None
+    # working notes on where the lamella stands now; description is what it is
+    notes: str = ""
 
 
 @dataclass
@@ -1314,6 +1316,7 @@ class AutoLamellaAppContext(AppContext):
         detail = super().detail_of(experiment, item)
         detail.is_failure = bool(item.is_failure)
         detail.milling_angle = item.milling_angle
+        detail.notes = item.notes
         if getattr(item, "defect", None) is not None:
             detail.defect = to_plain(item.defect.to_dict())
         return detail
