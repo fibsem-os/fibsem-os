@@ -4,8 +4,9 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { api } from "@/lib/api";
-import type { AgentPlan, ReportedSession } from "@/lib/types";
+import type { AgentPlan, ReportedSession, TranscriptLine } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { PlaybookDialog, PlaybookLine } from "./PlaybookView";
 
 // The time left on a deadline turns orange in its last half hour.
 const SOON_MIN = 30;
@@ -70,16 +71,6 @@ function Tick({ state, children }: { state: "done" | "open" | "always" | "loaded
       <span className={cn("min-w-0 break-words", state === "done" && "text-muted-foreground")}>{children}</span>
     </li>
   );
-}
-
-const SETUP_OPEN = "fibsem-agent-setup-open";
-
-function stored(key: string): boolean {
-  try {
-    return localStorage.getItem(key) === "1";
-  } catch {
-    return false;
-  }
 }
 
 function todoTitle(checklist: NonNullable<ReportedSession["checklist"]>): string {
@@ -190,78 +181,6 @@ function PlanSteps({ plan, onOpen }: { plan: AgentPlan; onOpen: () => void }) {
         <p className="m-0 text-muted-foreground">No steps yet</p>
       )}
     </Section>
-  );
-}
-
-/** The playbook on one line; a click shows who chose the playbook,
- * its skills and the reminders on now. */
-function Setup({ session }: { session: ReportedSession }) {
-  const [open, setOpen] = useState(() => stored(SETUP_OPEN));
-  const { playbook, hooks, skills } = session;
-  const name = playbook?.name;
-  if (!name && !skills?.length && !hooks?.length) return null;
-  const optional = playbook?.skills ?? [];
-  const toggle = () => {
-    setOpen(!open);
-    try {
-      localStorage.setItem(SETUP_OPEN, open ? "0" : "1");
-    } catch {
-      // A browser without storage opens it closed next time.
-    }
-  };
-  return (
-    <section>
-      <button
-        className="flex w-full cursor-pointer items-center gap-2 border-0 bg-transparent p-0 text-left text-[13px] text-muted-foreground hover:text-foreground"
-        aria-expanded={open}
-        onClick={toggle}
-        title={name ? `Playbook ${name}` : undefined}
-      >
-        <span className="min-w-0 flex-1 break-words">{name ?? "Setup"}</span>
-        {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-      </button>
-      {open && (
-        <div className="mt-2 flex flex-col gap-3">
-          {name && (
-            <p className="m-0 text-muted-foreground">
-              Playbook {name}
-              {playbook?.chosen_by ? `, ${playbook.chosen_by}` : ""}
-            </p>
-          )}
-          {optional.length ? (
-            <div>
-              <h5 className="m-0 mb-1.5 text-[12px] font-semibold text-muted-foreground">
-                Skills · {optional.filter((s) => s.state === "done").length} of {optional.length} done
-              </h5>
-              <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
-                {optional.map((s) => (
-                  <Tick key={s.skill} state={s.state === "done" ? "done" : s.state === "loaded" ? "loaded" : "open"}>
-                    {s.skill}
-                    {s.state !== "done" && <span className="text-[12px] text-muted-foreground"> {s.state}</span>}
-                    {s.summary && <span className="block text-[12px] text-muted-foreground">{s.summary}</span>}
-                  </Tick>
-                ))}
-              </ul>
-            </div>
-          ) : skills?.length ? (
-            <div>
-              <h5 className="m-0 mb-1.5 text-[12px] font-semibold text-muted-foreground">Skills read</h5>
-              <p className="m-0 break-words">{skills.join(", ")}</p>
-            </div>
-          ) : null}
-          {hooks?.length ? (
-            <div>
-              <h5 className="m-0 mb-1.5 text-[12px] font-semibold text-muted-foreground">Reminders on now</h5>
-              {hooks.map((hook, i) => (
-                <p key={i} className="m-0 mt-1.5 line-clamp-2 break-words first-of-type:mt-0" title={hook.say}>
-                  <span className="text-muted-foreground">{hook.label}:</span> {hook.say}
-                </p>
-              ))}
-            </div>
-          ) : null}
-        </div>
-      )}
-    </section>
   );
 }
 
@@ -452,22 +371,32 @@ function ContextDialog({
   );
 }
 
-/** Goal and deadlines, the plan (or the agent's checklist), budget and context,
- * then the playbook on one line at the bottom. */
+const playbookShown = (session: ReportedSession) =>
+  !!(session.playbook_about?.name || session.playbook?.name || session.servers?.length);
+
+/** Goal, deadlines and the playbook the session runs, the plan (or the
+ * agent's checklist), then budget and context. */
 export function SidePanel({
   session,
   plan,
   budgetLow,
   onOpenPlan,
+  runs,
+  onOpenRun,
 }: {
   session: ReportedSession;
   plan?: AgentPlan | null;
   budgetLow: boolean;
   onOpenPlan: () => void;
+  /** The session's subagent runs, by the Agent calls that started them. */
+  runs?: TranscriptLine[];
+  /** Shows a run in the Subagents tab. */
+  onOpenRun?: (call: TranscriptLine) => void;
 }) {
   const now = useNow(30000);
   const [budgetOpen, setBudgetOpen] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
+  const [playbookOpen, setPlaybookOpen] = useState(false);
   const {
     started,
     ended,
@@ -489,7 +418,7 @@ export function SidePanel({
   const contextText = contextLevel === "high" ? "text-destructive" : contextLevel === "warn" ? WARN : "";
   return (
     <div className="flex flex-col gap-3.5 text-[13px] leading-[1.45]">
-      {(goal || deadlines?.length) ? (
+      {goal || deadlines?.length || playbookShown(session) ? (
         <Section title="Goal">
           {goal && <p className="m-0 break-words">{goal}</p>}
           {started && !ended && (
@@ -505,6 +434,7 @@ export function SidePanel({
               </p>
             );
           })}
+          <PlaybookLine session={session} onOpen={() => setPlaybookOpen(true)} />
         </Section>
       ) : null}
       {hasPlan(plan) ? (
@@ -611,8 +541,14 @@ export function SidePanel({
           ) : null}
         </Section>
       )}
-      <Setup session={session} />
       <BudgetDialog budget={budget} spent={spent} open={budgetOpen} onOpenChange={setBudgetOpen} />
+      <PlaybookDialog
+        session={session}
+        open={playbookOpen}
+        onOpenChange={setPlaybookOpen}
+        runs={runs}
+        onOpenRun={onOpenRun}
+      />
       {context && <ContextDialog session={session} open={contextOpen} onOpenChange={setContextOpen} />}
     </div>
   );

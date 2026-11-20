@@ -1566,6 +1566,17 @@ class AgentSession:
 
 
 @dataclass
+class AgentPlaybookFile:
+    """GET /app/agent/playbook-file: the running session's playbook as its
+    file is now. ``hash`` is None when the file is gone or doesn't load;
+    ``edited``, that it differs from the copy the session runs."""
+
+    name: Optional[str] = None
+    hash: Optional[str] = None
+    edited: bool = False
+
+
+@dataclass
 class SuggestionDecided:
     proposal_id: str
     applied: bool

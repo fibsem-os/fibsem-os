@@ -28,6 +28,7 @@ from typing import Any, Callable, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
+from fibsem.ai.agent import playbooks, sources
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.ai.agent.report import SessionReport, plain
 from fibsem.ai.agent.session import budget_low
@@ -40,7 +41,7 @@ from fibsem.server.auth import (
     require_operator,
 )
 from fibsem.server.bodies import MessagesReadBody
-from fibsem.server.responses import AgentSession
+from fibsem.server.responses import AgentPlaybookFile, AgentSession
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +106,26 @@ def report(auth: AuthConfig, body: Dict[str, Any]) -> tuple:
         kinds.append(SESSION_ENDED)
     auth.agent_session = session
     return session, kinds
+
+
+def playbook_file(session: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """The session's playbook as its file is now: its hash, None when the
+    file is gone or doesn't load, and whether that differs from the copy the
+    session runs."""
+    about = (session or {}).get("playbook_about") or {}
+    name = about.get("name") or ((session or {}).get("playbook") or {}).get("name")
+    if not name:
+        return {"name": None, "hash": None, "edited": False}
+    try:
+        now = playbooks.load(name, sources.find_root()).hash
+    except playbooks.PlaybookError:
+        now = None
+    running = about.get("hash") or ((session or {}).get("playbook") or {}).get("hash")
+    return {
+        "name": name,
+        "hash": now,
+        "edited": bool(running) and now != running,
+    }
 
 
 def where(request: Request) -> Dict[str, Optional[str]]:
@@ -245,5 +266,13 @@ def build_agent_session_router(
     def get_session(request: Request):
         auth: AuthConfig = request.app.state.auth
         return {"session": with_plan(request, auth.agent_session)}
+
+    @router.get("/playbook-file", response_model=AgentPlaybookFile)
+    def get_playbook_file(request: Request):
+        """Whether the running session's playbook file has changed since it
+        started on it: the session keeps the copy it loaded. Read when the
+        Agent page opens the playbook."""
+        auth: AuthConfig = request.app.state.auth
+        return playbook_file(auth.agent_session)
 
     return router

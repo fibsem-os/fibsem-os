@@ -90,6 +90,8 @@ SERVER = "fibsem"
 # With an agent host (--host), the agent's record tools on the host: its plan,
 # notes and messages (`catalog.RECORD_TOOLS`), from a second sidecar.
 RECORD_SERVER = "fibsem_record"
+# What the Agent page says the instrument's own server is.
+SERVER_ABOUT = "This instrument's App Server"
 # The harness's own tools, in-process: the wake-up timer (`Alarm`).
 HARNESS_SERVER = "fibsem_agent"
 WAKE_TOOL = f"mcp__{HARNESS_SERVER}__wake_after"
@@ -1240,6 +1242,10 @@ class Harness:
         # The session's playbook: sent again when it or its skills change.
         self._playbook = playbook
         self._playbook_sent: Optional[dict] = None
+        # The playbook's hash last sent whole (`Playbook.about`), and the
+        # servers last sent.
+        self._about_sent: Optional[str] = None
+        self._servers_sent: Optional[List[dict]] = None
         # The agent's wake-up timer: it rings into the watcher's lines.
         self._alarm = alarm
         self._deadlines = Deadlines(deadline_warn_s)
@@ -1806,6 +1812,14 @@ class Harness:
                 body["playbook"] = state["playbook"] or {}
                 body["hooks"] = self._playbook.hooks()
                 self._playbook_sent = state
+            current = self._playbook.reminders.playbook
+            if current is not None and current.hash != self._about_sent:
+                body["playbook_about"] = current.about()
+                self._about_sent = current.hash
+        servers = self._servers()
+        if servers and servers != self._servers_sent:
+            body["servers"] = servers
+            self._servers_sent = servers
         if ended:
             body.update(ended=True, reason=self._end_reason)
         try:
@@ -1845,6 +1859,24 @@ class Harness:
         if isinstance(reported, dict) and not ended:
             self._deadlines.set(reported.get("deadlines"))
         await self._send_transcript()
+
+    def _servers(self) -> List[dict]:
+        """The agent's MCP servers, each with what it is."""
+        about = {
+            SERVER: SERVER_ABOUT,
+            **(getattr(self._agent, "server_about", None) or {}),
+        }
+        return [
+            {
+                **row,
+                **(
+                    {"about": about[row["name"]][:400]}
+                    if about.get(row["name"])
+                    else {}
+                ),
+            }
+            for row in getattr(self._agent, "mcp_servers", None) or []
+        ]
 
     def _count_spend(self, total_usd: float) -> None:
         """The CLI's running total after a turn: the session's spend."""
@@ -2266,6 +2298,11 @@ class SdkAgent:
         # Called after each line is kept (`Harness._send_transcript_every`).
         self.on_line: Optional[Callable[[], None]] = None
         self.cwd = Path(options.cwd) if options.cwd else None
+        # Its MCP servers as the CLI last said (`_servers_now`), and what
+        # each lab's server is (`extra_mcp.Server.about`): the session
+        # reports them for the Agent page.
+        self.mcp_servers: List[dict] = []
+        self.server_about: Dict[str, str] = {}
 
     def line(self, kind: str, text: str, **extra) -> int:
         """Keep a printed line for the transcript; its number."""
@@ -2583,6 +2620,27 @@ def _compacted(agent) -> None:
     )
 
 
+def _servers_now(data: dict) -> List[dict]:
+    """The MCP servers a turn's ``init`` names, with their status and how
+    many tools each offers: the instrument's and the lab's, not the
+    harness's own."""
+    tools = data.get("tools") or []
+    rows = []
+    for server in data.get("mcp_servers") or []:
+        name = server.get("name")
+        if not isinstance(name, str) or name in (HARNESS_SERVER, RECORD_SERVER):
+            continue
+        prefix = f"mcp__{name}__"
+        rows.append(
+            {
+                "name": name,
+                "status": str(server.get("status") or "unknown"),
+                "tools": sum(1 for tool in tools if str(tool).startswith(prefix)),
+            }
+        )
+    return rows
+
+
 def _show(message, agent: SdkAgent) -> None:
     """One SDK message on the console and in the log, readably."""
     from claude_agent_sdk import (
@@ -2596,6 +2654,8 @@ def _show(message, agent: SdkAgent) -> None:
 
     if isinstance(message, SystemMessage):
         data = message.data or {}
+        if message.subtype == "init" and hasattr(agent, "mcp_servers"):
+            agent.mcp_servers = _servers_now(data)
         # Every turn starts with one; the first says it all.
         if message.subtype == "init" and not agent.introduced:
             agent.introduced = True
@@ -3595,6 +3655,7 @@ def _main(argv, opened: List["sessions.SessionFolder"]) -> int:
     agent.calls.segment = handoff.contexts
     agent.runs_started = handoff.runs
     agent.playbook = control
+    agent.server_about = {name: server.about for name, server in extras.items()}
     agent.wake_on = wake_on
     control.say = lambda text: _line(agent, "context", text)
     wake_on.say = control.say

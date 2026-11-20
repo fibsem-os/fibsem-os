@@ -309,3 +309,31 @@ def test_the_context_reports_its_parts():
     }
     session, _ = report(AuthConfig.generate(level=AgentLevel.WATCH), body)
     assert session["context"]["parts"] == [{"name": "Messages", "tokens": 30000}]
+
+
+def test_the_playbook_file_says_when_it_changed_since_the_session_started(
+    server, tmp_path, monkeypatch
+):
+    monkeypatch.setenv("FIBSEM_HOME", str(tmp_path / "home"))
+    folder = tmp_path / "home" / "knowledge" / "playbooks"
+    folder.mkdir(parents=True)
+    (folder / "own.yaml").write_text("extends: autolamella\n")
+    from fibsem.ai.agent import playbooks, sources
+
+    loaded = playbooks.load("own", sources.find_root())
+    _, client, _ = server
+    assert client.get("/app/agent/playbook-file").json() == {
+        "name": None,
+        "hash": None,
+        "edited": False,
+    }
+    client.post(
+        "/app/agent/session",
+        json={"session_id": "s1", "playbook_about": loaded.about()},
+    )
+    assert client.get("/app/agent/playbook-file").json()["edited"] is False
+    (folder / "own.yaml").write_text("extends: autolamella\nrules: [Stop at 150 nm.]\n")
+    answer = client.get("/app/agent/playbook-file").json()
+    assert answer["edited"] is True and answer["hash"] != loaded.hash
+    (folder / "own.yaml").unlink()
+    assert client.get("/app/agent/playbook-file").json()["hash"] is None
