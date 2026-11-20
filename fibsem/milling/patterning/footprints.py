@@ -31,6 +31,7 @@ from fibsem.geometry.projection import (
 )
 from fibsem.imaging.looks import cropped, looks_for
 from fibsem.imaging.marks import PT, legend, load_marked_image, marked_picture
+from fibsem.milling.patterning.shapes import rotated_box
 from fibsem.structures.image import FibsemImage
 from fibsem.structures.settings import (
     BeamType,
@@ -75,14 +76,11 @@ def stage_kind(stage: Any, task_name: str = "") -> str:
 
 
 def _box_corners(shape) -> np.ndarray:
-    half_w, half_h = shape.width / 2, shape.height / 2
-    corners = np.array(
-        [[-half_w, -half_h], [half_w, -half_h], [half_w, half_h], [-half_w, half_h]]
-    )
     # Microscope coordinates run +y up, so the drawing's rotation (by
     # -rotation in the image's +y-down pixels) is +rotation here.
-    c, s = math.cos(shape.rotation or 0.0), math.sin(shape.rotation or 0.0)
-    return corners @ np.array([[c, s], [-s, c]]) + [shape.centre_x, shape.centre_y]
+    return rotated_box(
+        shape.centre_x, shape.centre_y, shape.width, shape.height, shape.rotation or 0.0
+    )
 
 
 def shape_outline(shape) -> Optional[np.ndarray]:

@@ -146,6 +146,23 @@ def convert_pattern_to_napari_line(
     return np.array(line), {"translate": translation}
 
 
+def rotated_box(
+    centre_x: float, centre_y: float, width: float, height: float, angle: float
+) -> np.ndarray:
+    """A box's four corners, ``(4, 2)`` as x, y: *width* by *height* round
+    (*centre_x*, *centre_y*), turned by *angle* radians from +x towards +y of
+    the frame it is given in. The corners run (-w, -h), (+w, -h), (+w, +h),
+    (-w, +h) before turning. A rectangle pattern's outline in its own frame
+    (+y up) is ``angle=rotation``; in image pixels (+y down) it is
+    ``-rotation``."""
+    half_w, half_h = width / 2, height / 2
+    corners = np.array(
+        [[-half_w, -half_h], [half_w, -half_h], [half_w, half_h], [-half_w, half_h]]
+    )
+    c, s = np.cos(angle), np.sin(angle)
+    return corners @ np.array([[c, s], [-s, c]]) + [centre_x, centre_y]
+
+
 def convert_pattern_to_napari_rect(
     pattern_settings: FibsemRectangleSettings,
     shape: Tuple[int, int],
@@ -169,19 +186,9 @@ def convert_pattern_to_napari_rect(
         Point(x=pattern_centre_x, y=pattern_centre_y), shape, pixelsize
     )
     cx, cy = int(centre.x), int(centre.y)
-    r = -pattern_rotation  #
-    xmin, xmax = -w / 2, w / 2
-    ymin, ymax = -h / 2, h / 2
-    px0 = cx + (xmin * np.cos(r) - ymin * np.sin(r))
-    py0 = cy + (xmin * np.sin(r) + ymin * np.cos(r))
-    px1 = cx + (xmax * np.cos(r) - ymin * np.sin(r))
-    py1 = cy + (xmax * np.sin(r) + ymin * np.cos(r))
-    px2 = cx + (xmax * np.cos(r) - ymax * np.sin(r))
-    py2 = cy + (xmax * np.sin(r) + ymax * np.cos(r))
-    px3 = cx + (xmin * np.cos(r) - ymax * np.sin(r))
-    py3 = cy + (xmin * np.sin(r) + ymax * np.cos(r))
-    # napari shape format
-    rect = [[py0, px0], [py1, px1], [py2, px2], [py3, px3]]
+    corners = rotated_box(cx, cy, w, h, -pattern_rotation)
+    # napari shape format: rows, columns
+    rect = corners[:, ::-1].tolist()
     return np.array(rect), {"translate": translation}
 
 
