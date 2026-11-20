@@ -3273,10 +3273,16 @@ def _main(argv, opened: List["sessions.SessionFolder"]) -> int:
         except (LookupError, PermissionError) as why:
             print(f"fibsem-agent: {why}", file=sys.stderr)
             return 1
+    # The agent runs on an API key only, never on this computer's Claude login.
     # The CLI reads the key from its environment, which it inherits from here.
     key = get_secret(API_KEY)
-    if key:
-        os.environ[API_KEY] = key
+    if not key:
+        print(
+            f"fibsem-agent: No API key: run fibsem-cli key set {API_KEY} on this PC.",
+            file=sys.stderr,
+        )
+        return 1
+    os.environ[API_KEY] = key
     session = sessions.SessionFolder.open(
         session_id, _about(args, checkout, work, code, playbook, run), folder=folder
     )

@@ -48,6 +48,12 @@ POLL_S = 0.3
 RETRY_S = 0.05
 
 
+@pytest.fixture(autouse=True)
+def api_key(monkeypatch):
+    """fibsem-agent starts only with an API key: a stand-in one, never sent."""
+    monkeypatch.setenv(harness_mod.API_KEY, "sk-test-stand-in")
+
+
 def _all():
     """What a session started on no particular playbook loads."""
     return harness_mod.session_names(harness_mod.find_checkout())
@@ -855,6 +861,25 @@ def _main_kept_apart(argv):
         for handler in harness_mod.log.handlers[len(handlers) :]:
             handler.close()
             harness_mod.log.removeHandler(handler)
+
+
+def test_with_no_api_key_it_refuses_to_start(tmp_path, monkeypatch, capsys):
+    """No key, no start: it never falls back to this computer's Claude login,
+    and it opens no session."""
+    monkeypatch.delenv(harness_mod.API_KEY, raising=False)
+    monkeypatch.setattr(harness_mod, "get_secret", lambda name: None)
+    from fibsem.ai.agent import manager
+
+    before = set(manager.sessions_dir().glob("*"))
+
+    code = _main_kept_apart(["--url", "http://127.0.0.1:9", "--server-wait", "0"])
+
+    assert code == 1
+    assert "No API key: run fibsem-cli key set ANTHROPIC_API_KEY" in (
+        capsys.readouterr().err
+    )
+    assert harness_mod.API_KEY not in os.environ
+    assert set(manager.sessions_dir().glob("*")) == before
 
 
 def test_a_failure_outside_the_run_is_said_and_recorded(tmp_path, monkeypatch, capsys):
