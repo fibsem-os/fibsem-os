@@ -1178,6 +1178,7 @@ class Harness:
         wake_on: Optional[wake_policy.WakeOn] = None,
         recover: Optional[str] = None,
         latest_note: Optional[Callable[[], Optional[str]]] = None,
+        ceiling: Optional[handoff_mod.Ceiling] = None,
     ) -> None:
         self._agent = agent
         # Fresh contexts (`handoff`); None for a session that can't start one.
@@ -1189,6 +1190,8 @@ class Harness:
         # Reads the session's latest handoff note, for a fresh context
         # fibsem-agent starts itself.
         self._latest_note = latest_note or (lambda: None)
+        # What the agent is told about its context's size, at natural points.
+        self._ceiling = ceiling
         self._keep_context = keep_context
         self._carried_usd = spent_carried_usd
         # What wakes the agent; with none given, every line does.
@@ -1598,6 +1601,22 @@ class Harness:
                 None, handoff_mod.post, self._client, session_id, note.markdown()
             )
 
+    def _ceiling_line(self, lines: List[str]) -> Optional[str]:
+        """The context's size, for a wake at a natural point past the
+        playbook's suggestion or ceiling (`handoff.Ceiling`); None otherwise."""
+        if self._ceiling is None or self._handoff is None:
+            return None
+        if not self._words.handoff_start:
+            return None
+        used = (self._context or {}).get("used")
+        kinds = [getattr(line, "kind", None) for line in lines]
+        said = self._ceiling.line(used, [kind for kind in kinds if kind])
+        if said:
+            log.info(
+                "Context %s: the agent is told at a natural point.", usage.short(used)
+            )
+        return said
+
     def _skills_to_read(self) -> Tuple[List[str], List[str]]:
         """(The skills a fresh context reads, the others read before.)"""
         playbook = self._playbook.reminders if self._playbook is not None else None
@@ -1655,6 +1674,10 @@ class Harness:
             log.debug("Reading the latest handoff note failed.", exc_info=True)
             note = None
         self._handoff.recovered(why, skills, note)
+        if self._ceiling is not None:
+            self._ceiling.fresh()
+        # The earlier context's size is not this one's.
+        self._context = None
         calls = getattr(self._agent, "calls", None)
         if calls is not None and not reconnect:
             # `new_context` counts its own; one chosen before the start is here.
@@ -1694,6 +1717,10 @@ class Harness:
             return
         # The new conversation's running total starts at 0.
         self._carried_usd = spent
+        if self._ceiling is not None:
+            self._ceiling.fresh()
+        # The earlier context's size is not this one's.
+        self._context = None
         if self._keep_context is not None:
             try:
                 self._keep_context(conversation, spent)
@@ -2091,6 +2118,9 @@ class Harness:
                         f"{prompt}\n\n{self._budget_note}",
                         None,
                     )
+                said = self._ceiling_line(lines)
+                if said:
+                    prompt = f"{prompt}\n\n{said}"
                 if self._handoff is not None:
                     prompt = self._handoff.into(prompt)
                 return prompt
@@ -3556,6 +3586,11 @@ def _main(argv, opened: List["sessions.SessionFolder"]) -> int:
         wake_on=wake_on,
         recover=recover,
         latest_note=lambda: handoff_mod.latest_note(session.folder / sessions.HANDOFF),
+        ceiling=handoff_mod.Ceiling(
+            playbook.session.context_suggest,
+            playbook.session.context_ceiling,
+            playbook.session.compact_window,
+        ),
         about={
             "harness": "fibsem-agent",
             "code": work is not None and code,
