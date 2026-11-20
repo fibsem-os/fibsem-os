@@ -45,7 +45,6 @@ class BasePattern(Tagged, Configurable, ABC, Generic[TFibsemPatternSettings]):
             "Point",
             "Point coordinates for the milling pattern.",
             limits=RangeLimit(-1e-3, 1e-3),
-            advanced=True,
         ),
         default_factory=Point,
     )

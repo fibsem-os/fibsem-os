@@ -322,6 +322,7 @@ class PositionEditor(QWidget):
             BeamType.ION,
             MillingSpec(
                 id=MILLING_OVERLAY_ID,
+                draggable=False,
                 stages=placed.milling.stages if placed is not None else (),
                 visible=placed is not None,
                 stage_styles=placed.styles if placed is not None else (),

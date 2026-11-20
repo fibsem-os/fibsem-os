@@ -1232,7 +1232,12 @@ class MicroscopeViewController(QObject):
         """Construct the overlay object for *spec* and wire its edit signal (if any)
         back to :attr:`overlay_edited` (one branch per migrated slice)."""
         if isinstance(spec, MillingSpec):
-            return MillingPatternOverlay()
+            obj = MillingPatternOverlay()
+            beam = self._beams.get(canvas)
+            obj.on_drag = lambda drag, b=beam, i=overlay_id: self._on_overlay_edited(
+                b, i, drag
+            )
+            return obj
         if isinstance(spec, MaskSpec):
             return MaskOverlay()
         if isinstance(spec, AlignmentSpec):
@@ -1306,6 +1311,7 @@ class MicroscopeViewController(QObject):
                 legend_loc=spec.legend_loc,
                 stage_styles=spec.stage_styles,
                 stage_colours=spec.stage_colours,
+                draggable=spec.draggable,
             )
         elif isinstance(spec, AlignmentSpec):
             if spec.rect is not None:
