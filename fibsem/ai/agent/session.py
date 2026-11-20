@@ -324,8 +324,9 @@ class AgentControl:
 
     def waiting(self) -> Optional[Dict[str, Any]]:
         """The decision a run waits on, and who can make it, for the chat
-        page: ``proposal`` ("01 · Setup · Alignment area") and ``who``; None
-        while nothing waits."""
+        page: ``proposal`` ("01 · Setup · Alignment area"), ``who`` and
+        ``agent_reviewing`` (the agent decides it now); None while nothing
+        waits."""
         from fibsem.ai.agent.suggestions import front_suggestion
         from fibsem.workflows.proposals import proposal_label
 
@@ -335,7 +336,13 @@ class AgentControl:
             return None
         item, task_name, proposal = pending[0]
         level = self.level
-        if OPERATOR in self._session.deciders():
+        deciders = self._session.deciders()
+        # The agent at Drive, listening, decides it: the page says it is
+        # reviewing, and never asks the operator to act, window or not.
+        reviewing = AGENT in deciders
+        if reviewing:
+            who = "The agent is reviewing it."
+        elif OPERATOR in deciders:
             who = "Decide it in the window."
         elif level is AgentLevel.DRIVE:
             who = "The agent decides it."
@@ -353,6 +360,7 @@ class AgentControl:
         return {
             "proposal": f"{item.name} · {task_name} · {proposal_label(proposal)}",
             "who": who,
+            "agent_reviewing": reviewing,
         }
 
     def approve_suggestion(self, proposal_id: str) -> DecisionResult:
