@@ -151,6 +151,9 @@ CLI_ENV = {
     "CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1",
     "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",
     "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
+    # The agent's prompt cache lasts an hour, not the CLI's 5 min: a Watch
+    # session waits longer than that between wakes (`wake_policy`).
+    "CLAUDE_CODE_PROMPT_CACHE_TTL": wake_policy.PROMPT_CACHE_TTL,
 }
 
 # One message from the CLI: a tool result carrying an image (the Read tool on

@@ -36,9 +36,12 @@ ALL, DIGEST = wake_lines.WAKE_MODES
 # The harness's own line when the digest is due: it starts a turn, and is
 # never shown.
 DIGEST_DUE = "digest_due"
-# The prompt cache outlives a quiet spell this long; past it a wake re-reads
-# the whole context uncached.
-CACHE_COLD_S = 5 * 60.0
+# How long the CLI keeps the agent's prompt cache (CLAUDE_CODE_PROMPT_CACHE_TTL,
+# set by fibsem-agent for the main conversation; its specialists keep the CLI's
+# 5 min, as they run back to back). A wake after a quiet spell longer than this
+# re-reads the whole context uncached.
+PROMPT_CACHE_TTL = "1h"
+CACHE_COLD_S = 60 * 60.0
 # A context this large costs enough per wake to say so, and to let held lines
 # ride past their count when the cache has gone cold.
 LARGE_CONTEXT = 200_000
@@ -527,7 +530,7 @@ LEVEL_KEPT = (
 CUT = "({n} earlier held line(s) are not shown: {counts}. app_get_events has them.)"
 IDLE = (
     "Your context is {used} tokens, and every wake re-reads all of it; after "
-    "a quiet spell of more than 5 min it is read uncached, at full price. You "
+    "a quiet spell of more than an hour it is read uncached, at full price. You "
     "are at Watch with wake_on {mode}. If nothing needs you, you can hold more "
     "with wake_on, write your summary in the plan and end your turn, or start "
     "a fresh context with context_reset."
