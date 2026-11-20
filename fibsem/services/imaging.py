@@ -111,9 +111,9 @@ _I = TypeVar("_I", bound="Imaging")
 class Imaging(Service):
     """Imaging over the beams: the beam commands by ``beam_type`` (``acquire``,
     ``autocontrast``, ``start_live``, ``stop_live``); a saved, recorded image
-    (``acquire_image``) and reference images of both beams (``reference_images``,
-    ``reference_image_sets``), an SEM and FIB pair to check a site
-    (``acquire_pair``) and a focus stacked one (``acquire_focus_stack``); tiled
+    (``acquire_image``), an SEM and FIB pair (``acquire_pair``, and one per
+    field of view, ``acquire_pairs``), a pair to check a site with its picture
+    (``acquire_pair_preview``) and a focus stacked one (``acquire_focus_stack``); tiled
     overviews (``acquire_overview``, ``estimate_overview``) and fluorescence
     ones (``fm_acquire_overview``, ``fm_estimate_overview``); ``auto_focus``
     (the instrument's own where the beam has one, else the sweep),
@@ -128,7 +128,7 @@ class Imaging(Service):
 
     # Acquired on the server, saved here: on a remote microscope the paths are
     # this computer's.
-    client_side = ("show", "acquire_image", "reference_images", "reference_image_sets")
+    client_side = ("show", "acquire_image", "acquire_pair", "acquire_pairs")
 
     # Tile progress (`TiledProgress`) from a beam or fluorescence tiled overview,
     # however it was started: each tile, the stitch, and how the run ended. Emitted
@@ -253,7 +253,7 @@ class Imaging(Service):
         return image
 
     @command
-    def acquire_pair(
+    def acquire_pair_preview(
         self,
         hfw: float,
         path: str,
@@ -262,14 +262,15 @@ class Imaging(Service):
         experiment_path: Optional[str] = None,
     ) -> Dict[str, Any]:
         """An SEM and a FIB image of where the stage is, at field of view
-        ``hfw`` and each beam's other settings as they are, to check a site:
+        ``hfw`` and each beam's other settings as they are, to check it:
         each beam in ``autocontrast`` runs its routine first. Saved in the
         folder ``path`` as ``<filename>_eb`` and ``_ib`` (``filename``
         defaults to when it was taken), each recorded as ``image_acquired``,
         and shown in the app's views. Answers both images' facts and one
         side-by-side picture of them (`pair_picture`), saved beside the SEM
-        image; paths relative to ``experiment_path`` when given. The field of
-        view stays set on both beams. Refused, before anything is imaged,
+        image; paths relative to ``experiment_path`` when given. Taken with
+        `acquire_pair`. The field of view stays set on both beams. Refused,
+        before anything is imaged,
         when either beam is not enabled or is off. Moves nothing and judges
         nothing: whether the two are coincident is the caller's to say."""
         beams = (BeamType.ELECTRON, BeamType.ION)
@@ -280,18 +281,25 @@ class Imaging(Service):
                     f"The {_BEAM_ROLES[beam_type]} beam is off: the operator "
                     "switches it on (beam_turn_on), then check again."
                 )
-        name = filename or f"site-{timestamps.now():%Y%m%d-%H%M%S}"
+        name = filename or f"pair-{timestamps.now():%Y%m%d-%H%M%S}"
+        if os.path.basename(name) != name or name in (".", ".."):
+            raise ValueError(f"filename is a name, not a path: {name!r}")
         contrasted = set(autocontrast or ())
-        images = {}
         for beam_type in beams:
             if beam_type in contrasted:
                 # the field of view first: contrast at the view it images
                 self.beam(beam_type).hfw.set_value(hfw)
                 self.autocontrast(beam_type)
-            image = self.acquire(beam_type, {"hfw": hfw}, path=path, filename=name)
-            self.show(image)
-            images[beam_type] = image
-        sem, fib = images[BeamType.ELECTRON], images[BeamType.ION]
+        fields = {
+            "hfw": hfw,
+            "path": path,
+            "filename": name,
+            "save": True,
+            "autocontrast": False,
+        }
+        sem, fib = self.acquire_pair(fields)
+        self.show(sem)
+        self.show(fib)
         root = experiment_path
 
         def shown(file: str) -> str:
@@ -312,27 +320,31 @@ class Imaging(Service):
         }
 
     @command
-    def reference_images(
+    def acquire_pair(
         self,
-        image_settings: ImageSettings,
+        image_settings: Union[ImageSettings, Dict[str, Any]],
         electron: bool = True,
         ion: bool = True,
     ) -> List[Optional[FibsemImage]]:
-        """An `acquire_image` from each beam asked for, with the same settings:
-        ``[electron, ion]``, None for a beam not asked for. The settings given
-        are not changed."""
+        """An `acquire_image` from each beam asked for: ``[electron, ion]``,
+        None for a beam not asked for. `ImageSettings` are the same for both;
+        some of their fields, as a dict, are taken over each beam's own current
+        settings (`acquire`). The settings given are not changed."""
         images: List[Optional[FibsemImage]] = []
         for beam_type, wanted in ((BeamType.ELECTRON, electron), (BeamType.ION, ion)):
             if not wanted:
                 images.append(None)
                 continue
-            settings = copy.copy(image_settings)
+            if isinstance(image_settings, dict):
+                settings = self._filled(beam_type, image_settings)
+            else:
+                settings = copy.copy(image_settings)
             settings.beam_type = beam_type
             images.append(self.acquire_image(settings))
         return images
 
     @command
-    def reference_image_sets(
+    def acquire_pairs(
         self,
         image_settings: ImageSettings,
         hfws: Sequence[float],
@@ -340,7 +352,7 @@ class Imaging(Service):
         electron: bool = True,
         ion: bool = True,
     ) -> List[List[Optional[FibsemImage]]]:
-        """`reference_images` at each field of view in ``hfws``, always saved, as
+        """`acquire_pair` at each field of view in ``hfws``, always saved, as
         ``<filename>_res_01``, ``_res_02`` ... in order: one ``[electron, ion]``
         pair per field of view. The settings given are not changed."""
         settings = copy.deepcopy(image_settings)
@@ -349,7 +361,7 @@ class Imaging(Service):
         for i, hfw in enumerate(hfws, start=1):
             settings.hfw = hfw
             settings.filename = f"{filename}_res_{i:02d}"
-            sets.append(self.reference_images(settings, electron=electron, ion=ion))
+            sets.append(self.acquire_pair(settings, electron=electron, ion=ion))
         return sets
 
     def focus_stacked_image(
@@ -1033,7 +1045,7 @@ def _stage_position(image: FibsemImage) -> Optional[Dict[str, Any]]:
 
 
 def _pair_image(image: FibsemImage, path: str, contrasted: bool) -> Dict[str, Any]:
-    """One image of `Imaging.acquire_pair`: where it is saved, its size and
+    """One image of `Imaging.acquire_pair_preview`: where it is saved, its size and
     scale, and its measures as auto brightness/contrast takes them (clipped
     fractions, centre and spread on its range) with its focus score (the mean
     Laplacian: comparable only between images of one scene at one field of

@@ -447,7 +447,7 @@ _AUTOCONTRAST_S = 30.0
 
 
 def _pair_timeout(a: Dict[str, Any], read: Callable[[str], Any]) -> Optional[float]:
-    """Seconds beam_acquire_pair may take: a minute, twice both frames' scan
+    """Seconds beam_acquire_pair_preview may take: a minute, twice both frames' scan
     time, and half a minute per autocontrast, where that is longer than the
     usual timeout (None keeps the usual)."""
     scans = [_scan_seconds({"beam_type": b}, read) for b in ("ELECTRON", "ION")]
@@ -482,7 +482,7 @@ def _scan_seconds(a: Dict[str, Any], read: Callable[[str], Any]) -> Optional[flo
 
 
 def _pair_beams(value: Any) -> List[str]:
-    """beam_acquire_pair's autocontrast: the beams named (one as a string
+    """beam_acquire_pair_preview's autocontrast: the beams named (one as a string
     too), checked."""
     if isinstance(value, str):
         value = [value]
@@ -504,7 +504,7 @@ def _beam_acquire_pair(a: Dict[str, Any], ctx: wording.ActionContext) -> Dict[st
     if contrasted:
         names = " and ".join(wording.beam_short(b) for b in contrasted)
         first = f"; autocontrast first on {names}"
-    name = a.get("filename") or "site-<time>"
+    name = a.get("filename") or "pair-<time>"
     rows = []
     for device in ("electron", "ion"):
         now = ctx.get(f"/microscope/devices/{device}/hfw")
@@ -569,9 +569,9 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
     ),
     ToolSpec(
-        name="beam_acquire_pair",
+        name="beam_acquire_pair_preview",
         description=(
-            "Check a site: a fresh SEM image and FIB image where the stage is, "
+            "A fresh SEM image and FIB image where the stage is, to check it: "
             "both at field of view hfw (it stays set) and each beam's other "
             "settings as they are, autocontrast first on the beams in "
             "autocontrast. Saved in path as <filename>_eb and _ib, and shown "
@@ -591,7 +591,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "(beam_acquire_image)."
         ),
         method="POST",
-        path="/microscope/services/imaging/commands/acquire_pair",
+        path="/microscope/services/imaging/commands/acquire_pair_preview",
         result_key="result",
         level="drive",
         hardware=True,
@@ -601,7 +601,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
                 "folder inside the open experiment to save into, relative to it "
                 '(e.g. the item\'s folder, "02-nice-dassie/site-check")'
             ),
-            "filename": "optional file name, without the _eb/_ib suffix (default: site- and the time)",
+            "filename": "optional file name, without the _eb/_ib suffix (default: pair- and the time)",
             "autocontrast": arg(
                 'optional: beams to autocontrast first, e.g. ["ION"] (default none)',
                 List[str],

@@ -203,7 +203,7 @@ def test_what_touches_no_hardware_runs_here(remote, microscope):
 
 
 def test_reference_images_come_back_as_images(remote):
-    images = remote.imaging.reference_images(
+    images = remote.imaging.acquire_pair(
         ImageSettings(resolution=(64, 48), save=False), ion=False
     )
     assert images[1] is None
@@ -224,8 +224,8 @@ def test_a_saved_image_is_saved_on_this_computer(remote, tmp_path):
     )
     try:
         image = acquire.acquire_image(remote, settings)
-        pair = remote.imaging.reference_images(settings)
-        sets = remote.imaging.reference_image_sets(settings, hfws=[80e-6, 150e-6])
+        pair = remote.imaging.acquire_pair(settings)
+        sets = remote.imaging.acquire_pairs(settings, hfws=[80e-6, 150e-6])
         agent = remote.imaging.acquire(BeamType.ION, path=str(tmp_path), filename="a")
     finally:
         remote.session.record_signal.disconnect()

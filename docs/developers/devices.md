@@ -485,7 +485,7 @@ The rest of imaging is here too:
 - `acquire(beam_type, image_settings=None)` is the beam's frame;
   `acquire_image(settings)` is the image as a task takes one: autocontrast first when
   the settings ask, then acquire, save when `save` is set, and record
-  `image_acquired`. `reference_images` and `reference_image_sets` take both beams.
+  `image_acquired`. `acquire_pair` and `acquire_pairs` (one pair per field of view) take both beams; `acquire_pair_preview` is the agent's pair with a side-by-side picture.
 - `autocontrast` and `auto_brightness_contrast` (image-based), and
   `start_live`/`stop_live`.
 - Long commands: `focus_stack`, `tiled_overview`, and with an FM (the service's `fm`
