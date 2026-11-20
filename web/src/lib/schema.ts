@@ -315,9 +315,16 @@ export interface components {
             error: string | null;
             run: components["schemas"]["RunAnswer"] | null;
         };
-        /** @description How full its context is, in tokens. */
+        /** @description One part of the context and its size, as the CLI's ``/context`` names
+         *     it: "System prompt", "MCP tools", "Messages". */
+        ContextPart: {
+            name: string;
+            tokens: number;
+        };
+        /** @description How full its context is, in tokens, and of what. */
         ContextUse: {
             compact_at: number | null;
+            parts: components["schemas"]["ContextPart"][] | null;
             used: number | null;
             window: number | null;
         };
@@ -2050,6 +2057,8 @@ export interface components {
             model: string | null;
             playbook: components["schemas"]["PlaybookState"] | null;
             reason: string | null;
+            reset_asked_at: string | null;
+            reset_asked_in: number | null;
             resumed: boolean | null;
             session_id: string | null;
             skills: string[] | null;
