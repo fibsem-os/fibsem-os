@@ -106,6 +106,7 @@ NOT_TOOLS: Dict[str, str] = {
     "POST /app/agent/handoff": "fibsem-agent's harness keeps the agent's handoff note when it starts a fresh context; the agent calls context_reset.",
     "GET /app/agent/handoff": "The handoff notes, read back by the operator; a fresh context is given its note in its first prompt.",
     "PUT /app/agent/plan": "The operator edits the whole plan from the Agent page; the agent writes it a section, a line or a box at a time (plan_set_section, plan_append, plan_check_step).",
+    "PUT /app/agent/budget": "Raising the session's budget while it runs is the operator's only (operator token); the harness reads it.",
     "POST /app/agent/read": "fibsem-agent's harness, or fibsem-mcp watch, says which of the operator's messages the agent has read; not the agent's to call.",
     "GET /chat": "A redirect to the web app's Agent page, GET /ui/agent.",
     "GET /ui": "The operator's web app, HTML; it calls the operator's routes.",
