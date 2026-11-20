@@ -1606,6 +1606,7 @@ def test_a_subagent_s_json_answer_gives_its_card_a_verdict_or_attention():
 
 
 def test_the_session_asks_for_the_subagents_words_too():
+    pytest.importorskip("claude_agent_sdk")
     options = harness_mod.build_options(harness_mod.find_checkout())
     assert options.forward_subagent_text is True
 
