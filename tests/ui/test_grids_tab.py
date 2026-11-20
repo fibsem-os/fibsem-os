@@ -154,6 +154,31 @@ class TestCards:
         assert arctis.sample_handling.loaded_grids == []
         assert [c.text() for c in card._chip_widgets] == []
 
+    def test_a_grid_on_the_stage_the_loader_lost_is_named_from_its_card(
+        self, tab, arctis
+    ):
+        """After a restart the loader may read Grid-02 nowhere: its home slot
+        empty and the stage unnamed. Is on the stage names it, nothing moves."""
+        from fibsem.devices.sample_loader import StageSample
+
+        tab.btn_inventory.click()
+        magazine = arctis.sample_handling.magazine
+        magazine._read_magazine = lambda: None  # the loader's read, frozen
+        magazine._on_stage = lambda: StageSample(present=True)
+        magazine.slots["Slot-02"].loaded_grid = None
+        magazine.working_slot.loaded_grid = SampleGrid(name="Grid-on-stage")
+        tab.refresh()
+        in_magazine, lost = tab.cards.cards[0], tab.cards.cards[1]
+        assert in_magazine._action_on_stage.isVisible()
+        assert not in_magazine._action_on_stage.isEnabled()
+        assert lost._action_on_stage.isVisible() and lost._action_on_stage.isEnabled()
+
+        lost._action_on_stage.trigger()
+        assert [g.name for g in arctis.sample_handling.loaded_grids] == ["Grid-02"]
+        assert [c.text() for c in lost._chip_widgets] == ["Loaded"]
+        assert not lost._action_on_stage.isVisible()
+        assert magazine.device.sim_on_stage is None  # nothing moved
+
     def test_a_refused_exchange_is_reported(self, tab, arctis):
         tab.btn_inventory.click()
         arctis.sample_handling.magazine.device.fail_next_exchange = True

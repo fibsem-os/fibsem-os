@@ -69,7 +69,10 @@ def test_run_is_refused_by_name_until_the_grid_is_loaded(
     main_ui.workflow_tab.run()
     assert warnings == [
         "Cannot run: on-two is on Grid-02, which is not on the stage. "
-        "Load Grid-02 first, or leave that lamella out."
+        "Load Grid-02 first, or leave that lamella out. "
+        "The loader's record has no grid on the stage. If Grid-02 is there "
+        "already, mark it with Is on the stage on its grid card instead of "
+        "loading it."
     ]
     assert confirmations == [] and started_with(held) == []
 

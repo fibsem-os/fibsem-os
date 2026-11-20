@@ -21,6 +21,22 @@ Ask the operator before renaming a grid (`grid_rename`), and say the old and
 new names. At Assist an exchange is a request like a move; put `grid_load`
 and `grid_move_to` in one request when you want to look at the grid.
 
+`grid_assign_items` records lamellae as on a grid (sites marked before the
+grid had a record, or on the wrong one); nothing moves.
+
+## After the app restarts
+
+A loader can lose the grid on the stage across a restart of the app:
+`grid_get_inventory` then shows no grid loaded, or one called
+`Grid-on-stage`, and its home slot empty. Before you plan a run, compare
+`grid_get_current` and `grid_get_inventory` with the grid you know is on the
+stage (from the run so far, or the operator). If they disagree, ask the
+operator which grid is on the stage; don't run loader commands to find out.
+On their word, `grid_set_current` names it there with nothing moved (with
+`slot_name` if they know the magazine slot it came from), and the run then
+accepts its lamellae. Never unload and reload to fix a name: that costs a
+grid exchange and every site's position confirmed again.
+
 ## A screening run
 
 Starting one is a control action (Drive). Plan it first with

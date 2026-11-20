@@ -82,6 +82,25 @@ def run_refusal(
             else "those lamellae"
         )
         + " out."
+        + _on_the_stage(stage, which)
+    )
+
+
+def _on_the_stage(stage: "SampleHandling", which: str) -> str:
+    """What the loader's record has on the stage, for a refusal: a grid that is
+    on the stage under another name, or under none (after a restart, say), is
+    marked as on the stage, not loaded again."""
+    if getattr(stage, "magazine", None) is None:
+        return ""
+    try:
+        names = [g.name for g in stage.loaded_grids]
+    except Exception:  # noqa: BLE001 - the refusal stands without it
+        return ""
+    held = f"'{names[0]}'" if names else "no grid"
+    return (
+        f" The loader's record has {held} on the stage. If {which} is there "
+        "already, mark it with Is on the stage on its grid card instead of "
+        "loading it."
     )
 
 

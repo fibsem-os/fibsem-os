@@ -332,6 +332,40 @@ TOOLS: Tuple[ToolSpec, ...] = (
         call=lambda a: ({}, kwargs_body()),
     ),
     ToolSpec(
+        name="grid_set_current",
+        description=(
+            "Say which grid is on the stage, by name, without a load cycle: for "
+            "a grid the loader's record lost, as after an application restart "
+            "(grid_get_inventory shows no grid loaded, or one called "
+            "Grid-on-stage), so workflow_plan and workflow_start accept its "
+            "lamellae. Only on the operator's word for which grid it is: ask "
+            "them, never guess it. slot_name is the magazine slot it came from, "
+            "if they know it (a default name Grid-NN goes home to Slot-NN when "
+            "that slot reads empty). Refused when the loader reads that grid in "
+            "the magazine, when slot_name holds another grid, and when the "
+            "loader reports nothing on the stage. Nothing moves; with no "
+            "autoloader it is refused (grid_rename names a holder slot's grid)."
+        ),
+        method="POST",
+        path="/microscope/services/sample_handling/commands/set_current",
+        result_key="current",
+        level="drive",
+        hardware=True,
+        params={
+            "grid_name": "the grid's name, as the experiment records it (grid_list)",
+            "slot_name": arg(
+                "the magazine slot it came from, e.g. Slot-03, if known", default=""
+            ),
+        },
+        optional=("slot_name",),
+        call=lambda a: (
+            {},
+            kwargs_body(
+                grid_name=str(a["grid_name"]), slot_name=str(a.get("slot_name") or "")
+            ),
+        ),
+    ),
+    ToolSpec(
         name="grid_get_holder_slots",
         description=(
             "The holder's slots in order: each one's stage position (null until "

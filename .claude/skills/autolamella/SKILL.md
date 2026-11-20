@@ -57,7 +57,11 @@ when you could: that is this skill's rule, not the server's.
 
 Before you start a lamella run (`workflow_start`), plan it with
 `workflow_plan` and show the operator what it would queue and how long it
-would take (`workflow_plan_grids` before a grid run).
+would take (`workflow_plan_grids` before a grid run). A plan that refuses
+lamellae as "on a grid which is not on the stage", when that grid is on the
+stage, is the loader's record after a restart: ask the operator, and name it
+with `grid_set_current` (screen-grids, *After the app restarts*), never
+unload and reload.
 
 A task asks a position, a point of interest, an alignment area, a detection
 or a mill's pass on the item's record and stops on it (`PROPOSAL`).

@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from fibsem.devices.sample_loader import GridExchangeError
+from fibsem.devices.sample_loader import GridExchangeError, StageSample
 from fibsem.drivers.demo import devices as demo_devices
 from fibsem.services import sample_handling as stage_module
 from fibsem.services.sample_handling import (
@@ -649,6 +649,89 @@ class TestAssignGrid:
             microscope.sample_handling.assign_grid(
                 "Slot-99", SampleGrid(name="g"), persist=False
             )
+
+
+class TestNameGridOnStage:
+    """The grid on the stage, named without an exchange: for a grid the loader's
+    record lost, as after a restart."""
+
+    def _lost(self, microscope, loader, slot="Slot-02"):
+        """Slot-02's grid on the stage, its home reading empty and the stage
+        unnamed: a loader that forgot it across a restart."""
+        loader.get_inventory()
+        loader.slots[slot].loaded_grid = None
+        loader.working_slot.loaded_grid = SampleGrid(name="Grid-on-stage")
+        loader._on_stage = lambda: StageSample(present=True)
+
+    def test_a_default_name_goes_home_to_its_slot(self):
+        microscope = _compustage_demo()
+        loader = _with_magazine(microscope)
+        self._lost(microscope, loader)
+        answer = microscope.sample_handling.set_current("Grid-02")
+        assert answer["home_slot"] == "Slot-02"
+        assert loader.working_slot.loaded_grid is loader.slots["Slot-02"].loaded_grid
+        assert _entry(microscope, "Slot-02").state is GridSlotState.LOADED
+        assert [g.name for g in microscope.sample_handling.loaded_grids] == ["Grid-02"]
+
+    def test_another_name_with_the_slot_it_came_from(self):
+        microscope = _compustage_demo()
+        loader = _with_magazine(microscope)
+        self._lost(microscope, loader)
+        microscope.sample_handling.set_current("grid-cedar", "Slot-02")
+        assert loader.slots["Slot-02"].loaded_grid.name == "grid-cedar"
+        assert _entry(microscope, "Slot-02").loaded
+
+    def test_another_name_with_no_slot_is_on_the_stage_only(self):
+        microscope = _compustage_demo()
+        loader = _with_magazine(microscope)
+        self._lost(microscope, loader)
+        answer = microscope.sample_handling.set_current("grid-cedar")
+        assert answer["home_slot"] is None
+        assert [g.name for g in microscope.sample_handling.loaded_grids] == [
+            "grid-cedar"
+        ]
+
+    def test_a_grid_the_loader_reads_in_the_magazine_is_refused(self):
+        microscope = _compustage_demo()
+        loader = _with_magazine(microscope)
+        self._lost(microscope, loader)
+        with pytest.raises(GridExchangeError, match="in Slot-01"):
+            microscope.sample_handling.set_current("Grid-01")
+        assert loader.working_slot.loaded_grid.name == "Grid-on-stage"
+
+    def test_a_slot_holding_another_grid_is_refused(self):
+        microscope = _compustage_demo()
+        loader = _with_magazine(microscope)
+        self._lost(microscope, loader)
+        with pytest.raises(GridExchangeError, match="Slot-05 holds"):
+            microscope.sample_handling.set_current("grid-cedar", "Slot-05")
+
+    def test_a_wrong_name_is_corrected_in_place(self):
+        """The loader's record had the wrong grid on the stage: its old home
+        lets the name go."""
+        microscope = _compustage_demo()
+        loader = _with_magazine(microscope)
+        loader.get_inventory()
+        microscope.sample_handling.ensure_loaded("Grid-01")
+        loader.slots["Slot-02"].loaded_grid = None
+        microscope.sample_handling.set_current("Grid-02")
+        assert loader.slots["Slot-01"].loaded_grid is None
+        assert loader.slots["Slot-02"].loaded_grid is loader.working_slot.loaded_grid
+
+    def test_without_a_loader_it_is_refused(self):
+        microscope = _fixed_demo()
+        with pytest.raises(GridExchangeError, match="No loader"):
+            microscope.sample_handling.set_current("g")
+
+    def test_it_is_on_the_record(self):
+        microscope = _compustage_demo()
+        loader = _with_magazine(microscope)
+        self._lost(microscope, loader)
+        events = []
+        session = stage_module.session_of(microscope)
+        session.record_signal.connect(lambda kind, payload: events.append(kind))
+        microscope.sample_handling.set_current("Grid-02")
+        assert "grid_named_on_stage" in events
 
 
 class TestRunInventory:

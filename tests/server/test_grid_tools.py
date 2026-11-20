@@ -512,3 +512,29 @@ def test_a_load_the_inventory_doesn_t_hold_is_refused_unless_a_scan_comes_first(
         [("grid_load", {"grid_name": "G2"}, "/x")], read=EXCHANGE.get
     )
     assert "refused" not in held
+
+
+def test_the_agent_names_the_grid_on_the_stage(driving, arctis):
+    """grid_set_current: the grid on the stage, named on the operator's word
+    after the loader's record lost it, with nothing moved."""
+    from fibsem.devices.sample_loader import StageSample
+    from fibsem.structures.settings import SampleGrid
+
+    magazine = arctis.sample_handling.magazine
+    magazine._read_magazine = lambda: None  # the loader's read, frozen
+    magazine._on_stage = lambda: StageSample(present=True)
+    magazine.slots["Slot-02"].loaded_grid = None
+    magazine.working_slot.loaded_grid = SampleGrid(name="Grid-on-stage")
+
+    answer = _call(driving, "grid_set_current", grid_name="G2", slot_name="Slot-02")
+    assert answer.status_code == 200, answer.text
+    assert answer.json()["result"] == {
+        "slot": "Shuttle",
+        "grid": "G2",
+        "home_slot": "Slot-02",
+    }
+    assert _states(driving)["G2"] == "loaded"
+
+    refused = _call(driving, "grid_set_current", grid_name="G1")
+    assert refused.status_code >= 400
+    assert "in Slot-01" in refused.text
