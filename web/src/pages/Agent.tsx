@@ -905,7 +905,14 @@ export function AgentPage() {
     setFocus("subagents");
   };
   const panel = hasPanel(session) ? (
-    <SidePanel session={session} plan={plan.data} budgetLow={a.budget_low} onOpenPlan={() => setPlanOpen(true)} />
+    <SidePanel
+      session={session}
+      plan={plan.data}
+      budgetLow={a.budget_low}
+      onOpenPlan={() => setPlanOpen(true)}
+      runs={idx.calls}
+      onOpenRun={openRun}
+    />
   ) : null;
   const tabs: ColumnTab[] = [
     {

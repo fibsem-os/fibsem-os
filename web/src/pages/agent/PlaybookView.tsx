@@ -4,7 +4,7 @@ import { useState, type ReactNode } from "react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { api } from "@/lib/api";
 import { Markdown } from "@/lib/markdown";
-import type { McpServer, PlaybookAbout, ReportedSession } from "@/lib/types";
+import type { McpServer, PlaybookAbout, ReportedSession, TranscriptLine } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import type { LibraryFile, LibraryItem } from "./Library";
 
@@ -131,12 +131,16 @@ function Overview({
   descriptions,
   edited,
   onDetail,
+  runs,
+  onOpenRun,
 }: {
   session: ReportedSession;
   about: PlaybookAbout | undefined;
   descriptions: Record<string, string | null>;
   edited: boolean;
   onDetail: (d: Detail) => void;
+  runs: TranscriptLine[];
+  onOpenRun?: (call: TranscriptLine) => void;
 }) {
   const states = Object.fromEntries((session.playbook?.skills ?? []).map((s) => [s.skill, s]));
   const optional: { skill: string; when?: string; agents?: string[] }[] =
@@ -231,7 +235,7 @@ function Overview({
           <p className="m-0 mb-1.5 text-muted-foreground">Subagents the agent can call.</p>
           <ul className="m-0 flex list-none flex-col gap-1 p-0">
             {[...helpers].map(([name, row]) => (
-              <li key={name} className="grid grid-cols-[minmax(0,180px)_1fr] items-baseline gap-x-3">
+              <li key={name} className="grid grid-cols-[minmax(0,180px)_1fr_auto] items-baseline gap-x-3">
                 <span className="flex items-center gap-2">
                   <Dot colour={row.on ? OK : "var(--fibsem-gray-secondary-color)"} />
                   <Link onClick={() => onDetail({ kind: "agents", name })}>{name}</Link>
@@ -240,6 +244,7 @@ function Overview({
                   {descriptions[name] ? oneLine(descriptions[name]!) : null}
                   {!row.on && row.from.length ? ` Comes with ${row.from.join(" or ")}.` : ""}
                 </span>
+                <HelperRuns calls={runs.filter((c) => c.subagent === name)} onOpen={onOpenRun} />
               </li>
             ))}
           </ul>
@@ -310,6 +315,23 @@ function Overview({
         </Part>
       )}
     </div>
+  );
+}
+
+/** How many times the session called a helper; a click shows its last run
+ * in the Subagents tab. */
+function HelperRuns({ calls, onOpen }: { calls: TranscriptLine[]; onOpen?: (call: TranscriptLine) => void }) {
+  if (!calls.length) return <span className="text-[12px] text-muted-foreground">Not called</span>;
+  const label = calls.length === 1 ? "1 run" : `${calls.length} runs`;
+  if (!onOpen) return <span className="text-[12px] text-muted-foreground">{label}</span>;
+  return (
+    <button
+      className="cursor-pointer border-0 bg-transparent p-0 text-[12px] whitespace-nowrap text-muted-foreground underline underline-offset-2 hover:text-foreground"
+      onClick={() => onOpen(calls[calls.length - 1])}
+      title="Show its last run in the Subagents tab"
+    >
+      {label}
+    </button>
   );
 }
 
@@ -384,10 +406,14 @@ export function PlaybookDialog({
   session,
   open,
   onOpenChange,
+  runs = [],
+  onOpenRun,
 }: {
   session: ReportedSession;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  runs?: TranscriptLine[];
+  onOpenRun?: (call: TranscriptLine) => void;
 }) {
   const [detail, setDetail] = useState<Detail | null>(null);
   const about = session.playbook_about;
@@ -438,6 +464,14 @@ export function PlaybookDialog({
                 descriptions={descriptions}
                 edited={!!file.data?.edited}
                 onDetail={setDetail}
+                runs={runs}
+                onOpenRun={
+                  onOpenRun &&
+                  ((call) => {
+                    close(false);
+                    onOpenRun(call);
+                  })
+                }
               />
             </>
           )}

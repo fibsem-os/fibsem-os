@@ -4,7 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { api } from "@/lib/api";
-import type { AgentPlan, ReportedSession } from "@/lib/types";
+import type { AgentPlan, ReportedSession, TranscriptLine } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { PlaybookDialog, PlaybookLine } from "./PlaybookView";
 
@@ -381,11 +381,17 @@ export function SidePanel({
   plan,
   budgetLow,
   onOpenPlan,
+  runs,
+  onOpenRun,
 }: {
   session: ReportedSession;
   plan?: AgentPlan | null;
   budgetLow: boolean;
   onOpenPlan: () => void;
+  /** The session's subagent runs, by the Agent calls that started them. */
+  runs?: TranscriptLine[];
+  /** Shows a run in the Subagents tab. */
+  onOpenRun?: (call: TranscriptLine) => void;
 }) {
   const now = useNow(30000);
   const [budgetOpen, setBudgetOpen] = useState(false);
@@ -536,7 +542,13 @@ export function SidePanel({
         </Section>
       )}
       <BudgetDialog budget={budget} spent={spent} open={budgetOpen} onOpenChange={setBudgetOpen} />
-      <PlaybookDialog session={session} open={playbookOpen} onOpenChange={setPlaybookOpen} />
+      <PlaybookDialog
+        session={session}
+        open={playbookOpen}
+        onOpenChange={setPlaybookOpen}
+        runs={runs}
+        onOpenRun={onOpenRun}
+      />
       {context && <ContextDialog session={session} open={contextOpen} onOpenChange={setContextOpen} />}
     </div>
   );
