@@ -87,6 +87,13 @@ class SelectedLamellaWidget(QWidget):
             f"color: {NEUTRAL_550}; font-style: italic; background: transparent;"
         )
         self.description_label.setToolTip("Free-text note (edit in the Lamella editor)")
+        # working notes, read-only: the agent rewrites them as the lamella goes
+        self.notes_label = QLabel()
+        self.notes_label.setWordWrap(True)
+        self.notes_label.setStyleSheet(
+            f"color: {NEUTRAL_550}; background: transparent;"
+        )
+        self.notes_label.setToolTip("Working notes on where the lamella stands now")
 
         # --- objective position row ---
         self.label_objective_position = QLabel("Objective Position")
@@ -127,9 +134,10 @@ class SelectedLamellaWidget(QWidget):
         obj_row_layout.addWidget(self.spinbox_objective_position)
         obj_row_layout.addWidget(self.btn_objective_actions)
         content_layout.addWidget(self.description_label, 0, 0, 1, 2)
-        content_layout.addWidget(self.label_objective_position, 1, 0)
-        content_layout.addWidget(obj_row, 1, 1)
-        content_layout.addWidget(self.pose_list, 2, 0, 1, 2)
+        content_layout.addWidget(self.notes_label, 1, 0, 1, 2)
+        content_layout.addWidget(self.label_objective_position, 2, 0)
+        content_layout.addWidget(obj_row, 2, 1)
+        content_layout.addWidget(self.pose_list, 3, 0, 1, 2)
 
         self._panel = TitledPanel(
             "Selected Lamella", content=content, collapsible=False
@@ -165,11 +173,16 @@ class SelectedLamellaWidget(QWidget):
                 self._lamella.events.description.disconnect(self._refresh_description)  # type: ignore[union-attr]
             except (TypeError, ValueError, RuntimeError):
                 pass
+            try:
+                self._lamella.events.notes.disconnect(self._refresh_notes)  # type: ignore[union-attr]
+            except (TypeError, ValueError, RuntimeError):
+                pass
         self._lamella = lamella
 
         if lamella is None:
             self._panel.set_title("Selected Lamella")
             self.description_label.setVisible(False)
+            self.notes_label.setVisible(False)
             self.label_objective_position.setVisible(False)
             self.spinbox_objective_position.setVisible(False)
             self.btn_objective_actions.setVisible(False)
@@ -184,6 +197,8 @@ class SelectedLamellaWidget(QWidget):
         self.description_label.setVisible(True)
         self._refresh_description()
         lamella.events.description.connect(self._refresh_description)  # type: ignore[union-attr]
+        self._refresh_notes()
+        lamella.events.notes.connect(self._refresh_notes)  # type: ignore[union-attr]
 
         # objective position (shown in µm). The controls are shown whenever the
         # lamella has a fluorescence pose, so the objective can still be set/restored
@@ -220,6 +235,14 @@ class SelectedLamellaWidget(QWidget):
         self.description_label.setToolTip(
             text or "Free-text note (edit in the Lamella editor)"
         )
+
+    def _refresh_notes(self) -> None:
+        """Mirror the current lamella's working notes; hidden when it has none."""
+        if self._lamella is None:
+            return
+        text = self._lamella.notes
+        self.notes_label.setText(text)
+        self.notes_label.setVisible(bool(text))
 
     def refresh_pose(self, pose_name: str, state) -> None:
         """Update one pose row in place, without rebuilding the list."""
