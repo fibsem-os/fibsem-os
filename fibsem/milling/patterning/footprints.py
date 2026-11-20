@@ -456,7 +456,11 @@ def overview_picture(
         if closest is not None:
             handles.append(
                 Line2D(
-                    [], [], color=AGENT_MARK_COLOR, linewidth=1.5, label="nearest gap"
+                    [],
+                    [],
+                    color=AGENT_MARK_COLOR,
+                    linewidth=1.5,
+                    label=f"nearest gap {closest.distance * 1e6:.1f} µm",
                 )
             )
         return legend(axes, handles)
@@ -481,7 +485,8 @@ def overview_picture(
                 "y1": ay_,
                 "x2": bx_,
                 "y2": by_,
-                "label": f"{closest.distance * 1e6:.1f} µm",
+                # Its length is in the legend: a label here lands on the cuts.
+                "label": "",
             }
         )
     return marked_picture(region, marks, AGENT_MARK_COLOR, options, max_width, decorate)
