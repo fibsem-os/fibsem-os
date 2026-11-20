@@ -51,9 +51,15 @@ End with one fenced `json` block, and nothing after it:
   "evidence": ["event seq 1832", "the log at 18:31:02", "the image paths"],
   "fix": "move the alignment area 6 µm left, so the fiducial clears 07, then run the task again",
   "retry": true,
-  "spreads": false
+  "spreads": false,
+  "summary": "the fiducial landed on 07's stress-relief cut; move the alignment area and run it again",
+  "attention": true
 }
 ```
+
+`summary` is one sentence for the operator: the cause and what to do.
+`attention` is true when the lead or the operator should look before the run
+goes on: damage, a lost site, a hardware error or a cause you are unsure of.
 
 `retry` is false when running the task again would not help (the site is
 lost, or the cause is outside the task). A hardware error from the instrument

@@ -1644,6 +1644,87 @@ def test_a_step_that_answers_is_done_and_says_how_long_it_took():
     assert printed == [1, 2], "each line tells the harness at once"
 
 
+def test_a_subagent_s_lines_are_kept_under_the_call_that_started_it():
+    pytest.importorskip("claude_agent_sdk")
+    from claude_agent_sdk import (
+        AssistantMessage,
+        TextBlock,
+        ToolResultBlock,
+        ToolUseBlock,
+        UserMessage,
+    )
+
+    from fibsem.ai.agent.harness import SdkAgent, _show
+
+    agent = SdkAgent(harness_mod.build_options(harness_mod.find_checkout()))
+    asked = {
+        "subagent_type": "autolamella-verifier",
+        "description": "Check lamella 02's polishing pass",
+        "prompt": "...",
+    }
+    _show(
+        AssistantMessage(content=[ToolUseBlock("a1", "Agent", asked)], model="m"),
+        agent,
+    )
+    _show(
+        AssistantMessage(
+            content=[
+                TextBlock("Reading the last image."),
+                ToolUseBlock("v1", "mcp__fibsem__item_get", {"name": "02"}),
+            ],
+            model="m",
+            parent_tool_use_id="a1",
+        ),
+        agent,
+    )
+    _show(
+        UserMessage(
+            content=[ToolResultBlock("v1", "ok", False)], parent_tool_use_id="a1"
+        ),
+        agent,
+    )
+    answer = [{"type": "text", "text": "Concern: the left edge.\n\nagentId: x1"}]
+    _show(UserMessage(content=[ToolResultBlock("a1", answer, False)]), agent)
+
+    call, said, read, read_done, done = agent.transcript
+    assert (call["verb"], call["text"]) == ("Asked", asked["description"])
+    assert call["subagent"] == "autolamella-verifier" and "run" not in call
+    for line in (said, read, read_done):
+        assert line["run"] == call["seq"], line
+    assert said["kind"] == "said" and read_done["step"] == read["seq"]
+    # The run's answer stays on its call's done line, without the CLI's footer.
+    assert done["step"] == call["seq"] and "run" not in done
+    assert done["text"] == "Concern: the left edge."
+
+
+def test_a_subagent_s_json_answer_gives_its_card_a_verdict_or_attention():
+    from fibsem.ai.agent.harness import _answer
+
+    def said(body):
+        return [{"type": "text", "text": body + "\n\nagentId: x1"}]
+
+    no = '{"decision": "polishing pass", "agree": false, "concern": "left edge"}'
+    text, verdict = _answer(said(f"Checked it.\n\n```json\n{no}\n```"))
+    assert (text, verdict) == ("left edge", {"verdict": "concern"})
+    yes = '{"agree": true, "concern": ""}'
+    text, verdict = _answer(said(f"The pass is safe.\n```json\n{yes}\n```"))
+    assert (text, verdict) == ("The pass is safe.", {"verdict": "agree"})
+    looked = '{"cause": "x", "summary": "Move the area and retry.", "attention": true}'
+    text, flags = _answer(said(f"Found it.\n```json\n{looked}\n```"))
+    assert (text, flags) == ("Move the area and retry.", {"attention": True})
+    # Any other answer, a JSON block without agree or attention included,
+    # stays as it is.
+    assert _answer(said("Six sites.")) == ("Six sites.", {})
+    plain = 'Sites:\n```json\n{"sites": [1]}\n```'
+    assert _answer(said(plain)) == (plain, {})
+
+
+def test_the_session_asks_for_the_subagents_words_too():
+    pytest.importorskip("claude_agent_sdk")
+    options = harness_mod.build_options(harness_mod.find_checkout())
+    assert options.forward_subagent_text is True
+
+
 def test_the_skills_the_agent_reads_are_reported_when_it_reads_one():
     pytest.importorskip("claude_agent_sdk")
     from claude_agent_sdk import AssistantMessage, ToolUseBlock

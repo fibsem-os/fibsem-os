@@ -207,6 +207,8 @@ const stepKey = (session: string, seq: number | undefined) => `${session}|${seq}
 const answers = (l: TranscriptLine) => (l.kind === "done" || l.kind === "failed") && l.step != null;
 /** A step's pictures, by its session and number. */
 type Pictures = Map<string, TranscriptLine[]>;
+/** A subagent run's lines, by the session and number of the Agent call. */
+type Runs = Map<string, TranscriptLine[]>;
 
 /** A picture a lab's tool answered a step with; a click opens it full size. */
 function StepPicture({ line }: { line: TranscriptLine }) {
@@ -234,28 +236,18 @@ function Working({
   lines,
   folded,
   live,
-  answered,
-  pictures,
-  running,
-  now,
-  calls,
+  ...rest
 }: {
   lines: TranscriptLine[];
   folded: boolean;
   live: boolean;
-  answered: Answers;
-  pictures: Pictures;
-  running: (step: TranscriptLine) => boolean;
-  now?: string | null;
-  calls: boolean;
-}) {
+} & Shared) {
   const [open, setOpen] = useState(live);
-  const [shownCall, setShownCall] = useState<number | null>(null);
-  const clock = useClock(live);
   useEffect(() => {
     if (live) setOpen(true);
   }, [live]);
   const shown = !folded || open;
+  const { answered } = rest;
   const answerOf = (l: TranscriptLine) => (l.kind === "step" ? answered.get(stepKey(l.session_id, l.seq)) : undefined);
   const steps = lines.filter((l) => l.kind === "step").length;
   const failed = lines.filter((l) => l.kind === "failed" || answerOf(l)?.kind === "failed").length;
@@ -276,81 +268,187 @@ function Working({
             {summary}
           </button>
         )}
-        {shown && (
-          <div className={cn("grid grid-cols-[72px_minmax(0,1fr)] gap-x-2.5 gap-y-0.5 text-[12px]", folded && "pl-5")}>
-            {lines.map((l, i) => {
-              if (l.kind === "said")
-                return (
-                  <div key={i} className="col-span-2 whitespace-pre-wrap break-words text-muted-foreground italic">
-                    {l.text}
-                  </div>
-                );
-              if (l.kind === "context") {
-                const [head, ...rest] = l.text.split(": ");
-                return (
-                  <div key={i} className="col-span-2 break-words">
-                    <span className="font-medium">{rest.length ? head : l.text}</span>
-                    {rest.length > 0 && <span className="text-muted-foreground"> · {rest.join(": ")}</span>}
-                  </div>
-                );
-              }
-              const answer = answerOf(l);
-              const reason = l.kind === "failed" ? l.text : answer?.kind === "failed" ? answer.text : undefined;
-              const runs = l.kind === "step" && !answer && running(l);
-              const duration = took(answer?.took_s);
-              const said = l.kind === "step" ? say(l.verb ?? "Called", l.text) : null;
-              return (
-                <div key={i} className="contents">
-                  <span
-                    className={cn(
-                      "flex items-center gap-1",
-                      reason != null ? "text-destructive" : "text-muted-foreground",
-                    )}
-                  >
-                    {l.kind === "failed" ? "Failed" : calls ? l.verb : runs ? "Running" : said?.verb ?? l.verb}
-                    {runs && <Loader size={11} className="shrink-0 animate-spin" aria-label="running" />}
-                  </span>
-                  <span className="min-w-0 break-words">
-                    {said && calls && <span className="font-mono text-[12px]">{l.text}</span>}
-                    {said && !calls && (
-                      <button
-                        className="cursor-pointer border-0 bg-transparent p-0 text-left text-foreground"
-                        title={said.call ? "Show the call" : undefined}
-                        onClick={() => setShownCall(shownCall === i ? null : i)}
-                      >
-                        {runs && now ? now : said.words}
-                      </button>
-                    )}
-                    {runs && (
-                      <span className="text-muted-foreground">
-                        {" · "}
-                        {calls && now ? `${now} · ` : ""}
-                        {since(l.t, clock)}
-                      </span>
-                    )}
-                    {duration && reason == null && <span className="text-muted-foreground"> · {duration}</span>}
-                    {said?.call && !calls && shownCall === i && (
-                      <span className="block font-mono text-[12px] text-muted-foreground">{said.call}</span>
-                    )}
-                    {reason != null && (
-                      <span className="text-muted-foreground">
-                        {l.kind === "step" ? " · failed: " : ""}
-                        {reason}
-                      </span>
-                    )}
-                  </span>
-                  {l.kind === "step" &&
-                    pictures.get(stepKey(l.session_id, l.seq))?.map((p) => (
-                      <span key={p.seq} className="col-start-2">
-                        <StepPicture line={p} />
-                      </span>
-                    ))}
-                </div>
-              );
-            })}
-          </div>
-        )}
+        {shown && <Lines lines={lines} live={live} className={cn(folded && "pl-5")} {...rest} />}
       </div>
+    </div>
+  );
+}
+
+/** What a block of lines needs from the whole transcript (`Record`). *runs*
+ * holds each subagent run's lines, by the Agent call that started it. */
+type Shared = {
+  answered: Answers;
+  pictures: Pictures;
+  runs: Runs;
+  running: (step: TranscriptLine) => boolean;
+  now?: string | null;
+  calls: boolean;
+};
+
+/** The lines of a Working block, or of a subagent's run: its words, and a row
+ * per step. An Agent call shows as its run (`RunCard`). */
+function Lines({
+  lines,
+  live,
+  className,
+  ...shared
+}: { lines: TranscriptLine[]; live: boolean; className?: string } & Shared) {
+  const { answered, pictures, running, now, calls } = shared;
+  const [shownCall, setShownCall] = useState<number | null>(null);
+  const clock = useClock(live);
+  const answerOf = (l: TranscriptLine) => (l.kind === "step" ? answered.get(stepKey(l.session_id, l.seq)) : undefined);
+  return (
+    <div className={cn("grid grid-cols-[72px_minmax(0,1fr)] gap-x-2.5 gap-y-0.5 text-[12px]", className)}>
+      {lines.map((l, i) => {
+        if (l.kind === "said")
+          return (
+            <div key={i} className="col-span-2 whitespace-pre-wrap break-words text-muted-foreground italic">
+              {l.text}
+            </div>
+          );
+        if (l.kind === "context") {
+          const [head, ...rest] = l.text.split(": ");
+          return (
+            <div key={i} className="col-span-2 break-words">
+              <span className="font-medium">{rest.length ? head : l.text}</span>
+              {rest.length > 0 && <span className="text-muted-foreground"> · {rest.join(": ")}</span>}
+            </div>
+          );
+        }
+        const answer = answerOf(l);
+        if (l.kind === "step" && l.subagent != null)
+          return <RunCard key={i} call={l} answer={answer} live={live} {...shared} />;
+        const reason = l.kind === "failed" ? l.text : answer?.kind === "failed" ? answer.text : undefined;
+        const runs = l.kind === "step" && !answer && running(l);
+        const duration = took(answer?.took_s);
+        const said = l.kind === "step" ? say(l.verb ?? "Called", l.text) : null;
+        return (
+          <div key={i} className="contents">
+            <span
+              className={cn("flex items-center gap-1", reason != null ? "text-destructive" : "text-muted-foreground")}
+            >
+              {l.kind === "failed" ? "Failed" : calls ? l.verb : runs ? "Running" : said?.verb ?? l.verb}
+              {runs && <Loader size={11} className="shrink-0 animate-spin" aria-label="running" />}
+            </span>
+            <span className="min-w-0 break-words">
+              {said && calls && <span className="font-mono text-[12px]">{l.text}</span>}
+              {said && !calls && (
+                <button
+                  className="cursor-pointer border-0 bg-transparent p-0 text-left text-foreground"
+                  title={said.call ? "Show the call" : undefined}
+                  onClick={() => setShownCall(shownCall === i ? null : i)}
+                >
+                  {runs && now ? now : said.words}
+                </button>
+              )}
+              {runs && (
+                <span className="text-muted-foreground">
+                  {" · "}
+                  {calls && now ? `${now} · ` : ""}
+                  {since(l.t, clock)}
+                </span>
+              )}
+              {duration && reason == null && <span className="text-muted-foreground"> · {duration}</span>}
+              {said?.call && !calls && shownCall === i && (
+                <span className="block font-mono text-[12px] text-muted-foreground">{said.call}</span>
+              )}
+              {reason != null && (
+                <span className="text-muted-foreground">
+                  {l.kind === "step" ? " · failed: " : ""}
+                  {reason}
+                </span>
+              )}
+            </span>
+            {l.kind === "step" &&
+              pictures.get(stepKey(l.session_id, l.seq))?.map((p) => (
+                <span key={p.seq} className="col-start-2">
+                  <StepPicture line={p} />
+                </span>
+              ))}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** "verifier" as "Verifier", "autolamella-verifier" as "Verifier". */
+function agentName(agent: string): string {
+  const last = agent.split(/[-_:]/).filter(Boolean).pop() ?? "Subagent";
+  return last.charAt(0).toUpperCase() + last.slice(1);
+}
+
+/** A subagent's run, where the agent called it: one card with what it was
+ * asked, whether it still runs, and its answer once it gives one. Its own steps
+ * and words fold under it. */
+function RunCard({
+  call,
+  answer,
+  live,
+  ...shared
+}: { call: TranscriptLine; answer?: TranscriptLine; live: boolean } & Shared) {
+  const [open, setOpen] = useState(false);
+  const clock = useClock(live);
+  const lines = shared.runs.get(stepKey(call.session_id, call.seq)) ?? [];
+  const steps = lines.filter((l) => l.kind === "step").length;
+  const runs = !answer && shared.running(call);
+  const failed = answer?.kind === "failed";
+  const verdict = answer?.verdict;
+  const badge = verdict
+    ? { text: verdict === "agree" ? "Agrees" : "Concern", warn: verdict === "concern" }
+    : answer?.attention
+      ? { text: "Needs attention", warn: true }
+      : null;
+  const state = failed
+    ? "Failed"
+    : answer
+      ? [badge ? "" : "Done", took(answer.took_s)].filter(Boolean).join(" · ")
+      : runs
+        ? `Running · ${since(call.t, clock)}`
+        : "Stopped";
+  return (
+    <div className="col-span-2 my-1 flex max-w-[640px] flex-col gap-1 rounded-md border bg-card px-3 py-2 text-[13px]">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="min-w-0 break-words">
+          <span className="font-semibold text-foreground">{agentName(call.subagent ?? "")}</span>
+          {call.text && <span className="text-foreground"> · {call.text}</span>}
+        </span>
+        <span
+          className={cn(
+            "flex shrink-0 items-center gap-1 text-[12px]",
+            failed ? "text-destructive" : "text-muted-foreground",
+          )}
+        >
+          {runs && <Loader size={11} className="animate-spin" aria-label="running" />}
+          {badge && (
+            <span
+              className={cn(
+                "rounded-full bg-muted px-2 py-px font-semibold",
+                badge.warn ? "text-[var(--fibsem-warn-color)]" : "text-[var(--fibsem-ok-color)]",
+              )}
+            >
+              {badge.text}
+            </span>
+          )}
+          {state}
+        </span>
+      </div>
+      {answer?.text && (
+        <div className={cn("whitespace-pre-wrap break-words", failed ? "text-muted-foreground" : "text-foreground")}>
+          {answer.text}
+        </div>
+      )}
+      {lines.length > 0 && (
+        <button
+          className="flex w-fit cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-left text-[12px] text-muted-foreground hover:text-foreground"
+          onClick={() => setOpen(!open)}
+          aria-expanded={open}
+        >
+          {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+          {steps ? `${steps} ${steps === 1 ? "step" : "steps"}` : "What it said"}
+        </button>
+      )}
+      {open && <Lines lines={lines} live={live && runs} className="pl-5" {...shared} />}
     </div>
   );
 }
@@ -384,6 +482,10 @@ function Record({
   const answered: Answers = new Map();
   const lastAnswered = new Map<string, number>();
   const pictures: Pictures = new Map();
+  const runs: Runs = new Map();
+  // A subagent's steps are answered beside the agent's, so each run, and the
+  // agent's own lines, count their answers apart.
+  const flow = (l: TranscriptLine) => `${l.session_id}|${l.run ?? ""}`;
   for (const l of lines) {
     if (l.kind === "picture" && l.step != null && l.path) {
       const key = stepKey(l.session_id, l.step);
@@ -391,14 +493,26 @@ function Record({
     }
     if (!answers(l)) continue;
     answered.set(stepKey(l.session_id, l.step), l);
-    lastAnswered.set(l.session_id, Math.max(lastAnswered.get(l.session_id) ?? 0, l.step ?? 0));
+    lastAnswered.set(flow(l), Math.max(lastAnswered.get(flow(l)) ?? 0, l.step ?? 0));
   }
   const saysDone = lines.some((l) => l.kind === "done");
   const lastStep = [...lines].reverse().find((l) => l.kind === "step");
   const running = (step: TranscriptLine) =>
-    heard && (saysDone ? (step.seq ?? 0) > (lastAnswered.get(step.session_id) ?? 0) : step === lastStep);
-  // The answers and pictures show on their steps, not as lines of their own.
+    heard &&
+    (step.subagent != null
+      ? !answered.has(stepKey(step.session_id, step.seq))
+      : saysDone
+        ? (step.seq ?? 0) > (lastAnswered.get(flow(step)) ?? 0)
+        : step === lastStep);
+  // The answers and pictures show on their steps, not as lines of their own,
+  // and a subagent's lines under its run.
   lines = lines.filter((l) => !answers(l) && l.kind !== "picture");
+  for (const l of lines) {
+    if (l.run == null) continue;
+    const key = stepKey(l.session_id, l.run);
+    runs.set(key, [...(runs.get(key) ?? []), l]);
+  }
+  lines = lines.filter((l) => l.run == null);
   // Keyed by what a row says, not where it sits: the oldest rows drop off the
   // window, and a run keyed by position would lose whether the reader opened it.
   const seen = new Map<string, number>();
@@ -423,6 +537,7 @@ function Record({
           live={live}
           answered={answered}
           pictures={pictures}
+          runs={runs}
           running={running}
           now={now}
           calls={calls}
@@ -451,8 +566,8 @@ function Record({
     // The newest block is live, and open, while its lines still arrive or a
     // step in it still runs.
     const last = working[working.length - 1];
-    const runs = working.some((l) => l.kind === "step" && !answered.has(stepKey(l.session_id, l.seq)) && running(l));
-    endWorking(!!last && (runs || Date.now() - time(last.t) < LIVE_FOR_MS));
+    const stillRuns = working.some((l) => l.kind === "step" && !answered.has(stepKey(l.session_id, l.seq)) && running(l));
+    endWorking(!!last && (stillRuns || Date.now() - time(last.t) < LIVE_FOR_MS));
   }
   return <>{out}</>;
 }

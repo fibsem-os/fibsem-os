@@ -275,3 +275,37 @@ def test_a_waiting_picture_moves_into_the_experiment(server):
     _post(client, "s1", {"kind": "said", "text": "after"})
     assert (folder / "agent" / "pictures" / "s1-2.png").is_file()
     assert client.get("/app/agent/transcript/pictures/s1-2.png").status_code == 200
+
+
+def test_a_subagent_s_lines_keep_their_run_and_its_call_names_the_subagent(server):
+    client, _, _ = server
+    call = {
+        "seq": 1,
+        "kind": "step",
+        "verb": "Asked",
+        "text": "Check 02",
+        "subagent": "autolamella-verifier",
+    }
+    said = {"seq": 2, "kind": "said", "text": "Reading.", "run": 1}
+    assert _post(client, "s1", call, said).json() == {"kept": 2}
+    first, second = client.get("/app/agent/transcript").json()["entries"]
+    assert first["subagent"] == "autolamella-verifier" and "run" not in first
+    assert second["run"] == 1
+    done = {"kind": "done", "text": "left edge", "step": 1, "verdict": "concern"}
+    _post(client, "s1", done)
+    assert (
+        client.get("/app/agent/transcript").json()["entries"][-1]["verdict"]
+        == "concern"
+    )
+    assert _post(client, "s1", {**done, "verdict": "maybe"}).status_code == 422
+    assert _post(client, "s1", {**done, "attention": "yes"}).status_code == 422
+    assert (
+        _post(client, "s1", {"kind": "said", "text": "x", "run": "1"}).status_code
+        == 422
+    )
+    assert (
+        _post(
+            client, "s1", {"kind": "step", "text": "x", "subagent": "a" * 61}
+        ).status_code
+        == 422
+    )
