@@ -1,20 +1,42 @@
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, BookOpen, Check, ChevronDown, ChevronRight, ListChecks, ListFilter, Loader } from "lucide-react";
+import {
+  ArrowDown,
+  BookOpen,
+  Bot,
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ListChecks,
+  ListFilter,
+  Loader,
+  Microscope,
+} from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Popup } from "@/components/ui/popup";
 import { api, imageUrl } from "@/lib/api";
 import { onEvents } from "@/lib/events";
 import { Markdown } from "@/lib/markdown";
-import type { AgentPlan, AgentState, RecentRow, ReportedSession, TranscriptLine } from "@/lib/types";
+import type {
+  AgentPlan,
+  AgentState,
+  Capabilities,
+  RecentRow,
+  ReportedSession,
+  TranscriptLine,
+  WorkflowStatus,
+} from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { ConnectCard, RequestCard, SuggestionCard } from "./agent/Cards";
 import { carriesFiles, splitAttached, useAttachments } from "./agent/attach";
 import { SentFiles } from "./agent/Attachments";
 import { Composer } from "./agent/Composer";
 import { KnowledgeDialog } from "./agent/Knowledge";
+import { MicroscopeCustomise, MicroscopeTab, useMicroscopeShown } from "./agent/MicroscopeTab";
 import { EvidenceImage } from "./agent/Pictures";
 import { PlanDialog } from "./agent/PlanDialog";
 import { say, since } from "./agent/steps";
+import { type ColumnTab, SafetyRow, SideColumn, useSafetyActions } from "./agent/SideColumn";
 import { hasPanel, SidePanel } from "./agent/SidePanel";
 
 // The agent's news (lib/events.ts) reads it, its session and its plan again at once.
@@ -62,6 +84,12 @@ const TONE: Record<string, string> = {
   running: "text-link",
   muted: "text-muted-foreground",
 };
+
+/** Another page of the app, as the rail opens it. */
+function openPage(path: string) {
+  history.pushState(null, "", path);
+  dispatchEvent(new PopStateEvent("popstate"));
+}
 
 const capital = (text: string) => text.replace(/^./, (c) => c.toUpperCase());
 
@@ -283,6 +311,8 @@ type Shared = {
   running: (step: TranscriptLine) => boolean;
   now?: string | null;
   calls: boolean;
+  /** Shows a run in the side column's Subagents tab. */
+  onOpen?: (call: TranscriptLine) => void;
 };
 
 /** The lines of a Working block, or of a subagent's run: its words, and a row
@@ -378,20 +408,9 @@ function agentName(agent: string): string {
   return last.charAt(0).toUpperCase() + last.slice(1);
 }
 
-/** A subagent's run, where the agent called it: one card with what it was
- * asked, whether it still runs, and its answer once it gives one. Its own steps
- * and words fold under it. */
-function RunCard({
-  call,
-  answer,
-  live,
-  ...shared
-}: { call: TranscriptLine; answer?: TranscriptLine; live: boolean } & Shared) {
-  const [open, setOpen] = useState(false);
-  const clock = useClock(live);
-  const lines = shared.runs.get(stepKey(call.session_id, call.seq)) ?? [];
-  const steps = lines.filter((l) => l.kind === "step").length;
-  const runs = !answer && shared.running(call);
+/** A run's state: running, done or failed, and its badge when the subagent
+ * gave a verdict or asked for attention. */
+function runState(call: TranscriptLine, answer: TranscriptLine | undefined, runs: boolean, clock: number) {
   const failed = answer?.kind === "failed";
   const verdict = answer?.verdict;
   const badge = verdict
@@ -399,15 +418,55 @@ function RunCard({
     : answer?.attention
       ? { text: "Needs attention", warn: true }
       : null;
-  const state = failed
+  const text = failed
     ? "Failed"
     : answer
       ? [badge ? "" : "Done", took(answer.took_s)].filter(Boolean).join(" · ")
       : runs
         ? `Running · ${since(call.t, clock)}`
         : "Stopped";
+  return { failed, badge, text };
+}
+
+function RunBadge({ badge }: { badge: { text: string; warn: boolean } | null }) {
+  if (!badge) return null;
   return (
-    <div className="col-span-2 my-1 flex max-w-[640px] flex-col gap-1 rounded-md border bg-card px-3 py-2 text-[13px]">
+    <span
+      className={cn(
+        "rounded-full bg-muted px-2 py-px font-semibold",
+        badge.warn ? "text-[var(--fibsem-warn-color)]" : "text-[var(--fibsem-ok-color)]",
+      )}
+    >
+      {badge.text}
+    </span>
+  );
+}
+
+/** A subagent's run, where the agent called it: one card with what it was
+ * asked, whether it still runs, and its answer once it gives one. Its own steps
+ * and words fold under it; Open shows the run in the side column's Subagents tab.
+ * *tab*: the run as that tab shows it, its lines always open. */
+function RunCard({
+  call,
+  answer,
+  live,
+  tab = false,
+  ...shared
+}: { call: TranscriptLine; answer?: TranscriptLine; live: boolean; tab?: boolean } & Shared) {
+  const [open, setOpen] = useState(false);
+  const clock = useClock(live);
+  const lines = shared.runs.get(stepKey(call.session_id, call.seq)) ?? [];
+  const steps = lines.filter((l) => l.kind === "step").length;
+  const runs = !answer && shared.running(call);
+  const state = runState(call, answer, runs, clock);
+  const shown = tab || open;
+  return (
+    <div
+      className={cn(
+        "flex flex-col gap-1 text-[13px]",
+        tab ? "" : "col-span-2 my-1 max-w-[640px] rounded-md border bg-card px-3 py-2",
+      )}
+    >
       <div className="flex items-baseline justify-between gap-3">
         <span className="min-w-0 break-words">
           <span className="font-semibold text-foreground">{agentName(call.subagent ?? "")}</span>
@@ -416,69 +475,100 @@ function RunCard({
         <span
           className={cn(
             "flex shrink-0 items-center gap-1 text-[12px]",
-            failed ? "text-destructive" : "text-muted-foreground",
+            state.failed ? "text-destructive" : "text-muted-foreground",
           )}
         >
           {runs && <Loader size={11} className="animate-spin" aria-label="running" />}
-          {badge && (
-            <span
-              className={cn(
-                "rounded-full bg-muted px-2 py-px font-semibold",
-                badge.warn ? "text-[var(--fibsem-warn-color)]" : "text-[var(--fibsem-ok-color)]",
-              )}
-            >
-              {badge.text}
-            </span>
-          )}
-          {state}
+          <RunBadge badge={state.badge} />
+          {state.text}
         </span>
       </div>
       {answer?.text && (
-        <div className={cn("whitespace-pre-wrap break-words", failed ? "text-muted-foreground" : "text-foreground")}>
+        <div className={cn("whitespace-pre-wrap break-words", state.failed ? "text-muted-foreground" : "text-foreground")}>
           {answer.text}
         </div>
       )}
-      {lines.length > 0 && (
-        <button
-          className="flex w-fit cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-left text-[12px] text-muted-foreground hover:text-foreground"
-          onClick={() => setOpen(!open)}
-          aria-expanded={open}
-        >
-          {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-          {steps ? `${steps} ${steps === 1 ? "step" : "steps"}` : "What it said"}
-        </button>
+      {!tab && (lines.length > 0 || shared.onOpen) && (
+        <div className="flex items-center justify-between gap-3">
+          {lines.length > 0 ? (
+            <button
+              className="flex w-fit cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-left text-[12px] text-muted-foreground hover:text-foreground"
+              onClick={() => setOpen(!open)}
+              aria-expanded={open}
+            >
+              {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+              {steps ? `${steps} ${steps === 1 ? "step" : "steps"}` : "What it said"}
+            </button>
+          ) : (
+            <span />
+          )}
+          {shared.onOpen && (
+            <button
+              className="cursor-pointer border-0 bg-transparent p-0 text-[12px] text-primary underline underline-offset-2"
+              onClick={() => shared.onOpen?.(call)}
+              title="Show this run in the side column"
+            >
+              Open
+            </button>
+          )}
+        </div>
       )}
-      {open && <Lines lines={lines} live={live && runs} className="pl-5" {...shared} />}
+      {tab && lines.length === 0 && <p className="m-0 text-[12px] text-muted-foreground">Nothing from it yet.</p>}
+      {shown && lines.length > 0 && (
+        <Lines lines={lines} live={live && runs} className={cn(tab ? "mt-2" : "pl-5")} {...shared} />
+      )}
     </div>
+  );
+}
+
+/** The session's subagent runs, newest first: each opens in the Subagents tab. */
+function SubagentList({
+  calls,
+  answered,
+  running,
+  onOpen,
+}: {
+  calls: TranscriptLine[];
+  answered: Answers;
+  running: (step: TranscriptLine) => boolean;
+  onOpen: (call: TranscriptLine) => void;
+}) {
+  const clock = useClock(calls.some((c) => !answered.has(stepKey(c.session_id, c.seq)) && running(c)));
+  if (!calls.length) return null;
+  return (
+    <section>
+      {[...calls].reverse().map((c) => {
+        const answer = answered.get(stepKey(c.session_id, c.seq));
+        const state = runState(c, answer, !answer && running(c), clock);
+        return (
+          <button
+            key={stepKey(c.session_id, c.seq)}
+            className="flex w-full cursor-pointer items-baseline justify-between gap-3 border-0 bg-transparent px-0 py-1 text-left text-[13px] text-foreground hover:text-primary"
+            onClick={() => onOpen(c)}
+            title={c.text || undefined}
+          >
+            <span className="min-w-0 truncate">
+              {agentName(c.subagent ?? "")}
+              {c.text && <span className="text-muted-foreground"> · {c.text}</span>}
+            </span>
+            <span className="flex shrink-0 items-center gap-1 text-[12px] text-muted-foreground">
+              <RunBadge badge={state.badge} />
+              {state.text}
+            </span>
+          </button>
+        );
+      })}
+    </section>
   );
 }
 
 const time = (t: string) => Date.parse(t);
 const LIVE_FOR_MS = 60_000;
 
-/** *heard*: the agent was heard from lately, so a step it started may still run
- * with no lines coming (a long milling call). A step runs until its answer
- * comes, while the agent is heard from and no later step of its session has
- * been answered (a call cut short never answers). An agent that never says a
- * step is done shows only its newest step as running. */
-function Record({
-  rows,
-  lines,
-  show,
-  heard,
-  now,
-  calls,
-}: {
-  rows: RecentRow[];
-  lines: TranscriptLine[];
-  show: Show;
-  heard: boolean;
-  now?: string | null;
-  calls: boolean;
-}) {
-  const out: JSX.Element[] = [];
-  let run: RecentRow[] = [];
-  let working: TranscriptLine[] = [];
+/** The transcript's lines sorted for showing: each step's answer and pictures
+ * by the step, each subagent run's lines by its Agent call, and the agent's own
+ * lines (*top*). *heard*: the agent was heard from lately (`Record`). */
+function indexLines(lines: TranscriptLine[], heard: boolean) {
   const answered: Answers = new Map();
   const lastAnswered = new Map<string, number>();
   const pictures: Pictures = new Map();
@@ -506,13 +596,44 @@ function Record({
         : step === lastStep);
   // The answers and pictures show on their steps, not as lines of their own,
   // and a subagent's lines under its run.
-  lines = lines.filter((l) => !answers(l) && l.kind !== "picture");
-  for (const l of lines) {
+  const shown = lines.filter((l) => !answers(l) && l.kind !== "picture");
+  for (const l of shown) {
     if (l.run == null) continue;
     const key = stepKey(l.session_id, l.run);
     runs.set(key, [...(runs.get(key) ?? []), l]);
   }
-  lines = lines.filter((l) => l.run == null);
+  const calls = shown.filter((l) => l.kind === "step" && l.subagent != null);
+  return { answered, pictures, runs, running, calls, top: shown.filter((l) => l.run == null) };
+}
+
+/** *heard*: the agent was heard from lately, so a step it started may still run
+ * with no lines coming (a long milling call). A step runs until its answer
+ * comes, while the agent is heard from and no later step of its session has
+ * been answered (a call cut short never answers). An agent that never says a
+ * step is done shows only its newest step as running. */
+function Record({
+  rows,
+  lines: all,
+  show,
+  heard,
+  now,
+  calls,
+  onOpen,
+}: {
+  rows: RecentRow[];
+  lines: TranscriptLine[];
+  show: Show;
+  heard: boolean;
+  now?: string | null;
+  calls: boolean;
+  onOpen?: (call: TranscriptLine) => void;
+}) {
+  const out: JSX.Element[] = [];
+  let run: RecentRow[] = [];
+  let working: TranscriptLine[] = [];
+  const indexed = indexLines(all, heard);
+  const { answered, pictures, runs, running } = indexed;
+  const lines = indexed.top;
   // Keyed by what a row says, not where it sits: the oldest rows drop off the
   // window, and a run keyed by position would lose whether the reader opened it.
   const seen = new Map<string, number>();
@@ -539,6 +660,7 @@ function Record({
           pictures={pictures}
           runs={runs}
           running={running}
+          onOpen={onOpen}
           now={now}
           calls={calls}
         />,
@@ -572,6 +694,80 @@ function Record({
   return <>{out}</>;
 }
 
+// While something runs, its progress is read this often, as the top line reads it.
+const RUNNING_EVERY_MS = 2000;
+
+/** 75 s as "1:15", an hour and more as "1:02:05". */
+function elapsed(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  const two = (n: number) => String(n).padStart(2, "0");
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return h ? `${h}:${two(m)}:${two(s % 60)}` : `${m}:${two(s % 60)}`;
+}
+
+/** Above the message box: what runs on the microscope, live. A run's task or
+ * the agent's mill turns with a spinner, its bar fills and its time counts, and
+ * while the agent is heard it says the agent watches. Nothing running, the
+ * agent's now line, as before. */
+function LiveLine({ agent, heard, hide }: { agent: AgentState; heard: boolean; hide: boolean }) {
+  const status = useQuery({
+    queryKey: ["app/workflow/status"],
+    queryFn: () => api<WorkflowStatus>("/app/workflow/status"),
+    refetchInterval: (query) =>
+      query.state.data?.workflow.running || query.state.data?.progress ? RUNNING_EVERY_MS : false,
+  });
+  const workflow = status.data?.workflow;
+  const progress = status.data?.progress && !status.data.progress.outcome ? status.data.progress : null;
+  const task = workflow?.running
+    ? [workflow.current_task ?? "A task", workflow.current_item].filter(Boolean).join(" on ")
+    : null;
+  const text = [task ?? progress?.label ?? (progress ? null : agent.now), progress?.step, progress?.numbers]
+    .filter(Boolean)
+    .join(" · ");
+  const running = !!(task || progress);
+  // Counted from when this page first saw it run: the line has no start time.
+  const key = task ?? progress?.label ?? null;
+  const since = useRef<{ key: string | null; at: number }>({ key: null, at: 0 });
+  if (since.current.key !== key) since.current = { key, at: Date.now() };
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!running) return;
+    const tick = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(tick);
+  }, [running]);
+  if (!running)
+    return (agent.session || agent.now) && !hide ? (
+      <div className="min-h-5 text-[13px] text-muted-foreground">{agent.now}</div>
+    ) : null;
+  return (
+    <div className="flex flex-col gap-1" aria-live="polite">
+      <div className="flex min-h-5 items-center gap-1.5 text-[13px] text-muted-foreground">
+        <Loader size={13} className="shrink-0 animate-spin" aria-hidden />
+        <span className="min-w-0 truncate" title={text}>
+          {text}
+        </span>
+        <span className="ml-auto shrink-0 tabular-nums" title="How long it has run, since this page saw it start">
+          {elapsed((now - since.current.at) / 1000)}
+        </span>
+        {heard && (
+          <span className="shrink-0" title="The agent waits on the microscope's events and wakes on the next one">
+            · Agent watching
+          </span>
+        )}
+      </div>
+      {progress?.fraction != null && (
+        <div className="h-[2px] rounded-sm bg-accent">
+          <div
+            className="h-full rounded-sm bg-[var(--fibsem-primary-color)] transition-[width] duration-1000"
+            style={{ width: `${Math.min(100, 100 * progress.fraction)}%` }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AgentPage() {
   const client = useQueryClient();
   const agent = useQuery({
@@ -595,6 +791,13 @@ export function AgentPage() {
     queryFn: () => api<AgentPlan>("/app/agent/plan"),
   });
   const [planOpen, setPlanOpen] = useState(false);
+  // The side column's Microscope tab and safety row, while the microscope's routes are served.
+  const caps = useQuery({ queryKey: ["capabilities"], queryFn: () => api<Capabilities>("/capabilities") });
+  const instrument =
+    !!caps.data?.routers.microscope && (caps.data.connected !== false || !!caps.data.instruments?.length);
+  const fibsem = (caps.data?.instruments?.[0] ?? "fibsem") === "fibsem";
+  const safety = useSafetyActions(instrument);
+  const [shown, setShown] = useMicroscopeShown();
   const rowsNow = recent.data?.rows ?? [];
   const since = rowsNow.find((r) => r.at)?.at;
   const transcript = useQuery({
@@ -642,6 +845,14 @@ export function AgentPage() {
   // Files dragged over the chat: enter and leave fire for each child, so count them.
   const drags = useRef(0);
   const [dragging, setDragging] = useState(false);
+  // The subagent run the Subagents tab shows, by its call's key (null: the
+  // list); *focus* brings the tab to the front, then clears so opening a run
+  // again does too.
+  const [shownRun, setShownRun] = useState<string | null>(null);
+  const [focus, setFocus] = useState<string | null>(null);
+  useEffect(() => {
+    if (focus) setFocus(null);
+  }, [focus]);
   const newest = rows.length ? rows[rows.length - 1].at : "";
   const seen = useRef(newest);
   useEffect(() => {
@@ -683,9 +894,74 @@ export function AgentPage() {
     lastStep != null &&
     !entries.some((l) => answers(l) && l.session_id === lastStep.session_id && l.step === lastStep.seq);
   const session = reported.data?.session;
+  const heard = isWorking && !a.stopped;
+  const idx = indexLines(entries, heard);
+  const openRun = (call: TranscriptLine) => {
+    setShownRun(stepKey(call.session_id, call.seq));
+    setFocus("subagents");
+  };
   const panel = hasPanel(session) ? (
     <SidePanel session={session} plan={plan.data} budgetLow={a.budget_low} onOpenPlan={() => setPlanOpen(true)} />
   ) : null;
+  const tabs: ColumnTab[] = [
+    {
+      id: "session",
+      label: "Session",
+      icon: <ListChecks size={14} />,
+      render: () =>
+        panel ?? (
+          <p className="m-0 text-[13px] text-muted-foreground">
+            The agent's goal, plan and budget show here once it reports them.
+          </p>
+        ),
+    },
+  ];
+  if (instrument)
+    tabs.push({
+      id: "microscope",
+      label: "Microscope",
+      icon: <Microscope size={14} />,
+      menu: <MicroscopeCustomise fibsem={fibsem} shown={shown} onChange={setShown} />,
+      render: () => <MicroscopeTab fibsem={fibsem} shown={shown} onOpenPage={() => openPage("/ui/microscope")} />,
+    });
+  if (idx.calls.length) {
+    const call = idx.calls.find((c) => stepKey(c.session_id, c.seq) === shownRun);
+    const answer = call && idx.answered.get(shownRun!);
+    tabs.push({
+      id: "subagents",
+      label: "Subagents",
+      icon: <Bot size={14} />,
+      badge: idx.calls.some((c) => !idx.answered.has(stepKey(c.session_id, c.seq)) && idx.running(c)) ? (
+        <span className="block size-1.5 rounded-full bg-primary" aria-label="one is running" />
+      ) : undefined,
+      render: () =>
+        call ? (
+          <div className="flex flex-col gap-3">
+            <button
+              className="flex w-fit cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-[12px] text-muted-foreground hover:text-foreground"
+              onClick={() => setShownRun(null)}
+            >
+              <ChevronLeft size={13} />
+              All runs ({idx.calls.length})
+            </button>
+            <RunCard
+              tab
+              call={call}
+              answer={answer}
+              live={!answer && idx.running(call)}
+              answered={idx.answered}
+              pictures={idx.pictures}
+              runs={idx.runs}
+              running={idx.running}
+              now={a.now}
+              calls={calls}
+            />
+          </div>
+        ) : (
+          <SubagentList calls={idx.calls} answered={idx.answered} running={idx.running} onOpen={openRun} />
+        ),
+    });
+  }
   return (
     <div className="flex h-full">
       <div
@@ -808,9 +1084,10 @@ export function AgentPage() {
                   rows={rows}
                   lines={lines}
                   show={show}
-                  heard={isWorking && !agent.data?.stopped}
+                  heard={heard}
                   now={a.now}
                   calls={calls}
+                  onOpen={openRun}
                 />
               ) : isWorking && !agent.data?.stopped ? (
                 <div className="flex items-center justify-center gap-1.5 py-8 text-[13px] text-muted-foreground">
@@ -862,10 +1139,9 @@ export function AgentPage() {
         )}
         <div className="flex flex-col gap-2.5 border-t border-border pt-3 pb-4">
           {/* Kept while a session runs, so the composer doesn't move as commands start and end.
-              The running step says it in the record; here only when no step shows it. */}
-          {(a.session || a.now) && !nowOnStep && (
-            <div className="min-h-5 text-[13px] text-muted-foreground">{a.now}</div>
-          )}
+              Live while something runs; else the running step says it in the record, and
+              here only when no step shows it. */}
+          <LiveLine agent={a} heard={isWorking && !a.stopped} hide={nowOnStep} />
           {a.waiting &&
             (a.waiting.agent_reviewing ? (
               <div className="text-[13px]">
@@ -890,14 +1166,12 @@ export function AgentPage() {
           </div>
         </div>
       </div>
-      {panel && (
-        <aside
-          aria-label="Goal and to do"
-          className="hidden w-[clamp(232px,22vw,400px)] shrink-0 overflow-y-auto border-l border-border px-6 pt-[38px] pb-4 lg:block"
-        >
-          {panel}
-        </aside>
-      )}
+      <SideColumn
+        tabs={tabs}
+        focus={focus}
+        footer={<SafetyRow actions={safety} />}
+        rail={<SafetyRow actions={safety} compact />}
+      />
       <PlanDialog plan={plan.data} open={planOpen} onOpenChange={setPlanOpen} />
     </div>
   );

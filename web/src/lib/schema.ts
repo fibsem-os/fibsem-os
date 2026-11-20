@@ -233,11 +233,15 @@ export interface components {
                 [key: string]: unknown;
             };
             available: boolean;
+            /** @default  */
+            label: string;
             /** @default false */
             long: boolean;
             /** @default  */
             reason: string;
             returns: string | null;
+            /** @default false */
+            safety: boolean;
             signature: string;
         };
         /** @description A patch to a task config, or its milling stages reordered, against

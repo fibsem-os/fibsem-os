@@ -235,6 +235,11 @@ class CommandDescription(QueryDescription):
     agent: Optional[bool] = None
     # Answered at once with a run on the App Server.
     long: bool = False
+    # A safety action (`command`'s ``safety``): it runs during a Safety Halt,
+    # and takes no control of the microscope.
+    safety: bool = False
+    # Its button pinned on the Agent page ("Close valves"); empty for none.
+    label: str = ""
 
 
 @saved(keys={"class_": "class"})

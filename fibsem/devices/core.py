@@ -560,6 +560,9 @@ class CommandInfo:
     """Why it is not available now, when it says; empty when it is."""
     safety: bool = False
     """A safety action (`command`'s ``safety``): it runs during a Safety Halt."""
+    label: str = ""
+    """A safety action's button, as it reads ("Close valves"): pinned on the
+    Agent page. Empty for one with no button of its own."""
 
 
 # Set while a safety command runs, so its own writes and calls pass a Safety Halt.
@@ -585,6 +588,7 @@ def command(
     line: Optional[Callable[..., Dict[str, Any]]] = None,
     operator_only: str = "",
     safety: bool = False,
+    label: str = "",
 ) -> Any:
     """Mark a device method as a command. It stays a plain method.
 
@@ -603,7 +607,10 @@ def command(
     ``safety`` marks a safety action (stop, blank the beam, close a valve, and the
     command that clears a Safety Halt): it still runs during a Safety Halt, and so do
     the writes and commands it makes. Every other command is refused then, by
-    whoever calls it. A subclass overriding the method keeps the mark.
+    whoever calls it. A subclass overriding the method keeps the mark. It takes
+    no control of the microscope, so it also runs while a mill or a move holds it,
+    and the agent may run it only at Drive. ``label`` gives a safety action a
+    button pinned on the Agent page, as it reads ("Close valves").
 
     A numpy value among its arguments reaches the method as the plain Python it
     holds (`fibsem.util.plain`), so no driver is handed numpy.
@@ -621,6 +628,8 @@ def command(
             method.__operator_only__ = operator_only  # type: ignore[attr-defined]
         if safety:
             method.__device_safety__ = True  # type: ignore[attr-defined]
+        if label:
+            method.__device_label__ = label  # type: ignore[attr-defined]
         return method
 
     return mark(fn) if fn is not None else mark
@@ -1234,6 +1243,7 @@ class _Controllable:
                 long=bool(getattr(attr, "__device_long__", False)),
                 reason=reason,
                 safety=safety,
+                label=getattr(attr, "__device_label__", ""),
             )
         return found
 
