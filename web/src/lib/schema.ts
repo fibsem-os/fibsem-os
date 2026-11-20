@@ -37,6 +37,15 @@ export interface components {
             specialists: components["schemas"]["SkillRow"][];
             tools: components["schemas"]["ToolRow"][];
         };
+        /** @description GET /app/agent/playbook-file: the running session's playbook as its
+         *     file is now. ``hash`` is None when the file is gone or doesn't load;
+         *     ``edited``, that it differs from the copy the session runs. */
+        AgentPlaybookFile: {
+            /** @default false */
+            edited: boolean;
+            hash: string | null;
+            name: string | null;
+        };
         /** @description POST /app/agent/requests: the agent's actions, each ``{tool,
          *     arguments}``, and why, for the operator to approve at Assist. */
         AgentRequestBody: {
@@ -1373,6 +1382,14 @@ export interface components {
             };
             reason: string | null;
         };
+        /** @description An MCP server of the session, as the agent's CLI last said: its
+         *     status (``connected``, ``failed``, ``pending``, ...) and its tools. */
+        McpServer: {
+            about: string | null;
+            name: string;
+            status: string;
+            tools: number | null;
+        };
         /** @description POST /app/agent/messages: the operator's message to the agent. ``text``
          *     may be empty when ``evidence`` says it. */
         MessageBody: {
@@ -1754,6 +1771,37 @@ export interface components {
             group?: string | null;
             step: string;
         };
+        /** @description The playbook the session runs, as it was loaded (`Playbook.about`):
+         *     what the agent follows, whatever its file says now. Sent when the
+         *     session starts on it or ``playbook_set`` changes it. */
+        PlaybookAbout: {
+            agents: string[] | null;
+            description: string | null;
+            extends: string[] | null;
+            hash: string | null;
+            instrument: string | null;
+            mcp: string[] | null;
+            name: string;
+            optional: components["schemas"]["PlaybookOption"][] | null;
+            reminders: components["schemas"]["PlaybookReminder"][] | null;
+            rules: string[] | null;
+            skills: string[] | null;
+            source: ("shipped" | "lab" | "plugin") | null;
+            tools: string[] | null;
+        };
+        /** @description An optional skill: read *when* the job needs it, its reminders and
+         *     subagents on while it is loaded. */
+        PlaybookOption: {
+            agents: string[] | null;
+            reminders: components["schemas"]["PlaybookReminder"][] | null;
+            skill: string;
+            when: string;
+        };
+        PlaybookReminder: {
+            label: string;
+            say: string;
+            when: string;
+        };
         PlaybookSkill: {
             skill: string;
             /** @enum {string} */
@@ -2062,10 +2110,12 @@ export interface components {
             instrument_serial: string | null;
             model: string | null;
             playbook: components["schemas"]["PlaybookState"] | null;
+            playbook_about: components["schemas"]["PlaybookAbout"] | null;
             reason: string | null;
             reset_asked_at: string | null;
             reset_asked_in: number | null;
             resumed: boolean | null;
+            servers: components["schemas"]["McpServer"][] | null;
             session_id: string | null;
             skills: string[] | null;
             spent_usd: number | null;
