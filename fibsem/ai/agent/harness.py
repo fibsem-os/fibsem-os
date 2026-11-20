@@ -323,6 +323,11 @@ def subagent_tools(names: List[str]) -> List[str]:
 log = logging.getLogger("fibsem.agent.harness")
 
 
+def _reload_failed(error: BaseException) -> str:
+    why = str(error).strip().splitlines()[0] if str(error).strip() else ""
+    return handoff_mod.RELOAD_FAILED.format(why=why[:200] or type(error).__name__)
+
+
 def kickoff(
     resumed: bool = False,
     goal: Optional[str] = None,
@@ -1111,10 +1116,24 @@ class Harness:
         keep_context: Optional[Callable[[str, float], None]] = None,
         spent_carried_usd: float = 0.0,
         wake_on: Optional[wake_policy.WakeOn] = None,
+        recover: Optional[str] = None,
+        latest_note: Optional[Callable[[], Optional[str]]] = None,
+        context_limit: Optional[int] = None,
     ) -> None:
         self._agent = agent
         # Fresh contexts (`handoff`); None for a session that can't start one.
         self._handoff = handoff
+        # A resume that starts in a fresh context, and why (`_recover`); a
+        # resume whose reload fails starts one too, once.
+        self._recover_why = recover
+        self._recovery_tried = recover is not None
+        # Reads the session's latest handoff note, for a fresh context
+        # fibsem-agent starts itself.
+        self._latest_note = latest_note or (lambda: None)
+        # Over this context the agent is asked for a fresh context, once; a
+        # turn after that without one starts it here (`_hold_to_limit`).
+        self._context_limit = context_limit
+        self._limit_asked = False
         self._keep_context = keep_context
         self._carried_usd = spent_carried_usd
         # What wakes the agent; with none given, every line does.
@@ -1264,12 +1283,27 @@ class Harness:
             return self._code
         asides = None
         try:
-            await self._agent.start()
+            recovered = False
+            try:
+                await self._agent.start()
+            except Exception as error:
+                if not self._may_recover():
+                    raise
+                # The reload failed: a fresh context in the same session.
+                await self._recover(_reload_failed(error), reconnect=True)
+                recovered = True
+            if not recovered and self._recover_why is not None:
+                # `main` chose a fresh context before the start.
+                await self._recover(self._recover_why, reconnect=False)
+                recovered = True
             asides = asyncio.ensure_future(self._asides.run())
             # The session's id is known before its first turn: reporting it
             # now lets that turn already write the plan.
             await self._report()
-            prompt = kickoff(self._resumed, self._goal, self._words)
+            if recovered:
+                prompt = self._handoff.into(handoff_mod.RECOVERED_WAKE)
+            else:
+                prompt = kickoff(self._resumed, self._goal, self._words)
             while prompt is not None and await self._turn(prompt):
                 prompt = await self._next_prompt()
         except Exception:
@@ -1447,6 +1481,23 @@ class Harness:
             self._code = 2
             return False
         self._warn_budget()
+        if end.subtype == "no_result" and self._turns == 1 and self._may_recover():
+            # The resumed conversation died on its first turn: carry the
+            # session on in a fresh context instead of stopping.
+            try:
+                await self._recover(
+                    handoff_mod.RELOAD_FAILED.format(
+                        why="the agent's process ended on its first turn"
+                    ),
+                    reconnect=True,
+                )
+            except Exception as error:  # noqa: BLE001 - it stops as before
+                log.warning("A fresh context could not start: %s", error)
+            else:
+                self._put(
+                    self._watcher, watch_mod.Wake(ALARM, handoff_mod.RECOVERED_WAKE)
+                )
+                return True
         if end.subtype == "no_result":
             self._end_reason = "the agent's process ended"
             log.error(
@@ -1468,9 +1519,56 @@ class Harness:
         elif end.subtype != "success":
             log.warning("The turn ended with %s.", end.subtype)
         if fresh:
+            self._limit_asked = False
             await self._fresh_context()
+        else:
+            await self._hold_to_limit(end.context)
         await self._report()
         return True
+
+    async def _hold_to_limit(self, context: Optional[dict]) -> None:
+        """After a turn with no fresh context asked for: a context over the
+        playbook's ``context_limit`` asks the agent for one in its next turn,
+        and if that turn ends without it, starts one here."""
+        limit = self._context_limit
+        used = (context or {}).get("used")
+        if (
+            not limit
+            or not used
+            or used < limit
+            or self._handoff is None
+            or not self._words.handoff_recovered
+        ):
+            self._limit_asked = False
+            return
+        if not self._limit_asked:
+            self._limit_asked = True
+            log.warning(
+                "The context is %s tokens, over its limit of %s: the agent is "
+                "asked for a fresh context.",
+                usage.short(used),
+                usage.short(limit),
+            )
+            self._put(
+                self._watcher,
+                watch_mod.Wake(
+                    ALARM,
+                    handoff_mod.OVER_LIMIT.format(
+                        used=usage.short(used), limit=usage.short(limit)
+                    ),
+                ),
+            )
+            return
+        self._limit_asked = False
+        try:
+            await self._recover(
+                handoff_mod.LIMIT_REACHED.format(limit=usage.short(limit)),
+                reconnect=True,
+            )
+        except Exception as error:  # noqa: BLE001 - it carries on in this one
+            log.warning("A fresh context could not start: %s", error, exc_info=True)
+            return
+        self._put(self._watcher, watch_mod.Wake(ALARM, handoff_mod.RECOVERED_WAKE))
 
     async def _keep_unstarted_handoff(self) -> None:
         """A handoff note the agent wrote in the turn the run ended on: kept
@@ -1485,20 +1583,87 @@ class Harness:
                 None, handoff_mod.post, self._client, session_id, note.markdown()
             )
 
-    async def _fresh_context(self) -> None:
-        """The agent asked for a fresh context this turn: keep its note, start
-        a new conversation under the same session, and wake it with the note.
-        If the new conversation can't start, the agent carries on in this one."""
-        handoff = self._handoff
-        note = handoff.take()
+    def _skills_to_read(self) -> Tuple[List[str], List[str]]:
+        """(The skills a fresh context reads, the others read before.)"""
         playbook = self._playbook.reminders if self._playbook is not None else None
-        skills, read = handoff_mod.skills_to_read(
+        return handoff_mod.skills_to_read(
             playbook.playbook if playbook is not None else None,
             playbook.skills if playbook is not None else {},
             list(getattr(self._agent, "skills_read", None) or []),
             # Every instrument's session reads the base skill first.
             None if self._words.kind == instruments.NONE else BASE_SKILL,
         )
+
+    def _may_recover(self) -> bool:
+        """Whether a resume whose reload failed may start a fresh context:
+        once, and only with the words for one."""
+        if (
+            not self._resumed
+            or self._recovery_tried
+            or self._handoff is None
+            or not self._words.handoff_recovered
+            or (self._stopping is not None and self._stopping.is_set())
+        ):
+            return False
+        self._recovery_tried = True
+        return True
+
+    async def _recover(self, why: str, reconnect: bool) -> None:
+        """Carry the session on in a fresh context fibsem-agent starts itself,
+        *why* (a resume that can't reload the last conversation, a context
+        over its limit): with *reconnect*, start a new
+        conversation now; without, the agent started in one `main` chose.
+        Its first turn rebuilds from the plan, the latest handoff note and
+        the record."""
+        self._recover_why = why
+        # Its spend so far: the new conversation's running total starts at 0.
+        if self._spent_usd is not None:
+            spent = self._spent_usd
+        elif self._run_from_usd is not None:
+            spent = self._run_from_usd
+        else:
+            spent = self._carried_usd
+        if reconnect:
+            conversation = await self._agent.new_context()
+        else:
+            conversation = getattr(self._agent, "conversation_id", None)
+        self._carried_usd = spent
+        self._run_from_usd = spent
+        if self._keep_context is not None and conversation:
+            try:
+                self._keep_context(conversation, spent)
+            except Exception:  # noqa: BLE001 - the session goes on
+                log.debug("Keeping the new context failed.", exc_info=True)
+        skills, _ = self._skills_to_read()
+        try:
+            note = self._latest_note()
+        except Exception:  # noqa: BLE001 - the record is read without it
+            log.debug("Reading the latest handoff note failed.", exc_info=True)
+            note = None
+        self._handoff.recovered(why, skills, note)
+        calls = getattr(self._agent, "calls", None)
+        if calls is not None and not reconnect:
+            # `new_context` counts its own; one chosen before the start is here.
+            calls.segment = self._handoff.contexts
+        log.warning(
+            "Fresh context %d: %s The agent rebuilds from its plan, the latest "
+            "handoff note and the experiment's record, and asks before it acts.",
+            self._handoff.contexts,
+            why[:1].upper() + why[1:],
+        )
+        _line(
+            self._agent,
+            "context",
+            f"Fresh context {self._handoff.contexts}, started by fibsem-agent: {why}",
+        )
+
+    async def _fresh_context(self) -> None:
+        """The agent asked for a fresh context this turn: keep its note, start
+        a new conversation under the same session, and wake it with the note.
+        If the new conversation can't start, the agent carries on in this one."""
+        handoff = self._handoff
+        note = handoff.take()
+        skills, read = self._skills_to_read()
         handoff.keep(note)
         session_id = getattr(self._agent, "session_id", None)
         kept = None
@@ -3206,6 +3371,12 @@ def _main(argv, opened: List["sessions.SessionFolder"]) -> int:
         contexts=1 + len(record.get(sessions.CONTEXTS) or []),
     )
     conversation = sessions.conversation(record) if args.resume else None
+    # A resume whose last conversation is too large to be worth reloading
+    # carries on in a fresh context, rebuilt from the record (`Harness._recover`).
+    recover = _too_large_to_resume(
+        record, session.folder, playbook.session.resume_max_context, words
+    )
+    fresh_conversation = str(uuid.uuid4()) if recover else None
     # The agent's own wake policy, if it set one before a resume.
     wake_on.restore(record.get(sessions.WAKE_ON))
     options = build_options(
@@ -3217,10 +3388,10 @@ def _main(argv, opened: List["sessions.SessionFolder"]) -> int:
         token=token,
         model=args.model,
         max_turns=args.max_turns,
-        resume=conversation or args.resume,
+        resume=None if recover else conversation or args.resume,
         effort=args.effort,
         work=work,
-        session_id=None if args.resume else session_id,
+        session_id=fresh_conversation or (None if args.resume else session_id),
         code=code,
         playbook=playbook,
         transcript=session.folder,
@@ -3267,6 +3438,9 @@ def _main(argv, opened: List["sessions.SessionFolder"]) -> int:
         keep_context=session.keep_context,
         spent_carried_usd=sessions.context_spend(record),
         wake_on=wake_on,
+        recover=recover,
+        latest_note=lambda: handoff_mod.latest_note(session.folder / sessions.HANDOFF),
+        context_limit=playbook.session.context_limit,
         about={
             "harness": "fibsem-agent",
             "code": work is not None and code,
@@ -3299,6 +3473,25 @@ def _main(argv, opened: List["sessions.SessionFolder"]) -> int:
         signal.signal(signal.SIGINT, previous)
     session.end(code, **(outcome or harness.outcome()))
     return code
+
+
+def _too_large_to_resume(
+    record: dict,
+    folder: Path,
+    limit: Optional[int],
+    words: instruments.Texts,
+) -> Optional[str]:
+    """Why a resumed session's last conversation is not reloaded, or None to
+    reload it: its context was over *limit* tokens as it stopped (its usage
+    file's last call)."""
+    if not record or not limit or not words.handoff_recovered:
+        return None
+    used = usage.last_context(folder / usage.FILE)
+    if used is None or used < limit:
+        return None
+    return handoff_mod.TOO_LARGE.format(
+        used=usage.short(used), limit=usage.short(limit)
+    )
 
 
 def _spent_before(record: dict) -> Optional[float]:

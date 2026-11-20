@@ -15,6 +15,7 @@ nothing from the SDK at import.
 
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from fibsem.ai.agent import instruments, usage
@@ -68,6 +69,26 @@ FAILED = (
 )
 # The wake-up that starts the fresh context's first turn.
 WAKE = "WAKE a fresh context: start from the handoff note above."
+# The wake-up that starts a fresh context a resume began (`Handoff.recovered`).
+RECOVERED_WAKE = "WAKE a fresh context: rebuild from the record, as above."
+# Why a resume starts a fresh context instead of reloading the conversation.
+TOO_LARGE = (
+    "its last conversation was too large to reload ({used} tokens of context, "
+    "above the playbook's resume_max_context of {limit})."
+)
+RELOAD_FAILED = "its last conversation could not be reloaded ({why})."
+# Said once the context passes the playbook's context_limit.
+OVER_LIMIT = (
+    "WAKE Your context is {used} tokens, above this session's limit of {limit}. "
+    "Bring your plan up to date and call context_reset in this turn, with a "
+    "handoff note, then end your turn. If you don't, fibsem-agent starts the "
+    "fresh context itself when this turn ends, without your note."
+)
+LIMIT_REACHED = (
+    "the context passed the session's limit of {limit} tokens and the agent "
+    "did not call context_reset."
+)
+NO_NOTE = "None: no earlier context of this session wrote one."
 
 
 @dataclass
@@ -180,6 +201,19 @@ class Handoff:
         # A size said of the earlier context is not this one's.
         self._lines = []
 
+    def recovered(self, why: str, skills: List[str], note: Optional[str]) -> None:
+        """A resume started a fresh context instead of reloading the last
+        conversation, *why*: its first turn rebuilds from the record and
+        *note*, the session's latest handoff note."""
+        self.contexts += 1
+        self.pending = None
+        self._prompt = self.words.handoff_recovered.format(
+            why=why,
+            skills=", ".join(skills) or "none",
+            note=(note or "").strip() or NO_NOTE,
+        )
+        self._lines = []
+
     def failed(self, why: str) -> None:
         self._lines.append(FAILED.format(why=why))
 
@@ -214,6 +248,16 @@ class Handoff:
             prompt += f"\n\n{line}"
         self._prompt, self._lines = None, []
         return prompt
+
+
+def latest_note(path: Path) -> Optional[str]:
+    """The newest note in a session's handoff file (`FILE`), or None."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    start = text.rfind("## Handoff to context ")
+    return text[start:].strip() or None if start >= 0 else None
 
 
 def skills_to_read(

@@ -5,9 +5,10 @@ intake steps and the re-read lines, as files beside the playbooks.
         prompt.md     the harness prompt
         intake.md     ## start, ## resumed, ## goal
         reread.md     ## proposals, ## plan, ## level
-        handoff.md    ## start, ## mark, ## compact: a fresh context's first
-                      prompt, the context-size line, and what compaction
-                      keeps (`handoff`); optional: the default kind's if
+        handoff.md    ## start, ## mark, ## compact, ## recovered: a fresh
+                      context's first prompt, the context-size line, what
+                      compaction keeps, and the first prompt of a fresh
+                      context a resume starts (`handoff`); optional: the default kind's if
                       missing, and without one the agent has no fresh context
         devices.yaml  what it has, so the agent is offered the tools on them:
                       ``microscope: true`` for a FIB-SEM (every tool), else
@@ -56,6 +57,7 @@ OPTIONAL: Dict[str, Dict[str, set]] = {
         "start": {"skills", "read_before", "note", "file"},
         "mark": {"used", "window", "turn_cost"},
         "compact": set(),
+        "recovered": {"why", "skills", "note"},
     },
 }
 _NOTE = re.compile(r"\A\s*<!--.*?-->\s*", re.S)
@@ -81,6 +83,7 @@ class Texts:
     handoff_start: str = ""
     handoff_mark: str = ""
     handoff_compact: str = ""
+    handoff_recovered: str = ""
 
 
 def _folders(checkout: Optional[Path]) -> Dict[str, Path]:
@@ -136,6 +139,7 @@ def load(kind: Optional[str], checkout: Path) -> Texts:
         handoff_start=handoff["start"],
         handoff_mark=handoff["mark"],
         handoff_compact=handoff["compact"],
+        handoff_recovered=handoff["recovered"],
     )
 
 
