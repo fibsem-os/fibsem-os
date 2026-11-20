@@ -105,6 +105,10 @@ class ParameterMetadata:
     ``native_max`` and ``native_unit`` are for a parameter kept as a fraction of the
     hardware's maximum (power, gain): what 1.0 is in the hardware's own units, when
     the driver knows. A display can then show both.
+
+    ``reason`` says why a parameter that can be set at other times can't be now
+    (``settable`` False): "locked after alignment", or the instrument's Safety Halt.
+    Empty when it is settable, or when it never is.
     """
 
     limits: Optional[Limits] = None
@@ -112,6 +116,7 @@ class ParameterMetadata:
     settable: bool = True
     native_max: Optional[float] = None
     native_unit: Optional[str] = None
+    reason: str = ""
 
 
 @dataclass(frozen=True)
