@@ -66,6 +66,8 @@ export interface DeviceSpec {
   driver: string;
   type: string;
   parameters: Record<string, ParameterSpec>;
+  /** `safety`: a command that makes the instrument safe, named as its button reads. */
+  commands?: Record<string, S["CommandDescription"]>;
 }
 
 export type DeviceListing = Record<string, DeviceSpec>;

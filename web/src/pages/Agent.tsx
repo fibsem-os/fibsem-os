@@ -5,16 +5,18 @@ import { Popup } from "@/components/ui/popup";
 import { api, imageUrl } from "@/lib/api";
 import { onEvents } from "@/lib/events";
 import { Markdown } from "@/lib/markdown";
-import type { AgentPlan, AgentState, RecentRow, ReportedSession, TranscriptLine } from "@/lib/types";
+import type { AgentPlan, AgentState, Capabilities, RecentRow, ReportedSession, TranscriptLine } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { ConnectCard, RequestCard, SuggestionCard } from "./agent/Cards";
 import { carriesFiles, splitAttached, useAttachments } from "./agent/attach";
 import { SentFiles } from "./agent/Attachments";
 import { Composer } from "./agent/Composer";
 import { KnowledgeDialog } from "./agent/Knowledge";
+import { MicroscopeCustomise, MicroscopeTab, useMicroscopeShown } from "./agent/MicroscopeTab";
 import { EvidenceImage } from "./agent/Pictures";
 import { PlanDialog } from "./agent/PlanDialog";
 import { say, since } from "./agent/steps";
+import { type ColumnTab, SafetyRow, SideColumn, useSafetyActions } from "./agent/SideColumn";
 import { hasPanel, SidePanel } from "./agent/SidePanel";
 
 // The agent's news (lib/events.ts) reads it, its session and its plan again at once.
@@ -62,6 +64,12 @@ const TONE: Record<string, string> = {
   running: "text-link",
   muted: "text-muted-foreground",
 };
+
+/** Another page of the app, as the rail opens it. */
+function openPage(path: string) {
+  history.pushState(null, "", path);
+  dispatchEvent(new PopStateEvent("popstate"));
+}
 
 const capital = (text: string) => text.replace(/^./, (c) => c.toUpperCase());
 
@@ -480,6 +488,13 @@ export function AgentPage() {
     queryFn: () => api<AgentPlan>("/app/agent/plan"),
   });
   const [planOpen, setPlanOpen] = useState(false);
+  // The side column's Microscope tab and safety row, while the microscope's routes are served.
+  const caps = useQuery({ queryKey: ["capabilities"], queryFn: () => api<Capabilities>("/capabilities") });
+  const instrument =
+    !!caps.data?.routers.microscope && (caps.data.connected !== false || !!caps.data.instruments?.length);
+  const fibsem = (caps.data?.instruments?.[0] ?? "fibsem") === "fibsem";
+  const safety = useSafetyActions(instrument);
+  const [shown, setShown] = useMicroscopeShown();
   const rowsNow = recent.data?.rows ?? [];
   const since = rowsNow.find((r) => r.at)?.at;
   const transcript = useQuery({
@@ -571,6 +586,25 @@ export function AgentPage() {
   const panel = hasPanel(session) ? (
     <SidePanel session={session} plan={plan.data} budgetLow={a.budget_low} onOpenPlan={() => setPlanOpen(true)} />
   ) : null;
+  const tabs: ColumnTab[] = [
+    {
+      id: "session",
+      label: "Session",
+      render: () =>
+        panel ?? (
+          <p className="m-0 text-[13px] text-muted-foreground">
+            The agent's goal, plan and budget show here once it reports them.
+          </p>
+        ),
+    },
+  ];
+  if (instrument)
+    tabs.push({
+      id: "microscope",
+      label: "Microscope",
+      menu: <MicroscopeCustomise fibsem={fibsem} shown={shown} onChange={setShown} />,
+      render: () => <MicroscopeTab fibsem={fibsem} shown={shown} onOpenPage={() => openPage("/ui/microscope")} />,
+    });
   return (
     <div className="flex h-full">
       <div
@@ -775,13 +809,12 @@ export function AgentPage() {
           </div>
         </div>
       </div>
-      {panel && (
-        <aside
-          aria-label="Goal and to do"
-          className="hidden w-[clamp(232px,22vw,400px)] shrink-0 overflow-y-auto border-l border-border px-6 pt-[38px] pb-4 lg:block"
-        >
-          {panel}
-        </aside>
+      {(panel || instrument) && (
+        <SideColumn
+          tabs={tabs}
+          footer={instrument && <SafetyRow actions={safety} />}
+          rail={instrument && <SafetyRow actions={safety} compact />}
+        />
       )}
       <PlanDialog plan={plan.data} open={planOpen} onOpenChange={setPlanOpen} />
     </div>

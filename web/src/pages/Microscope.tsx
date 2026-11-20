@@ -175,11 +175,11 @@ function DeviceCard({
   );
 }
 
-const IMAGE_LABEL: Record<string, string> = { sem: "SEM Image", fib: "FIB Image", fm: "FM Image" };
+export const IMAGE_LABEL: Record<string, string> = { sem: "SEM Image", fib: "FIB Image", fm: "FM Image" };
 
 /** An image in a box exactly its shape, with its scalebar: *height* is the room it
  * has, as a CSS length, and it fits in the width it is given. */
-function Shown({ image, alt, height }: { image: ImagePayload; alt: string; height: string }) {
+export function Shown({ image, alt, height }: { image: ImagePayload; alt: string; height: string }) {
   const ratio = image.width / image.height;
   return (
     <div className="relative" style={{ aspectRatio: `${ratio}`, width: `min(100%, calc(${height} * ${ratio}))` }}>
