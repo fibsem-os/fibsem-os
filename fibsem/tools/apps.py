@@ -31,6 +31,18 @@ ICONS_DIR = Path(str(importlib.resources.files("fibsem"))) / "ui" / "icons"
 
 
 @dataclass(frozen=True)
+class AppSetting:
+    """One of an app's start settings: passed as ``--<name> <value>``."""
+
+    name: str
+    """The flag's name, without the dashes: letters, digits and -."""
+    label: str
+    """What the gateway's page calls it."""
+    default: str = ""
+    """The value when none is given; empty passes nothing."""
+
+
+@dataclass(frozen=True)
 class App:
     """A desktop app the launcher can start."""
 
@@ -58,6 +70,19 @@ class App:
     """``"package.module:function"`` that serves the app with no window, called
     as ``function(argv, stop=event)``; None when it has no headless command.
     The gateway runs it (fibsem.gateway)."""
+    opens_experiments: bool = True
+    """Whether it opens an experiment as it starts: the gateway passes one (or
+    ``--last``) only to an app that does."""
+    connects_microscope: bool = True
+    """Whether it takes a FIB-SEM microscope connection as it starts (the
+    gateway's ``--config`` or ``--no-connect``); an app for an instrument that
+    connects its own way takes none."""
+    has_window: bool = True
+    """Whether it has a desktop window. One that hasn't runs its headless
+    command when started "with its window", and its pages are its window."""
+    settings: Tuple["AppSetting", ...] = ()
+    """Its own start settings, given on the gateway's page and passed to its
+    headless command as ``--<name> <value>``."""
 
     @property
     def windows_icon(self) -> Optional[Path]:

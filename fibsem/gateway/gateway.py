@@ -23,7 +23,7 @@ import threading
 import time
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import fibsem
 from fibsem.server.discovery import DISCOVERY_DIR, read_discovery_file
@@ -103,6 +103,14 @@ class GatewayApp:
     name: str
     headless: bool
     """Whether it can run with no window."""
+    opens_experiments: bool = True
+    """Whether it opens an experiment as it starts."""
+    connects_microscope: bool = True
+    """Whether it takes a microscope connection as it starts."""
+    has_window: bool = True
+    """Whether it has a desktop window; one that hasn't shows its pages."""
+    settings: List[Dict[str, str]] = field(default_factory=list)
+    """Its own start settings: ``{name, label, default}`` each."""
 
 
 @dataclass
@@ -197,6 +205,29 @@ def saved_configurations() -> List[dict]:
     from fibsem.config import saved_configurations
 
     return saved_configurations()
+
+
+def _setting_flags(app: App, settings: Optional[Dict[str, Any]]) -> List[str]:
+    """*app*'s own start settings as its flags, ``--<name> <value>``: the given
+    value, else its default; an empty one passes nothing. A name it doesn't
+    take is refused."""
+    given = dict(settings or {})
+    known = {setting.name: setting for setting in app.settings}
+    unknown = sorted(set(given) - set(known))
+    if unknown:
+        raise GatewayRefused(
+            422,
+            "bad_setting",
+            f"{app.name} takes no setting {', '.join(unknown)}"
+            + (f" (it takes {', '.join(known)})." if known else "."),
+        )
+    flags: List[str] = []
+    for name, setting in known.items():
+        value = given.get(name)
+        value = setting.default if value is None else str(value).strip()
+        if value:
+            flags += [f"--{name}", value]
+    return flags
 
 
 def _check_experiment(experiment: Optional[str], create: bool) -> None:
@@ -372,7 +403,18 @@ class Gateway:
         state.other_host = self._other_host()
         facts = self._facts if self._facts is not None else self.refresh_facts()
         state.apps = [
-            GatewayApp(key=key, name=app.name, headless=app.serve is not None)
+            GatewayApp(
+                key=key,
+                name=app.name,
+                headless=app.serve is not None,
+                opens_experiments=app.opens_experiments,
+                connects_microscope=app.connects_microscope,
+                has_window=app.has_window,
+                settings=[
+                    {"name": s.name, "label": s.label, "default": s.default}
+                    for s in app.settings
+                ],
+            )
             for key, app in facts["apps"].items()
         ]
         state.last_experiment = facts["last"]
@@ -455,16 +497,27 @@ class Gateway:
         connect: Optional[bool] = None,
         configuration: Optional[str] = None,
         create: bool = False,
+        settings: Optional[Dict[str, Any]] = None,
     ) -> GatewayState:
         """Start *app*'s host, with its window at this PC or without, stopping
         the running one first. *experiment* is a folder to open, or with
         *create* a new one to make. *connect* connects *configuration* (the
         default one without) as it starts, or nothing when False; None keeps
-        the gateway's own connection flags. Raises `GatewayRefused` when it
-        can't."""
+        the gateway's own connection flags. *settings* are the app's own
+        (`App.settings`), by name. An app passes over what it doesn't take: an
+        experiment, a connection, or a window it hasn't (it then runs its
+        headless command). Raises `GatewayRefused` when it can't."""
         chosen = self._app(app, window)
+        window = window and chosen.has_window
+        flags = _setting_flags(chosen, settings)
+        if not chosen.opens_experiments:
+            experiment, last, create = None, False, False
         _check_experiment(experiment, create)
-        connection = self._start_connection(connect, configuration)
+        connection = (
+            self._start_connection(connect, configuration)
+            if chosen.connects_microscope
+            else []
+        )
         with self._take(who, via, RUNNING, app, experiment, window):
             if self._state.mode != OFF:
                 self._stop_current(force)
@@ -476,7 +529,9 @@ class Gateway:
                     f"Another fibsem host (pid {other.pid}) has control of the microscope: "
                     "close it at the PC first.",
                 )
-            self._start(app, chosen, window, experiment, last, connection, create)
+            self._start(
+                app, chosen, window, experiment, last, connection, create, flags
+            )
             self._record(OFF, RUNNING, who, via, "started", app, experiment, window)
             with self._lock:
                 self._state.who, self._state.via = who, via
@@ -600,7 +655,7 @@ class Gateway:
         found = self._apps().get(key or "")
         if found is None:
             raise GatewayRefused(422, "bad_app", f"No app {key!r}.")
-        if not window and found.serve is None:
+        if (not window or not found.has_window) and found.serve is None:
             raise GatewayRefused(
                 422, "no_headless", f"{found.name} runs only with its window."
             )
@@ -672,6 +727,7 @@ class Gateway:
         last: bool,
         connection: List[str],
         create: bool = False,
+        flags: Optional[List[str]] = None,
     ) -> None:
         stamp = time.strftime("%Y%m%d-%H%M%S")
         logs = self._home / "logs" / "gateway"
@@ -683,6 +739,7 @@ class Gateway:
         args = [experiment] if experiment else ["--last"] if last else []
         if experiment and create:
             args.append("--create")
+        args += flags or []
         if window:
             # An app with a headless command has the host's flags, and hosts
             # whatever the preference; others none.
@@ -699,7 +756,7 @@ class Gateway:
                 str(stop_file),
                 app.serve,
                 *args,
-                *(connection or ["--no-connect"]),
+                *(connection or ["--no-connect"] if app.connects_microscope else []),
             ]
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         with open(log, "w") as out:
