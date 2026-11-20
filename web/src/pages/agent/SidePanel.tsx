@@ -369,6 +369,10 @@ export function SidePanel({
     deadlines,
     checklist,
   } = session;
+  // How near the context is to compaction: a warning from 80%.
+  const contextFull = context?.compact_at || context?.window;
+  const contextShare = contextFull ? context!.used / contextFull : 0;
+  const contextLow = !ended && contextShare >= 0.8;
   return (
     <div className="flex flex-col gap-3.5 text-[13px] leading-[1.45]">
       {(goal || deadlines?.length) ? (
@@ -448,13 +452,28 @@ export function SidePanel({
           ) : null}
           {context && (
             <p
-              className="m-0 mt-1.5 text-muted-foreground"
+              className={cn("m-0 mt-1.5", contextLow ? WARN : "text-muted-foreground")}
               title={context.compact_at ? `Compacts at ${count(context.compact_at)}` : undefined}
             >
               Context {count(context.used)}
               {context.window ? ` of ${count(context.window)}` : " tokens"}
             </p>
           )}
+          {contextFull ? (
+            // Filled to where the CLI compacts, else to the whole window.
+            <div
+              className="mt-1.5 h-[3px] rounded-sm bg-accent"
+              title={`${Math.round(100 * contextShare)}% of ${context?.compact_at ? "the way to compaction" : "the window"}`}
+            >
+              <div
+                className={cn(
+                  "h-full rounded-sm",
+                  contextLow ? "bg-[var(--fibsem-warn-color)]" : "bg-muted-foreground/70",
+                )}
+                style={{ width: `${Math.min(100, 100 * contextShare)}%` }}
+              />
+            </div>
+          ) : null}
         </Section>
       )}
       <Setup session={session} />
