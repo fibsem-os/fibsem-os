@@ -454,16 +454,24 @@ class ImageTools:
         channel: Optional[str] = None,
         plane: Optional[int] = None,
         box: Optional[List[float]] = None,
+        points: Optional[int] = None,
     ) -> ImageMeasured:
         """A saved image's radially averaged power spectrum, the finest
         period with signal and its anisotropy, with a figure
-        (`fibsem.analysis.measure.power_spectrum`)."""
-        return self._measured(
+        (`fibsem.analysis.measure.power_spectrum`). The answer leaves the
+        radial average out; *points* adds it resampled to that many
+        (`fibsem.analysis.measure.spectrum_summary`)."""
+        answer = self._measured(
             path,
             lambda image: measure.power_spectrum(image, channel, plane, box),
             measure.spectrum_figure,
             _measure_name("spectrum", plane, box),
         )
+        try:
+            answer.result = measure.spectrum_summary(answer.result, points)
+        except ValueError as exc:
+            raise ImageRefused("invalid", str(exc)) from None
+        return answer
 
     def measure_thickness(
         self,

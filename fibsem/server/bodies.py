@@ -721,7 +721,8 @@ class HistogramBody:
 @dataclass
 class SpectrumBody:
     """POST /app/experiment/analysis/spectrum: a saved image's power
-    spectrum, on a plane and in a box when given."""
+    spectrum, on a plane and in a box when given; *points* adds its radial
+    average resampled to that many frequencies."""
 
     __pydantic_config__ = STRICT
 
@@ -729,6 +730,7 @@ class SpectrumBody:
     channel: Optional[str] = None
     plane: Optional[Plane] = None
     box: Optional[Tuple[float, float, float, float]] = None
+    points: Optional[Annotated[int, Strict(), Field(ge=2, le=1000)]] = None
 
 
 @dataclass

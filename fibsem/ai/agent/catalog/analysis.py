@@ -322,7 +322,7 @@ TOOLS = (
     ToolSpec(
         name="analysis_measure_power_spectrum",
         returns="ImageMeasured",
-        description="The power spectrum of a saved image (a beam image, or a fluorescence channel on plane, else its max projection), only in box when given: the region cut to a square, windowed, and its 2D Fourier power averaged in rings. Answers radial_power against frequency (cycles per pixel, 0 to 0.5), the noise_floor (median power of the outermost tenth), cutoff (the highest frequency still twice the floor) as finest_period_px (and finest_period_m with the pixel size): the finest detail the image holds, which grows coarser with defocus, drift or a worn probe. anisotropy is the power along x over along y in the middle frequencies: near 1 for a round probe, far from it with astigmatism, drift or scan lines. Compare images of one scene at one magnification; a featureless area has no detail to find. Saves a figure beside the image as drawn/<image>-spectrum.png (-plane-<n>, -box-... when given): the log power with the cutoff circle, and the radial average. Cite that path as evidence. Nothing moves.",
+        description="The power spectrum of a saved image (a beam image, or a fluorescence channel on plane, else its max projection), only in box when given: the region cut to a square, windowed, and its 2D Fourier power averaged in rings. Answers the noise_floor (median power of the outermost tenth), cutoff (the highest frequency still twice the floor) as finest_period_px (and finest_period_m with the pixel size): the finest detail the image holds, which grows coarser with defocus, drift or a worn probe. anisotropy is the power along x over along y in the middle frequencies: near 1 for a round probe, far from it with astigmatism, drift or scan lines. The radial average itself is left out; points=N adds it resampled to N frequencies (frequency in cycles per pixel, 0 to 0.5, and radial_power). Compare images of one scene at one magnification; a featureless area has no detail to find. Saves a figure beside the image as drawn/<image>-spectrum.png (-plane-<n>, -box-... when given): the log power with the cutoff circle, and the radial average. Cite that path as evidence. Nothing moves.",
         method="POST",
         path="/app/experiment/analysis/spectrum",
         level="watch",
@@ -338,8 +338,12 @@ TOOLS = (
                 "optional: only this region, [x, y, width, height] in the image's pixels; at least 16 px on its short side",
                 List[float],
             ),
+            "points": arg(
+                "optional: also answer the radial average resampled to this many frequencies, 2 to 1000 (default none)",
+                int,
+            ),
         },
-        optional=("channel", "plane", "box"),
+        optional=("channel", "plane", "box", "points"),
     ),
     ToolSpec(
         name="analysis_measure_thickness",

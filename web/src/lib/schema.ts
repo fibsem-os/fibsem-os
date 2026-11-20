@@ -2335,7 +2335,8 @@ export interface components {
             name: string;
         };
         /** @description POST /app/experiment/analysis/spectrum: a saved image's power
-         *     spectrum, on a plane and in a box when given. */
+         *     spectrum, on a plane and in a box when given; *points* adds its radial
+         *     average resampled to that many frequencies. */
         SpectrumBody: {
             box?: [
                 number,
@@ -2346,6 +2347,7 @@ export interface components {
             channel?: string | null;
             path: string;
             plane?: number | null;
+            points?: number | null;
         };
         /** @description One image of an item's stack: the file one run recorded under a role. */
         StackSlice: {
