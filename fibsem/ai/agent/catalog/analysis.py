@@ -389,32 +389,4 @@ TOOLS = (
         },
         optional=("method", "compare", "agreement_px"),
     ),
-    ToolSpec(
-        name="analysis_find_grid_squares",
-        returns="ImageMeasured",
-        description="A fit of the grid-bar lattice on a saved image (SEM, a tilted FIB view, or a stitched overview), to help with where the bars and square centres are; check it against its overlay and the image. Answers lattice (per direction a, b: step_px between square centres, pitch, bar width, bar angle; px and m in the image plane, so a tilted view's are foreshortened), quality (score, explained, shifts, and the cutoffs that shaped the answer) and warnings. When the fit is not accepted, lattice is null with reason and the best candidate is under candidate, same shape, drawn on the figure: weigh it with your own reading of the image. squares: the limit squares nearest the first point (else the image centre), each with id (r<row>c<col>, only for this answer), centre px and stage_position, in_view (all its film in the image), match (how clearly its bars show, 0 to 1) and extrapolated (outside box). Each of points ([x, y] px, a candidate site) answers bar_distance (to the nearest bar edge, negative on a bar), offset from its square's centre, px and m, and its square. box fits only that region (a tile, the part on the grid); pitch_um prefers candidates whose longer step is near it and says if the fit disagrees. Saves drawn/<image>-grid.png with every square's fitted outline. Nothing moves.",
-        method="POST",
-        path="/app/experiment/analysis/grid_squares",
-        level="watch",
-        router="analysis",
-        params={
-            "path": "a saved image file path inside the experiment folder",
-            "points": arg(
-                "optional: [[x, y], ...] candidate sites in the image's full-resolution pixels",
-                List[List[float]],
-            ),
-            "limit": arg(
-                "optional: how many squares to list, 0 to 200 (default 9)", int
-            ),
-            "box": arg(
-                "optional: fit only this region, [x, y, width, height] in the image's pixels; answers stay in the whole image's pixels",
-                List[float],
-            ),
-            "pitch_um": arg(
-                "optional: the expected bar pitch in um if known (about 127 for 200 mesh), compared with the longer step",
-                float,
-            ),
-        },
-        optional=("points", "limit", "box", "pitch_um"),
-    ),
 )

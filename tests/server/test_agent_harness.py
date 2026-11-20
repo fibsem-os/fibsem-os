@@ -20,9 +20,8 @@ import httpx
 import pytest
 
 from fibsem.ai.agent import harness as harness_mod
-from fibsem.ai.agent import instruments, playbooks, usage, wake_policy
+from fibsem.ai.agent import playbooks, usage, wake_policy
 from fibsem.ai.agent import watch as watch_mod
-from fibsem.ai.agent.catalog import CATALOG
 from fibsem.ai.agent.harness import Harness, TurnEnd, Wakes, kickoff
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.ai.agent.session import AgentControl
@@ -991,14 +990,9 @@ def test_a_given_folder_is_resolved(tmp_path, monkeypatch):
 
 # --- the specialists ------------------------------------------------------------
 
-# Read-only, but each saves its result, figure or drawing beside the image it
-# measured or drew on.
+# Read-only, but each saves its result or figure beside the image it measured.
 MEASURES = {
     "item_measure_thickness",
-    "analysis_draw_image",
-    "analysis_draw_pair",
-    "analysis_measure_profile",
-    "analysis_find_grid_squares",
     "analysis_measure_coincidence_offset",
     "grid_draw_milling",
 }
@@ -1073,24 +1067,6 @@ def test_only_the_run_lead_decides_and_its_agents_only_read():
             read_only
         ), name
         assert fibsem <= read_only | MEASURES, (name, fibsem - read_only)
-
-
-def test_the_scout_only_looks_and_the_lead_keeps_the_record():
-    scout = _specialists()["autolamella-scout"]
-    fibsem = {
-        tool.removeprefix("mcp__fibsem__")
-        for tool in _tools(scout)
-        if tool.startswith("mcp__fibsem__")
-    }
-    specs = {spec.name: spec for spec in CATALOG if spec.name in fibsem}
-    assert set(specs) == fibsem
-    kind = instruments.devices("fibsem", harness_mod.find_checkout())
-    assert all(kind.offers(spec) for spec in specs.values())
-    # It saves drawings and figures beside images, and nothing else.
-    assert {n for n, spec in specs.items() if not spec.read_only} <= MEASURES
-    assert "autolamella-scout" not in NOTES_ITS_ANSWER
-    assert not {t for t in fibsem if t.startswith(("proposal_", "plan_"))}
-    assert not {"grid_set_note", "grid_set_quality", "knowledge_write"} & fibsem
 
 
 # --- turning lines into turns -------------------------------------------------

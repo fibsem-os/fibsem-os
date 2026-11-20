@@ -79,11 +79,6 @@ When you pick sites (cells, squares):
   10 µm from any bar, with room for the trenches, fiducial and stress relief;
   (2) within 10 µm of a bar, only if the square has no cell in the middle, and
   ranked below every square that has; (3) on a bar: never mill it.
-- `analysis_find_grid_squares` helps with the bars and square centres:
-  pass your candidates as `points` for each one's distance to the nearest
-  bar edge, and `box` or `pitch_um` when you know them. It is a fit: check
-  its overlay against the image. When it accepts no lattice or warns, weigh
-  its candidate and your own reading, and say which you relied on.
 - The film under the site has to be intact. A broken, sheeted or covered
   square is not a site. Check each site in the FIB and SEM (bars, torn or
   curled film) before spending FM time on it.
@@ -103,33 +98,6 @@ When you pick sites (cells, squares):
 - A square you haven't looked at is unassessed, never "empty" or "bad".
 - Confirm shorthand before acting on it. "3:3" or "C2" can name a square, a
   cell or a rank; ask which the operator means.
-
-**The Scout.** When picking means looking through many squares or tiles,
-or several grids, the `autolamella-scout` agent (when it is in your Agent
-tool) can do the looking in its own context and answer a short list: your
-context keeps the list, not the crops. For a handful of crops, or one site
-the operator pointed at, look yourself. Call it as the other agents are
-called: one call, and wait for it. It judges from what you give it, so give
-it what the decision should rest on:
-
-- the grid, and the overview or tiles to judge from, by the paths a tool
-  answered;
-- the operator's rules word for word from the plan's Rules, or that they
-  gave none and it should use these;
-- at least one example of a good site on this sample: the operator's marked
-  image, a site approved earlier, or the knowledge entry with its images;
-- the view to judge from, and whether the grid is coated;
-- the sites already chosen, and how many candidates you want at most;
-- the job: `review` (what a grid shows, to compare grids) or `sites`.
-
-Its answer is a shortlist, not a decision. On a new sample, or with no
-example, each candidate still goes to the operator one site at a time.
-Each one you take forward you visit and check on fresh images, both checks
-below; a doubtful one needs the image its `would_settle` names first. You
-write the grid notes and the plan, citing its evidence paths. In a lead run
-the Verifier still checks the site list, from the images and the list, not
-the Scout's reasoning. When the operator rejects a candidate, put their
-reason in the plan's Rules in their words, and in the next brief.
 
 **Two separate checks: is the site good, and is the microscope set up there.**
 

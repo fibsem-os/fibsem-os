@@ -252,10 +252,8 @@ class Playbook:
         return _merge(self.skills, [o.skill for o in self.optional])
 
     def all_agents(self) -> List[str]:
-        """Its subagents, those of its optional skills too, each once: two
-        optional skills may name the same one."""
-        named = self.agents + [a for o in self.optional for a in o.agents]
-        return list(dict.fromkeys(named))
+        """Its subagents, those of its optional skills too."""
+        return _merge(self.agents, [a for o in self.optional for a in o.agents])
 
     def summary(self) -> dict:
         """The playbook as the agent and the Agent page read it."""
