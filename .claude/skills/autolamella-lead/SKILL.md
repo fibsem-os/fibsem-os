@@ -1,6 +1,6 @@
 ---
 name: autolamella-lead
-description: Run a whole AutoLamella session at Drive that the operator starts and leaves, from the intake to the review, with the autolamella-verifier, -investigator and -auditor agents checking the key decisions and -scout looking through grids for sites. The main way AutoLamella runs. Read fibsem-agent, fibsem-microscope and autolamella first, then this when nobody will be at the microscope during the run.
+description: Run a whole AutoLamella session at Drive that the operator starts and leaves, from the intake to the review, with the autolamella-verifier, -investigator and -auditor agents checking the key decisions and -site-finder looking through grids for sites. The main way AutoLamella runs. Read fibsem-agent, fibsem-microscope and autolamella first, then this when nobody will be at the microscope during the run.
 ---
 
 # Leading an AutoLamella run
@@ -26,7 +26,7 @@ start fresh, read only, and answer in JSON.
 | `autolamella-verifier` | on the site list, on each Setup placement, and before every polishing pass | a second opinion on your decision, judged by the same rules without your reasoning (*The Verifier*) |
 | `autolamella-investigator` | when a task's result is bad | the cause, its evidence and a fix for you to apply (*A bad result*) |
 | `autolamella-auditor` | once, when the run is over | the session review, from the record |
-| `autolamella-scout` | when picking sites means looking through many squares, tiles or grids | a short list of what it saw, or candidate sites with their doubts and evidence, for you to check (screen-grids, *The Scout*) |
+| `autolamella-site-finder` | when picking sites means looking through many squares, tiles or grids | a short list of what it saw, or candidate sites with their doubts and evidence, for you to check (screen-grids, *The site finder*) |
 
 **How to call one.** One call at a time, and wait for it: you keep the
 watcher. Put everything it needs in the prompt, since it sees nothing of

@@ -1077,11 +1077,11 @@ def test_only_the_run_lead_decides_and_its_agents_only_read():
         assert fibsem <= read_only | MEASURES, (name, fibsem - read_only)
 
 
-def test_the_scout_only_looks_and_the_lead_keeps_the_record():
-    scout = _specialists()["autolamella-scout"]
+def test_the_site_finder_only_looks_and_the_lead_keeps_the_record():
+    finder = _specialists()["autolamella-site-finder"]
     fibsem = {
         tool.removeprefix("mcp__fibsem__")
-        for tool in _tools(scout)
+        for tool in _tools(finder)
         if tool.startswith("mcp__fibsem__")
     }
     specs = {spec.name: spec for spec in CATALOG if spec.name in fibsem}
@@ -1090,7 +1090,7 @@ def test_the_scout_only_looks_and_the_lead_keeps_the_record():
     assert all(kind.offers(spec) for spec in specs.values())
     # It saves drawings and figures beside images, and nothing else.
     assert {n for n, spec in specs.items() if not spec.read_only} <= MEASURES
-    assert "autolamella-scout" not in NOTES_ITS_ANSWER
+    assert "autolamella-site-finder" not in NOTES_ITS_ANSWER
     assert not {t for t in fibsem if t.startswith(("proposal_", "plan_"))}
     assert not {"grid_set_note", "grid_set_quality", "knowledge_write"} & fibsem
 

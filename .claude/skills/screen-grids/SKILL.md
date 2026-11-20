@@ -104,8 +104,8 @@ When you pick sites (cells, squares):
 - Confirm shorthand before acting on it. "3:3" or "C2" can name a square, a
   cell or a rank; ask which the operator means.
 
-**The Scout.** When picking means looking through many squares or tiles,
-or several grids, the `autolamella-scout` agent (when it is in your Agent
+**The site finder.** When picking means looking through many squares or tiles,
+or several grids, the `autolamella-site-finder` agent (when it is in your Agent
 tool) can do the looking in its own context and answer a short list: your
 context keeps the list, not the crops. For a handful of crops, or one site
 the operator pointed at, look yourself. Call it as the other agents are
@@ -128,7 +128,7 @@ Each one you take forward you visit and check on fresh images, both checks
 below; a doubtful one needs the image its `would_settle` names first. You
 write the grid notes and the plan, citing its evidence paths. In a lead run
 the Verifier still checks the site list, from the images and the list, not
-the Scout's reasoning. When the operator rejects a candidate, put their
+the site finder's reasoning. When the operator rejects a candidate, put their
 reason in the plan's Rules in their words, and in the next brief.
 
 **Two separate checks: is the site good, and is the microscope set up there.**
