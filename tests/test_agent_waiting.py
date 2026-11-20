@@ -3,7 +3,7 @@ make it."""
 
 from types import SimpleNamespace
 
-from fibsem.acting import OPERATOR
+from fibsem.acting import AGENT, OPERATOR
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.ai.agent.session import AgentControl
 from fibsem.workflows.proposals import ALIGNMENT_AREA, STATE, Proposal, Suggestion
@@ -36,10 +36,20 @@ def test_the_waiting_decision_and_who_can_make_it():
         == "Decide it in the window."
     )
     assert _agent(AgentLevel.DRIVE, pending).waiting()["who"] == (
-        "The agent decides it."
+        "Waiting on the agent."
     )
     assert _agent(AgentLevel.ASSIST, pending).waiting()["who"] == (
         "The agent will suggest a decision."
+    )
+    # Drive, listening: the agent decides it, so the page says it is
+    # reviewing and never sends the operator to the window, open or not.
+    for deciders in ({AGENT}, {AGENT, OPERATOR}):
+        waiting = _agent(AgentLevel.DRIVE, pending, deciders).waiting()
+        assert waiting["agent_reviewing"] is True
+        assert waiting["who"] == "The agent is reviewing it."
+    assert (
+        _agent(AgentLevel.WATCH, pending, {OPERATOR}).waiting()["agent_reviewing"]
+        is False
     )
     proposal.suggestion = Suggestion(actor="agent:claude", reason="looks right")
     assert _agent(AgentLevel.ASSIST, pending).waiting()["who"] == (
