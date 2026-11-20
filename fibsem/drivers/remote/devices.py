@@ -168,6 +168,7 @@ def _metadata(payload: Dict[str, Any], type_: type) -> ParameterMetadata:
         settable=payload.get("settable", True),
         native_max=payload.get("native_max"),
         native_unit=payload.get("native_unit"),
+        reason=payload.get("reason", ""),
     )
 
 
@@ -435,7 +436,12 @@ class RemoteParts:
             self.bind(
                 name,
                 read=self._reader(name),
-                write=self._writer(name) if info["settable"] else None,
+                # One not settable now, for a reason, is settable at other times.
+                write=(
+                    self._writer(name)
+                    if info["settable"] or info.get("reason")
+                    else None
+                ),
                 metadata=self._metadata_reader(name, first=info),
             )
         self.server_commands = frozenset(description.get("commands", {}))

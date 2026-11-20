@@ -3,7 +3,9 @@
 `load_planes` asks each reader in `READERS` in turn whether it reads the file,
 and the first that does reads it: a fluorescence stack, a beam image (any
 TIFF, with or without fibsem's metadata), or a plain picture (PNG, JPEG). A
-new format is a new reader, added to `READERS`."""
+new format is a new reader, added to `READERS`; an instrument that isn't a
+FIB-SEM adds its own format's from a plugin, under `READER_GROUP` (a `Reader`
+each), and the image tools then read its files too."""
 
 from __future__ import annotations
 
@@ -16,6 +18,7 @@ import numpy as np
 from fibsem.fm.preview import channel_look, czyx, is_fluorescence_image
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.imaging.export import fibsem_image_fields, saturation_value
+from fibsem.plugins.loader import PluginRejected, load_entry_point_group
 from fibsem.structures.image import FibsemImage
 
 
@@ -119,13 +122,32 @@ READERS: List[Reader] = [
 ]
 
 
+# The entry point group a plugin adds a format's `Reader` under.
+READER_GROUP = "fibsem.image_readers"
+
+
+def readers() -> List[Reader]:
+    """`READERS`, then each plugin's (`READER_GROUP`). A plugin's entry that
+    fails to load, or isn't a `Reader`, is reported and left out
+    (`fibsem.plugins`)."""
+
+    def resolve(obj):
+        if not isinstance(obj, Reader):
+            raise PluginRejected(f"{obj!r} is not a fibsem.analysis.images.Reader")
+        return obj.name, obj
+
+    records = load_entry_point_group(READER_GROUP, kind="image reader", resolve=resolve)
+    return [*READERS, *(record.obj for record in records if record.loaded)]
+
+
 def load_planes(path: str) -> Planes:
-    """The image at *path* as `Planes`, read by the first reader in `READERS`
-    that reads it. ValueError when none does."""
-    for reader in READERS:
+    """The image at *path* as `Planes`, read by the first of `readers` that
+    reads it. ValueError when none does."""
+    found = readers()
+    for reader in found:
         if reader.reads(path):
             return reader.read(path)
     raise ValueError(
         f"{os.path.basename(path)} is not an image this can read: "
-        f"{', '.join(r.name for r in READERS)}"
+        f"{', '.join(r.name for r in found)}"
     )

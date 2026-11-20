@@ -270,6 +270,37 @@ def _array_preview(data: "np.ndarray", max_width: int = 768) -> dict:
     }
 
 
+def own_summary(image) -> Optional[Dict[str, Any]]:
+    """What an image of an instrument that isn't a FIB-SEM says of itself, or None.
+
+    Such an image is any object with its pixels as ``data`` (2-D, a stack, or RGB)
+    and an ``agent_summary()`` answering what an agent reads of it: what it is,
+    ``pixel_size_m`` (metres per source pixel) when known, ``acquired_at``, and any
+    fact of its own. It answers an agent and shows on the display as a beam image
+    does, through :func:`image_answer` and ``image_payload``, without fibsem
+    knowing its class. Its ``filepath``, if it has one, is the saved path.
+    """
+    summarise = getattr(image, "agent_summary", None)
+    if not callable(summarise) or not isinstance(
+        getattr(image, "data", None), np.ndarray
+    ):
+        return None
+    summary = summarise()
+    return dict(summary) if isinstance(summary, dict) else None
+
+
+def own_preview(image, summary: Dict[str, Any], max_width: int = 768) -> dict:
+    """The preview payload of an image :func:`own_summary` answers for: its
+    scale from the summary's ``pixel_size_m``."""
+    data = np.asarray(image.data)
+    pixel_size = summary.get("pixel_size_m")
+    return array_preview_payload(
+        _viewable(data),
+        pixel_size=float(pixel_size) if isinstance(pixel_size, (int, float)) else None,
+        max_width=max_width,
+    )
+
+
 def image_answer(result) -> dict:
     """What a command that returned an image answers an agent: a summary, the
     saved path (None when the command saved nothing), and a small JPEG preview
@@ -288,6 +319,13 @@ def image_answer(result) -> dict:
         preview = preview_payload(result)
         summary = {"kind": "image", **image_metadata(result)}
         return {"summary": summary, "path": result.filepath, "preview": preview}
+    own = own_summary(result)
+    if own is not None:
+        return {
+            "summary": {"kind": "image", **own},
+            "path": getattr(result, "filepath", None),
+            "preview": own_preview(result, own),
+        }
     if (
         isinstance(result, list)
         and result
@@ -325,12 +363,14 @@ def image_answer(result) -> dict:
 
 def is_image_result(result) -> bool:
     """Whether a command's *result* is an image an agent should get as
-    :func:`image_answer`: a FibsemImage, a frame, frames, or an array of 2 or
-    more dimensions."""
+    :func:`image_answer`: a FibsemImage, a frame, frames, an array of 2 or more
+    dimensions, or another instrument's image (:func:`own_summary`)."""
     from fibsem.devices.wire import Frame
     from fibsem.structures.image import FibsemImage
 
     if isinstance(result, (FibsemImage, Frame)) or is_image_list(result):
+        return True
+    if own_summary(result) is not None:
         return True
     if isinstance(result, list) and result:
         return all(isinstance(item, Frame) for item in result)
