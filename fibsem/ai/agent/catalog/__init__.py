@@ -90,6 +90,7 @@ NOT_TOOLS: Dict[str, str] = {
     "GET /app/experiment/replay/{index}": "The web page's replay scene, images and overlays at one recorded action; the agent reads the record and images directly.",
     "GET /health": "Open liveness check, no token; the agent's first read is server_get_capabilities.",
     "GET /app/agent/session": "The agent's own report, read back by the app and the dashboard; the agent knows what it reported.",
+    "GET /app/agent/playbook-file": "For the Agent page's playbook view: whether the playbook's file changed since the session started; the agent follows the copy it loaded.",
     "GET /app/knowledge/{section}/{id}/images/{name}": "One knowledge image as a file, for the web page; knowledge_get answers the agent its images as pictures.",
     "DELETE /app/knowledge/{section}/{id}": "Removing a knowledge entry is the operator's only (operator token).",
     "POST /app/knowledge/{section}/{id}/keep": "Keeping an entry the agent wrote is the operator's only (operator token).",
