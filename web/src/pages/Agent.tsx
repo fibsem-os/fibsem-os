@@ -9,6 +9,7 @@ import {
   ChevronRight,
   ListChecks,
   ListFilter,
+  MessageCircle,
   Loader,
   Microscope,
 } from "lucide-react";
@@ -36,6 +37,7 @@ import { MicroscopeCustomise, MicroscopeTab, useMicroscopeShown } from "./agent/
 import { EvidenceImage } from "./agent/Pictures";
 import { PlanDialog } from "./agent/PlanDialog";
 import { say, since } from "./agent/steps";
+import { asking, SideChat } from "./agent/SideChat";
 import { type ColumnTab, SafetyRow, SideColumn, useSafetyActions } from "./agent/SideColumn";
 import { hasPanel, SidePanel } from "./agent/SidePanel";
 
@@ -833,7 +835,9 @@ export function AgentPage() {
   const pinned = useRef(true);
   // The operator's messages the agent hasn't read wait below the chat, under
   // whatever it does meanwhile; read, each sits where the agent read it.
-  const all = recent.data?.rows ?? [];
+  // Side questions (/btw) and their answers go to the side chat, not here.
+  const all = (recent.data?.rows ?? []).filter((r) => !r.aside);
+  const asides = (recent.data?.rows ?? []).filter((r) => r.aside);
   const rows = all.filter((r) => !(r.kind === "you" && r.message_id && !r.read));
   const unread = all.filter((r) => r.kind === "you" && r.message_id && !r.read);
   const a = agent.data;
@@ -924,6 +928,15 @@ export function AgentPage() {
       menu: <MicroscopeCustomise fibsem={fibsem} shown={shown} onChange={setShown} />,
       render: () => <MicroscopeTab fibsem={fibsem} shown={shown} onOpenPage={() => openPage("/ui/microscope")} />,
     });
+  tabs.push({
+    id: "side",
+    label: "Side chat",
+    icon: <MessageCircle size={14} />,
+    badge: asking(asides) ? (
+      <span className="block size-1.5 rounded-full bg-primary" aria-label="waiting for an answer" />
+    ) : undefined,
+    render: () => <SideChat rows={asides} agent={a} />,
+  });
   if (idx.calls.length) {
     const call = idx.calls.find((c) => stepKey(c.session_id, c.seq) === shownRun);
     const answer = call && idx.answered.get(shownRun!);

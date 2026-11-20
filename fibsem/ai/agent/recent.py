@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from dataclasses import dataclass, replace
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from fibsem.acting import AGENT, OPERATOR
 from fibsem.ai.agent.catalog.describe import describe_action, describe_done
@@ -110,6 +110,10 @@ class RecentRow:
     # An operator's message: its id, and when the agent read it ("" not yet).
     message_id: str = ""
     read: str = ""
+    # A side question (the operator's ``/btw`` message, marked ``aside``) or
+    # the agent's answer to one: the page shows these in its side chat, not
+    # in the conversation.
+    aside: bool = False
 
     @property
     def conversation(self) -> bool:
@@ -203,6 +207,8 @@ class RecentActions:
         self._citing: Optional[Dict[str, Any]] = None
         # The operator's messages not read yet: their row's key, by id.
         self._unread: Dict[str, Any] = {}
+        # The ids of the operator's side questions, for the answers to them.
+        self._asides: Set[str] = set()
 
     @property
     def rows(self) -> List[RecentRow]:
@@ -216,6 +222,7 @@ class RecentActions:
         self._level = ""
         self._evidence.clear()
         self._unread.clear()
+        self._asides.clear()
 
     def add(self, record: Dict[str, Any]) -> bool:
         """Take one record of the session's; True when the rows changed."""
@@ -489,14 +496,18 @@ class RecentActions:
     def _on_agent_note(self, record, p, agent):
         # Its message to the operator (an answer to theirs), or a note.
         self._read(record, [p.get("reply_to")])
-        return self._put(
-            ("note", record.get("seq")),
+        key = ("note", record.get("seq"))
+        self._put(
+            key,
             record,
             p.get("text", ""),
             "",
             MUTED,
             kind=MESSAGE if is_message(record) else NOTE,
         )
+        if str(p.get("reply_to") or "") in self._asides:
+            self._rows[key] = replace(self._rows[key], aside=True)
+        return True
 
     def _on_operator_message(self, record, p, agent):
         # The operator's own line, at no level: the agent answers with a message.
@@ -506,6 +517,10 @@ class RecentActions:
         if message_id:
             self._rows[key] = replace(self._rows[key], message_id=message_id)
             self._unread[message_id] = key
+        if p.get("aside"):
+            self._rows[key] = replace(self._rows[key], aside=True)
+            if message_id:
+                self._asides.add(message_id)
         return True
 
     def _on_agent_messages_read(self, record, p, agent):

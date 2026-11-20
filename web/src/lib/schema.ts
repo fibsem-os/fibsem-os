@@ -1923,6 +1923,8 @@ export interface components {
         };
         /** @description One thing the agent did: when (HH:MM), what, and how it ended. */
         RecentRow: {
+            /** @default false */
+            aside: boolean;
             /** @default  */
             at: string;
             evidence: {
