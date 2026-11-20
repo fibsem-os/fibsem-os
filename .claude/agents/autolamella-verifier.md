@@ -49,6 +49,15 @@ decision. Ask:
   smallest gap and current already proven on this grid? Do the alignment
   checks say it may land off target?
 
+Where a number would settle what your eye can't, three tools measure:
+`analysis_find_grid_squares` with the sites as `points` gives each one's
+distance to the nearest bar (check its overlay lies on the bars first);
+`grid_draw_milling` draws the patterns on the SEM overview, with the gap
+between neighbours' cuts and any cut on a bar; and
+`analysis_measure_coincidence_offset`, on a feature you pick in both a SEM
+and a FIB image, says how far a placement is off coincidence. Weigh each
+with your own look; none is a verdict.
+
 Agree only when you would decide the same yourself. A polishing decision
 that stops thinning is safe to agree with unless the images show the
 lamella is already lost. When unsure, disagree: on polishing that costs a
