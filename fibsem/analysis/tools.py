@@ -61,6 +61,21 @@ class ImageRefused(Exception):
         self.message = message
 
 
+# fibsem's own image files: a FIB-SEM image, or a fluorescence stack.
+FIBSEM_FILES = (".tif", ".tiff")
+
+
+def _fibsem_file(target: str, path: str, what: str) -> None:
+    """Refuse plainly a file that isn't one of fibsem's own images: another
+    instrument's image, or a picture, has none of the metadata *what* reads."""
+    if not target.lower().endswith(FIBSEM_FILES):
+        raise ImageRefused(
+            "invalid",
+            f"{path}: {what} reads a FIB-SEM or fluorescence image's own metadata, "
+            "and this file isn't one (another instrument's image, or a picture).",
+        )
+
+
 class ImageTools:
     """The image tools over the folder *root* answers: a callable, so the
     root can follow what is open (None: nothing is)."""
@@ -80,7 +95,9 @@ class ImageTools:
 
     def metadata(self, path: str) -> SavedImageMetadata:
         """A saved beam image's full metadata, as its file records it."""
-        image = FibsemImage.load(self.image(path))
+        target = self.image(path)
+        _fibsem_file(target, path, "the image's metadata")
+        image = FibsemImage.load(target)
         if image.metadata is None:
             raise ImageRefused("not_found", f"{path} carries no beam image metadata.")
         return SavedImageMetadata(path, image.metadata)
@@ -95,6 +112,7 @@ class ImageTools:
         ``fraction`` is [x, y] from 0 to 1. With *crop* (a cell's name or a
         box), both are read off that crop's picture (`fibsem.imaging.cells`)."""
         target = self.image(path)
+        _fibsem_file(target, path, "the stage position under a point")
         try:
             if crop is not None:
                 px, fraction = _uncropped_point(target, crop, px, fraction)
@@ -110,6 +128,7 @@ class ImageTools:
         with the image's scale block. A position the image cannot place (no
         geometry for it) answers its reason instead."""
         target = self.image(path)
+        _fibsem_file(target, path, "where a stage position falls")
         try:
             positions = [FibsemStagePosition.from_dict(p) for p in stage_positions]
         except (TypeError, KeyError, AttributeError) as exc:
@@ -502,6 +521,7 @@ class ImageTools:
                 "invalid",
                 f"{path!r} is a fluorescence image; the band is read off a FIB image.",
             )
+        _fibsem_file(target, path, "the thickness")
         try:
             image = FibsemImage.load(target)
         except Exception as exc:  # noqa: BLE001 - an unreadable file is a data fact
@@ -578,6 +598,7 @@ def _beam_image(target: str, path: str) -> FibsemImage:
         raise ImageRefused(
             "invalid", f"{path} is a fluorescence stack; a shift is between beam images"
         )
+    _fibsem_file(target, path, "the shift")
     image = FibsemImage.load(target)
     if image.metadata is None or np.asarray(image.data).ndim != 2:
         raise ImageRefused(
