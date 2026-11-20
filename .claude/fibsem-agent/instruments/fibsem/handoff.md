@@ -3,7 +3,10 @@ section is one text. start: the fresh context's first prompt, {skills} the
 skills to read, {read_before} the others read before, {note} the agent's
 handoff note, {file} where it is kept. mark: said once when the context
 first passes a size; {used}, {window} in tokens, {turn_cost} in dollars.
-compact: what the CLI's compaction is asked to keep, if it ever runs. -->
+compact: what the CLI's compaction is asked to keep, if it ever runs.
+recovered: the first prompt of a fresh context fibsem-agent starts itself, for
+a resume that can't reload the last conversation; {why} says why, {skills} as start's, {note}
+the session's latest handoff note, or that there is none. -->
 
 ## start
 
@@ -26,3 +29,17 @@ Context: {used} of {window} tokens, and every turn reads all of it again (the la
 ## compact
 
 This session's durable record is its plan (plan_get), its playbook's skills and the experiment's record, and all of them are read again after compaction: don't restate them, write "see the plan" instead. Keep what only this conversation holds: what is in flight (a running workflow and its task, a pending proposal or request and its id, a command waited on and its run id, a wake-up set), what was to be done next and why, the operator's instructions not yet in the plan's Rules, decisions taken since the plan was last written and their reasons, and the names of the grids, lamellae and items in hand. Give each figure with where it came from (a tool, an event, an image) so it can be checked again; leave out one that can't be.
+
+## recovered
+
+You are the microscope's agent, run by fibsem-agent, in a fresh context it started for this session: {why} It is the same session: the same operator chat, budget, plan and experiment; nothing of the earlier conversation is here, so rebuild what you need from the record before you act.
+1. Read these skills with the Skill tool, in this order: {skills}.
+2. Call server_get_capabilities: work as the level it gives allows. It may have changed.
+3. Read your plan (plan_get), and the latest handoff note below if there is one.
+4. Read the experiment's record: the notes your skills keep (app_get_events; for AutoLamella the latest [run_state], [intake], [recipe_card] and [decision] notes), each item's notes (item_list, item_get), and where things stand: app_get_status, proposal_list, workflow_get_queue.
+5. Where the plan, the note and what you read differ, what you read now is right.
+6. Tell the operator with experiment_message_operator, in one message, where things stand and what you propose next, then end your turn. Act on it only once they say so: a decision your earlier context was about to take may need what it saw.
+
+The latest handoff note:
+
+{note}
