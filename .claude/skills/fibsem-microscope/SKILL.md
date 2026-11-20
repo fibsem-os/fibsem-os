@@ -175,20 +175,38 @@ each.
 
 **Coincidence: do it yourself.** To bring the beams onto the same feature,
 centre it in one beam with `stage_stable_move`, find it in the other beam's
-image, and `stage_vertical_move` by its offset there (`beam_type` = the beam
-you measured in). Take both images again and repeat until it is centred in
+image, and `stage_vertical_move` by the offset the tool converts for you
+(below). Take both images again and repeat until it is centred in
 both; cap each step to a few µm, or use `relaxation` below 1 if it
 overshoots. Work from whichever beam has it centred already. Do it before
 any overview, and again at each site on a bent grid: on one grid the
 coincident height ran from +20.8 to +33.6 µm between sites. Use this loop,
 not the coincidence commands: it worked better on a real instrument. Fix it
 with the stage, never with a beam shift: a site made coincident by beam
-shift is not ready.
+shift is not ready. `beam_acquire_pair_preview` takes both beams at one field of view in one
+call (coarse at 150-200 µm, then 50 µm, saved in the item's folder) and
+answers one side-by-side picture, each half's origin and scale to take the
+feature you pick there back to that image's pixels, and each image's
+contrast and focus measures. It moves nothing and judges nothing: whether
+the pair is good enough, the offset and the move stay yours. Take the beams
+one at a time (`beam_acquire_image`) when they need different fields of
+view or settings.
 
-- *Measure, don't eyeball.* Find the feature's pixel position in the other
-  image, take its offset from the centre, and convert with that image's
-  pixel size. Pass the offset as measured: `stage_vertical_move` allows for
-  the FIB's tilted view, so don't scale it yourself.
+- *Pick it yourself; the tool converts.* Find the same feature in the
+  saved SEM and FIB images (full-resolution pixels, or as read off an
+  `analysis_crop_image` picture with its crop) and give the points to
+  `analysis_measure_coincidence_offset`: it answers the `dy` for
+  `stage_vertical_move` (`beam_type` ION) and where each point lands
+  (`after_fib_px`), and its picture shows what it took you to mean. Where
+  the scene allows, give 2-3 features as `pairs`, above all on repeating
+  debris where one match can be the wrong copy. A pair marked `disagrees`
+  is information, not a verdict: it may be a wrong match, or the sample
+  may not be flat there. Look again and decide which to trust; each
+  pair's own `dy` is given. Its numbers are a check on your reading of
+  the images, and yours on them: if the move it gives does not fit what
+  you see, say so and work it out from the images (an offset from the
+  centre, by that image's pixel size, passed as measured with the
+  `beam_type` you measured in).
 - *Match a sharp landmark.* At the SEM orientation the FIB sees the sample
   at a glancing angle: its image is squashed top to bottom (to about 0.6),
   and a cell that is a bright blob in the SEM can show only as an arc of
@@ -199,9 +217,11 @@ shift is not ready.
   alignment, not height: a vertical move can't fix it, so don't chase it.
   Judge the vertical offset alone and say in a note how big the sideways
   one was.
-- *The tolerance is in the image.* "Within 5 µm, aim for 2-3 µm" means as
-  measured in the FIB image at a 50 µm field of view, the feature against
-  the image centre.
+- *The tolerance is in the image, and it is a guide.* "Within 5 µm, 2-3 µm
+  where the scene allows" means as measured in the FIB image at about a
+  50 µm field of view, the feature against the image centre. A bent grid,
+  a featureless site or a large lamella can make more or less the right
+  answer: say what you reached and why it is enough for what comes next.
 
 The one exception is `alignment_check_coincidence`, experimental, and only
 when the operator asks you to try it. Start from the SEM when the error may

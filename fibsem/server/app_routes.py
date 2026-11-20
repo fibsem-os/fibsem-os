@@ -40,6 +40,7 @@ from fibsem.server.auth import (
 from fibsem.server.bodies import (
     AnimationExportBody,
     ApplyProtocolBody,
+    CoincidenceOffsetBody,
     CorrelationRunBody,
     DecideBody,
     DrawBody,
@@ -57,6 +58,7 @@ from fibsem.server.bodies import (
     IntensityBody,
     MarkersBody,
     MillingDrawnBody,
+    MillingOverviewBody,
     NameBody,
     NewExperimentBody,
     NewItemBody,
@@ -126,6 +128,7 @@ from fibsem.server.responses import (
     LamellaDefaultsSet,
     LogRead,
     MarkersDrawn,
+    MillingOnOverview,
     OptionsSet,
     OverviewStagePosition,
     Proposals,
@@ -446,9 +449,39 @@ def build_analysis_router(tools: ImageTools) -> APIRouter:
     @router.post("/experiment/analysis/profile", response_model=ImageMeasured)
     def line_profile(body: ProfileBody):
         path = _required_text(body, "path", saved_image)
-        options = _given(body, "width_px", "channel", "plane", "dip")
+        options = _given(body, "width_px", "channel", "plane", "dip", "points")
         start, end = list(body.start), list(body.end)
         return _image_answer(lambda: tools.line_profile(path, start, end, **options))
+
+    @router.post("/experiment/analysis/coincidence", response_model=ImageMeasured)
+    def coincidence_offset(body: CoincidenceOffsetBody):
+        # A POST because its picture is saved beside the SEM image.
+        sem_path = _required_text(body, "sem_path", saved_image)
+        fib_path = _required_text(body, "fib_path", saved_image)
+        if (body.pairs is None) == (body.sem_point is None or body.fib_point is None):
+            raise _missing_field(
+                "Pass sem_point and fib_point, or pairs: [{sem: [x, y], "
+                "fib: [x, y], label?}, ...], not both."
+            )
+        options = {
+            name: crop if isinstance(crop, str) else list(crop)
+            for name, crop in (("sem_crop", body.sem_crop), ("fib_crop", body.fib_crop))
+            if crop is not None
+        }
+        if body.tolerance_um is not None:
+            options["tolerance_um"] = body.tolerance_um
+        if body.pairs is not None:
+            options["pairs"] = [
+                {"sem": list(p.sem), "fib": list(p.fib), "label": p.label}
+                for p in body.pairs
+            ]
+        sem_point = None if body.sem_point is None else list(body.sem_point)
+        fib_point = None if body.fib_point is None else list(body.fib_point)
+        return _image_answer(
+            lambda: tools.coincidence_offset(
+                sem_path, sem_point, fib_path, fib_point, **options
+            )
+        )
 
     @router.post("/experiment/analysis/histogram", response_model=ImageMeasured)
     def histogram(body: HistogramBody):
@@ -460,7 +493,7 @@ def build_analysis_router(tools: ImageTools) -> APIRouter:
     @router.post("/experiment/analysis/spectrum", response_model=ImageMeasured)
     def power_spectrum(body: SpectrumBody):
         path = _required_text(body, "path", saved_image)
-        options = _given(body, "channel", "plane")
+        options = _given(body, "channel", "plane", "points")
         box = list(body.box) if body.box is not None else None
         return _image_answer(lambda: tools.power_spectrum(path, box=box, **options))
 
@@ -909,6 +942,31 @@ def build_app_router(context: "AppContext") -> APIRouter:
         return _typed(
             context.draw_item_milling(
                 item_name, task_names, body.image_path, body.background, **options
+            )
+        )
+
+    @router.post(
+        "/experiment/images/milling",
+        response_model=MillingOnOverview,
+        tags=[LAMELLAE],
+    )
+    def draw_milling_on_overview(body: MillingOverviewBody):
+        # A POST because the picture is saved beside the overview.
+        def listed(value):
+            return [value] if isinstance(value, str) else value
+
+        item_names = listed(body.item_names)
+        if not item_names and not body.grid_name:
+            raise _missing_field(
+                "Pass item_names, or grid_name to draw every item on that grid."
+            )
+        return _typed(
+            context.draw_milling_on_overview(
+                item_names=item_names,
+                grid_name=body.grid_name,
+                path=body.path,
+                task_names=listed(body.task_names),
+                box=list(body.box) if body.box is not None else None,
             )
         )
 

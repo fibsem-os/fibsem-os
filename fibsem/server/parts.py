@@ -241,6 +241,15 @@ class Lamellae(Protocol):
         metadata_bar: bool = True,
     ) -> Any: ...
 
+    def draw_milling_on_overview(
+        self,
+        item_names: Optional[List[str]] = None,
+        grid_name: Optional[str] = None,
+        path: Optional[str] = None,
+        task_names: Optional[List[str]] = None,
+        box: Optional[List[float]] = None,
+    ) -> Any: ...
+
     def lamella_run_plan(
         self,
         task_names: List[str],

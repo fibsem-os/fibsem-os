@@ -72,7 +72,9 @@ When you pick sites (cells, squares):
   without overlapping another lamella's trenches, fiducial or stress-relief
   cuts, or a grid bar. If two must share a square, the film between their
   cuts can tear (two lamellae about 15 µm apart tore during rough milling):
-  ask the operator first.
+  ask the operator first. Once sites have patterns, `grid_draw_milling`
+  draws them on the SEM overview and measures the gap between neighbours'
+  cuts: check that, not only that patterns don't overlap.
 - Where in the square, best first: (1) the clear middle, more than about
   10 µm from any bar, with room for the trenches, fiducial and stress relief;
   (2) within 10 µm of a bar, only if the square has no cell in the middle, and
@@ -108,9 +110,11 @@ When you pick sites (cells, squares):
 
 Picking on the overview gives candidates by the first check. Then go to
 each candidate (`stage_stable_move`) and do the second there: the same
-feature centred in both beams at a 50 µm field of view, within 5 µm as
-measured in the FIB image, aiming for 2-3 µm (fibsem-microscope,
-*Coincidence: do it yourself*). If it isn't, fix it:
+feature centred in both beams at about a 50 µm field of view, as measured
+in the FIB image; within 5 µm, 2-3 µm where the scene allows, is the guide
+(fibsem-microscope,
+*Coincidence: do it yourself*), checked with `beam_acquire_pair_preview` at
+150-200 µm, then at 50 µm. If it isn't, fix it:
 focus, then the coincidence loop. Never reject a candidate for focus or
 coincidence. If you can't fix one, say what you tried and ask the operator;
 in a lead run, hold it in `[run_state]` and carry on with the others. With
