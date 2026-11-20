@@ -36,7 +36,7 @@ def test_the_waiting_decision_and_who_can_make_it():
         == "Decide it in the window."
     )
     assert _agent(AgentLevel.DRIVE, pending).waiting()["who"] == (
-        "The agent decides it."
+        "Waiting on the agent."
     )
     assert _agent(AgentLevel.ASSIST, pending).waiting()["who"] == (
         "The agent will suggest a decision."

@@ -345,7 +345,8 @@ class AgentControl:
         elif OPERATOR in deciders:
             who = "Decide it in the window."
         elif level is AgentLevel.DRIVE:
-            who = "The agent decides it."
+            # At Drive but not heard lately: it decides when it is back.
+            who = "Waiting on the agent."
         elif level is AgentLevel.ASSIST:
             who = (
                 "The agent suggested a decision."
