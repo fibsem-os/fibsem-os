@@ -1947,10 +1947,11 @@ def _show(message, agent: SdkAgent) -> None:
             elif seq is not None:
                 # The step is done: the web page stops showing it as running.
                 # A subagent's answer is kept on it, for its run to show.
-                answer = ""
+                answer, verdict = "", {}
                 if name in SUBAGENT_TOOLS:
-                    answer = _clip(_answer_text(block.content), SUBAGENT_ANSWER)
-                _line(agent, "done", answer, step=seq, took_s=took, **run)
+                    answer, verdict = _answer(block.content)
+                    answer = _clip(answer, SUBAGENT_ANSWER)
+                _line(agent, "done", answer, step=seq, took_s=took, **run, **verdict)
                 if _lab_tool(name):
                     _show_pictures(agent, block.content, seq)
 
@@ -1964,10 +1965,25 @@ def _run_of(agent, message) -> dict:
     return {"run": made[0]} if made is not None else {}
 
 
-def _answer_text(content) -> str:
-    """A subagent's answer, without the CLI's agentId footer."""
-    text = _result_text(content)
-    return re.split(r"\s*agentId: ", text)[0].strip()
+_JSON_BLOCK = re.compile(r"```json\s*(\{.*?\})\s*```", re.DOTALL)
+
+
+def _answer(content) -> tuple:
+    """A subagent's answer, without the CLI's agentId footer, and
+    ``{"verdict": "agree" | "concern"}`` when it ends with a JSON block saying
+    ``agree`` (the Verifier's); its concern is then the answer."""
+    text = re.split(r"\s*agentId: ", _result_text(content))[0].strip()
+    blocks = _JSON_BLOCK.findall(text)
+    try:
+        said = json.loads(blocks[-1]) if blocks else None
+    except ValueError:
+        said = None
+    if not isinstance(said, dict) or not isinstance(said.get("agree"), bool):
+        return text, {}
+    concern = said.get("concern")
+    before = text[: text.rfind("```json")].strip()
+    words = concern if isinstance(concern, str) and concern.strip() else before
+    return words.strip(), {"verdict": "agree" if said["agree"] else "concern"}
 
 
 def find_checkout(given: Optional[str] = None) -> Optional[Path]:

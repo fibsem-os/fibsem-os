@@ -15,7 +15,8 @@ transcript, ``agent/pictures/<session id>-<line>.<ext>``, the line keeps its
 
 A subagent's lines carry ``run``, the ``seq`` of the Agent call that started
 it; that call's line carries ``subagent``, the subagent's name, and its ``done``
-keeps the subagent's answer.
+keeps the subagent's answer, and ``verdict`` (agree or concern) when it
+gave one.
 """
 
 import base64
@@ -44,6 +45,8 @@ FOLDER = "agent"
 # done: a step finished (its ``step``), so the page stops showing it running.
 # picture: an image a step answered with (its ``step``), saved beside.
 KINDS = ("said", "step", "done", "failed", "context", "picture")
+# What a subagent's done line says of a decision it was asked to check.
+VERDICTS = ("agree", "concern")
 # A picture's kinds of image, by media type: the file's extension.
 PICTURE_TYPES = {
     "image/png": "png",
@@ -69,7 +72,7 @@ def _entry(raw: Any, now: float) -> Dict[str, Any]:
     """One posted entry, checked, stamped with the server's time."""
     if not isinstance(raw, dict):
         raise _invalid(
-            "an entry is {kind, text, verb?, step?, run?, subagent?, took_s?, age_s?}."
+            "an entry is {kind, text, verb?, step?, run?, subagent?, verdict?, took_s?, age_s?}."
         )
     kind = raw.get("kind")
     if kind not in KINDS:
@@ -102,6 +105,11 @@ def _entry(raw: Any, now: float) -> Dict[str, Any]:
         if not isinstance(verb, str) or len(verb) > 40:
             raise _invalid("verb is a word of at most 40 characters.")
         entry["verb"] = verb
+    verdict = raw.get("verdict")
+    if verdict is not None:
+        if verdict not in VERDICTS:
+            raise _invalid(f"verdict is one of {list(VERDICTS)}.")
+        entry["verdict"] = verdict
     subagent = raw.get("subagent")
     if subagent is not None:
         if not isinstance(subagent, str) or len(subagent) > 60:

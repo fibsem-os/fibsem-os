@@ -1583,6 +1583,24 @@ def test_a_subagent_s_lines_are_kept_under_the_call_that_started_it():
     assert done["text"] == "Concern: the left edge."
 
 
+def test_a_verifier_s_json_answer_becomes_its_verdict_and_concern():
+    from fibsem.ai.agent.harness import _answer
+
+    def said(body):
+        return [{"type": "text", "text": body + "\n\nagentId: x1"}]
+
+    no = '{"decision": "polishing pass", "agree": false, "concern": "left edge"}'
+    text, verdict = _answer(said(f"Checked it.\n\n```json\n{no}\n```"))
+    assert (text, verdict) == ("left edge", {"verdict": "concern"})
+    yes = '{"agree": true, "concern": ""}'
+    text, verdict = _answer(said(f"The pass is safe.\n```json\n{yes}\n```"))
+    assert (text, verdict) == ("The pass is safe.", {"verdict": "agree"})
+    # Any other answer, a JSON block without agree included, stays as it is.
+    assert _answer(said("Six sites.")) == ("Six sites.", {})
+    plain = 'Sites:\n```json\n{"sites": [1]}\n```'
+    assert _answer(said(plain)) == (plain, {})
+
+
 def test_the_session_asks_for_the_subagents_words_too():
     options = harness_mod.build_options(harness_mod.find_checkout())
     assert options.forward_subagent_text is True

@@ -216,6 +216,8 @@ export interface TranscriptLine {
   /** For the Agent call that starts a subagent: the subagent's name. Its "done"
    * line's text is the subagent's answer. */
   subagent?: string;
+  /** On a subagent call's "done": whether it agreed with the decision it checked. */
+  verdict?: "agree" | "concern";
   session_id: string;
 }
 

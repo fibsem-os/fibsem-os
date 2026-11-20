@@ -393,10 +393,11 @@ function RunCard({
   const steps = lines.filter((l) => l.kind === "step").length;
   const runs = !answer && shared.running(call);
   const failed = answer?.kind === "failed";
+  const verdict = answer?.verdict;
   const state = failed
     ? "Failed"
     : answer
-      ? ["Done", took(answer.took_s)].filter(Boolean).join(" · ")
+      ? [verdict ? "" : "Done", took(answer.took_s)].filter(Boolean).join(" · ")
       : runs
         ? `Running · ${since(call.t, clock)}`
         : "Stopped";
@@ -414,6 +415,16 @@ function RunCard({
           )}
         >
           {runs && <Loader size={11} className="animate-spin" aria-label="running" />}
+          {verdict && (
+            <span
+              className={cn(
+                "rounded-full bg-muted px-2 py-px font-semibold",
+                verdict === "agree" ? "text-[var(--fibsem-ok-color)]" : "text-[var(--fibsem-warn-color)]",
+              )}
+            >
+              {verdict === "agree" ? "Agrees" : "Concern"}
+            </span>
+          )}
           {state}
         </span>
       </div>

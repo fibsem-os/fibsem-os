@@ -291,6 +291,13 @@ def test_a_subagent_s_lines_keep_their_run_and_its_call_names_the_subagent(serve
     first, second = client.get("/app/agent/transcript").json()["entries"]
     assert first["subagent"] == "autolamella-verifier" and "run" not in first
     assert second["run"] == 1
+    done = {"kind": "done", "text": "left edge", "step": 1, "verdict": "concern"}
+    _post(client, "s1", done)
+    assert (
+        client.get("/app/agent/transcript").json()["entries"][-1]["verdict"]
+        == "concern"
+    )
+    assert _post(client, "s1", {**done, "verdict": "maybe"}).status_code == 422
     assert (
         _post(client, "s1", {"kind": "said", "text": "x", "run": "1"}).status_code
         == 422
