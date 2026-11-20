@@ -18,6 +18,22 @@ class Sim:
 
 
 @dataclass(frozen=True)
+class FromRun:
+    """How the task's cases are cut from a real run (an episode): what the
+    segmenter looks for, and what it names for the case to be built from."""
+
+    # The moment in a run the task scores: which step, and what is decided.
+    decision: str
+    # Each input the case needs, by name, and what it is; the segmenter
+    # names a file in the experiment (or a value) for each.
+    inputs: Dict[str, str]
+    # "module:function" building the case from a confirmed segment,
+    # cut(segment, inputs, folder) -> the case's own fields (brief, inputs);
+    # None until written.
+    cut: Optional[str] = None
+
+
+@dataclass(frozen=True)
 class EvalTask:
     name: str
     # The review page's one-line description.
@@ -51,3 +67,6 @@ class EvalTask:
     # "module:function" of the task's scripted baseline for live cases,
     # run(client, work) -> answer (``fibsem.ai.evals.sim.scripted``)
     scripted: Optional[str] = None
+    # How cases are cut from a real run; None for a task only the simulator
+    # makes (a live one).
+    from_run: Optional[FromRun] = None

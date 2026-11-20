@@ -17,7 +17,7 @@ from fibsem.ai.evals.core.visual import (
     _show,
     _shrink,
 )
-from fibsem.ai.evals.tasks.base import EvalTask, Run
+from fibsem.ai.evals.tasks.base import EvalTask, FromRun, Run
 
 
 def match_squares(points: List[tuple], squares: List[Dict[str, Any]], radius: float):
@@ -299,4 +299,10 @@ TASK = EvalTask(
     summary=summary,
     draw=draw_square_finding,
     disagreements=_square_finding_items,
+    from_run=FromRun(
+        decision="Grid overview: finding the grid squares.",
+        inputs={
+            "overview": "the grid overview image",
+        },
+    ),
 )

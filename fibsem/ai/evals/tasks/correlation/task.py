@@ -20,7 +20,7 @@ from fibsem.ai.evals.core.visual import (
     _show,
     log,
 )
-from fibsem.ai.evals.tasks.base import EvalTask, Run, Sim
+from fibsem.ai.evals.tasks.base import EvalTask, FromRun, Run, Sim
 
 
 def score_correlation(case: Case, answer: Dict[str, Any], key: Dict[str, Any]) -> tuple:
@@ -181,4 +181,11 @@ TASK = EvalTask(
     key_point=key_point,
     set_point=set_point,
     sims=(Sim("correlation", "fibsem.ai.evals.tasks.correlation.make"),),
+    from_run=FromRun(
+        decision="Correlation: where the FM target is on the FIB image, from features or spot burns seen in both.",
+        inputs={
+            "fib_image": "the FIB image the target was placed on",
+            "fm_stack": "the FM z-stack the target was found in",
+        },
+    ),
 )

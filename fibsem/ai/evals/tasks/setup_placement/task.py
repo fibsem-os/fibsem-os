@@ -17,7 +17,7 @@ from fibsem.ai.evals.core.visual import (
     _read_image,
     _show,
 )
-from fibsem.ai.evals.tasks.base import EvalTask, Run, Sim
+from fibsem.ai.evals.tasks.base import EvalTask, FromRun, Run, Sim
 
 
 def _mask(case: Case, rel: str) -> np.ndarray:
@@ -142,4 +142,11 @@ TASK = EvalTask(
     draw=draw_setup_placement,
     pixel_size_um=pixel_size_um,
     sims=(Sim("placement", "fibsem.ai.evals.tasks.setup_placement.make"),),
+    from_run=FromRun(
+        decision="Setup, before any trench is milled: where the lamella is placed on the FIB image at the milling angle (its centre on the target, both trenches clear of bars and other cells).",
+        inputs={
+            "fib_image": "the FIB image at the milling angle the placement was decided on",
+        },
+        cut="fibsem.ai.evals.tasks.setup_placement.cut:cut",
+    ),
 )

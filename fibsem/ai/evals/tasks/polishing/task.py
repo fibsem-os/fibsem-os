@@ -8,7 +8,7 @@ from fibsem.ai.evals.core.cases import Case, pass_names, stop_passes
 from fibsem.ai.evals.core.review import _kept, _repeat
 from fibsem.ai.evals.core.scoring import InvalidAnswer
 from fibsem.ai.evals.core.visual import KEY, THEME, _colour, _pass_strip, _stops
-from fibsem.ai.evals.tasks.base import EvalTask, Run, Sim
+from fibsem.ai.evals.tasks.base import EvalTask, FromRun, Run, Sim
 
 
 def score_polishing_stop(
@@ -196,4 +196,11 @@ TASK = EvalTask(
     key_text=key_text,
     disagreements=_stop_items,
     sims=(Sim("polishing", "fibsem.ai.evals.tasks.polishing.make"),),
+    from_run=FromRun(
+        decision="Polishing, after each pass: carry on or stop, from the SEM and FIB images and the measured thickness. One segment per lamella, covering its passes up to the stop.",
+        inputs={
+            "passes": "each pass up to and including the one the run stopped after: its name, the SEM and FIB images taken after it, and the thickness measured, if any",
+        },
+        cut="fibsem.ai.evals.tasks.polishing.cut:cut",
+    ),
 )

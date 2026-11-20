@@ -10,7 +10,7 @@ import sys
 import pytest
 
 from fibsem.ai.agent import harness as harness_mod
-from fibsem.ai.agent import playbooks
+from fibsem.ai.agent import instruments, playbooks
 from fibsem.ai.agent import reminders as reminder_mod
 from fibsem.ai.agent import watch as watch_mod
 
@@ -261,7 +261,12 @@ def test_the_mcp_servers_a_playbook_uses_are_named_and_the_base_names_fibsem(
     lab, checkout
 ):
     for name in playbooks.available(checkout):
-        assert playbooks.load(name, checkout).mcp[0] == SERVER
+        found = playbooks.load(name, checkout)
+        if found.instrument == instruments.NONE:
+            # offline work on files (the eval segmenter): no sidecar
+            assert SERVER not in found.mcp
+            continue
+        assert found.mcp[0] == SERVER
     write(lab, "with-notebook", "extends: autolamella\nmcp: [notebook]\n")
     found = playbooks.load("with-notebook", checkout)
     assert found.mcp == [SERVER, "notebook"]

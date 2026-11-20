@@ -9,9 +9,9 @@ import importlib
 import pkgutil
 from typing import Dict, List, Optional
 
-from fibsem.ai.evals.tasks.base import EvalTask, Run, Sim
+from fibsem.ai.evals.tasks.base import EvalTask, FromRun, Run, Sim
 
-__all__ = ["EvalTask", "Run", "Sim", "all_tasks", "get", "names"]
+__all__ = ["EvalTask", "FromRun", "Run", "Sim", "all_tasks", "get", "names"]
 
 _TASKS: Dict[str, EvalTask] = {}
 

@@ -8,7 +8,7 @@ from fibsem.ai.evals.core.cases import SITES, SQUARE_REASONS, Case, square_call
 from fibsem.ai.evals.core.review import _kept, _repeat
 from fibsem.ai.evals.core.scoring import InvalidAnswer
 from fibsem.ai.evals.core.visual import THEME, _figure, _input, _read_image, _show
-from fibsem.ai.evals.tasks.base import EvalTask, Run
+from fibsem.ai.evals.tasks.base import EvalTask, FromRun, Run
 
 
 def score_square_quality(
@@ -222,4 +222,10 @@ TASK = EvalTask(
     draw=draw_square_quality,
     key_text=key_text,
     disagreements=_square_items,
+    from_run=FromRun(
+        decision="Grid overview: judging grid squares as good or bad sites, and why.",
+        inputs={
+            "overview": "the grid overview image the squares were judged on",
+        },
+    ),
 )

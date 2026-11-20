@@ -17,7 +17,7 @@ from fibsem.ai.evals.core.visual import (
     _show,
     _shrink,
 )
-from fibsem.ai.evals.tasks.base import EvalTask, Run
+from fibsem.ai.evals.tasks.base import EvalTask, FromRun, Run
 
 
 def score_site_selection(
@@ -229,4 +229,10 @@ TASK = EvalTask(
     draw=draw_site_selection,
     key_text=key_text,
     disagreements=_site_items,
+    from_run=FromRun(
+        decision="Grid overview: which places on the grid to make lamellae at.",
+        inputs={
+            "overview": "the grid overview image the sites were picked on",
+        },
+    ),
 )

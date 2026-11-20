@@ -14,7 +14,7 @@ from fibsem.ai.evals.core.visual import (
     _show,
     _stack_crop,
 )
-from fibsem.ai.evals.tasks.base import EvalTask, Run, Sim
+from fibsem.ai.evals.tasks.base import EvalTask, FromRun, Run, Sim
 
 
 def score_fm_target(case: Case, answer: Dict[str, Any], key: Dict[str, Any]) -> tuple:
@@ -124,4 +124,10 @@ TASK = EvalTask(
     key_point=key_point,
     set_point=set_point,
     sims=(Sim("fm-target", "fibsem.ai.evals.tasks.fm_target.make"),),
+    from_run=FromRun(
+        decision="At a saved site, before correlating: whether the FM z-stack holds a usable target near the site, and where it is (x, y and the sharpest slice).",
+        inputs={
+            "fm_stack": "the FM z-stack taken at the site",
+        },
+    ),
 )
