@@ -8,10 +8,13 @@ from fibsem.acting import ActorKind
 from fibsem.cancellation import NothingToStop, OperationCancelledError
 from fibsem.control import InControl, MicroscopeBusy
 from fibsem.devices.core import (
+    CommandUnavailable,
     DeviceFault,
+    ParameterOutOfRange,
     ParameterReadOnly,
     ParameterUnavailable,
     ResourceBusy,
+    SafetyHalted,
 )
 from fibsem.devices.manipulator import ManipulatorLimitError
 from fibsem.devices.sample_loader import GridExchangeError
@@ -20,6 +23,9 @@ from fibsem.devices.stage import StageLimitError
 _ERRORS: Dict[str, Callable[[str], Exception]] = {
     "ParameterUnavailable": ParameterUnavailable,
     "ParameterReadOnly": ParameterReadOnly,
+    "ParameterOutOfRange": ParameterOutOfRange,
+    "CommandUnavailable": CommandUnavailable,
+    "SafetyHalted": SafetyHalted,
     "TypeError": TypeError,
     "ValueError": ValueError,
     "NotImplementedError": NotImplementedError,
