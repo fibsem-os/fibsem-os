@@ -52,6 +52,10 @@ recipe card, between lamellae in the batch once a lamella's task set is done,
 and before the review. A fresh `[run_state]` note first makes the handoff
 note short.
 
+Each lamella also carries its own working `notes` (autolamella, *A
+lamella's record*): rewrite them with `item_update` after every task or
+decision on it, so its state is on the lamella as well as in `[run_state]`.
+
 **Operator messages** win over the intake and over the Verifier. Update
 `[intake]` and `[run_state]`, and say back what you will do differently.
 Keep everything you hold (a site, a placement, a lamella left UNASSESSED) in

@@ -406,6 +406,12 @@ lamella, not in a note: `item_update` with `{"patch": {"description":
 "..."}, "version": "..."}`, the version from `item_get`. When you add a lamella (`item_add`), leave `name` out so it gets the
 app's usual name.
 
+`description` is what the lamella is, set once at intake. Where it stands
+now goes in its `notes`: a few lines (state, what is held and why, what
+comes next), rewritten whole with `item_update` after each step on it, so
+`item_get` and the Lamella tab always show the current picture. The dated
+history and your reasoning stay in `experiment_add_note`.
+
 ## Reading a lamella
 
 As well as the reads in fibsem-agent's *Reading the experiment*:

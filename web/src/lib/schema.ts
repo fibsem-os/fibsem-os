@@ -1210,6 +1210,8 @@ export interface components {
             is_failure: boolean;
             item_name: string;
             milling_angle: number | null;
+            /** @default  */
+            notes: string;
             poi: {
                 name: string | null;
                 /** @default 0 */
@@ -2619,6 +2621,8 @@ export interface components {
         };
         /** @description The decision a run waits on, and who can make it. */
         Waiting: {
+            /** @default false */
+            agent_reviewing: boolean;
             proposal: string;
             who: string;
         };
