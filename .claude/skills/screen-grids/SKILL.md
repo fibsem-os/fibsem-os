@@ -104,6 +104,33 @@ When you pick sites (cells, squares):
 - Confirm shorthand before acting on it. "3:3" or "C2" can name a square, a
   cell or a rank; ask which the operator means.
 
+**The Scout.** When picking means looking through many squares or tiles,
+or several grids, the `autolamella-scout` agent (when it is in your Agent
+tool) can do the looking in its own context and answer a short list: your
+context keeps the list, not the crops. For a handful of crops, or one site
+the operator pointed at, look yourself. Call it as the other agents are
+called: one call, and wait for it. It judges from what you give it, so give
+it what the decision should rest on:
+
+- the grid, and the overview or tiles to judge from, by the paths a tool
+  answered;
+- the operator's rules word for word from the plan's Rules, or that they
+  gave none and it should use these;
+- at least one example of a good site on this sample: the operator's marked
+  image, a site approved earlier, or the knowledge entry with its images;
+- the view to judge from, and whether the grid is coated;
+- the sites already chosen, and how many candidates you want at most;
+- the job: `review` (what a grid shows, to compare grids) or `sites`.
+
+Its answer is a shortlist, not a decision. On a new sample, or with no
+example, each candidate still goes to the operator one site at a time.
+Each one you take forward you visit and check on fresh images, both checks
+below; a doubtful one needs the image its `would_settle` names first. You
+write the grid notes and the plan, citing its evidence paths. In a lead run
+the Verifier still checks the site list, from the images and the list, not
+the Scout's reasoning. When the operator rejects a candidate, put their
+reason in the plan's Rules in their words, and in the next brief.
+
 **Two separate checks: is the site good, and is the microscope set up there.**
 
 - *Is the site good* is about the sample: the cell or target, the film, the

@@ -27,6 +27,14 @@ says, for any task:
 4. The log around it, its warnings first.
 5. The same task on the lamellae where it went well, for comparison.
 
+Some causes are geometry, and three tools measure it on saved images:
+`grid_draw_milling` shows the item's cuts on the grid overview, for a
+trench or fiducial on a bar or into a neighbour; `analysis_find_grid_squares`
+gives a point's distance to the nearest bar (check its overlay first); and
+`analysis_measure_coincidence_offset`, on one feature in the task's SEM and
+FIB images, says whether the beams were on the same place. Use them when the
+images suggest one of these, and weigh what they answer with your own look.
+
 Say which of those the cause rests on. A cause you can't tie to the record
 is a guess: say so.
 
