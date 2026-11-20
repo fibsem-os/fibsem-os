@@ -751,12 +751,17 @@ export function AgentPage() {
           {(a.session || a.now) && !nowOnStep && (
             <div className="min-h-5 text-[13px] text-muted-foreground">{a.now}</div>
           )}
-          {a.waiting && (
-            <div className="text-[13px]">
-              <b>Waiting on a decision:</b> {a.waiting.proposal}{" "}
-              <span className="text-muted-foreground">· {a.waiting.who}</span>
-            </div>
-          )}
+          {a.waiting &&
+            (a.waiting.agent_reviewing ? (
+              <div className="text-[13px]">
+                <b>Agent is reviewing:</b> {a.waiting.proposal}
+              </div>
+            ) : (
+              <div className="text-[13px]">
+                <b>Waiting on a decision:</b> {a.waiting.proposal}{" "}
+                <span className="text-muted-foreground">· {a.waiting.who}</span>
+              </div>
+            ))}
           {a.asking && <ConnectCard key={a.asking.id} ask={a.asking} />}
           {request && <RequestCard key={request.request_id} request={request} agent={a} />}
           {!request && suggestion && <SuggestionCard key={suggestion.proposal_id} suggestion={suggestion} agent={a} />}
