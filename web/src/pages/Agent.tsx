@@ -1,20 +1,40 @@
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, BookOpen, Check, ChevronDown, ChevronRight, ListChecks, ListFilter, Loader } from "lucide-react";
+import {
+  ArrowDown,
+  BookOpen,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  ListChecks,
+  ListFilter,
+  Loader,
+  Microscope,
+} from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Popup } from "@/components/ui/popup";
 import { api, imageUrl } from "@/lib/api";
 import { onEvents } from "@/lib/events";
 import { Markdown } from "@/lib/markdown";
-import type { AgentPlan, AgentState, RecentRow, ReportedSession, TranscriptLine } from "@/lib/types";
+import type {
+  AgentPlan,
+  AgentState,
+  Capabilities,
+  RecentRow,
+  ReportedSession,
+  TranscriptLine,
+  WorkflowStatus,
+} from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { ConnectCard, RequestCard, SuggestionCard } from "./agent/Cards";
 import { carriesFiles, splitAttached, useAttachments } from "./agent/attach";
 import { SentFiles } from "./agent/Attachments";
 import { Composer } from "./agent/Composer";
 import { KnowledgeDialog } from "./agent/Knowledge";
+import { MicroscopeCustomise, MicroscopeTab, useMicroscopeShown } from "./agent/MicroscopeTab";
 import { EvidenceImage } from "./agent/Pictures";
 import { PlanDialog } from "./agent/PlanDialog";
 import { say, since } from "./agent/steps";
+import { type ColumnTab, SafetyRow, SideColumn, useSafetyActions } from "./agent/SideColumn";
 import { hasPanel, SidePanel } from "./agent/SidePanel";
 
 // The agent's news (lib/events.ts) reads it, its session and its plan again at once.
@@ -62,6 +82,12 @@ const TONE: Record<string, string> = {
   running: "text-link",
   muted: "text-muted-foreground",
 };
+
+/** Another page of the app, as the rail opens it. */
+function openPage(path: string) {
+  history.pushState(null, "", path);
+  dispatchEvent(new PopStateEvent("popstate"));
+}
 
 const capital = (text: string) => text.replace(/^./, (c) => c.toUpperCase());
 
@@ -572,6 +598,80 @@ function Record({
   return <>{out}</>;
 }
 
+// While something runs, its progress is read this often, as the top line reads it.
+const RUNNING_EVERY_MS = 2000;
+
+/** 75 s as "1:15", an hour and more as "1:02:05". */
+function elapsed(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  const two = (n: number) => String(n).padStart(2, "0");
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return h ? `${h}:${two(m)}:${two(s % 60)}` : `${m}:${two(s % 60)}`;
+}
+
+/** Above the message box: what runs on the microscope, live. A run's task or
+ * the agent's mill turns with a spinner, its bar fills and its time counts, and
+ * while the agent is heard it says the agent watches. Nothing running, the
+ * agent's now line, as before. */
+function LiveLine({ agent, heard, hide }: { agent: AgentState; heard: boolean; hide: boolean }) {
+  const status = useQuery({
+    queryKey: ["app/workflow/status"],
+    queryFn: () => api<WorkflowStatus>("/app/workflow/status"),
+    refetchInterval: (query) =>
+      query.state.data?.workflow.running || query.state.data?.progress ? RUNNING_EVERY_MS : false,
+  });
+  const workflow = status.data?.workflow;
+  const progress = status.data?.progress && !status.data.progress.outcome ? status.data.progress : null;
+  const task = workflow?.running
+    ? [workflow.current_task ?? "A task", workflow.current_item].filter(Boolean).join(" on ")
+    : null;
+  const text = [task ?? progress?.label ?? (progress ? null : agent.now), progress?.step, progress?.numbers]
+    .filter(Boolean)
+    .join(" · ");
+  const running = !!(task || progress);
+  // Counted from when this page first saw it run: the line has no start time.
+  const key = task ?? progress?.label ?? null;
+  const since = useRef<{ key: string | null; at: number }>({ key: null, at: 0 });
+  if (since.current.key !== key) since.current = { key, at: Date.now() };
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!running) return;
+    const tick = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(tick);
+  }, [running]);
+  if (!running)
+    return (agent.session || agent.now) && !hide ? (
+      <div className="min-h-5 text-[13px] text-muted-foreground">{agent.now}</div>
+    ) : null;
+  return (
+    <div className="flex flex-col gap-1" aria-live="polite">
+      <div className="flex min-h-5 items-center gap-1.5 text-[13px] text-muted-foreground">
+        <Loader size={13} className="shrink-0 animate-spin" aria-hidden />
+        <span className="min-w-0 truncate" title={text}>
+          {text}
+        </span>
+        <span className="ml-auto shrink-0 tabular-nums" title="How long it has run, since this page saw it start">
+          {elapsed((now - since.current.at) / 1000)}
+        </span>
+        {heard && (
+          <span className="shrink-0" title="The agent waits on the microscope's events and wakes on the next one">
+            · Agent watching
+          </span>
+        )}
+      </div>
+      {progress?.fraction != null && (
+        <div className="h-[2px] rounded-sm bg-accent">
+          <div
+            className="h-full rounded-sm bg-[var(--fibsem-primary-color)] transition-[width] duration-1000"
+            style={{ width: `${Math.min(100, 100 * progress.fraction)}%` }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AgentPage() {
   const client = useQueryClient();
   const agent = useQuery({
@@ -595,6 +695,13 @@ export function AgentPage() {
     queryFn: () => api<AgentPlan>("/app/agent/plan"),
   });
   const [planOpen, setPlanOpen] = useState(false);
+  // The side column's Microscope tab and safety row, while the microscope's routes are served.
+  const caps = useQuery({ queryKey: ["capabilities"], queryFn: () => api<Capabilities>("/capabilities") });
+  const instrument =
+    !!caps.data?.routers.microscope && (caps.data.connected !== false || !!caps.data.instruments?.length);
+  const fibsem = (caps.data?.instruments?.[0] ?? "fibsem") === "fibsem";
+  const safety = useSafetyActions(instrument);
+  const [shown, setShown] = useMicroscopeShown();
   const rowsNow = recent.data?.rows ?? [];
   const since = rowsNow.find((r) => r.at)?.at;
   const transcript = useQuery({
@@ -686,6 +793,27 @@ export function AgentPage() {
   const panel = hasPanel(session) ? (
     <SidePanel session={session} plan={plan.data} budgetLow={a.budget_low} onOpenPlan={() => setPlanOpen(true)} />
   ) : null;
+  const tabs: ColumnTab[] = [
+    {
+      id: "session",
+      label: "Session",
+      icon: <ListChecks size={14} />,
+      render: () =>
+        panel ?? (
+          <p className="m-0 text-[13px] text-muted-foreground">
+            The agent's goal, plan and budget show here once it reports them.
+          </p>
+        ),
+    },
+  ];
+  if (instrument)
+    tabs.push({
+      id: "microscope",
+      label: "Microscope",
+      icon: <Microscope size={14} />,
+      menu: <MicroscopeCustomise fibsem={fibsem} shown={shown} onChange={setShown} />,
+      render: () => <MicroscopeTab fibsem={fibsem} shown={shown} onOpenPage={() => openPage("/ui/microscope")} />,
+    });
   return (
     <div className="flex h-full">
       <div
@@ -862,10 +990,9 @@ export function AgentPage() {
         )}
         <div className="flex flex-col gap-2.5 border-t border-border pt-3 pb-4">
           {/* Kept while a session runs, so the composer doesn't move as commands start and end.
-              The running step says it in the record; here only when no step shows it. */}
-          {(a.session || a.now) && !nowOnStep && (
-            <div className="min-h-5 text-[13px] text-muted-foreground">{a.now}</div>
-          )}
+              Live while something runs; else the running step says it in the record, and
+              here only when no step shows it. */}
+          <LiveLine agent={a} heard={isWorking && !a.stopped} hide={nowOnStep} />
           {a.waiting &&
             (a.waiting.agent_reviewing ? (
               <div className="text-[13px]">
@@ -890,14 +1017,11 @@ export function AgentPage() {
           </div>
         </div>
       </div>
-      {panel && (
-        <aside
-          aria-label="Goal and to do"
-          className="hidden w-[clamp(232px,22vw,400px)] shrink-0 overflow-y-auto border-l border-border px-6 pt-[38px] pb-4 lg:block"
-        >
-          {panel}
-        </aside>
-      )}
+      <SideColumn
+        tabs={tabs}
+        footer={<SafetyRow actions={safety} />}
+        rail={<SafetyRow actions={safety} compact />}
+      />
       <PlanDialog plan={plan.data} open={planOpen} onOpenChange={setPlanOpen} />
     </div>
   );

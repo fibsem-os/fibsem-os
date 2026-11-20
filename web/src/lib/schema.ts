@@ -207,6 +207,7 @@ export interface components {
             /** @default false */
             long: boolean;
             returns: string | null;
+            safety: string | null;
             signature: string;
         };
         /** @description A patch to a task config, or its milling stages reordered, against

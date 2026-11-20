@@ -338,7 +338,10 @@ export function Composer({ agent, attach, onSent }: { agent: AgentState; attach:
           {error ?? said}
         </span>
         <div className="flex-1" />
-        <Stop agent={agent} act={act} />
+        {/* From lg up, Stop is at the bottom of the side column. */}
+        <span className="lg:hidden">
+          <Stop agent={agent} act={act} />
+        </span>
         <Button variant="primary" onClick={send} disabled={!text || attach.uploading || busy}>
           Send
         </Button>

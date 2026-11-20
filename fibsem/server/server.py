@@ -195,11 +195,26 @@ def _blocked_route(served: ServedInstrument) -> Callable[[str, str], Optional[st
     return why
 
 
+def _safety_action(request: Request, command: str) -> bool:
+    """Whether *command* on the route's device or service makes the instrument
+    safe (``command(safety=...)``)."""
+    part = "services" if f"{MICROSCOPE}/services/" in request.url.path else "devices"
+    found = request.app.state.served.find(part, request.path_params.get("device", ""))
+    info = getattr(found, "commands", {}).get(command) if found is not None else None
+    return bool(info is not None and info.safety)
+
+
 def _device_command_gate(request: Request, command: str):
     """A device command's gate: a stop, a pause or a resume by the stop rule
-    (:func:`_stop_gate`), anything else Drive and control of the microscope."""
+    (:func:`_stop_gate`); a safety action at Drive with no control, so it runs
+    while a mill or a move holds it; anything else Drive and control of the
+    microscope."""
     if command in STOP_COMMANDS or command in HOLD_COMMANDS:
         _stop_gate(request)
+        yield
+        return
+    if _safety_action(request, command):
+        _drive(request)
         yield
         return
     _drive(request)
