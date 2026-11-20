@@ -24,6 +24,7 @@ no second copy.
 
 import argparse
 import asyncio
+import collections
 import functools
 import json
 import logging
@@ -321,6 +322,38 @@ def subagent_tools(names: List[str]) -> List[str]:
 
 
 log = logging.getLogger("fibsem.agent.harness")
+
+
+# The CLI's last lines on stderr: why a resumed conversation would not load.
+CLI_SAID: "collections.deque[str]" = collections.deque(maxlen=50)
+# What the CLI says when it can't load a conversation: none by that id, one too
+# large for it, or a file it can't read. Only these start a fresh context on a
+# resume; any other failure stops as before.
+CANNOT_LOAD = re.compile(
+    r"no conversation found|session\b.*\bnot found|invalid string length"
+    r"|heap out of memory|allocation failed|unexpected (token|end of json)"
+    r"|failed to (load|parse|read|resume)",
+    re.IGNORECASE,
+)
+
+
+def _cli_said(line: str) -> None:
+    log.debug("claude: %s", line.rstrip())
+    CLI_SAID.append(line.rstrip())
+
+
+def _last_said() -> str:
+    """The CLI's last line that says why it can't load, shortened."""
+    for line in reversed(CLI_SAID):
+        if CANNOT_LOAD.search(line):
+            return line.strip()[:200]
+    return ""
+
+
+def cannot_load(*texts: str) -> bool:
+    """Whether *texts* (an error, the CLI's last lines) say the conversation
+    itself can't be loaded."""
+    return any(CANNOT_LOAD.search(text or "") for text in texts)
 
 
 def _reload_failed(error: BaseException) -> str:
@@ -1287,7 +1320,8 @@ class Harness:
             try:
                 await self._agent.start()
             except Exception as error:
-                if not self._may_recover():
+                said = "\n".join(CLI_SAID)
+                if not cannot_load(str(error), said) or not self._may_recover():
                     raise
                 # The reload failed: a fresh context in the same session.
                 await self._recover(_reload_failed(error), reconnect=True)
@@ -1481,13 +1515,19 @@ class Harness:
             self._code = 2
             return False
         self._warn_budget()
-        if end.subtype == "no_result" and self._turns == 1 and self._may_recover():
+        if (
+            end.subtype == "no_result"
+            and self._turns == 1
+            and cannot_load(end.error or "", "\n".join(CLI_SAID))
+            and self._may_recover()
+        ):
             # The resumed conversation died on its first turn: carry the
             # session on in a fresh context instead of stopping.
             try:
                 await self._recover(
                     handoff_mod.RELOAD_FAILED.format(
-                        why="the agent's process ended on its first turn"
+                        why=_last_said()
+                        or "the agent's process ended on its first turn"
                     ),
                     reconnect=True,
                 )
@@ -2881,7 +2921,7 @@ def build_options(
         ),
         session_store_flush="eager",
         max_buffer_size=MAX_BUFFER_SIZE,
-        stderr=lambda line: log.debug("claude: %s", line.rstrip()),
+        stderr=_cli_said,
     )
 
 

@@ -8,12 +8,15 @@ the model is stood in.
 import asyncio
 import json
 
+import pytest
+
 from fibsem.ai.agent import handoff as handoff_mod
 from fibsem.ai.agent import harness as harness_mod
 from fibsem.ai.agent import instruments, playbooks, usage
-from fibsem.ai.agent.harness import TurnEnd
+from fibsem.ai.agent.harness import Harness, TurnEnd
 from tests.server.test_agent_handoff import ResettingAgent
 from tests.server.test_agent_harness import (  # noqa: F401
+    _connect,
     _harness,
     microscope,
     session,
@@ -140,20 +143,52 @@ def test_a_resume_that_cannot_reload_starts_fresh_once(session):
     assert handoff_mod.NO_NOTE in first
 
 
-def test_a_resumed_conversation_that_dies_on_its_first_turn_starts_fresh(session):
+def test_a_resumed_conversation_that_cannot_load_starts_fresh(session):
+    """The first turn dies and the CLI said it couldn't load the conversation."""
+
     async def reply(prompt):
         if len(agent.prompts) == 1:
+            harness_mod.CLI_SAID.append("RangeError: Invalid string length")
             return TurnEnd("no_result")
         return TurnEnd()
 
+    harness_mod.CLI_SAID.clear()
     agent = ResettingAgent(reply)
     running = _harness(session, agent, resumed=True, handoff=_handoff())
     asyncio.run(asyncio.sleep(1.5))
     running.stop()
+    harness_mod.CLI_SAID.clear()
     assert agent.prompts[0].startswith(WORDS.resumed.split(".")[0])
     assert len(agent.conversations) == 1
     assert agent.prompts[1].startswith(RECOVERED)
-    assert "ended on its first turn" in agent.prompts[1]
+    assert "Invalid string length" in agent.prompts[1]
+
+
+def test_a_resume_that_fails_for_another_reason_stops_as_before(session):
+    """A first turn that dies, or a start that fails, without the CLI saying
+    the conversation can't be loaded: the old conversation is kept."""
+    harness_mod.CLI_SAID.clear()
+    agent = ResettingAgent(lambda prompt: _done(TurnEnd("no_result")))
+    running = _harness(session, agent, resumed=True, handoff=_handoff())
+    assert running.ended(30) == 1
+    assert not agent.conversations
+
+    class Failing(ResettingAgent):
+        async def start(self):
+            raise RuntimeError("Connection reset by peer")
+
+    agent = Failing()
+    harness = Harness(agent, _connect(session), resumed=True, handoff=_handoff())
+    with pytest.raises(RuntimeError, match="Connection reset"):
+        asyncio.run(harness.run())
+    assert not agent.conversations and not agent.prompts
+
+
+def test_what_counts_as_cannot_load():
+    assert harness_mod.cannot_load("No conversation found with session ID: x")
+    assert harness_mod.cannot_load("", "FATAL ERROR: JavaScript heap out of memory")
+    assert harness_mod.cannot_load("SyntaxError: Unexpected token } in JSON")
+    assert not harness_mod.cannot_load("Connection reset by peer", "API Error: 529")
 
 
 def test_a_new_session_that_dies_still_stops(session):
