@@ -170,8 +170,14 @@ export interface ReportedSession {
   spent_usd?: number;
   /** What its model calls used this run, in tokens. */
   tokens?: { input: number; output: number; cache_read: number; cache_write: number };
-  /** How full its context is, in tokens: compacted at `compact_at`. */
-  context?: { used: number; window?: number; compact_at?: number };
+  /** How full its context is, in tokens: compacted at `compact_at`; `parts`
+   * as the CLI's /context names them, when the harness reports them. */
+  context?: { used: number; window?: number; compact_at?: number; parts?: { name: string; tokens: number }[] };
+  /** How many contexts the session has had: 1, one more per fresh context. */
+  contexts?: number;
+  /** When the operator last asked for a fresh context, and in which context. */
+  reset_asked_at?: string;
+  reset_asked_in?: number;
   /** The plan's Rules that give a time; `by` is an ISO time with its offset. */
   deadlines?: { text: string; by: string }[];
   checklist?: { text: string; state: "open" | "done" | "always" }[];

@@ -143,6 +143,11 @@ AGENT_MESSAGES_READ = _kind(
     "agent_messages_read", OTHER, "The agent read the operator's messages."
 )
 AGENT_PLAN_EDITED = _kind("agent_plan_edited", OTHER, "The agent edited its plan.")
+AGENT_CONTEXT_RESET_ASKED = _kind(
+    "agent_context_reset_asked",
+    OTHER,
+    "The operator asked the agent for a fresh context.",
+)
 AGENT_SAMPLE_SET = _kind("agent_sample_set", OTHER, "The agent set the sample.")
 
 # --- requests (the agent's actions held for the operator) ----------------------------

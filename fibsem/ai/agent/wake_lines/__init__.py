@@ -82,6 +82,7 @@ GROUPS = {
 ALWAYS = frozenset(
     {
         "message",
+        "context_reset",
         "level",
         "level_lowered",
         "operator_stop",
@@ -115,6 +116,8 @@ NEEDS = {
     "level_lowered": WAKE,
     "operator_stop": WAKE,
     "plan_edited": WAKE,
+    # The operator asked for a fresh context.
+    "context_reset": WAKE,
     # The watch's own state: lost events, a restarted app, the level at Off.
     "gap": WAKE,
     "restarted": WAKE,

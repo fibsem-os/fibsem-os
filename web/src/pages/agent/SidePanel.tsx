@@ -345,6 +345,113 @@ function BudgetDialog({
   );
 }
 
+/** What the context is, what fills it (when the harness says), and a button
+ * that asks the agent for a fresh context (POST /app/agent/context-reset). */
+function ContextDialog({
+  session,
+  open,
+  onOpenChange,
+}: {
+  session: ReportedSession;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const client = useQueryClient();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (open) setError(null);
+  }, [open]);
+  const { context, contexts, ended } = session;
+  if (!context) return null;
+  const now = contexts ?? 1;
+  // Asked in this context and not yet done: the agent resets when it can.
+  const asked = session.reset_asked_at && (session.reset_asked_in ?? 1) >= now ? session.reset_asked_at : null;
+  const parts = [...(context.parts ?? [])].sort((a, b) => b.tokens - a.tokens);
+  const largest = parts.length ? parts[0].tokens : 0;
+  const ask = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api("/app/agent/context-reset", { method: "POST" });
+      await client.invalidateQueries({ queryKey: ["app/agent"] });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent title="Context" className="w-[min(460px,calc(100vw-32px))]">
+        <div className="flex flex-col gap-3 px-4 py-4 text-[13px] leading-[1.5]">
+          <p className="m-0">
+            {count(context.used)} tokens
+            {context.window ? ` of ${count(context.window)}` : ""}
+            {now > 1 ? ` · context ${now} of this session` : ""}
+          </p>
+          <p className="m-0 text-muted-foreground">
+            The context is everything the agent reads again at every step: its instructions, tools and skills, and
+            the conversation so far. A larger context costs more per step and the agent works less well in it. The
+            panel shows it orange from {count(CONTEXT_WARN)} and red from {count(CONTEXT_HIGH)}.
+            {context.compact_at
+              ? ` At ${count(context.compact_at)} it is compacted: the conversation is summarised, which can lose detail.`
+              : ""}
+          </p>
+          {parts.length ? (
+            <div>
+              <h4 className="m-0 mb-1.5 text-[12px] font-semibold text-muted-foreground">What fills it</h4>
+              <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
+                {parts.map((part) => (
+                  <li key={part.name}>
+                    <div className="flex justify-between gap-3">
+                      <span className="break-words">{part.name}</span>
+                      <span className="shrink-0 tabular-nums text-muted-foreground">{count(part.tokens)}</span>
+                    </div>
+                    <div className="mt-1 h-[3px] rounded-sm bg-accent">
+                      <div
+                        className="h-full rounded-sm bg-muted-foreground/70"
+                        style={{ width: `${(100 * part.tokens) / largest}%` }}
+                      />
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : (
+            <p className="m-0 text-muted-foreground">No breakdown yet: it comes with the agent's next turn.</p>
+          )}
+          {!ended && (
+            <div className="border-t border-border/60 pt-3">
+              <h4 className="m-0 mb-1.5 text-[12px] font-semibold text-muted-foreground">Fresh context</h4>
+              <p className="m-0 text-muted-foreground">
+                At its next quiet moment, never during a mill, the agent brings its plan up to date, writes a handoff
+                note (what's done, what's running, what's next) and carries on in a fresh context. The session, chat,
+                plan, budget and experiment stay as they are.
+              </p>
+              {asked && (
+                <p className={cn("m-0 mt-2", WARN)}>
+                  Asked at{" "}
+                  {new Date(asked).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}. The agent resets at
+                  its next quiet moment.
+                </p>
+              )}
+              {error && <p className="m-0 mt-2 text-destructive">{error}</p>}
+              <div className="mt-3 flex justify-end gap-2">
+                <Button onClick={() => onOpenChange(false)}>Close</Button>
+                <Button variant="primary" disabled={busy || !!asked} onClick={ask}>
+                  Reset context
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /** Goal and deadlines, the plan (or the agent's checklist), budget and context,
  * then the playbook on one line at the bottom. */
 export function SidePanel({
@@ -360,6 +467,7 @@ export function SidePanel({
 }) {
   const now = useNow(30000);
   const [budgetOpen, setBudgetOpen] = useState(false);
+  const [contextOpen, setContextOpen] = useState(false);
   const {
     started,
     ended,
@@ -458,13 +566,17 @@ export function SidePanel({
             </div>
           ) : null}
           {context && (
-            <p
-              className={cn("m-0 mt-2.5", contextText)}
-              title={context.compact_at ? `Compacts at ${count(context.compact_at)}` : undefined}
-            >
+            <p className={cn("m-0 mt-2.5", contextText)}>
               <span className="text-muted-foreground">Context </span>
-              {count(context.used)}
-              {context.window ? ` of ${count(context.window)}` : " tokens"}
+              {/* A click explains it, breaks it down and offers a fresh context. */}
+              <button
+                className="cursor-pointer border-0 bg-transparent p-0 text-left text-inherit underline decoration-dotted underline-offset-2 hover:text-foreground"
+                onClick={() => setContextOpen(true)}
+                title="What's in the context"
+              >
+                {count(context.used)}
+                {context.window ? ` of ${count(context.window)}` : " tokens"}
+              </button>
             </p>
           )}
           {contextFull ? (
@@ -501,6 +613,7 @@ export function SidePanel({
       )}
       <Setup session={session} />
       <BudgetDialog budget={budget} spent={spent} open={budgetOpen} onOpenChange={setBudgetOpen} />
+      {context && <ContextDialog session={session} open={contextOpen} onOpenChange={setContextOpen} />}
     </div>
   );
 }

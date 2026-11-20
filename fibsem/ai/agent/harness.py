@@ -60,6 +60,7 @@ from fibsem.ai.agent import (
 )
 from fibsem.ai.agent import handoff as handoff_mod
 from fibsem.ai.agent import manager as sessions
+from fibsem.ai.agent import report as report_mod
 from fibsem.ai.agent import watch as watch_mod
 from fibsem.ai.agent.catalog import INSTRUMENT_ENV
 from fibsem.ai.agent.report import SessionReport, plain
@@ -370,6 +371,28 @@ def turn_prompt(
     if said & {ALARM, watch_mod.PLAN_EDITED}:
         prompt += "\n\n" + words.reread_plan
     return prompt
+
+
+def context_parts(categories) -> List[Dict[str, Any]]:
+    """The CLI's ``/context`` categories as the session reports them: each
+    part's name and tokens, without the free space and the tools only named
+    (deferred), at most `report_mod.MAX_PARTS`."""
+    parts = []
+    for category in categories if isinstance(categories, list) else []:
+        if not isinstance(category, dict) or category.get("isDeferred"):
+            continue
+        name = " ".join(str(category.get("name") or "").split())[: report_mod.MAX_ITEM]
+        tokens = category.get("tokens")
+        if (
+            not name
+            or name.lower() == "free space"
+            or isinstance(tokens, bool)
+            or not isinstance(tokens, (int, float))
+            or tokens <= 0
+        ):
+            continue
+        parts.append({"name": name, "tokens": int(tokens)})
+    return parts[: report_mod.MAX_PARTS]
 
 
 # The kinds of the harness's own wake-ups: the agent's timer, and a deadline.
@@ -2147,7 +2170,10 @@ class SdkAgent:
             "compact_at": reply.get("autoCompactThreshold"),
         }
         found = {key: int(value) for key, value in found.items() if value}
-        return found if "used" in found else context
+        if "used" not in found:
+            return context
+        parts = context_parts(reply.get("categories"))
+        return {**found, "parts": parts} if parts else found
 
     def _turn_line(self, result, end: TurnEnd) -> str:
         """ "Turn ended: success, 12 steps, $0.41 ($12.30 so far). ..." """
