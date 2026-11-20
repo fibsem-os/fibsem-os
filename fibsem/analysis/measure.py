@@ -231,7 +231,7 @@ def line_profile(
     of the profile's peak (its dip with *dip*) above the baseline, the median
     of the profile's outer fifths. ``fwhm`` is None when the half maximum is
     not crossed on both sides."""
-    from scipy.ndimage import map_coordinates
+    from skimage.measure import profile_line
 
     name, stack = image.layer(channel)
     if plane is not None:
@@ -245,23 +245,17 @@ def line_profile(
     length = math.hypot(x1 - x0, y1 - y0)
     if length < 2:
         raise ValueError("a line is at least 2 pixels long.")
-    count = int(round(length)) + 1
-    t = np.linspace(0.0, 1.0, count)
-    xs, ys = x0 + t * (x1 - x0), y0 + t * (y1 - y0)
-    nx, ny = -(y1 - y0) / length, (x1 - x0) / length
-    offsets = np.arange(int(round(width_px))) - (int(round(width_px)) - 1) / 2
-    samples = np.mean(
-        [
-            map_coordinates(
-                data.astype(np.float64),
-                [ys + o * ny, xs + o * nx],
-                order=1,
-                mode="nearest",
-            )
-            for o in offsets
-        ],
-        axis=0,
+    # (row, column) ends; a sample per pixel, each the mean across the width.
+    samples = profile_line(
+        data.astype(np.float64),
+        (y0, x0),
+        (y1, x1),
+        linewidth=int(round(width_px)),
+        order=1,
+        mode="nearest",
+        reduce_func=np.mean,
     )
+    t = np.linspace(0.0, 1.0, len(samples))
     distance = t * length
     fwhm = _fwhm(distance, samples, dip)
     answer = {
