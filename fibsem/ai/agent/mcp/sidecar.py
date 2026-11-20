@@ -33,6 +33,7 @@ import json
 import os
 import re
 import sys
+import time
 from contextvars import ContextVar
 from typing import Annotated, Dict, List, Optional, Tuple, Union
 from urllib.parse import quote, unquote
@@ -48,6 +49,7 @@ from fibsem.ai.agent.catalog import (
     tools_for_capabilities,
 )
 from fibsem.ai.agent.catalog.spec import lenient
+from fibsem.ai.agent.mcp import agent_view
 from fibsem.client import tools
 from fibsem.client.transport import ServerUnreachable, Transport
 from fibsem.extras import missing_extra_message
@@ -57,6 +59,9 @@ from fibsem.unreleased import refuse
 # How long start-up looks for the server before answering the MCP client anyway:
 # a client gives a server only so long to start.
 _PROBE_S = 2.0
+# How often an image answer naming a path outside the known experiment asks
+# the app which experiment is open.
+_ROOT_RECHECK_S = 10.0
 
 
 _NO_SERVER_MSG = (
@@ -378,7 +383,12 @@ def _devices(kind):
     return instruments.devices(kind, sources.find_root())
 
 
-def build_sidecar(client, capabilities, instrument=None, record=None):
+# A tool's _meta key that has Claude Code load it from the first turn, where
+# it otherwise defers MCP tools until the agent searches for them.
+ALWAYS_LOAD = "anthropic/alwaysLoad"
+
+
+def build_sidecar(client, capabilities, instrument=None, record=None, always_load=()):
     """Build the MCP server over an httpx-compatible client.
 
     ``capabilities`` is the full /capabilities payload; a tool registers when
@@ -390,6 +400,8 @@ def build_sidecar(client, capabilities, instrument=None, record=None):
     (`RECORD_TOOLS`), and the image and file tools when the host serves a
     data folder, for an agent host; False offers every tool but
     those, for an instrument whose agent keeps its record on a host.
+    *always_load* names tools Claude Code loads from the first turn rather
+    than deferring them behind its tool search (``anthropic/alwaysLoad``).
     """
     from mcp.server.mcpserver import Image, MCPServer
     from mcp.types import ToolAnnotations
@@ -480,7 +492,39 @@ def build_sidecar(client, capabilities, instrument=None, record=None):
         images = [Image(data=jpeg, format="jpeg") for jpeg in _pop_previews(data)]
         if not images:
             return data
-        return [json.dumps(data), *images]
+        return [_viewed(data), *images]
+
+    def _viewed(data):
+        """*data*, the calling tool's answer, as JSON text the agent reads
+        (`agent_view`): an image tool's cut to what it acts on."""
+        calling = _calling.get()
+        tool = calling[0] if calling else None
+        if tool not in agent_view.VIEWED:
+            return json.dumps(data)
+        return agent_view.dumps(agent_view.view(data, tool, _experiment_root(data)))
+
+    # The open experiment's folder, as the app last said, and when it was asked.
+    known_root = {"root": None, "asked": None}
+
+    def _experiment_root(data):
+        """The open experiment's folder, for *data*'s paths: asked of the app
+        again when *data* names a path outside the one known (another
+        experiment was opened), at most every `_ROOT_RECHECK_S`."""
+        root = known_root["root"]
+        if not agent_view.outside(data, root):
+            return root
+        now = time.monotonic()
+        asked = known_root["asked"]
+        if asked is not None and now - asked < _ROOT_RECHECK_S:
+            return root
+        known_root["asked"] = now
+        try:
+            status, err = _answer(tools.send(client, "app_get_status", {}))
+        except Exception:  # noqa: BLE001 - no app, or no server: paths stay whole
+            return root
+        experiment = (status or {}).get("experiment") if not err else None
+        known_root["root"] = (experiment or {}).get("path")
+        return known_root["root"]
 
     def server_report_session(
         session_id: Optional[str] = None,
@@ -642,7 +686,7 @@ def build_sidecar(client, capabilities, instrument=None, record=None):
         if resp.status_code >= 400:
             return _refusal(resp)
         meta = {"item_name": item_name, "filename": filename, **_image_header(resp)}
-        return [json.dumps(meta), Image(data=resp.content, format="jpeg")]
+        return [_viewed(meta), Image(data=resp.content, format="jpeg")]
 
     def item_measure_thickness(
         item_name: str,
@@ -911,7 +955,7 @@ def build_sidecar(client, capabilities, instrument=None, record=None):
         if resp.status_code >= 400:
             return _refusal(resp)
         meta = {"grid_name": grid_name, "filename": filename, **_image_header(resp)}
-        return [json.dumps(meta), Image(data=resp.content, format="jpeg")]
+        return [_viewed(meta), Image(data=resp.content, format="jpeg")]
 
     def experiment_add_note(text: str, item_name: Optional[str] = None):
         return _tool("experiment_add_note", text=str(text), item_name=item_name)
@@ -1192,14 +1236,21 @@ def build_sidecar(client, capabilities, instrument=None, record=None):
 
     def _answered(spec):
         """A tool that answers its route's answer as it stands, or its
-        ``result`` under `ToolSpec.result_key`; a preview in it as an image."""
+        ``result`` under `ToolSpec.result_key`, as `ToolSpec.shape` shapes
+        it; a preview in it as an image."""
 
         def tool(**arguments):
             data, err = _route(spec.name, **arguments)
             if err:
                 return err
             key = spec.result_key
-            return _with_images({key: data["result"]} if key else data)
+            answer = {key: data["result"]} if key else data
+            if spec.shape is not None:
+                try:
+                    answer = spec.shape(answer, arguments)
+                except ValueError as exc:
+                    return _Failure(f"refused: {exc}")
+            return _with_images(answer)
 
         tool.__name__ = spec.name
         tool.__signature__ = spec.signature
@@ -1295,6 +1346,7 @@ def build_sidecar(client, capabilities, instrument=None, record=None):
                     idempotent_hint=spec.idempotent,
                     open_world_hint=False,
                 ),
+                meta={ALWAYS_LOAD: True} if name in always_load else None,
             )
     return mcp
 
@@ -1575,6 +1627,13 @@ def main(argv=None):
         "agent keeps its record on an agent host",
     )
     parser.add_argument(
+        "--always-load",
+        default="",
+        metavar="TOOL,...",
+        help="tools Claude Code loads from the first turn rather than finding "
+        "them with its tool search (fibsem-agent sets them from its playbook)",
+    )
+    parser.add_argument(
         "--token-env",
         default=None,
         metavar="NAME",
@@ -1613,7 +1672,8 @@ def main(argv=None):
             args.url, args.token, wait_s, user_agent=client.named_user_agent
         )
     )
-    build_sidecar(client, capabilities, args.instrument, args.record).run()
+    always_load = {n.strip() for n in args.always_load.split(",") if n.strip()}
+    build_sidecar(client, capabilities, args.instrument, args.record, always_load).run()
 
 
 if __name__ == "__main__":

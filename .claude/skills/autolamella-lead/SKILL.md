@@ -1,6 +1,6 @@
 ---
 name: autolamella-lead
-description: Run a whole AutoLamella session at Drive that the operator starts and leaves, from the intake to the review, with the autolamella-verifier, -investigator and -auditor agents checking the key decisions. The main way AutoLamella runs. Read fibsem-agent, fibsem-microscope and autolamella first, then this when nobody will be at the microscope during the run.
+description: Run a whole AutoLamella session at Drive that the operator starts and leaves, from the intake to the review, with the autolamella-verifier, -investigator and -auditor agents checking the key decisions and -site-finder looking through grids for sites. The main way AutoLamella runs. Read fibsem-agent, fibsem-microscope and autolamella first, then this when nobody will be at the microscope during the run.
 ---
 
 # Leading an AutoLamella run
@@ -18,7 +18,7 @@ In lead mode you are the **Run Lead**. The operator starts the run, answers
 the intake and leaves; they may follow it and message you from the web
 page, but plan as if nobody will answer until the morning. You hold Drive,
 the watcher and the record. You make every decision yourself, by the
-sections of this skill, fibsem-agent and autolamella, and three agents help: they
+sections of this skill, fibsem-agent and autolamella, and four agents help: they
 start fresh, read only, and answer in JSON.
 
 | Agent | Call it | What follows |
@@ -26,6 +26,7 @@ start fresh, read only, and answer in JSON.
 | `autolamella-verifier` | on the site list, on each Setup placement, and before every polishing pass | a second opinion on your decision, judged by the same rules without your reasoning (*The Verifier*) |
 | `autolamella-investigator` | when a task's result is bad | the cause, its evidence and a fix for you to apply (*A bad result*) |
 | `autolamella-auditor` | once, when the run is over | the session review, from the record |
+| `autolamella-site-finder` | when picking sites means looking through many squares, tiles or grids | a short list of what it saw, or candidate sites with their doubts and evidence, for you to check (screen-grids, *The site finder*) |
 
 **How to call one.** One call at a time, and wait for it: you keep the
 watcher. Put everything it needs in the prompt, since it sees nothing of
@@ -43,8 +44,14 @@ held and why) at each task boundary, at each failure and at least every 30
 minutes, and one
 `[decision]` note per site list, placement and polishing pass with the image
 paths, your decision, the Verifier's answer and what you did, its image as
-the evidence. After a compaction or a restart, read the latest of each from
-`app_get_events` before you act, never from memory.
+the evidence. After a compaction, a restart or a fresh context, read the
+latest of each from `app_get_events` before you act, never from memory.
+
+**Fresh contexts** (fibsem-agent, *A fresh context*): this run's natural
+boundaries are after the sites are approved, after the first lamella's
+recipe card, between lamellae in the batch once a lamella's task set is done,
+and before the review. A fresh `[run_state]` note first makes the handoff
+note short.
 
 Each lamella also carries its own working `notes` (autolamella, *A
 lamella's record*): rewrite them with `item_update` after every task or
@@ -98,9 +105,11 @@ Keep everything you hold (a site, a placement, a lamella left UNASSESSED) in
    earlier reset. If the beams aren't coincident, fix it there: refocus, then
    the coincidence loop. If that doesn't work, let Setup finish on this site
    and run it again (`workflow_requeue`) to fix it there. Place the point of
-   interest and the alignment area (which places the fiducial), then call
-   the Verifier with the fresh images, your values and the neighbours while
-   the alignment area's proposal is still pending: once it is decided,
+   interest and the alignment area (which places the fiducial), draw the
+   site and its neighbours on the SEM overview (`grid_draw_milling`: the
+   fiducial and trenches clear of bars, the gap to the nearest neighbour's
+   cuts), then call the Verifier with the fresh images, your values, that
+   picture and the neighbours while the alignment area's proposal is still pending: once it is decided,
    Setup ends and nothing can be placed again. If it disagrees, place again
    and ask again.
    A site you still can't fix or agree on waits for the operator: stop its
@@ -159,6 +168,8 @@ Gather this before you decide, and give the Verifier the same:
   file name you built. Take any the task didn't with `beam_acquire_image`
   and a `path` (e.g. the lamella's folder), at the question: the run lends
   you the microscope only while it waits on one;
+- the widest FIB image the lamella has (Rough Milling's, around 100 µm)
+  and the latest at that field of view, for ice near the lamella;
 - `item_measure_thickness` on the post-pass image, with its warnings;
 - the pass's `ALIGNMENT` line, the site's baseline and whether it is
   `alignment-risk`, the working distance against the session's;

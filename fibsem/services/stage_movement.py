@@ -1637,11 +1637,17 @@ class StageMovement(Service):
         save_saved_positions(positions, self._saved_state(writable=True))
 
     @query
-    def saved_positions(self) -> List[FibsemStagePosition]:
-        """The saved stage positions, in the order they were saved."""
+    def saved_positions(
+        self, names: Optional[List[str]] = None
+    ) -> List[FibsemStagePosition]:
+        """The saved stage positions, in the order they were saved; with
+        *names*, those, in that order (ValueError for one not saved)."""
         from fibsem.saved_positions import load_saved_positions
 
-        return load_saved_positions(self._saved_state())
+        positions = load_saved_positions(self._saved_state())
+        if names is None:
+            return positions
+        return [self._named(positions, name) for name in names]
 
     @command
     def save_position(

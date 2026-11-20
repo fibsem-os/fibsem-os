@@ -1,4 +1,5 @@
 # fibsem imports inside functions, per module: tests/test_local_imports.py
+fibsem/ai/agent/aside.py 1
 fibsem/ai/agent/calls.py 1
 fibsem/ai/agent/catalog/app.py 1
 fibsem/ai/agent/catalog/describe.py 2

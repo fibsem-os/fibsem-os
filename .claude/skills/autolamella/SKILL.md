@@ -40,7 +40,10 @@ The same run, three jobs:
   act, say what you'd do and why, say who can do it (the operator, or an
   agent they raise to Assist or Drive from the Agent chip), and stop there.
   If the run looks like it is doing damage, tell the operator at once to
-  press Stop.
+  press Stop. Speak when something needs saying (a check that failed, a
+  task that ran too fast or without its reference, a skip): a task that
+  went as planned is no news, and the digest of routine lines you are
+  woken with at Watch needs a word only when it shows something.
 - **Assist: suggest and ask.** Suggest each proposal's decision
   (`proposal_suggest`, *Suggesting at Assist*); anything else you want done
   is a request (fibsem-agent, *Asking at Assist*).
@@ -189,8 +192,9 @@ Before you decide or place either:
 1. Choose a target you can name: a cell, or the feature the operator asked
    for. The image centre is not a target; a grid-square edge with no cell
    on it is not one either.
-2. At the position proposal, take fresh SEM and FIB images
-   (`beam_acquire_image`). Check both are in focus and their brightness and
+2. At the position proposal, take fresh SEM and FIB images with
+   `beam_acquire_pair_preview`, saved in the lamella's folder: one picture of both,
+   with each image's contrast and focus measures. Check both are in focus and their brightness and
    contrast let you read them; fix them first if not (fibsem-microscope,
    *Don't judge a poor image*), and check what Setup's own autofocus did.
    Read the milling angle (`stage_get_current_milling_angle`) against the
@@ -199,9 +203,11 @@ Before you decide or place either:
    coincidence loop (fibsem-microscope, *Using the microscope*): centre it
    in one beam with `stage_stable_move`, bring the other beam onto it with
    `stage_vertical_move`, and image both again.
-4. Check it again with both beams at a 50 µm field of view: the same feature
-   within 5 µm of the centre in both images (aim for 2-3 µm), measured in
-   the image. Coincidence only shows as a vertical offset, so measure it up
+4. Check it again with both beams at about a 50 µm field of view (from a
+   wider one first if 50 µm shares too few features): the same feature
+   near the centre in both images, measured in the image. Within 5 µm,
+   2-3 µm where the scene allows, is the guide; say what you reached and
+   why it is enough for this site. Coincidence only shows as a vertical offset, so measure it up
    and down the image, on a sharp landmark (fibsem-microscope,
    *Coincidence: do it yourself*).
 5. Only then decide, and show the operator both images, saying which is
@@ -291,7 +297,10 @@ runs, not that nobody checks it.
 When a task finishes, supervised or on auto, look at its result before the
 lamella goes on: its final images, the wide view with its neighbours, and
 the task's `ALIGNMENT` and `AUTOFOCUS` lines. Is anything torn, missing,
-shifted, or damaged next door? On a supervised task you saw each pass, so
+shifted, or damaged next door? After Rough Milling, look at the widest FIB
+image too: a large ice clump near the lamella, even outside the SEM frame,
+can move onto it later. Note it, with its size and distance, and polish
+that lamella early or skip it (at Assist, the operator's call). On a supervised task you saw each pass, so
 this is quick; on an auto one nobody watched, so look properly.
 
 If the lamella's next task is next in the queue, take it out first
@@ -389,6 +398,11 @@ you mean*):
 - `item_draw_milling`: an item's patterns as its task configs have them, on
   its latest ion image. Draw it before a mill, and before you decide or
   suggest a milling proposal.
+- `grid_draw_milling`: the items' patterns on the grid's SEM overview, where
+  the bars show and the FIB view at the milling angle hides them. Use it to
+  check a fiducial or trench is clear of a bar and the gap between
+  neighbours' cuts (`nearest`, `closest`) before the first mill; its outlines
+  can sit a few µm off (its `caveats`).
 
 Where a site came from (grid, square, rank, why it was chosen) belongs on the
 lamella, not in a note: `item_update` with `{"patch": {"description":

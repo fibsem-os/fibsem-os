@@ -1002,6 +1002,24 @@ class ItemMillingDrawn:
 
 
 @dataclass
+class MillingOnOverview:
+    # The overview drawn on and the picture saved, relative to the experiment.
+    image: str
+    path: str
+    grid_name: Optional[str]
+    task_names: List[str]
+    # Per item: what its patterns were placed from (its FIB image, or its
+    # milling pose), the kinds drawn, its footprint's box on the sample
+    # surface and its nearest neighbour.
+    items: List[Dict[str, Any]]
+    # The two items whose footprints come nearest; None with one item.
+    closest: Optional[Dict[str, Any]]
+    unplaced: List[Dict[str, str]]
+    caveats: List[str]
+    plot: Dict[str, str]
+
+
+@dataclass
 class PlanStep:
     grid: str
     step: str

@@ -8,14 +8,16 @@ is a layer per channel, a plane per z. Points and lines are in the image's pixel
 - `measure_intensity`: the signal at points, per plane, against the ring
   around each, and as a ratio to a reference point.
 - `line_profile`: values along a line, averaged across its width, with the
-  full width at half maximum of its peak (or dip).
+  full width at half maximum of its peak (or dip); `profile_summary` is what
+  the tool answers of it.
 - `image_quality`: clipping, centre and spread of the histogram (as the
   brightness and contrast routine judges a probe image), and focus.
 - `histogram`: the counts of a layer's values, its percentiles and what is
   clipped at either end of the file's range.
 - `power_spectrum`: the radially averaged power of a layer's 2D Fourier
   transform, the finest period with signal above the noise floor, and how
-  much stronger it is along x than y.
+  much stronger it is along x than y; `spectrum_summary` is what the tool
+  answers of it.
 """
 
 from __future__ import annotations
@@ -230,7 +232,7 @@ def line_profile(
     of the profile's peak (its dip with *dip*) above the baseline, the median
     of the profile's outer fifths. ``fwhm`` is None when the half maximum is
     not crossed on both sides."""
-    from scipy.ndimage import map_coordinates
+    from skimage.measure import profile_line
 
     name, stack = image.layer(channel)
     if plane is not None:
@@ -244,23 +246,17 @@ def line_profile(
     length = math.hypot(x1 - x0, y1 - y0)
     if length < 2:
         raise ValueError("a line is at least 2 pixels long.")
-    count = int(round(length)) + 1
-    t = np.linspace(0.0, 1.0, count)
-    xs, ys = x0 + t * (x1 - x0), y0 + t * (y1 - y0)
-    nx, ny = -(y1 - y0) / length, (x1 - x0) / length
-    offsets = np.arange(int(round(width_px))) - (int(round(width_px)) - 1) / 2
-    samples = np.mean(
-        [
-            map_coordinates(
-                data.astype(np.float64),
-                [ys + o * ny, xs + o * nx],
-                order=1,
-                mode="nearest",
-            )
-            for o in offsets
-        ],
-        axis=0,
+    # (row, column) ends; a sample per pixel, each the mean across the width.
+    samples = profile_line(
+        data.astype(np.float64),
+        (y0, x0),
+        (y1, x1),
+        linewidth=int(round(width_px)),
+        order=1,
+        mode="nearest",
+        reduce_func=np.mean,
     )
+    t = np.linspace(0.0, 1.0, len(samples))
     distance = t * length
     fwhm = _fwhm(distance, samples, dip)
     answer = {
@@ -282,6 +278,54 @@ def line_profile(
         if fwhm["fwhm_px"] is not None:
             answer["fwhm_m"] = fwhm["fwhm_px"] * image.pixel_size
     return answer
+
+
+def profile_summary(
+    result: Dict[str, Any], points: Optional[int] = None
+) -> Dict[str, Any]:
+    """*result* (`line_profile`) without its per-pixel samples; with *points*,
+    the profile resampled to that many evenly spaced samples (the per-pixel
+    ones when there are no more of them than that)."""
+    return _summary(result, "distance_px", "values", points, (2, 3))
+
+
+def spectrum_summary(
+    result: Dict[str, Any], points: Optional[int] = None
+) -> Dict[str, Any]:
+    """*result* (`power_spectrum`) without its radial average, one value per
+    ring; with *points*, that average resampled to that many evenly spaced
+    frequencies (every ring when there are no more of them than that)."""
+    return _summary(result, "frequency", "radial_power", points, (5, None))
+
+
+def _summary(
+    result: Dict[str, Any],
+    x: str,
+    y: str,
+    points: Optional[int],
+    digits: Tuple[int, Optional[int]],
+) -> Dict[str, Any]:
+    """*result* without its curve (*x*, *y*); with *points*, the curve
+    resampled to that many evenly spaced samples of *x*, rounded to *digits*
+    decimals (None: four significant figures)."""
+    summary = {k: v for k, v in result.items() if k not in (x, y)}
+    if points is None:
+        return summary
+    if points < 2:
+        raise ValueError("points is 2 or more.")
+    xs, ys = result[x], result[y]
+    if points < len(ys):
+        at = np.linspace(xs[0], xs[-1], points)
+        ys = [_rounded(v, digits[1]) for v in np.interp(at, xs, ys)]
+        xs = [_rounded(v, digits[0]) for v in at]
+    summary[x], summary[y] = list(xs), list(ys)
+    return summary
+
+
+def _rounded(value: float, decimals: Optional[int]) -> float:
+    if decimals is None:
+        return float(f"{value:.4g}")
+    return round(float(value), decimals)
 
 
 def _fwhm(distance: np.ndarray, values: np.ndarray, dip: bool) -> Dict[str, Any]:

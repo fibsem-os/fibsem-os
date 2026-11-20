@@ -80,6 +80,9 @@ class Calls:
     def __init__(self, path: Optional[Path] = None) -> None:
         self.path = path
         self.turn = 0
+        # The session's context the calls are in: 1, then one more for each
+        # fresh context (`handoff`); written on a line from the second on.
+        self.segment = 1
         self.turn_tokens = zero()
         # How much the last call of the agent itself (not a specialist) read.
         self.context: Optional[int] = None
@@ -128,6 +131,13 @@ class Calls:
             return prompt({key: call[key] for key in FIELDS}) or self.context
         return self.context
 
+    def new_context(self) -> None:
+        """A fresh context starts: its calls are the next segment, and its
+        size is not known until its first call."""
+        self._close()
+        self.segment += 1
+        self.context = None
+
     def end_turn(self) -> Dict[str, int]:
         """The tokens of the turn just ended."""
         self._close()
@@ -148,6 +158,7 @@ class Calls:
         line = {
             "at": timestamps.now().isoformat(),
             "turn": self.turn + 1,
+            **({"context": self.segment} if self.segment > 1 else {}),
             **{key: value for key, value in call.items() if value is not None},
         }
         try:

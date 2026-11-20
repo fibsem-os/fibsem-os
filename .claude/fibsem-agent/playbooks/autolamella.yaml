@@ -3,6 +3,7 @@
 extends: fibsem-agent
 description: On-grid lamellae, not correlative.
 skills: [autolamella]
+tools: [item_list, item_get, item_get_output_image, workflow_get_summary]
 optional:
   - skill: autolamella-lead
     when: the operator leaves you to run the workflow on your own (Drive)
@@ -12,11 +13,16 @@ optional:
         After every task); take its next task out of the queue while you look.
       setup_placement: Ask the Verifier about this placement before you decide.
       polishing_pass: Ask the Verifier about this pass before you decide.
-    agents: [autolamella-verifier, autolamella-investigator, autolamella-auditor]
+    agents:
+      - autolamella-verifier
+      - autolamella-investigator
+      - autolamella-auditor
+      - autolamella-site-finder
   - skill: autolamella-assistant
     when: the operator runs the workflow and asks you to help
   - skill: screen-grids
     when: the grid has not been screened and the operator wants sites found
+    agents: [autolamella-site-finder]
   - skill: autolamella-polishing
     when: before the first polishing pass
     reminders:

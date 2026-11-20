@@ -111,6 +111,13 @@ class ToolSpec:
     # The name the sidecar answers its route's ``result`` under; "" answers
     # the route's whole answer.
     result_key: str = ""
+    # The answer the agent gets, from the sidecar's answer (after result_key)
+    # and the tool's arguments, where it is not that answer as it stands: a
+    # listing cut to its names until the agent asks for one in full. Raises
+    # ValueError for arguments it cannot answer.
+    shape: Optional[Callable[[Any, Dict[str, Any]], Any]] = field(
+        default=None, compare=False
+    )
 
     @property
     def arguments(self) -> Dict[str, Arg]:
@@ -154,11 +161,12 @@ class ToolSpec:
 
     @property
     def level_note(self) -> str:
-        """What the tool needs, in the agent's terms."""
+        """What the tool needs, in the agent's terms; "" for a Watch tool,
+        which works at every level."""
         if self.note:
             return self.note
         if self.level == "watch":
-            return "Works at Watch, Assist and Drive."
+            return ""
         if self.level == "assist":
             return "Works at Assist and Drive without asking; refused (403) at Watch."
         note = (
@@ -176,7 +184,8 @@ class ToolSpec:
 
     @property
     def full_description(self) -> str:
-        return f"{self.description} {self.level_note}"
+        note = self.level_note
+        return f"{self.description} {note}" if note else self.description
 
     @property
     def title(self) -> str:
@@ -305,6 +314,8 @@ _WRITES_AT_WATCH = frozenset(
         "knowledge_write",  # the microscope's knowledge base, not the experiment
         "server_report_session",  # the agent's own session, on the record
         "plan_set_section",  # the session's plan.md, beside the experiment
+        "plan_append",
+        "plan_check_step",
         "request_create",
         "request_withdraw",
         "item_measure_thickness",  # saves its result beside the image
@@ -314,11 +325,14 @@ _WRITES_AT_WATCH = frozenset(
         "experiment_render_markers",  # saves its picture beside the image
         "analysis_draw_image",  # saves its picture beside the image
         "analysis_draw_pair",  # saves its picture beside the first image
+        "analysis_measure_coincidence_offset",  # saves its picture beside the SEM image
         "item_draw_milling",  # saves its picture beside the image
+        "grid_draw_milling",  # saves its picture beside the overview
         "analysis_measure_intensity",  # saves its figure beside the image
         "analysis_measure_profile",  # saves its figure beside the image
         "analysis_measure_histogram",  # saves its figure beside the image
         "analysis_measure_power_spectrum",  # saves its figure beside the image
+        "analysis_find_grid_squares",  # saves its figure beside the image
     }
 )
 

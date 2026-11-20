@@ -1331,6 +1331,14 @@ def test_analysis_measures_a_stack_s_points_profile_and_quality(client, host):
     assert result["fwhm_px"] == pytest.approx(16, abs=1.5)
     assert result["fwhm_m"] == pytest.approx(result["fwhm_px"] * 1e-7)
     assert profile.json()["path"].endswith("stack-profile-16-30-16-70.png")
+    assert "values" not in result and "distance_px" not in result
+    resampled = client.post(
+        "/app/experiment/analysis/profile",
+        headers=AUTH,
+        json={"path": path, "start": [16, 30], "end": [16, 70], "points": 9},
+    )
+    assert resampled.status_code == 200, resampled.text
+    assert len(resampled.json()["result"]["values"]) == 9
 
     quality = client.get(
         "/app/experiment/analysis/quality", headers=AUTH, params={"path": path}
@@ -1353,6 +1361,7 @@ def test_analysis_measures_a_stack_s_points_profile_and_quality(client, host):
     )
     assert spectrum.status_code == 200, spectrum.text
     assert spectrum.json()["result"]["pixel_size"] == pytest.approx(1e-7)
+    assert "radial_power" not in spectrum.json()["result"]
 
     for url, bad in (
         ("intensity", {"path": path, "points": [[500, 1]]}),
@@ -1360,12 +1369,64 @@ def test_analysis_measures_a_stack_s_points_profile_and_quality(client, host):
         ("intensity", {"path": path, "points": [[16, 48]], "channel": "RFP"}),
         ("profile", {"path": path, "start": [1, 1]}),
         ("profile", {"path": path, "start": [1, 1], "end": [9, 9], "plane": 7}),
+        ("profile", {"path": path, "start": [1, 1], "end": [9, 9], "points": 1}),
         ("histogram", {"path": path, "bins": 1}),
         ("histogram", {"path": path, "box": [500, 500, 4, 4]}),
         ("spectrum", {"path": path, "box": [0, 0, 8, 8]}),
+        ("spectrum", {"path": path, "points": 1}),
     ):
         refused = client.post(f"/app/experiment/analysis/{url}", headers=AUTH, json=bad)
         assert refused.status_code == 422, bad
+
+
+def test_analysis_measures_coincidence_from_two_picked_points(client, host):
+    from tests.test_coincidence_target import PIXEL_SIZE, SHAPE, _fib, _pair, make_scene
+
+    folder = Path(host.experiment.path)
+    scene = make_scene()
+    sem, fib = _pair(scene, _fib(scene, 6e-6))
+    sem.save(str(folder / "site-sem.tif"))
+    fib.save(str(folder / "site-fib.tif"))
+    h, w = SHAPE
+    body = {
+        "sem_path": str(folder / "site-sem.tif"),
+        "sem_point": [w / 2, h / 2],
+        "fib_path": str(folder / "site-fib.tif"),
+        "fib_point": [w / 2, h / 2 - 6e-6 / PIXEL_SIZE],
+    }
+    resp = client.post("/app/experiment/analysis/coincidence", headers=AUTH, json=body)
+    assert resp.status_code == 200, resp.text
+    answer = resp.json()
+    assert answer["result"]["vertical_move"]["dy"] == pytest.approx(6e-6, rel=1e-3)
+    assert answer["path"].endswith("site-sem-site-fib-coincidence.png")
+
+    pairs = {
+        "sem_path": body["sem_path"],
+        "fib_path": body["fib_path"],
+        "pairs": [
+            {"sem": body["sem_point"], "fib": body["fib_point"], "label": "cell"},
+            {"sem": [w / 2 + 40, h / 2], "fib": [w / 2 + 40, body["fib_point"][1]]},
+        ],
+    }
+    resp = client.post("/app/experiment/analysis/coincidence", headers=AUTH, json=pairs)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["result"]["vertical_move"]["from_pairs"] == ["cell", "2"]
+    for bad in (
+        {**pairs, "sem_point": body["sem_point"], "fib_point": body["fib_point"]},
+        {"sem_path": body["sem_path"], "fib_path": body["fib_path"]},
+        {**pairs, "pairs": pairs["pairs"] * 6},
+    ):
+        refused = client.post(
+            "/app/experiment/analysis/coincidence", headers=AUTH, json=bad
+        )
+        assert refused.status_code == 422, refused.text
+
+    swapped = {**body, "sem_path": body["fib_path"], "fib_path": body["sem_path"]}
+    refused = client.post(
+        "/app/experiment/analysis/coincidence", headers=AUTH, json=swapped
+    )
+    assert refused.status_code == 422, refused.text
+    assert "ELECTRON" in refused.text
 
 
 def _milling_item(host):
@@ -2125,6 +2186,49 @@ def test_overview_cells_name_its_tiles_and_crop_by_name(
     assert jpeg.status_code == 200 and jpeg.content[:2] == b"\xff\xd8"
     metadata = json.loads(jpeg.headers["X-Image-Metadata"])
     assert len(metadata["cells"]["items"]) == 6
+
+
+def test_the_agent_reads_image_answers_with_experiment_relative_paths(
+    client, host, grid_with_overview
+):
+    """Through the sidecar an image tool names its file relative to the open
+    experiment, once, and a crop of cells says what its crops share once
+    (`agent_view`); the route still answers the whole path."""
+    pytest.importorskip("mcp")
+    from fibsem.ai.agent.mcp.sidecar import build_sidecar
+
+    client.headers["Authorization"] = f"Bearer {TOKEN}"
+    sidecar = build_sidecar(client, client.get("/capabilities").json())
+    overview = host.experiment.grid_path(grid_with_overview) / "overview_sem"
+    relative = os.path.relpath(overview / "overview.tif", host.experiment.path)
+    relative = relative.replace(os.sep, "/")
+
+    def answer(tool, arguments):
+        result = asyncio.run(sidecar.call_tool(tool, arguments))
+        if isinstance(result, tuple):
+            result = result[0]
+        contents = list(getattr(result, "content", result))
+        return json.loads(next(c.text for c in contents if c.type == "text"))
+
+    read = answer("experiment_read_file", {"path": relative})
+    assert read["path"] == relative and "path" not in read["summary"]
+    crops = answer("analysis_crop_image", {"path": relative, "cells": ["A1", "B1"]})
+    assert [c["name"] for c in crops["crops"]] == ["A1", "B1"]
+    assert crops["crops"][1]["preview"]["region"]["x"] > 0
+    assert crops["crop_preview"]["preview_pixelsize"] > 0
+    drawn = answer(
+        "analysis_draw_image",
+        {"path": relative, "marks": {"points": [{"x": 64, "y": 64, "label": "a"}]}},
+    )
+    assert drawn["path"].startswith(os.path.dirname(relative) + "/drawn/")
+    assert drawn["marks"]["points"][0].keys() == {"label", "stage"}
+    grid = answer(
+        "grid_get_output_image",
+        {"grid_name": grid_with_overview.name, "filename": "overview.tif"},
+    )
+    assert grid["metadata"]["path"] == relative
+    route = client.get(f"/app/experiment/files/{relative}", headers=AUTH).json()
+    assert os.path.isabs(route["path"])
 
 
 def test_experiment_files_stay_inside_the_experiment(client, host, tmp_path):
