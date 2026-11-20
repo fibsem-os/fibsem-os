@@ -452,6 +452,8 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
         "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
         # The main conversation's prompt cache lasts an hour (`wake_policy`).
         "CLAUDE_CODE_PROMPT_CACHE_TTL": "1h",
+        # The base playbook's compaction window, the context ceiling's backstop.
+        "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "700000",
         "FIBSEM_SERVER_URL": "http://127.0.0.1:9",
         "FIBSEM_SERVER_TOKEN": "t0k",
     }
