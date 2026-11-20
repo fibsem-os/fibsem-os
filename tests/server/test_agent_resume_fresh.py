@@ -21,6 +21,7 @@ from tests.server.test_agent_harness import (  # noqa: F401
     microscope,
     session,
 )
+from tests.waiting import wait_for
 
 WORDS = harness_mod.texts()
 # Its first sentence, which fills in nothing.
@@ -106,7 +107,7 @@ def test_a_resume_chosen_fresh_rebuilds_from_the_record(session):
         recover="its last conversation was too large to reload (953k).",
         latest_note=lambda: NOTE,
     )
-    asyncio.run(asyncio.sleep(1.0))
+    assert wait_for(lambda: agent.prompts), "no first turn"
     running.stop()
     first = agent.prompts[0]
     assert first.startswith(RECOVERED)
@@ -133,7 +134,7 @@ def test_a_resume_that_cannot_reload_starts_fresh_once(session):
         handoff=_handoff(),
         keep_context=lambda conversation, spent: contexts.append((conversation, spent)),
     )
-    asyncio.run(asyncio.sleep(1.0))
+    assert wait_for(lambda: agent.prompts), "no first turn"
     running.stop()
     assert len(agent.conversations) == 1 and len(contexts) == 1
     first = agent.prompts[0]
@@ -154,7 +155,7 @@ def test_a_resumed_conversation_that_cannot_load_starts_fresh(session):
     harness_mod.CLI_SAID.clear()
     agent = ResettingAgent(reply)
     running = _harness(session, agent, resumed=True, handoff=_handoff())
-    asyncio.run(asyncio.sleep(1.5))
+    assert wait_for(lambda: len(agent.prompts) >= 2), "no fresh turn"
     running.stop()
     harness_mod.CLI_SAID.clear()
     assert agent.prompts[0].startswith(WORDS.resumed.split(".")[0])
