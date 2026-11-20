@@ -22,6 +22,9 @@ MAX_SKILLS = 20
 MAX_CHECKLIST = 50
 MAX_HOOKS = 20
 MAX_PARTS = 20
+MAX_LONG = 2000
+MAX_LIST = 50
+MAX_SERVERS = 20
 
 Text = Annotated[str, StringConstraints(max_length=MAX_TEXT, strip_whitespace=True)]
 Item = Annotated[
@@ -31,6 +34,8 @@ SkillName = Annotated[str, StringConstraints(max_length=100, strip_whitespace=Tr
 Dollars = Annotated[float, Field(ge=0, allow_inf_nan=False, strict=True)]
 Count = Annotated[int, Field(ge=0, strict=True)]
 Flag = Annotated[bool, Field(strict=True)]
+# A playbook's line as its file gives it: a reminder or a rule.
+Long = Annotated[str, StringConstraints(max_length=MAX_LONG, strip_whitespace=True)]
 
 
 @dataclass
@@ -104,6 +109,66 @@ class PlaybookState:
 
 
 @dataclass
+class PlaybookReminder:
+    when: Text
+    label: Text
+    say: Long
+
+
+@dataclass
+class PlaybookOption:
+    """An optional skill: read *when* the job needs it, its reminders and
+    subagents on while it is loaded."""
+
+    skill: SkillName
+    when: Long
+    agents: Optional[Annotated[List[SkillName], Field(max_length=MAX_LIST)]] = None
+    reminders: Optional[
+        Annotated[List[PlaybookReminder], Field(max_length=MAX_HOOKS)]
+    ] = None
+
+
+@dataclass
+class PlaybookAbout:
+    """The playbook the session runs, as it was loaded (`Playbook.about`):
+    what the agent follows, whatever its file says now. Sent when the
+    session starts on it or ``playbook_set`` changes it."""
+
+    name: SkillName
+    hash: Optional[Text] = None
+    description: Optional[Long] = None
+    # The playbooks it builds on, the base first.
+    extends: Optional[Annotated[List[SkillName], Field(max_length=MAX_LIST)]] = None
+    instrument: Optional[Text] = None
+    # Where its file was: fibsemOS's own, the lab's copy or a plugin's.
+    source: Optional[Literal["shipped", "lab", "plugin"]] = None
+    # The skills always read; the optional ones are read when needed.
+    skills: Optional[Annotated[List[SkillName], Field(max_length=MAX_LIST)]] = None
+    optional: Optional[Annotated[List[PlaybookOption], Field(max_length=MAX_LIST)]] = (
+        None
+    )
+    reminders: Optional[
+        Annotated[List[PlaybookReminder], Field(max_length=MAX_LIST)]
+    ] = None
+    rules: Optional[Annotated[List[Long], Field(max_length=MAX_LIST)]] = None
+    agents: Optional[Annotated[List[SkillName], Field(max_length=MAX_LIST)]] = None
+    mcp: Optional[Annotated[List[SkillName], Field(max_length=MAX_SERVERS)]] = None
+    # The fibsem tools loaded from the first turn.
+    tools: Optional[Annotated[List[SkillName], Field(max_length=MAX_LIST)]] = None
+
+
+@dataclass
+class McpServer:
+    """An MCP server of the session, as the agent's CLI last said: its
+    status (``connected``, ``failed``, ``pending``, ...) and its tools."""
+
+    name: SkillName
+    status: Text
+    tools: Optional[Count] = None
+    about: Optional[Text] = None
+
+
+@dataclass
 class SessionReport:
     session_id: Optional[Text] = None
     model: Optional[Text] = None
@@ -131,6 +196,8 @@ class SessionReport:
     ] = None
     hooks: Optional[Annotated[List[Hook], Field(max_length=MAX_HOOKS)]] = None
     playbook: Optional[PlaybookState] = None
+    playbook_about: Optional[PlaybookAbout] = None
+    servers: Optional[Annotated[List[McpServer], Field(max_length=MAX_SERVERS)]] = None
     ended: Optional[Flag] = None
 
 

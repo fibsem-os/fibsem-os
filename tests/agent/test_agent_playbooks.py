@@ -627,3 +627,91 @@ def test_the_operator_always_wakes_the_agent():
 def test_with_no_wakes_every_line_wakes_the_agent():
     assert harness_mod.Wakes(waking=lambda: None).add([_wake("autofocus")])
     assert harness_mod.Wakes().add([_wake("autofocus")])
+
+
+def test_every_shipped_playbook_reads_whole_as_a_session_report(lab, checkout):
+    from fibsem.ai.agent.report import SessionReport, plain
+    from fibsem.codec import decode
+
+    for name in playbooks.available(checkout):
+        about = playbooks.load(name, checkout).about()
+        body = plain(decode(SessionReport, {"playbook_about": about}, strict=True))
+        assert body["playbook_about"]["name"] == name
+        assert about["source"] == "shipped"
+    autolamella = playbooks.load("autolamella", checkout).about()
+    assert autolamella["extends"] == ["fibsem-agent"]
+    lead = next(o for o in autolamella["optional"] if o["skill"] == "autolamella-lead")
+    assert "autolamella-verifier" in lead["agents"]
+    assert {r["when"] for r in lead["reminders"]} >= {"after_task", "setup_placement"}
+
+
+def test_a_labs_copy_of_a_playbook_says_so(lab, checkout):
+    lab.mkdir(parents=True)
+    (lab / "own.yaml").write_text(
+        "extends: autolamella\nrules: [Never mill past 150 nm.]\n"
+    )
+    about = playbooks.load("own", checkout).about()
+    assert about["source"] == "lab"
+    assert about["extends"] == ["fibsem-agent", "autolamella"]
+    assert "Never mill past 150 nm." in about["rules"]
+
+
+class _Client:
+    def __init__(self):
+        self.bodies = []
+
+    def request(self, method, path, json=None, timeout=None):
+        self.bodies.append(json)
+
+
+class _Agent:
+    session_id = "s1"
+    skills_read = []
+    mcp_servers = []
+    server_about = {"lab-notebook": "The lab notebook"}
+
+
+def test_the_session_sends_its_playbook_whole_once_and_its_servers_as_they_change(
+    lab, checkout
+):
+    control = harness_mod.PlaybookControl(playbooks.Reminders(), checkout)
+    control.set("autolamella", "the operator")
+    agent = _Agent()
+    harness = harness_mod.Harness(agent, lambda: None, playbook=control)
+    harness._client = client = _Client()
+    agent.mcp_servers = harness_mod._servers_now(
+        {
+            "tools": ["mcp__fibsem__item_list", "mcp__fibsem__item_get", "Read"]
+            + ["mcp__lab-notebook__search", "mcp__fibsem_agent__wake_after"],
+            "mcp_servers": [
+                {"name": "fibsem", "status": "connected"},
+                {"name": "lab-notebook", "status": "failed"},
+                {"name": "fibsem_agent", "status": "connected"},
+            ],
+        }
+    )
+    asyncio.run(harness._report())
+    asyncio.run(harness._report())
+    first, second = client.bodies
+    assert first["playbook_about"]["name"] == "autolamella"
+    assert first["servers"] == [
+        {
+            "name": "fibsem",
+            "status": "connected",
+            "tools": 2,
+            "about": harness_mod.SERVER_ABOUT,
+        },
+        {
+            "name": "lab-notebook",
+            "status": "failed",
+            "tools": 1,
+            "about": "The lab notebook",
+        },
+    ]
+    assert "playbook_about" not in second and "servers" not in second
+    control.set("autolamella-correlative", "the operator")
+    agent.mcp_servers = [{"name": "fibsem", "status": "connected", "tools": 2}]
+    asyncio.run(harness._report())
+    third = client.bodies[-1]
+    assert third["playbook_about"]["name"] == "autolamella-correlative"
+    assert [s["name"] for s in third["servers"]] == ["fibsem"]

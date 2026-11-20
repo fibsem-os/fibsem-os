@@ -287,6 +287,57 @@ class Playbook:
             "session": self.session.as_dict(),
         }
 
+    def about(self) -> dict:
+        """The playbook as it was loaded, for the Agent page
+        (`fibsem.ai.agent.report.PlaybookAbout`): what the session runs,
+        whatever its file says now."""
+
+        def reminders_of(hooks: List[reminders.Hook]) -> List[dict]:
+            return [
+                {"when": h.when, "label": _label(h.when), "say": _clip(h.say)}
+                for h in hooks
+            ]
+
+        return {
+            "name": self.name,
+            "hash": self.hash,
+            "description": _clip(self.description) if self.description else None,
+            "extends": self.chain[:-1],
+            "instrument": self.instrument,
+            "source": source(self.path),
+            "skills": list(self.skills),
+            "optional": [
+                {
+                    "skill": o.skill,
+                    "when": _clip(o.when),
+                    **({"agents": list(o.agents)} if o.agents else {}),
+                    **({"reminders": reminders_of(o.hooks)} if o.hooks else {}),
+                }
+                for o in self.optional
+            ],
+            "reminders": reminders_of(self.hooks),
+            "rules": [_clip(rule) for rule in self.rules],
+            "agents": list(self.agents),
+            "mcp": list(self.mcp),
+            "tools": list(self.tools),
+        }
+
+
+def _clip(text: str, most: int = 2000) -> str:
+    """*text*, cut to what a session report takes."""
+    return text if len(text) <= most else text[: most - 1] + "…"
+
+
+def source(path: Path) -> str:
+    """Where playbook *path* is from: ``lab`` (the lab's own copy),
+    ``plugin`` or ``shipped`` (fibsemOS's)."""
+    if path.is_relative_to(sources.lab_folder("playbooks")):
+        return "lab"
+    for root in sources.plugin_roots():
+        if path.is_relative_to(root):
+            return "plugin"
+    return "shipped"
+
 
 def _label(when: str) -> str:
     option = reminders.HOOK_OPTIONS.get(when)

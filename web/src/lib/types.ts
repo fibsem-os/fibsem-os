@@ -150,6 +150,43 @@ export type SkillRow = S["SkillRow"];
 /** GET /app/agent/customisation: what the agent runs with. */
 export type AgentCustomisation = Narrow<S["AgentCustomisation"], { tools: ToolRow[] }>;
 
+/** A reminder of a playbook or of one of its optional skills. */
+export interface PlaybookReminder {
+  when: string;
+  label: string;
+  say: string;
+}
+
+/** The playbook a session runs, as it loaded it: what the agent follows,
+ * whatever its file says now. */
+export interface PlaybookAbout {
+  name: string;
+  hash?: string;
+  description?: string;
+  /** The playbooks it builds on, the base first. */
+  extends?: string[];
+  instrument?: string;
+  source?: "shipped" | "lab" | "plugin";
+  /** The skills always read. */
+  skills?: string[];
+  /** The skills read when needed: when, and the subagents and reminders on while loaded. */
+  optional?: { skill: string; when: string; agents?: string[]; reminders?: PlaybookReminder[] }[];
+  reminders?: PlaybookReminder[];
+  rules?: string[];
+  agents?: string[];
+  mcp?: string[];
+  /** The fibsem tools loaded from the first turn. */
+  tools?: string[];
+}
+
+/** One of the session's MCP servers: "connected", "failed", "pending", ... */
+export interface McpServer {
+  name: string;
+  status: string;
+  tools?: number;
+  about?: string;
+}
+
 /** GET /app/agent/session: what the agent reported of its session. */
 export interface ReportedSession {
   /** The reminders on now. */
@@ -163,6 +200,10 @@ export interface ReportedSession {
     chosen_by?: string;
     skills?: { skill: string; state: "not loaded" | "loaded" | "done" | string; summary?: string }[];
   };
+  /** The playbook it runs, whole, as the session loaded it. */
+  playbook_about?: PlaybookAbout;
+  /** Its MCP servers, as its CLI last said. */
+  servers?: McpServer[];
   /** When the server first heard of it, as an ISO time with its offset. */
   started?: string;
   goal?: string;
