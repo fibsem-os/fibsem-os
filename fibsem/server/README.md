@@ -58,7 +58,7 @@ The **operator token** (Tools → Host → Copy operator token; one per
 install, kept in `~/.fibsem/operator-token.json`) is the operator from outside
 the window. It reads the monitoring routes and reaches the operator's routes,
 whatever the level: `GET /app/agent` (level, last heard, the waiting request),
-`POST /app/agent/messages` `{"text"}` (one starting `/stop` cuts the agent's
+`POST /app/agent/messages` `{"text"}` (one starting `/now` cuts the agent's
 turn short; any other waits for it to end), `POST
 /app/agent/messages/{id}/interrupt` (*Interrupt now* for a message already
 sent), `PUT /app/agent/level` `{"level"}`,

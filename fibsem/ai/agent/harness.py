@@ -449,7 +449,7 @@ DEADLINE = "deadline"
 
 # The wake-ups that cut the agent's turn short: news that makes the turn's
 # work wrong, not news that is only new. Everything else waits for the turn
-# to end. The operator's message waits too, unless they sent it with /stop
+# to end. The operator's message waits too, unless they sent it with /now
 # (`is_urgent`).
 URGENT = frozenset(
     {
@@ -500,7 +500,7 @@ BUDGET_LOW = (
 
 def is_urgent(line) -> bool:
     """Whether *line* cuts the agent's turn short: one of `URGENT`, or the
-    operator's message sent with ``/stop``."""
+    operator's message sent with ``/now``."""
     kind = getattr(line, "kind", None)
     if kind in URGENT:
         return True

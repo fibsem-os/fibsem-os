@@ -107,7 +107,7 @@ function unreadWhy(agent: AgentState | undefined): [string, string, boolean] {
   if (agent.level === "off") return ["The agent is off", "The agent reads it when its level is back on.", false];
   return [
     "The agent is working...",
-    "The agent reads it when its current turn ends. Interrupt now, or start a message with /stop, to have it read it at once.",
+    "The agent reads it when its current turn ends. Interrupt now, or start a message with /now, to have it read it at once.",
     true,
   ];
 }

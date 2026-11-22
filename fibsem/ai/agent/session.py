@@ -472,7 +472,7 @@ class AgentControl:
         ``/btw`` is a side question, marked ``aside`` on the record: fibsem-agent
         answers it outside the agent's conversation (`fibsem.ai.agent.aside`).
         Any other message waits for the agent's turn to end, but one starting
-        ``/stop`` is marked ``interrupt`` and cuts the turn short.
+        ``/now`` is marked ``interrupt`` and cuts the turn short.
         Returns the id, or None when nothing is recording, so the agent can't
         hear it."""
         recorder = self._session.recorder
@@ -482,7 +482,7 @@ class AgentControl:
         # A side question (``/btw``) is answered beside the agent's work, from
         # its conversation; one with marks is a message, the marks being for it.
         side = evidence is None and aside.question_of(text) is not None
-        # ``/stop``: the agent's turn is cut short for it.
+        # ``/now``: the agent's turn is cut short for it.
         interrupt = not side and aside.interruption_of(text) is not None
         logger.info(
             "Operator %s to the agent (%s): %s",
@@ -514,7 +514,7 @@ class AgentControl:
 
     def interrupt(self, message_id: str) -> bool:
         """Cut the agent's turn short so it reads the operator's message
-        *message_id* now, as one sent with ``/stop`` would be: the *Interrupt
+        *message_id* now, as one sent with ``/now`` would be: the *Interrupt
         now* of a message still waiting for the turn to end. It stops the
         turn, not the run, and the level is untouched. False when nothing is
         recording, so the agent can't hear it."""

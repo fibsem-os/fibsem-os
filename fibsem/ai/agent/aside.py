@@ -27,13 +27,13 @@ ASIDE = "aside"
 
 _QUESTION = re.compile(r"^\s*/btw(?:\s+|$)(.*)$", re.IGNORECASE | re.DOTALL)
 
-# The operator's message that cuts the agent's turn short: ``/stop`` and what
+# The operator's message that cuts the agent's turn short: ``/now`` and what
 # to say. Any other message waits for the turn to end. It stops the turn, not
 # the run: the agent reads the message and carries on from there.
-INTERRUPT_PREFIX = "/stop"
+INTERRUPT_PREFIX = "/now"
 # The payload key that marks it.
 INTERRUPT = "interrupt"
-_INTERRUPTION = re.compile(r"^\s*/stop(?:\s+|$)(.*)$", re.IGNORECASE | re.DOTALL)
+_INTERRUPTION = re.compile(r"^\s*/now(?:\s+|$)(.*)$", re.IGNORECASE | re.DOTALL)
 
 # Earlier exchanges given with each question, as Claude Code's /btw does.
 HISTORY = 20
@@ -68,7 +68,7 @@ class Unavailable(Exception):
 
 
 def interruption_of(text: Any) -> Optional[str]:
-    """The words of an interrupting message in *text*, one starting ``/stop``
+    """The words of an interrupting message in *text*, one starting ``/now``
     (any case): the text after it, maybe empty. None for an ordinary message,
     which waits for the agent's turn to end."""
     found = _INTERRUPTION.match(str(text or ""))

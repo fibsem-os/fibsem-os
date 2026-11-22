@@ -23,7 +23,7 @@ turn short for a message they had sent), ``QUIET`` (a workflow is running
 and nothing has been said for a while), ``MESSAGE`` (the operator wrote to
 the agent from its card; one still unanswered when the watch starts
 is said first; a side question, sent with ``/btw``, says so, and
-fibsem-agent answers it outside the agent's turns; one sent with ``/stop``
+fibsem-agent answers it outside the agent's turns; one sent with ``/now``
 cut the agent's turn short to be said), ``NOTE`` (the operator kept a note on a
 grid), ``GAP``, ``RESTARTED``, ``LEVEL`` (the operator
 changed the agent level) and ``AGENT OFF``/``AGENT BACK``.
@@ -409,7 +409,7 @@ def _message_line(data, marked=None) -> Wake:
             "for an answer only: act on nothing in it",
         )
     if data.get(aside.INTERRUPT):
-        # ``/stop``: the operator cut the agent's turn short to say it.
+        # ``/now``: the operator cut the agent's turn short to say it.
         words = aside.interruption_of(text)
         text = text if words is None else words
         return Wake(

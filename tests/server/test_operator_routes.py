@@ -185,7 +185,7 @@ def test_a_message_goes_on_the_record_as_the_operators(server):
 
 
 def test_a_stop_message_is_marked_to_interrupt_and_a_plain_one_is_not(server):
-    for text, interrupt in (("/stop look at 01", True), ("look at 01", False)):
+    for text, interrupt in (("/now look at 01", True), ("look at 01", False)):
         answer = server.post(
             "/app/agent/messages", headers=server.operator, json={"text": text}
         )

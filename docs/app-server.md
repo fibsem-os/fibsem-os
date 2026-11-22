@@ -44,7 +44,7 @@ observer with a doorbell, not a second driver.
    the agent, message it and connect one (*Connect an agent…*). A message
    waits until the agent's current turn ends, marked *Not read yet* until
    then. To have it read at once, press *Interrupt now* on the waiting
-   message, or start the message with `/stop` ("/stop wrong lamella, go
+   message, or start the message with `/now` ("/now wrong lamella, go
    back to 02"): the agent's turn is cut short and it reads the message
    straight away. That stops the turn, not the run, and leaves the level
    as it is; the Stop button is still the brake. Start a

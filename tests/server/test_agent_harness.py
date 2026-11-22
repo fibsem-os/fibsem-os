@@ -1935,7 +1935,7 @@ def test_the_urgent_lines_are_the_four_the_operator_chose():
         watch_mod.Wake(watch_mod.MESSAGE, "MESSAGE id=ab12 from the operator: hi"),
     ):
         assert not harness_mod.is_urgent(line), line
-    # Sent with /stop, it cuts the turn short.
+    # Sent with /now, it cuts the turn short.
     assert harness_mod.is_urgent(
         watch_mod.Wake(watch_mod.MESSAGE, "MESSAGE id=ab12 ...", interrupt=True)
     )
@@ -1958,7 +1958,7 @@ def test_an_urgent_line_cuts_the_turn_short_and_others_wait(session, caplog):
                 await asyncio.sleep(0.05)
             await asyncio.sleep(3 * POLL_S)
             assert agent.interrupts == 0
-            operator.message("/stop look at 01")
+            operator.message("/now look at 01")
             return await agent.until_interrupted()
 
     agent = ScriptedAgent(reply)
