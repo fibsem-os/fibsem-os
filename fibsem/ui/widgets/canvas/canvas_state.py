@@ -56,6 +56,8 @@ class MillingSpec(OverlaySpec):
     stage_styles: Sequence[str] = ()
     # A stage's own colour by index, over ``colour``.
     stage_colours: Sequence[str] = ()
+    # Whether a left-drag on a pattern moves it; a drag elsewhere pans as ever.
+    draggable: bool = True
 
 
 @dataclass

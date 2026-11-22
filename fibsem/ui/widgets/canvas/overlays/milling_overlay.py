@@ -1,35 +1,37 @@
-"""Milling pattern overlay for FibsemImageCanvas — display-only.
+"""Milling pattern overlay for FibsemImageCanvas.
 
 Renders ``FibsemMillingStage`` patterns (rectangle / circle / line / polygon) on a
 :class:`FibsemImageCanvas`, one colour per stage, with a crosshair at each stage's
 point-of-interest. Reuses the metres→pixel converters from
 ``fibsem.milling.patterning.shapes`` (which already emit rotated, y-flipped pixel geometry).
 
-Display-only: the overlay captures no mouse events, so it coexists cleanly with
-the canvas pan/zoom, double-click-to-move, and right-click menu. Pattern movement
-is handled by the host widget (right-click → menu → ``_move_patterns``).
+A left-drag that starts on a pattern is reported to the host as ``PatternDrag`` steps
+and kept from the canvas's pan; the host moves the pattern (as its right-click menu
+does, through ``_move_patterns``) and the overlay draws what it is next given. Every
+other press is left to the canvas: pan/zoom, double-click-to-move, the right-click menu.
 
 Lifecycle: add it to a canvas once via ``canvas.add_overlay(overlay)``. It draws
 nothing until :meth:`set_stages` is called with non-empty stages; :meth:`clear`
 (or ``set_stages([], …)``) removes all artists, so it's invisible when there is no
 milling.
-
-Deferred (see design doc): direct drag-to-move, FOV rect, alignment area,
-selected-stage highlight, background stages.
 """
 
 from __future__ import annotations
 
 import logging
 import math
-from typing import TYPE_CHECKING, List, Optional, Sequence
+from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING, Callable, List, Optional, Sequence, Tuple
 
 import matplotlib.lines as mlines
 import matplotlib.patches as mpatches
 from matplotlib.colors import to_rgba
 from matplotlib.image import AxesImage
 
-from fibsem.conversions import microscope_image_to_image_coordinates
+from fibsem.conversions import (
+    image_to_microscope_image_coordinates,
+    microscope_image_to_image_coordinates,
+)
 from fibsem.milling.patterning.plotting import bitmap_to_rgba
 from fibsem.milling.patterning.shapes import (
     COLOURS,
@@ -37,6 +39,7 @@ from fibsem.milling.patterning.shapes import (
     convert_pattern_to_napari_polygon,
     convert_pattern_to_napari_rect,
 )
+from fibsem.milling.patterning.utils import stage_at
 from fibsem.structures.image import FibsemImage
 from fibsem.structures.settings import (
     FibsemBitmapSettings,
@@ -50,7 +53,7 @@ from fibsem.theme.plots import DARK
 from fibsem.theme.tokens import (
     CANVAS_BG,
 )
-from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
+from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay, _modifiers_from_event
 
 if TYPE_CHECKING:
     from fibsem.ui.widgets.canvas.canvas_base import ContentRect
@@ -66,6 +69,7 @@ _LINEWIDTH_SELECTED = 2.5  # selected stage edge width
 _BACKGROUND_COLOUR = "black"  # background milling stages
 _EXCLUSION_COLOUR = "black"  # exclusion shapes, whatever their stage's colour
 _DASHED_FILL_ALPHA = 0.15  # a preview's fill: there, but not milled yet
+_LINE_GRAB_PX = 6  # how near a line pattern a press grabs it, pixels
 # A stage's own style, over the spec's: (linestyle, fill alpha).
 STAGE_STYLES = {
     "filled": ("-", _FILL_ALPHA),
@@ -74,10 +78,25 @@ STAGE_STYLES = {
 }
 
 
-class MillingPatternOverlay(CanvasOverlay):
-    """Display-only overlay rendering milling stage patterns + per-stage crosshairs.
+@dataclass(frozen=True)
+class PatternDrag:
+    """One step of a drag on a stage's pattern: how far the cursor is from where it
+    pressed, in metres (y up)."""
 
-    Call :meth:`set_stages` to (re)draw, :meth:`clear` to hide.
+    index: int  # into the stages the overlay was given
+    dx: float = 0.0
+    dy: float = 0.0
+    phase: str = "press"  # then "move"s, then one "release"
+    modifiers: Tuple[str, ...] = ()
+    part: str = "body"  # what was grabbed; the body moves the pattern
+
+
+class MillingPatternOverlay(CanvasOverlay):
+    """Overlay rendering milling stage patterns + per-stage crosshairs.
+
+    Call :meth:`set_stages` to (re)draw, :meth:`clear` to hide. A left-drag on a
+    stage's pattern is reported to :attr:`on_drag` as :class:`PatternDrag` steps; the
+    overlay moves nothing itself, it draws the stages it is next given.
     """
 
     def __init__(self) -> None:
@@ -95,14 +114,32 @@ class MillingPatternOverlay(CanvasOverlay):
         self._stage_colours: List[str] = []
         self._style_index: Optional[int] = None
         self._legend_loc = "upper right"
+        self._draggable = True
+        self.on_drag: Optional[Callable[[PatternDrag], None]] = None
+        self._drag: Optional[PatternDrag] = None
+        self._drag_from = (0.0, 0.0)  # where the drag pressed, metres
+        self._cids: list = []
 
     # ── overlay protocol ──────────────────────────────────────────────────
 
     def attach(self, ax, canvas: FibsemImageCanvas) -> None:
         self._ax = ax
         self._canvas = canvas
+        self._cids = [
+            ax.figure.canvas.mpl_connect(name, handler)
+            for name, handler in (
+                ("button_press_event", self._on_press),
+                ("motion_notify_event", self._on_motion),
+                ("button_release_event", self._on_release),
+            )
+        ]
 
     def detach(self) -> None:
+        if self._ax is not None:
+            for cid in self._cids:
+                self._ax.figure.canvas.mpl_disconnect(cid)
+        self._cids = []
+        self._drag = None
         self._remove_artists()
         self._ax = None
         self._canvas = None
@@ -131,6 +168,7 @@ class MillingPatternOverlay(CanvasOverlay):
         legend_loc: str = "upper right",
         stage_styles: Sequence[str] = (),
         stage_colours: Sequence[str] = (),
+        draggable: bool = True,
     ) -> None:
         """Display *stages* against *image*.
 
@@ -141,7 +179,9 @@ class MillingPatternOverlay(CanvasOverlay):
         the stage legend. ``stage_styles`` gives a stage its own style, one of
         ``STAGE_STYLES``, by index: a volume's slices cut, next and still to cut;
         ``stage_colours`` a stage its own colour, by index, over ``colour``.
+        ``draggable`` lets a left-drag on a stage's pattern report to ``on_drag``.
         """
+        self._draggable = draggable
         self._stage_styles = list(stage_styles)
         self._stage_colours = list(stage_colours)
         self._colour = colour
@@ -164,6 +204,73 @@ class MillingPatternOverlay(CanvasOverlay):
         self._remove_artists()
         if self._canvas is not None:
             self._canvas.draw_idle()
+
+    # ── dragging: the gesture, in metres, knowing nothing of the toolkit ──
+
+    def press(self, x: float, y: float, modifiers: Sequence[str] = ()) -> bool:
+        """Grab the pattern under (x, y), the selected stage's first. False, and
+        nothing grabbed, where there is none to move."""
+        if not self._draggable or self._image is None:
+            return False
+        tolerance = _LINE_GRAB_PX * self._image.metadata.pixel_size.x
+        index = stage_at(self._stages, x, y, tolerance, prefer=self._selected_index)
+        if index is None or getattr(self._stages[index], "pattern", None) is None:
+            return False
+        self._drag_from = (x, y)
+        self._report(PatternDrag(index, modifiers=tuple(modifiers)))
+        return True
+
+    def move(self, x: float, y: float) -> None:
+        if self._drag is not None:
+            x0, y0 = self._drag_from
+            self._report(replace(self._drag, dx=x - x0, dy=y - y0, phase="move"))
+
+    def release(self) -> None:
+        if self._drag is not None:
+            self._report(replace(self._drag, phase="release"))
+            self._drag = None
+
+    def _report(self, drag: PatternDrag) -> None:
+        self._drag = drag
+        if self.on_drag is not None:
+            self.on_drag(drag)
+
+    # ── dragging: matplotlib's mouse events, turned into the gesture ──────
+
+    def _metres(self, event):
+        """Where a mouse event is on the image, in metres, or None off it."""
+        if event.inaxes is not self._ax or event.xdata is None or self._image is None:
+            return None
+        if self._image.metadata is None or self._image.metadata.pixel_size is None:
+            return None
+        return image_to_microscope_image_coordinates(
+            Point(event.xdata, event.ydata),
+            self._image.data,
+            self._image.metadata.pixel_size.x,
+        )
+
+    def _on_press(self, event) -> None:
+        if event.button != 1 or event.dblclick or self._canvas is None:
+            return
+        # Another overlay owns input on this canvas, or already has this press.
+        if (
+            not self._canvas._overlay_input_allowed(self)
+            or self._canvas._overlay_consuming_event
+        ):
+            return
+        point = self._metres(event)
+        if point is not None and self.press(
+            point.x, point.y, _modifiers_from_event(event)
+        ):
+            self._canvas._overlay_consuming_event = True  # so the canvas does not pan
+
+    def _on_motion(self, event) -> None:
+        point = self._metres(event) if self._drag is not None else None
+        if point is not None:
+            self.move(point.x, point.y)
+
+    def _on_release(self, event) -> None:
+        self.release()
 
     # ── drawing ───────────────────────────────────────────────────────────
 
