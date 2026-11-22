@@ -157,7 +157,10 @@ def test_a_focus_sweep_finds_the_ion_beam_focus_of_a_noisy_surface(hfw):
             passes=[FocusSweepPass(1e-3, 100e-6), FocusSweepPass(100e-6, 10e-6)]
         )
         result = run_auto_focus(microscope, beam_type, hfw=hfw, settings=settings)
-        assert abs(result.working_distance - focus) <= 150e-6
+        # The image noise isn't seeded, so the sweep lands somewhere new each run.
+        # 60 runs at 150 um HFW landed 10 to 200 um from focus (mostly 50 to 100 um
+        # short): a 150 um limit failed about one nightly build in thirty.
+        assert abs(result.working_distance - focus) <= 250e-6
         assert not result.at_edge
     finally:
         microscope.disconnect()
