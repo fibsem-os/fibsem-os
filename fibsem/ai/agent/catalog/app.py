@@ -612,6 +612,20 @@ TOOLS: Tuple[ToolSpec, ...] = (
         optional=("item_name",),
     ),
     ToolSpec(
+        name="experiment_get_notes",
+        returns="TaggedNotes",
+        description="The newest notes of each tag, from the whole record: a note's tag is the bracketed word its text starts with ([intake], [run_state v3] is run_state). Reads past what app_get_events holds (the live buffer, which a long run's progress fills and an app restart empties), so after a fresh context, a compaction or a restart read your run's notes here. Answers each note's text, id and time, newest first, and the tags with no note yet.",
+        method="GET",
+        path="/app/experiment/notes",
+        level="watch",
+        router="app",
+        params={
+            "tags": "the tags, comma separated, at most 10: intake,run_state,recipe_card",
+            "each": arg("how many of each tag, newest first (1 to 10)", int, default=1),
+        },
+        optional=("each",),
+    ),
+    ToolSpec(
         name="experiment_message_operator",
         returns="Recorded",
         description="Tell the operator something they should read now: you have stopped and need them (a hardware error, a site you can't fix), or you answer their message (a MESSAGE line from fibsem-mcp watch: pass its id as reply_to). It goes on the record like a note, shown to the operator as a message, not a note. A message asks nothing of the run and approves nothing: a decision is a proposal or a request. Answers the message's id.",

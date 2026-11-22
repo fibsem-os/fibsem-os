@@ -1062,6 +1062,20 @@ class AppContext:
         )
         return {"recorded": True}
 
+    def notes(self, tags: List[str], each: int = 1) -> Dict[str, Any]:
+        """The newest *each* notes of each tag, from the live buffer and then
+        the open experiment's record (`fibsem.server.agent.notes`)."""
+        from pathlib import Path
+
+        from fibsem.server.agent.notes import latest_notes
+
+        held = []
+        if self._event_buffer is not None:
+            held = self._event_buffer.events_since(0).get("events") or []
+        experiment = self._experiment
+        path = Path(experiment.path) / EVENTS_FILENAME if experiment else None
+        return latest_notes(held, path, tags, each)
+
     def add_evidence(
         self, item_name: Optional[str], save: Callable[[], Dict[str, Any]]
     ) -> Dict[str, Any]:

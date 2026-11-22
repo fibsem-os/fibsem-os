@@ -282,6 +282,14 @@ class AgentHost:
             return {**held, "events": earlier + held["events"], "resumed": resumed}
         return self.buffer.wait_for(since=since, timeout=timeout)
 
+    def notes(self, tags: List[str], each: int = 1) -> Dict[str, Any]:
+        """The newest *each* notes of each tag, from the buffer and then the
+        host's record (`fibsem.server.agent.notes`)."""
+        from fibsem.server.agent.notes import latest_notes
+
+        held = self.buffer.events_since(0).get("events") or []
+        return latest_notes(held, self.events_file, tags, each)
+
     @property
     def following(self) -> bool:
         """Whether the host follows the instrument's events now."""
