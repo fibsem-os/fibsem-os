@@ -27,6 +27,14 @@ ASIDE = "aside"
 
 _QUESTION = re.compile(r"^\s*/btw(?:\s+|$)(.*)$", re.IGNORECASE | re.DOTALL)
 
+# The operator's message that cuts the agent's turn short: ``/stop`` and what
+# to say. Any other message waits for the turn to end. It stops the turn, not
+# the run: the agent reads the message and carries on from there.
+INTERRUPT_PREFIX = "/stop"
+# The payload key that marks it.
+INTERRUPT = "interrupt"
+_INTERRUPTION = re.compile(r"^\s*/stop(?:\s+|$)(.*)$", re.IGNORECASE | re.DOTALL)
+
 # Earlier exchanges given with each question, as Claude Code's /btw does.
 HISTORY = 20
 # How long the CLI has to answer one.
@@ -57,6 +65,16 @@ NO_ANSWER = (
 
 class Unavailable(Exception):
     """The session can't take a side question now."""
+
+
+def interruption_of(text: Any) -> Optional[str]:
+    """The words of an interrupting message in *text*, one starting ``/stop``
+    (any case): the text after it, maybe empty. None for an ordinary message,
+    which waits for the agent's turn to end."""
+    found = _INTERRUPTION.match(str(text or ""))
+    if found is None:
+        return None
+    return found.group(1).strip()
 
 
 def question_of(text: Any) -> Optional[str]:

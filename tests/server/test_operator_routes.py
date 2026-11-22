@@ -23,7 +23,7 @@ from fibsem.server.operator_token import (
     load_operator_token,
     new_operator_token,
 )
-from fibsem.workflows.actions import NOTE
+from fibsem.workflows.actions import ACTION, NOTE
 from fibsem.workflows.session import AppSession
 from tests.autolamella.test_select_position_asks import (  # noqa: F401
     SETUP,
@@ -182,6 +182,27 @@ def test_a_message_goes_on_the_record_as_the_operators(server):
     assert note["payload"]["id"] == message_id
     assert note["payload"]["text"] == "how's 01?"
     assert str(note["actor"]).startswith(str(OPERATOR))
+
+
+def test_a_stop_message_is_marked_to_interrupt_and_a_plain_one_is_not(server):
+    for text, interrupt in (("/stop look at 01", True), ("look at 01", False)):
+        answer = server.post(
+            "/app/agent/messages", headers=server.operator, json={"text": text}
+        )
+        assert answer.status_code == 201, answer.text
+        note = _notes(server)[-1]
+        assert note["payload"]["text"] == text
+        assert bool(note["payload"].get("interrupt")) is interrupt, text
+
+
+def test_interrupt_now_goes_on_the_record_as_the_operators(server):
+    answer = server.post("/app/agent/messages/ab12/interrupt", headers=server.operator)
+    assert answer.status_code == 200, answer.text
+    assert answer.json() == {"id": "ab12"}
+    events = server.get("/app/events", headers=server.operator).json()["events"]
+    action = [e for e in events if e["kind"] == ACTION][-1]
+    assert action["payload"]["interrupts"] == "ab12"
+    assert str(action["actor"]).startswith(str(OPERATOR))
 
 
 @pytest.mark.parametrize(

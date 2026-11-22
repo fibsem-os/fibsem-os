@@ -41,7 +41,13 @@ observer with a doorbell, not a second driver.
    monitoring. Only the agent's level resets at every launch.
 4. The **Agent chip** in the status bar shows and sets the agent's level
    (below). Its card links to the web app's **Agent page**, where you answer
-   the agent, message it and connect one (*Connect an agent…*). Start a
+   the agent, message it and connect one (*Connect an agent…*). A message
+   waits until the agent's current turn ends, marked *Not read yet* until
+   then. To have it read at once, press *Interrupt now* on the waiting
+   message, or start the message with `/stop` ("/stop wrong lamella, go
+   back to 02"): the agent's turn is cut short and it reads the message
+   straight away. That stops the turn, not the run, and leaves the level
+   as it is; the Stop button is still the brake. Start a
    message with `/btw` to ask a quick side question ("/btw what does the 0.72
    mean?"): the answer comes back in the same chat, marked *Side answer*,
    without interrupting what the agent is doing, and neither the question nor

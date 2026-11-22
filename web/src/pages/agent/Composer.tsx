@@ -296,12 +296,16 @@ export function Composer({ agent, attach, onSent }: { agent: AgentState; attach:
     onSent();
     // A /btw side question is answered here without interrupting the agent or joining its conversation.
     const side = /^\s*\/btw\s+\S/i.test(text);
+    // A /stop message cuts the agent's turn short; any other waits for the turn to end.
+    const stop = /^\s*\/stop(\s|$)/i.test(text);
     setSaid(
       !connected(agent)
         ? "Sent · waiting for an agent"
         : side
           ? "Sent · a side answer comes here; the agent carries on"
-          : "Sent · the agent reads it on its next turn",
+          : stop
+            ? "Sent · the agent stops its turn to read it"
+            : "Sent · the agent reads it when its turn ends",
     );
   };
   return (
@@ -317,7 +321,7 @@ export function Composer({ agent, attach, onSent }: { agent: AgentState; attach:
         id="msg"
         rows={2}
         maxLength={LIMIT}
-        placeholder="Message the agent · start with /btw for a quick side question it answers without stopping"
+        placeholder="Message the agent (read when its turn ends) · /stop to interrupt it · /btw for a side question"
         value={draft}
         onChange={(e) => {
           setDraft(e.target.value);

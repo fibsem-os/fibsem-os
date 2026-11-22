@@ -111,6 +111,33 @@ def test_a_side_question_is_a_message_starting_btw():
         assert aside.question_of(text) is None, text
 
 
+def test_an_interrupting_message_is_one_starting_stop():
+    assert aside.interruption_of("/stop look at 01 first") == "look at 01 first"
+    assert aside.interruption_of("  /STOP\nwrong lamella") == "wrong lamella"
+    # /stop alone interrupts with nothing more to say.
+    assert aside.interruption_of("/stop") == ""
+    for text in ("/stopx now", "stop after 02", "please /stop", "/btw stop?"):
+        assert aside.interruption_of(text) is None, text
+
+
+def test_the_watch_says_an_interrupting_message_and_marks_it_urgent():
+    said = watch_mod._message_line(
+        {"id": "ab12", "text": "/stop wrong lamella", aside.INTERRUPT: True}
+    )
+    assert said.kind == watch_mod.MESSAGE and said.facts == {"interrupt": True}
+    assert said.startswith(
+        "MESSAGE id=ab12 from the operator, who stopped your turn to say this: "
+        "wrong lamella --"
+    )
+    bare = watch_mod._message_line(
+        {"id": "cd34", "text": "/stop", aside.INTERRUPT: True}
+    )
+    assert "stop and ask them what they want" in bare
+    # Unmarked (another client, an older server), it is an ordinary message.
+    plain = watch_mod._message_line({"id": "ef56", "text": "/stop later"})
+    assert plain.facts == {} and "from the operator: /stop later" in plain
+
+
 def test_the_watch_says_a_side_question_apart_from_a_message():
     said = watch_mod._message_line(
         {"id": "ab12", "text": "/btw where is the report?", aside.MARK: True}
