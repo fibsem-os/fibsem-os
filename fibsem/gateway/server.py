@@ -24,15 +24,23 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.requests import HTTPConnection
 from fastapi.responses import RedirectResponse
 
 from fibsem import keystore
 from fibsem.ai.agent.playbooks import DEFAULT as DEFAULT_PLAYBOOK
-from fibsem.gateway.agent import AgentState, GatewayAgent
+from fibsem.gateway.agent import (
+    SESSIONS_MAX,
+    SESSIONS_PAGE,
+    AgentState,
+    GatewayAgent,
+    SessionsPage,
+)
 from fibsem.gateway.defaults import GatewayDefaults, read_defaults, save_defaults
 from fibsem.gateway.gateway import (
+    HISTORY_MAX,
+    HISTORY_SHOWN,
     Gateway,
     GatewayRefused,
     GatewayState,
@@ -185,10 +193,13 @@ def build_gateway_app(
         return gateway.state()
 
     @app.get("/gateway/history", response_model=History)
-    def get_history(found: Caller = Depends(caller)):
-        """The latest starts and stops first, each with who made it and from
-        where."""
-        return gateway.history()
+    def get_history(
+        limit: int = Query(HISTORY_SHOWN, ge=1, le=HISTORY_MAX),
+        found: Caller = Depends(caller),
+    ):
+        """The latest *limit* starts and stops first, each with who made it
+        and from where; ``more`` says whether older ones are kept."""
+        return gateway.history(limit)
 
     @app.post("/gateway/start", response_model=GatewayState)
     def start(body: Dict[str, Any], found: Caller = Depends(switcher)):
@@ -284,6 +295,16 @@ def build_gateway_app(
         def get_agent(found: Caller = Depends(caller)):
             """The running agent, or none, and the latest sessions."""
             return agent.state()
+
+        @app.get("/gateway/agent/sessions", response_model=SessionsPage)
+        def get_sessions(
+            limit: int = Query(SESSIONS_PAGE, ge=1, le=SESSIONS_MAX),
+            found: Caller = Depends(caller),
+        ):
+            """This PC's newest *limit* agent sessions, newest first, each
+            as `/gateway/agent` lists one; ``more`` says whether older ones
+            are kept."""
+            return agent.sessions(limit)
 
         @app.get("/gateway/agent/playbooks")
         def get_playbooks(found: Caller = Depends(caller)) -> List[dict]:

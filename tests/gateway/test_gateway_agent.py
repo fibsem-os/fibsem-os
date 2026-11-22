@@ -19,7 +19,7 @@ from fibsem.ai.agent.manager import (
     folders,
     read_json,
 )
-from fibsem.gateway.agent import AGENT_NAME, API_KEY, GatewayAgent
+from fibsem.gateway.agent import AGENT_NAME, API_KEY, SESSIONS_SHOWN, GatewayAgent
 from fibsem.gateway.gateway import OFF, RUNNING, GatewayRefused, GatewayState
 from fibsem.server.pairing import AGENT, PairedTokens
 
@@ -372,6 +372,26 @@ def _by_hand(tmp_path, **about):
     )
     session.end(0, "stopped")
     return session.folder
+
+
+def test_history_pages_through_every_session_not_only_the_newest(made, tmp_path):
+    for i in range(SESSIONS_SHOWN + 3):
+        session = SessionFolder.open(
+            f"s{i:02d}", {"playbook": "default", "mode": "none"}, tmp_path / "sessions"
+        )
+        session.end(0, "stopped")
+    agent, _, _ = made()
+    assert len(agent.state().sessions) == SESSIONS_SHOWN
+    page = agent.sessions(3)
+    assert len(page.sessions) == 3 and page.more
+    every = agent.sessions()
+    assert len(every.sessions) == SESSIONS_SHOWN + 3 and not every.more
+    # The oldest can be resumed as any other.
+    oldest = every.sessions[-1]["session_id"]
+    assert (
+        agent.resume(oldest, "watch", "operator", "page").running["session_id"]
+        == oldest
+    )
 
 
 def test_resume_carries_an_ended_gateway_session_on(made, tmp_path):
