@@ -1361,6 +1361,41 @@ def test_a_resumed_session_hears_what_it_missed_while_it_was_down(session):
     assert first not in again.prompts[1], "a message it had already heard came again"
 
 
+def test_a_cursor_that_comes_after_its_turn_ended_is_kept(session, monkeypatch):
+    # On a busy machine the watcher's cursor can come after the turn carrying
+    # its lines is over: it is still that turn's, kept without a next turn.
+    watch = watch_mod.watch
+
+    def late(client, *args, on_cursor=None, **kwargs):
+        def later(event_id):
+            time.sleep(0.5)
+            on_cursor(event_id)
+
+        return watch(client, *args, on_cursor=later, **kwargs)
+
+    monkeypatch.setattr(harness_mod.watch_mod, "watch", late)
+    kept = []
+
+    async def reply(prompt):
+        return None
+
+    agent = ScriptedAgent(reply)
+    running = _harness(session, agent, keep_cursor=kept.append)
+    assert wait_for(lambda: agent.prompts, timeout=20), "no kickoff"
+    first = AgentControl(session).message("is 01 ok?")
+    assert wait_for(lambda: len(agent.prompts) >= 2, timeout=20), "no second turn"
+    (sent,) = [
+        e
+        for e in session.recorder.buffer.events_since(0)["events"]
+        if (e.get("payload") or {}).get("id") == first
+    ]
+    assert wait_for(
+        lambda: any(split_event_id(k)[1] >= sent["seq"] for k in kept), timeout=20
+    ), "the message's event id was not kept after its turn"
+    assert running.stop() == 0
+    assert len(agent.prompts) == 2
+
+
 def test_lines_that_arrive_during_a_turn_are_the_next_turn(session, caplog):
     async def reply(prompt):
         if prompt.startswith("You are"):

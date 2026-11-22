@@ -1240,6 +1240,9 @@ class Harness:
         # what a resume may start after while lines wait for a digest.
         self._cursor_unheld: Optional[str] = None
         self._cursor_kept: Optional[str] = after
+        # From a turn's end until the next batch is taken: every line read so
+        # far was that turn's, so a cursor coming now is kept at once.
+        self._after_turn = False
         # What the agent is told, for the session's instrument kind.
         self._words = words or texts()
         self._quiet_s = quiet_s
@@ -1423,6 +1426,10 @@ class Harness:
             # those lines again on a resume.
             if watcher is self._watcher:
                 self._cursor_given = item.event_id
+                if self._after_turn and not self._in_turn:
+                    # That turn is over already: no later turn need come
+                    # for its lines to be kept.
+                    self._keep_given_cursor()
             return
         self._items.put_nowait((watcher, item))
         if watcher is self._watcher and is_urgent(item):
@@ -1520,6 +1527,7 @@ class Harness:
             reporter.cancel()
         self._turns += 1
         self._keep_given_cursor()
+        self._after_turn = True
         spent_before = self._spent_usd
         if end.cost_usd is not None:
             self._count_spend(end.cost_usd + self._carried_usd)
@@ -2160,6 +2168,7 @@ class Harness:
         while the agent is Off. None when the run is over."""
         while True:
             item = await self._get()
+            self._after_turn = False
             if item is None:
                 return None
             # Everything waiting is taken now: an urgent line after this
