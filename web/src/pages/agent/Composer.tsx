@@ -268,6 +268,12 @@ function AttachLong({
   );
 }
 
+// The composer's commands, listed while the draft is "/" and the start of a name.
+const COMMANDS = [
+  { name: "/now", say: "Interrupt the agent's turn so it reads this at once" },
+  { name: "/btw", say: "Ask a quick side question; the agent carries on" },
+];
+
 // How long "Sent" stays beside the Send button.
 const SAID_MS = 4000;
 
@@ -308,8 +314,36 @@ export function Composer({ agent, attach, onSent }: { agent: AgentState; attach:
             : "Sent · the agent reads it when its turn ends",
     );
   };
+  // Shown while the draft is "/" and the start of a command's name.
+  const commands = /^\/\w*$/.test(draft) ? COMMANDS.filter((c) => c.name.startsWith(draft.toLowerCase())) : [];
+  const pick = (name: string) => {
+    setDraft(`${name} `);
+    document.getElementById("msg")?.focus();
+  };
   return (
-    <div className="flex flex-col rounded-md border border-input bg-card">
+    <div className="relative flex flex-col rounded-md border border-input bg-card">
+      {commands.length > 0 && (
+        <div
+          role="listbox"
+          aria-label="Commands"
+          className="absolute bottom-full left-0 mb-1 flex flex-col rounded-md border border-input bg-popover py-1 text-[13px] shadow-[0_4px_14px_rgba(0,0,0,0.4)]"
+        >
+          {commands.map((c) => (
+            <button
+              key={c.name}
+              type="button"
+              role="option"
+              aria-selected={false}
+              className="flex cursor-pointer gap-3 px-3 py-1.5 text-left hover:bg-accent"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => pick(c.name)}
+            >
+              <span className="font-mono text-foreground">{c.name}</span>
+              <span className="text-muted-foreground">{c.say}</span>
+            </button>
+          ))}
+        </div>
+      )}
       <AttachedChips attach={attach} />
       {long != null && (
         <AttachLong text={long} experiment={!!agent.experiment} attach={attach} done={() => setLong(null)} />
@@ -321,7 +355,7 @@ export function Composer({ agent, attach, onSent }: { agent: AgentState; attach:
         id="msg"
         rows={2}
         maxLength={LIMIT}
-        placeholder="Message the agent (read when its turn ends) · /now to interrupt it · /btw for a side question"
+        placeholder="Message the agent · / for commands"
         value={draft}
         onChange={(e) => {
           setDraft(e.target.value);
@@ -336,6 +370,12 @@ export function Composer({ agent, attach, onSent }: { agent: AgentState; attach:
           setLong(pasted);
         }}
         onKeyDown={(e) => {
+          // Tab completes the first command listed.
+          if (e.key === "Tab" && commands.length > 0) {
+            e.preventDefault();
+            pick(commands[0].name);
+            return;
+          }
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
             send();
