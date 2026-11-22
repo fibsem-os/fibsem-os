@@ -274,28 +274,15 @@ const COMMANDS = [
   { name: "/btw", say: "Ask a quick side question; the agent carries on" },
   { name: "/status", say: "Ask where things stand, as a side question" },
   { name: "/note", say: "Keep a note on the record; it doesn't wake the agent" },
-  { name: "/knowledge", say: "Write it as a new knowledge entry" },
   { name: "/level", say: "Set the level: off, watch, assist or drive" },
 ];
-// The commands the page does itself rather than send: /level and /knowledge.
+// The command the page does itself rather than send.
 const LEVEL = /^\s*\/level(?:\s+(\S*))?\s*$/i;
-const KNOWLEDGE = /^\s*\/knowledge(?:\s+|$)([\s\S]*)$/i;
 
 // How long "Sent" stays beside the Send button.
 const SAID_MS = 4000;
 
-export function Composer({
-  agent,
-  attach,
-  onSent,
-  onKnowledge,
-}: {
-  agent: AgentState;
-  attach: Attachments;
-  onSent: () => void;
-  /** /knowledge: open a new knowledge entry with *text* in it. */
-  onKnowledge: (text: string) => void;
-}) {
+export function Composer({ agent, attach, onSent }: { agent: AgentState; attach: Attachments; onSent: () => void }) {
   const [draft, setDraft] = useState("");
   const [said, setSaid] = useState<string | null>(null);
   // A moment's confirmation only: the message itself then shows, marked "Not read
@@ -324,13 +311,6 @@ export function Composer({
       if (set === undefined) return;
       setDraft("");
       setSaid(`Level set to ${name}`);
-      return;
-    }
-    const knowledge = KNOWLEDGE.exec(text);
-    if (knowledge) {
-      onKnowledge(knowledge[1].trim());
-      setDraft("");
-      attach.clear();
       return;
     }
     const answer = await act("/app/agent/messages", { method: "POST", body: JSON.stringify({ text }) });

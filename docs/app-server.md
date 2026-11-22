@@ -50,8 +50,7 @@ observer with a doorbell, not a second driver.
    as it is; the Stop button is still the brake. Type `/` in the message
    box for the commands: `/now`, `/btw` and `/status` (a side question asking
    where things stand), `/note` (a note on the session's record that wakes
-   the agent for nothing; it sees it with its next turn), `/knowledge`
-   (opens a new knowledge entry with the text, its first line the title) and
+   the agent for nothing; it sees it with its next turn) and
    `/level off|watch|assist|drive`. Start a
    message with `/btw` to ask a quick side question ("/btw what does the 0.72
    mean?"): the answer comes back in the same chat, marked *Side answer*,

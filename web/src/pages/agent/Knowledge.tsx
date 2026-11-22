@@ -342,14 +342,12 @@ const ABOUT: [KnowledgeSection, string][] = [
 ];
 
 function NewEntry({
-  draft,
   samples,
   playbooks,
   busy,
   onSave,
   onCancel,
 }: {
-  draft?: string | null;
   samples: string[];
   playbooks: string[];
   busy: boolean;
@@ -359,9 +357,8 @@ function NewEntry({
   const [section, setSection] = useState<KnowledgeSection>("instrument");
   const [group, setGroup] = useState("");
   const [lasts, setLasts] = useState<KnowledgeLasts>("ongoing");
-  const [first, ...rest] = (draft ?? "").split("\n");
-  const [title, setTitle] = useState(first.trim());
-  const [text, setText] = useState(rest.join("\n").trim());
+  const [title, setTitle] = useState("");
+  const [text, setText] = useState("");
   const input = "rounded border border-input bg-background px-2 py-1.5 text-[13px] text-foreground";
   const named = section === "instrument" || group.trim();
   return (
@@ -588,17 +585,7 @@ const TAB_ABOUT: Partial<Record<Tab, string>> = {
  * this microscope, its samples and playbooks, and past runs; the agent's own
  * entries to review first; the agent's playbooks, skills and subagents,
  * the shipped and the lab's own; and, read-only, its tools and what it never touches. */
-export function KnowledgeDialog({
-  open,
-  onOpenChange,
-  draft = null,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  /** Open on a new entry with this text in it (the chat's /knowledge): its first
-   * line the title, the rest the text. */
-  draft?: string | null;
-}) {
+export function KnowledgeDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const client = useQueryClient();
   const [tab, setTab] = useState<Tab>("entries");
   const index = useQuery({
@@ -634,11 +621,6 @@ export function KnowledgeDialog({
     onSuccess: done,
   });
   const [adding, setAdding] = useState(false);
-  useEffect(() => {
-    if (!open || draft === null) return;
-    setTab("entries");
-    setAdding(true);
-  }, [open, draft]);
   const add = useMutation({
     mutationFn: (fields: NewEntryFields) =>
       api<{ entry: KnowledgeEntry }>(`/app/knowledge`, { method: "POST", body: JSON.stringify(fields) }),
@@ -701,8 +683,6 @@ export function KnowledgeDialog({
               adding={
                 adding && (
                   <NewEntry
-                    key={draft ?? ""}
-                    draft={draft}
                     samples={index.data?.samples ?? []}
                     playbooks={index.data?.playbooks ?? []}
                     busy={add.isPending}
