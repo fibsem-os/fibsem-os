@@ -156,7 +156,8 @@ function VerdictField({
  * ✓ ✗ ✎ in its corner: good or bad of the whole picture, or mark on the image it
  * came from, in the viewer over the chat. */
 export function EvidenceImage({ id }: { id: string }) {
-  const [replying, setReplying] = useState(false);
+  // the viewer: open on the image, or open marking it
+  const [viewing, setViewing] = useState<"look" | "mark" | null>(null);
   const [asking, setAsking] = useState<Verdict | undefined>(undefined);
   const [said, setSaid] = useState<{ verdict: Verdict; reason: string } | undefined>(undefined);
   const answer = useQuery({
@@ -184,28 +185,41 @@ export function EvidenceImage({ id }: { id: string }) {
     );
   // the picks on the image the picture was drawn on: its own, or the ones drawn there
   const picks = source === path ? marks : source_marks ? listMarks(source_marks) : [];
+  // Enlarged in the image viewer, on the image the marks are known on: the agent's
+  // picks on the image it drew from, the operator's marks on the image they marked.
+  // An upload whose marks aren't known enlarges as the picture it is.
+  const viewable = !!source && (source === path || (agents && source_marks != null));
+  const picture = (
+    <div className="relative">
+      <img
+        className="block w-full rounded"
+        alt="The image the agent judged from"
+        src={`data:image/jpeg;base64,${p.image_b64_jpeg}`}
+      />
+      <MarkLayer marks={marks} width={w} height={h} color={agents ? AGENT_MARK : OPERATOR_MARK} />
+    </div>
+  );
   return (
     <>
       <div className="relative max-w-[420px]">
-        <Enlargeable title="Evidence">
-          {() => (
-            <div className="relative">
-              <img
-                className="block w-full rounded"
-                alt="The image the agent judged from"
-                src={`data:image/jpeg;base64,${p.image_b64_jpeg}`}
-              />
-              <MarkLayer marks={marks} width={w} height={h} color={agents ? AGENT_MARK : OPERATOR_MARK} />
-            </div>
-          )}
-        </Enlargeable>
+        {viewable ? (
+          <button
+            className="block w-full max-w-[420px] cursor-zoom-in rounded border-0 bg-black p-0"
+            onClick={() => setViewing("look")}
+            title="Evidence"
+          >
+            {picture}
+          </button>
+        ) : (
+          <Enlargeable title="Evidence">{() => picture}</Enlargeable>
+        )}
         {agents && (
           <FeedbackIcons
             said={said?.verdict ?? answer.data?.said ?? undefined}
             asking={asking}
             canMark={!!source}
             onVerdict={(v) => setAsking(asking === v ? undefined : v)}
-            onMark={() => setReplying(true)}
+            onMark={() => setViewing("mark")}
           />
         )}
         {!agents && verdict && (
@@ -249,10 +263,19 @@ export function EvidenceImage({ id }: { id: string }) {
       {agents && source && (
         <ImageViewer
           paths={[source]}
-          at={replying ? 0 : null}
-          onClose={() => setReplying(false)}
+          at={viewing ? 0 : null}
+          onClose={() => setViewing(null)}
           // an upload's marks are on its own pixels, not the image it was drawn from
           reply={{ marks: picks, plane, answers: id }}
+          startMarking={viewing === "mark"}
+        />
+      )}
+      {!agents && source && (
+        <ImageViewer
+          paths={[source]}
+          at={viewing ? 0 : null}
+          onClose={() => setViewing(null)}
+          shown={{ marks, color: OPERATOR_MARK, plane }}
         />
       )}
     </>

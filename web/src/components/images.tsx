@@ -239,20 +239,33 @@ export interface Reply {
   answers?: string;
 }
 
+/** Marks to draw over the image when it is only looked at: an operator's picture's. */
+export interface Shown {
+  marks: Mark[];
+  color: string;
+  plane?: number | null;
+}
+
 /** The viewer: one image large with its metadata, previous and next through *paths*.
  * The browser draws it from its raw planes (`LayerImage`); without WebGL2, the
  * server's JPEG with the legend and planes in the side panel. Given *reply*, it
- * opens marking, with the agent's marks drawn under the operator's. */
+ * opens marking, with the agent's marks drawn under the operator's; with
+ * *startMarking* false it opens with the agent's marks shown, and "Mark for the
+ * agent" starts marking. Given *shown*, those marks are drawn over it. */
 export function ImageViewer({
   paths,
   at,
   onClose,
   reply,
+  startMarking = true,
+  shown,
 }: {
   paths: string[];
   at: number | null;
   onClose: () => void;
   reply?: Reply;
+  startMarking?: boolean;
+  shown?: Shown;
 }) {
   // The open image by its path, so images added to *paths* while it is open don't move it.
   const [path, setPath] = useState(at == null ? null : (paths[at] ?? null));
@@ -274,7 +287,7 @@ export function ImageViewer({
   if (path !== viewOf) {
     setViewOf(path);
     setView(WHOLE);
-    setMarking(!!reply);
+    setMarking(!!reply && startMarking);
     setShownChannels(null);
     editor.clear();
     editor.setPlane(undefined);
@@ -304,12 +317,12 @@ export function ImageViewer({
   const size = shape ? `${shape[1]} × ${shape[0]} px${bytes ? ` · ${fmt.bytes(bytes)}` : ""}` : "";
   const marks = (
     <>
-      {reply && !marking && (
+      {(reply || shown) && !marking && (
         <MarkLayer
-          marks={reply.marks}
+          marks={reply?.marks ?? shown!.marks}
           width={editor.width}
           height={editor.height}
-          color={AGENT_MARK}
+          color={reply ? AGENT_MARK : shown!.color}
           pixelSize={pixelSize}
           plane={editor.plane}
         />
@@ -391,7 +404,7 @@ export function ImageViewer({
                 onVisible={(names) => setShownChannels(fm && names.length < fm.channels.length ? names : null)}
                 onPlane={editor.setPlane}
                 planeTo={editor.goTo}
-                plane={reply?.plane}
+                plane={reply?.plane ?? shown?.plane}
               />
             ) : gl ? (
               <div className="flex min-h-[300px] items-center justify-center bg-black text-[13px] text-muted-foreground">
