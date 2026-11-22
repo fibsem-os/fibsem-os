@@ -25,7 +25,7 @@ the agent from its card; one still unanswered when the watch starts
 is said first; a side question, sent with ``/btw``, says so, and
 fibsem-agent answers it outside the agent's turns; one sent with ``/now``
 cut the agent's turn short to be said), ``NOTE`` (the operator kept a note on a
-grid), ``GAP``, ``RESTARTED``, ``LEVEL`` (the operator
+grid, or one for the record with ``/note``, which waits for the next turn), ``GAP``, ``RESTARTED``, ``LEVEL`` (the operator
 changed the agent level) and ``AGENT OFF``/``AGENT BACK``.
 
 It follows the whole session, not one workflow: the agent starts and stops
@@ -131,6 +131,8 @@ COMMAND_FAILED = "command_failed"
 AUTOFOCUS = "autofocus"
 ALIGNMENT = "alignment"
 NOTE = "note"
+# The operator's note for the record (/note): it wakes the agent for nothing.
+RECORD_NOTE = "record_note"
 MESSAGE = "message"
 PLAN_EDITED = "plan_edited"
 CONTEXT_RESET = "context_reset"
@@ -342,6 +344,17 @@ def _print_events(events, since, say, marked=None, lines=None):
             out(AUTOFOCUS, _autofocus_line(event, data), {"ok": _passed(data)})
         elif kind == event_kinds.ALIGNMENT:
             out(ALIGNMENT, _alignment_line(event, data), {"ok": _passed(data)})
+        elif (
+            kind == event_kinds.NOTE
+            and event.get("actor") == "operator"
+            and data.get(aside.FOR_RECORD)
+        ):
+            # The operator's /note: for the record, said with the next turn.
+            out(
+                RECORD_NOTE,
+                f"NOTE from the operator, for the record: {data.get('text', '')} "
+                "-- not to you and nothing to answer; keep it in mind",
+            )
         elif (
             kind == event_kinds.NOTE
             and event.get("actor") == "operator"

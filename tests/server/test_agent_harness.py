@@ -1975,6 +1975,27 @@ def test_an_urgent_line_cuts_the_turn_short_and_others_wait(session, caplog):
     assert "from the operator, who stopped your turn to say this: look at 01" in after
 
 
+def test_a_note_for_the_record_wakes_nothing_and_comes_with_the_next_turn():
+    wakes = Wakes()
+    note = watch_mod.Wake(
+        watch_mod.RECORD_NOTE, "NOTE from the operator, for the record: thin film"
+    )
+    assert wakes.add([note]) is None
+    prompt = wakes.add([watch_mod.Wake(watch_mod.LEVEL, "LEVEL drive (was watch)")])
+    assert "for the record: thin film" in prompt and "LEVEL drive" in prompt
+
+
+def test_a_note_for_the_record_goes_on_the_record_not_to_the_agent(session):
+    operator = AgentControl(session)
+    assert operator.message("/note film thin on grid 2") is not None
+    notes = [
+        e
+        for e in session.recorder.buffer.events_since(0)["events"]
+        if e["kind"] == "note" and e["actor"] == "operator"
+    ]
+    assert notes[-1]["payload"] == {"text": "film thin on grid 2", "for_record": True}
+
+
 def test_a_plain_message_waits_for_the_turn_to_end(session, caplog):
     operator = AgentControl(session)
     sent = []

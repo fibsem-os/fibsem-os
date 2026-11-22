@@ -581,10 +581,18 @@ class Wakes:
         """Whether a held line wakes the agent: any, unless the playbook names
         its ``wakes``; then one of those, an urgent one or one that always does
         (`wake_lines.ALWAYS`). The rest wait for the next turn."""
+        # The operator's /note waits for a line that wakes the agent.
+        held = [
+            line
+            for line in self._held
+            if getattr(line, "kind", None) != watch_mod.RECORD_NOTE
+        ]
+        if not held:
+            return False
         kinds = self._waking() if self._waking is not None else None
         if kinds is None:
             return True
-        for line in self._held:
+        for line in held:
             kind = getattr(line, "kind", None)
             if kind is None or kind in kinds or kind in wake_lines.ALWAYS:
                 return True

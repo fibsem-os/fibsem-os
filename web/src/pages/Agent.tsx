@@ -857,6 +857,8 @@ export function AgentPage() {
   const [show, setShow] = useState<Show>("all");
   const [calls, setCalls] = useState(readCalls);
   const [knowledge, setKnowledge] = useState(false);
+  // /knowledge's text, for a new entry when the dialog opens.
+  const [knowledgeDraft, setKnowledgeDraft] = useState<string | null>(null);
   const list = useRef<HTMLDivElement>(null);
   // Kept at the newest row while the reader hasn't scrolled up from it.
   const pinned = useRef(true);
@@ -1038,7 +1040,14 @@ export function AgentPage() {
             <BookOpen size={14} />
             Knowledge
           </button>
-          <KnowledgeDialog open={knowledge} onOpenChange={setKnowledge} />
+          <KnowledgeDialog
+            open={knowledge}
+            onOpenChange={(open) => {
+              setKnowledge(open);
+              if (!open) setKnowledgeDraft(null);
+            }}
+            draft={knowledgeDraft}
+          />
           <Popup
             label="Show"
             align="right"
@@ -1209,7 +1218,15 @@ export function AgentPage() {
               dragging && a.experiment && "outline-2 outline-offset-2 outline-primary outline-dashed",
             )}
           >
-            <Composer agent={a} attach={attach} onSent={() => (pinned.current = true)} />
+            <Composer
+              agent={a}
+              attach={attach}
+              onSent={() => (pinned.current = true)}
+              onKnowledge={(text) => {
+                setKnowledgeDraft(text);
+                setKnowledge(true);
+              }}
+            />
           </div>
         </div>
       </div>

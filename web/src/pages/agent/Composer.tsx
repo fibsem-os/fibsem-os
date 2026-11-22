@@ -272,12 +272,30 @@ function AttachLong({
 const COMMANDS = [
   { name: "/now", say: "Interrupt the agent's turn so it reads this at once" },
   { name: "/btw", say: "Ask a quick side question; the agent carries on" },
+  { name: "/status", say: "Ask where things stand, as a side question" },
+  { name: "/note", say: "Keep a note on the record; it doesn't wake the agent" },
+  { name: "/knowledge", say: "Write it as a new knowledge entry" },
+  { name: "/level", say: "Set the level: off, watch, assist or drive" },
 ];
+// The commands the page does itself rather than send: /level and /knowledge.
+const LEVEL = /^\s*\/level(?:\s+(\S*))?\s*$/i;
+const KNOWLEDGE = /^\s*\/knowledge(?:\s+|$)([\s\S]*)$/i;
 
 // How long "Sent" stays beside the Send button.
 const SAID_MS = 4000;
 
-export function Composer({ agent, attach, onSent }: { agent: AgentState; attach: Attachments; onSent: () => void }) {
+export function Composer({
+  agent,
+  attach,
+  onSent,
+  onKnowledge,
+}: {
+  agent: AgentState;
+  attach: Attachments;
+  onSent: () => void;
+  /** /knowledge: open a new knowledge entry with *text* in it. */
+  onKnowledge: (text: string) => void;
+}) {
   const [draft, setDraft] = useState("");
   const [said, setSaid] = useState<string | null>(null);
   // A moment's confirmation only: the message itself then shows, marked "Not read
@@ -295,19 +313,43 @@ export function Composer({ agent, attach, onSent }: { agent: AgentState; attach:
   const send = async () => {
     if (!text || attach.uploading) return;
     setSaid(null);
+    const level = LEVEL.exec(draft);
+    if (level) {
+      const name = (level[1] ?? "").toLowerCase();
+      if (!name) {
+        setError("Say the level: /level off, watch, assist or drive");
+        return;
+      }
+      const set = await act("/app/agent/level", { method: "PUT", body: JSON.stringify({ level: name }) });
+      if (set === undefined) return;
+      setDraft("");
+      setSaid(`Level set to ${name}`);
+      return;
+    }
+    const knowledge = KNOWLEDGE.exec(text);
+    if (knowledge) {
+      onKnowledge(knowledge[1].trim());
+      setDraft("");
+      attach.clear();
+      return;
+    }
     const answer = await act("/app/agent/messages", { method: "POST", body: JSON.stringify({ text }) });
     if (answer === undefined) return;
     setDraft("");
     attach.clear();
     onSent();
     // A /btw side question is answered here without interrupting the agent or joining its conversation.
-    const side = /^\s*\/btw\s+\S/i.test(text);
+    const side = /^\s*(\/btw\s+\S|\/status(\s|$))/i.test(text);
+    // A /note is kept on the record and wakes the agent for nothing.
+    const note = /^\s*\/note\s+\S/i.test(text);
     // A /now message cuts the agent's turn short; any other waits for the turn to end.
     const now = /^\s*\/now(\s|$)/i.test(text);
     setSaid(
       !connected(agent)
         ? "Sent · waiting for an agent"
-        : side
+        : note
+          ? "Noted · the agent sees it with its next turn"
+          : side
           ? "Sent · a side answer comes here; the agent carries on"
           : now
             ? "Sent · the agent stops its turn to read it"
