@@ -1,5 +1,5 @@
-"""Where an agent session's own files go: its plan, its transcript and its
-handoff notes.
+"""Where an agent session's own files go: its plan, its transcript, its
+review list and its handoff notes.
 
 One session works on one experiment. Its files live in that experiment's
 ``agent/`` folder, beside its record. A session can start before any
@@ -23,7 +23,7 @@ from fibsem.ai.agent import manager
 logger = logging.getLogger(__name__)
 
 FOLDER = "agent"
-PREFIXES = ("plan-", "transcript-", "handoff-")
+PREFIXES = ("plan-", "transcript-", "handoff-", "review-")
 # Added to one already in the experiment, not replaced by it.
 APPENDED = ("transcript-", "handoff-")
 # The pictures its transcript shows, ``pictures/<session id>-<line>.<ext>``.
