@@ -27,6 +27,27 @@ ASIDE = "aside"
 
 _QUESTION = re.compile(r"^\s*/btw(?:\s+|$)(.*)$", re.IGNORECASE | re.DOTALL)
 
+# The operator's message that cuts the agent's turn short: ``/now`` and what
+# to say. Any other message waits for the turn to end. It stops the turn, not
+# the run: the agent reads the message and carries on from there.
+INTERRUPT_PREFIX = "/now"
+# The payload key that marks it.
+INTERRUPT = "interrupt"
+_INTERRUPTION = re.compile(r"^\s*/now(?:\s+|$)(.*)$", re.IGNORECASE | re.DOTALL)
+
+# ``/status``: a side question asked for the operator.
+_STATUS = re.compile(r"^\s*/status(?:\s+|$)(.*)$", re.IGNORECASE | re.DOTALL)
+STATUS = (
+    "Where do things stand? In a few lines: what you are doing now, what is "
+    "done, what is next, and anything you are waiting on or worried about."
+)
+
+# ``/note``: a note the operator keeps on the session's record. It is not to
+# the agent and wakes it for nothing: it hears it with its next turn.
+_NOTE = re.compile(r"^\s*/note(?:\s+|$)(.*)$", re.IGNORECASE | re.DOTALL)
+# The payload key that marks one.
+FOR_RECORD = "for_record"
+
 # Earlier exchanges given with each question, as Claude Code's /btw does.
 HISTORY = 20
 # How long the CLI has to answer one.
@@ -59,9 +80,33 @@ class Unavailable(Exception):
     """The session can't take a side question now."""
 
 
+def interruption_of(text: Any) -> Optional[str]:
+    """The words of an interrupting message in *text*, one starting ``/now``
+    (any case): the text after it, maybe empty. None for an ordinary message,
+    which waits for the agent's turn to end."""
+    found = _INTERRUPTION.match(str(text or ""))
+    if found is None:
+        return None
+    return found.group(1).strip()
+
+
+def note_of(text: Any) -> Optional[str]:
+    """The operator's note for the record in *text*, a message starting
+    ``/note``: the text after it, or None (``/note`` alone says nothing)."""
+    found = _NOTE.match(str(text or ""))
+    if found is None:
+        return None
+    return found.group(1).strip() or None
+
+
 def question_of(text: Any) -> Optional[str]:
     """The side question in *text*, a message starting ``/btw `` (any case),
-    or None for an ordinary message. ``/btw`` alone asks nothing."""
+    or None for an ordinary message. ``/btw`` alone asks nothing. ``/status``
+    asks `STATUS`, with what follows it added."""
+    found = _STATUS.match(str(text or ""))
+    if found is not None:
+        more = found.group(1).strip()
+        return f"{STATUS} {more}" if more else STATUS
     found = _QUESTION.match(str(text or ""))
     if found is None:
         return None
