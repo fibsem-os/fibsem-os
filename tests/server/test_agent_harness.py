@@ -20,6 +20,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
+from fibsem.ai.agent import handoff as handoff_mod
 from fibsem.ai.agent import harness as harness_mod
 from fibsem.ai.agent import instruments, playbooks, usage, wake_policy
 from fibsem.ai.agent import watch as watch_mod
@@ -305,6 +306,36 @@ def test_the_first_turn_can_write_the_plan(session):
     )
     running.stop()
     assert written == [200]
+
+
+def test_each_wake_ends_with_where_the_plan_is(session):
+    async def reply(prompt):
+        if prompt == kickoff():
+            with _http(session) as http:
+                http.post(
+                    "/app/agent/plan/section",
+                    json={
+                        "section": "Steps",
+                        "text": "- [x] Screen grid 1\n- [ ] Rough mill 01-02\n"
+                        "- [ ] Polish 01-02",
+                    },
+                ).raise_for_status()
+        return TurnEnd(session_id="scripted")
+
+    agent = ScriptedAgent(reply)
+    running = _harness(session, agent)
+    assert wait_for(lambda: len(agent.prompts) >= 1, timeout=20), (
+        "timed out waiting for the kickoff"
+    )
+    AgentControl(session).message("How far along?")
+    assert wait_for(lambda: len(agent.prompts) >= 2, timeout=20), (
+        "timed out waiting for the message's turn"
+    )
+    running.stop()
+    assert agent.prompts[1].endswith(
+        f"{handoff_mod.NOW_HEADING}:\n"
+        '- Plan: 1 of 3 steps done; now "Rough mill 01-02", then "Polish 01-02".'
+    )
 
 
 def test_a_message_is_read_as_the_turn_carrying_it_starts(session):

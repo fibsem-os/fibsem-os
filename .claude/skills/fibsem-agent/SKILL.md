@@ -270,6 +270,12 @@ failed run, task, mill or command, and a milling monitor's trigger. The next tur
 then may still have finished: read where things stand before you act, and
 never repeat a relative move without checking.
 
+Each turn ends with a short `Now` block the harness reads as it wakes you:
+your plan's steps done, the step you are on and the next, the workflow
+while it runs, and what waits on the operator (review items, requests,
+proposals). It is read from the App Server, not written by you: keep the
+plan's Steps boxes checked as you go and it stays right.
+
 What wakes you is yours to choose, with the `wake_on` tool (fibsem-agent
 only; called with nothing it says what wakes you now and what is held).
 Under `all` every line wakes you. Under `digest` routine lines (a task
