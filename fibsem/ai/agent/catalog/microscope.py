@@ -351,21 +351,30 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="plan_get",
-        description="Your plan for this session, plan.md, which the operator reads on the Agent page and can edit: its sections (Brief, Playbook, Rules, Steps, Progress, Summary, or your playbook's headings), the sample from the Brief's Sample line, the Steps' boxes ({group, text, done}) and who changed it last. Read it before each step, and again after a PLAN EDITED line, a wake-up or a compaction. Empty until you write it.",
+        description="Your plan for this session, plan.md, which the operator reads on the Agent page and can edit: its sections (Brief, Playbook, Rules, Steps, Progress, What worked, Summary, or your playbook's headings), the sample from the Brief's Sample line, the Steps' boxes ({group, text, done}) and who changed it last. Read it before each step, and again after a PLAN EDITED line, a wake-up or a compaction. Empty until you write it. previous=true reads instead the newest plan an earlier session left on this experiment (session_id names one), read only, with the other sessions' ids under earlier: where a run you take over stood, its rules and its What worked; 404 no_plan when none did.",
         method="GET",
         path="/app/agent/plan",
         level="watch",
         router="app",
+        params={
+            "previous": arg(
+                "optional: true for the newest earlier session's plan on this experiment (default false: yours)",
+                bool,
+                default=False,
+            ),
+            "session_id": "optional: an earlier session's plan by its id, one plan_get previous=true named under earlier",
+        },
+        optional=("previous", "session_id"),
     ),
     ToolSpec(
         name="plan_set_section",
-        description="Write one section of your plan (plan.md), replacing it; empty text removes it. Brief: the operator's question, the sample and the target, the goal, in their words, with a first line 'Sample: <name>' -- the sample is written once, and only the operator changes it after (409 sample_set). Playbook: which one runs and who chose it. Rules: the operator's standing rules, one '- ' line each, in their words. Steps: '- [ ] step' boxes, grouped under '### Group' lines, ticked '- [x]' only when done and said. Progress: one line per block of work, newest last (finished results and their pictures go on the review list, review_add). Summary: at the end. No # or ## headings inside a section. To add a line use plan_append, to tick a box plan_check_step. Answers the section's name and length and the boxes done of total, not the plan (plan_get reads it). Refused (409 no_session) before your session is reported.",
+        description="Write one section of your plan (plan.md), replacing it; empty text removes it. Brief: the operator's question, the sample and the target, the goal, in their words, with a first line 'Sample: <name>' -- the sample is written once, and only the operator changes it after (409 sample_set). Playbook: which one runs and who chose it. Rules: the operator's standing rules, one '- ' line each, in their words. Steps: '- [ ] step' boxes, grouped under '### Group' lines, ticked '- [x]' only when done and said. Progress: one line per block of work, newest last (finished results and their pictures go on the review list, review_add). What worked: per task, the settings and signs that worked on this sample, each change old -> new, for the next lamella and the next session. Summary: at the end. No # or ## headings inside a section. To add a line use plan_append, to tick a box plan_check_step. Answers the section's name and length and the boxes done of total, not the plan (plan_get reads it). Refused (409 no_session) before your session is reported.",
         method="POST",
         path="/app/agent/plan/section",
         level="watch",
         router="app",
         params={
-            "section": "the heading: Brief, Playbook, Rules, Steps, Progress, Summary, or one of your playbook's",
+            "section": "the heading: Brief, Playbook, Rules, Steps, Progress, What worked, Summary, or one of your playbook's",
             "text": "the section's markdown, all of it",
         },
     ),

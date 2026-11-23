@@ -158,6 +158,9 @@ CLI_ENV = {
     # The agent's prompt cache lasts an hour, not the CLI's 5 min: a Watch
     # session waits longer than that between wakes (`wake_policy`).
     "CLAUDE_CODE_PROMPT_CACHE_TTL": wake_policy.PROMPT_CACHE_TTL,
+    # A subagent may start one more: the worker asks the Verifier before it
+    # mills (its tools line names only that one, `Agent(autolamella-verifier)`).
+    "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "2",
 }
 
 # One message from the CLI: a tool result carrying an image (the Read tool on
@@ -296,7 +299,8 @@ def session_names(
 ) -> Loaded:
     """What a session loads. Started on a playbook other than the base one:
     that playbook's skills and subagents (with what it extends). Else every
-    playbook's of its instrument kind, as intake may set any of them. The lab's
+    playbook's of its instrument kind but the opt-in ones, as intake may set
+    any of them. The lab's
     own skills and subagents always, a lab copy of a shipped one replacing it."""
     if playbook is not None and playbook.name != playbooks.DEFAULT:
         found = [playbook]
@@ -309,7 +313,8 @@ def session_names(
             except playbooks.PlaybookError as error:
                 log.warning("Playbook %s is left out: %s", name, error)
                 continue
-            if _kind(each) == kind:
+            # An opt-in playbook's only when a session starts on it.
+            if _kind(each) == kind and not each.opt_in:
                 found.append(each)
     skills: List[str] = []
     agents: List[str] = []

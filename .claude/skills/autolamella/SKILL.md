@@ -290,7 +290,7 @@ runs, not that nobody checks it.
   config edit, or a new sample or grid. Turn it back on for that task
   yourself, find out why, and say so; then supervise the next lamella
   through it again before switching back. A config edit on an auto task
-  gets a `[decision]` note (old → new, why) and, in lead mode, the
+  gets a review item (old → new, why) and, in lead mode, the
   Verifier's look at its pattern preview (`milling_preview_patterns`)
   before it runs.
 - **A switch on a running task** takes effect at that task's next

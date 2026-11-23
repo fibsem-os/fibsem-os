@@ -165,7 +165,8 @@ in the FIB image; within 5 µm, 2-3 µm where the scene allows, is the guide
 150-200 µm, then at 50 µm. If it isn't, fix it:
 focus, then the coincidence loop. Never reject a candidate for focus or
 coincidence. If you can't fix one, say what you tried and ask the operator;
-in a lead run, hold it in `[run_state]` and carry on with the others. With
+in a lead run, hold it in the plan's `Held` section and carry on with the
+others. With
 the beams on it, look at the site again: a closer look can still show it
 isn't good, and that is the first check, not the second. Record each site
 with its coincident height: on a bent grid it changes from site to site.

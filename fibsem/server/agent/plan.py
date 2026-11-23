@@ -51,7 +51,15 @@ from fibsem.server.bodies import PlanAppendBody, PlanBody, PlanSectionBody, Plan
 logger = logging.getLogger(__name__)
 
 FOLDER = "agent"
-SECTIONS = ("Brief", "Playbook", "Rules", "Steps", "Progress", "Summary")
+SECTIONS = (
+    "Brief",
+    "Playbook",
+    "Rules",
+    "Steps",
+    "Progress",
+    "What worked",
+    "Summary",
+)
 PLAN_EDITED = "agent_plan_edited"
 SAMPLE_SET = "agent_sample_set"
 MAX_SECTION = 20_000
@@ -296,6 +304,22 @@ class PlanStore:
                     logger.warning("could not read the plan %s", path, exc_info=True)
         return self.sections
 
+    def others(self, session_id: Optional[str]) -> List[Tuple[str, Path]]:
+        """The other sessions' plans beside *session_id*'s (the experiment's
+        agent folder), newest first, as (session id, file)."""
+        folder = self._files.folder(session_id)
+        if folder is None or not folder.is_dir():
+            return []
+        found = []
+        for path in folder.glob("plan-*.md"):
+            other = path.stem[len("plan-") :]
+            if other and other != session_id:
+                try:
+                    found.append((path.stat().st_mtime, other, path))
+                except OSError:
+                    continue
+        return [(other, path) for _, other, path in sorted(found, reverse=True)]
+
     def write(self, session_id: str, sections: Dict[str, str], by: str) -> None:
         self.session_id, self.sections = session_id, sections
         self.updated = datetime.now().astimezone().isoformat(timespec="seconds")
@@ -394,6 +418,54 @@ class PlanStore:
         return items[:MAX_CHECKLIST]
 
 
+# How many other sessions' plans an earlier-plan answer names.
+MAX_EARLIER = 10
+
+
+def earlier_plan(
+    store: "PlanStore", running: Optional[str], session_id: Optional[str]
+) -> Dict[str, Any]:
+    """Session *session_id*'s plan on the running session's experiment, or
+    the newest other one when None, read only; the other sessions' ids
+    newest first beside it. 404 no_plan when there is none."""
+    others = store.others(running)
+    found = (
+        next(((s, p) for s, p in others if s == session_id), None)
+        if session_id
+        else (others[0] if others else None)
+    )
+    if found is None:
+        raise refusal_error(
+            404,
+            "no_plan",
+            f"No plan of session {session_id} on this experiment."
+            if session_id
+            else "No earlier session left a plan on this experiment.",
+        )
+    other, path = found
+    try:
+        sections = parse(path.read_text(encoding="utf-8"))
+        updated = (
+            datetime.fromtimestamp(path.stat().st_mtime)
+            .astimezone()
+            .isoformat(timespec="seconds")
+        )
+    except (OSError, ValueError, HTTPException):
+        logger.warning("could not read the plan %s", path, exc_info=True)
+        raise refusal_error(404, "no_plan", f"The plan {path.name} can't be read.")
+    marked = steps(sections.get("Steps", ""))
+    return {
+        "session_id": other,
+        "markdown": render(sections) if sections else "",
+        "sections": [{"name": n, "text": t} for n, t in sections.items()],
+        "sample": sample(sections),
+        "steps": marked,
+        "done": sum(1 for m in marked if m["done"]),
+        "updated": updated,
+        "earlier": [s for s, _ in others][:MAX_EARLIER],
+    }
+
+
 def running_session(auth: AuthConfig) -> Optional[str]:
     """The id of the agent session running now; None for none."""
     session = auth.agent_session or {}
@@ -479,11 +551,15 @@ def build_agent_plan_router(
         return store
 
     @router.get("/plan")
-    def get_plan(request: Request):
+    def get_plan(request: Request, session_id: str = "", previous: bool = False):
         auth: AuthConfig = request.app.state.auth
         session = auth.agent_session or {}
         store = _store(request)
-        store.current(session.get("session_id"))
+        running = session.get("session_id")
+        if session_id or previous:
+            # An earlier session's plan on this experiment, read only.
+            return earlier_plan(store, running, session_id or None)
+        store.current(running)
         playbook = session.get("playbook")
         name = playbook.get("name") if isinstance(playbook, dict) else None
         # the playbook the session runs, for what an example is kept under

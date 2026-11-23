@@ -614,7 +614,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="experiment_get_notes",
         returns="TaggedNotes",
-        description="The newest notes of each tag, from the whole record: a note's tag is the bracketed word its text starts with ([intake], [run_state v3] is run_state). Reads past what app_get_events holds (the live buffer, which a long run's progress fills and an app restart empties), so after a fresh context, a compaction or a restart read your run's notes here. Answers each note's text, id and time, newest first, and the tags with no note yet.",
+        description="The newest notes of each tag, from the whole record: a note's tag is the bracketed word its text starts with ([verdict]; [check v3] is check). Reads past what app_get_events holds (the live buffer, which a long run's progress fills and an app restart empties), so after a fresh context, a compaction or a restart read your run's notes here. Answers each note's text, id and time, newest first, and the tags with no note yet.",
         method="GET",
         path="/app/experiment/notes",
         level="watch",
