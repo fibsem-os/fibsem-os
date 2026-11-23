@@ -1224,6 +1224,9 @@ class Harness:
         self._latest_note = latest_note or (lambda: None)
         # What the agent is told about its context's size, at natural points.
         self._ceiling = ceiling
+        # The last "Where you are" block said this context: it is said again
+        # only when it changes (`_where_you_are`).
+        self._where_said: Optional[str] = None
         self._keep_context = keep_context
         self._carried_usd = spent_carried_usd
         # What wakes the agent; with none given, every line does.
@@ -1720,8 +1723,9 @@ class Harness:
         self._handoff.recovered(why, skills, note)
         if self._ceiling is not None:
             self._ceiling.fresh()
-        # The earlier context's size is not this one's.
+        # The earlier context's size is not this one's, nor what it was told.
         self._context = None
+        self._where_said = None
         calls = getattr(self._agent, "calls", None)
         if calls is not None and not reconnect:
             # `new_context` counts its own; one chosen before the start is here.
@@ -1767,8 +1771,9 @@ class Harness:
         self._carried_usd = spent
         if self._ceiling is not None:
             self._ceiling.fresh()
-        # The earlier context's size is not this one's.
+        # The earlier context's size is not this one's, nor what it was told.
         self._context = None
+        self._where_said = None
         if self._keep_context is not None:
             try:
                 self._keep_context(conversation, spent)
@@ -1793,6 +1798,25 @@ class Harness:
             f"this session here, from its plan and its handoff note ({where})",
         )
         self._put(self._watcher, watch_mod.Wake(ALARM, handoff_mod.WAKE))
+
+    def _where_you_are(self) -> str:
+        """The block that ends a wake (`handoff.where_you_are`), when it says
+        something the last one this context didn't: an unchanged block is
+        still near the end of the context, and saying it again every wake
+        would fill it. After a compaction it is said again. A failure costs
+        the wake only that block."""
+        try:
+            said = handoff_mod.where_you_are(self._client)
+        except Exception:  # noqa: BLE001 - the wake goes on without it
+            log.debug("Reading the wake's Where-you-are block failed.", exc_info=True)
+            return ""
+        if not said:
+            self._where_said = None
+            return ""
+        if said == self._where_said and not getattr(self._agent, "compacted", False):
+            return ""
+        self._where_said = said
+        return said
 
     def _handoff_facts(self) -> str:
         """What the harness reads as a context ends (`handoff.facts`); a
@@ -2234,6 +2258,12 @@ class Harness:
                     prompt = f"{prompt}\n\n{said}"
                 if self._handoff is not None:
                     prompt = self._handoff.into(prompt)
+                # Last, where the agent attends most: where it is in its plan.
+                said = await asyncio.get_running_loop().run_in_executor(
+                    None, self._where_you_are
+                )
+                if said:
+                    prompt = f"{prompt}\n\n{said}"
                 return prompt
 
     async def _rewatch(self, prompt: Optional[str]) -> Optional[str]:

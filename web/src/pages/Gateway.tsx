@@ -21,6 +21,49 @@ import gatewayIcon from "../../../fibsem/ui/icons/gateway.svg?raw";
 
 type Mode = "off" | "running";
 
+/** One piece's health, as the gateway last asked (`fibsem.gateway.health`). */
+interface Health {
+  status:
+    | "ok"
+    | "slow"
+    | "not_answering"
+    | "stopped"
+    | "starting"
+    | "not_connected"
+    | "connecting"
+    | "halted"
+    | "fault"
+    | "unknown";
+  detail: string | null;
+  checked_at: number | null;
+  answer_s: number | null;
+  since: number | null;
+}
+
+interface ServersHealth {
+  app: Health;
+  microscope: Health;
+  /** When each device and service was last heard from, as the App Server said. */
+  heard?: Record<string, Record<string, unknown>>;
+}
+
+/** The statuses that need the operator's eye. */
+const UNWELL: Health["status"][] = [
+  "slow",
+  "not_answering",
+  "halted",
+  "fault",
+  "unknown",
+];
+
+const HEALTH_WORDS: Partial<Record<Health["status"], string>> = {
+  slow: "Slow",
+  not_answering: "Not answering",
+  halted: "Halted",
+  fault: "Fault",
+  unknown: "Can't tell",
+};
+
 interface GatewayState {
   mode: Mode;
   version: string;
@@ -48,6 +91,7 @@ interface GatewayState {
   recent_experiments: { name: string; folder: string; app: string | null }[];
   experiments_folder: string | null;
   app_url: string | null;
+  health?: ServersHealth | null;
   connection: string[];
   configurations: { name: string; default: boolean }[];
   newer: {
@@ -399,6 +443,22 @@ function MicroscopeStart({
   );
 }
 
+/** A piece that needs the operator's eye, in a line under its row: what,
+ * why, and for how long. Nothing while it is well. */
+function HealthLine({ health }: { health: Health | undefined }) {
+  if (!health || !UNWELL.includes(health.status)) return null;
+  const minutes = health.since
+    ? Math.floor((Date.now() / 1000 - health.since) / 60)
+    : 0;
+  return (
+    <p className={cn("m-0 text-[13px]", WARN)} role="status">
+      {HEALTH_WORDS[health.status]}
+      {health.detail && `: ${health.detail}`}
+      {minutes >= 1 && ` (for ${minutes} min)`}
+    </p>
+  );
+}
+
 /** How long the app has been up: "up 2 h 14 min". */
 function uptime(since: number | null, now: number): string | null {
   if (!since) return null;
@@ -412,9 +472,11 @@ function uptime(since: number | null, now: number): string | null {
 function MicroscopeRow({
   connection,
   starting,
+  health,
 }: {
   connection: Connection | undefined;
   starting: boolean;
+  health?: Health;
 }) {
   const client = useQueryClient();
   const [chosen, setChosen] = useState<string | null>(null);
@@ -453,7 +515,7 @@ function MicroscopeRow({
       </span>
     );
   } else if (connection.connected && c) {
-    colour = "ok";
+    colour = health && UNWELL.includes(health.status) ? "warn" : "ok";
     const name = [c.manufacturer, c.model].filter(Boolean).join(" ");
     line = (
       <>
@@ -508,6 +570,7 @@ function MicroscopeRow({
         {action}
       </div>
       {failed && <p className="m-0 text-[13px] text-destructive">{failed}</p>}
+      {connection?.connected && <HealthLine health={health} />}
     </div>
   );
 }
@@ -544,7 +607,15 @@ function AppRow({
       <div className="grid grid-cols-1 items-center gap-2 text-[13px] sm:grid-cols-[96px_minmax(0,1fr)_auto] sm:gap-3">
         <span className="text-muted-foreground">App</span>
         <span className="flex min-w-0 items-center gap-2">
-          <Dot colour={starting || stopping ? "warn" : "ok"} />
+          <Dot
+            colour={
+              starting ||
+              stopping ||
+              (state.health && UNWELL.includes(state.health.app.status))
+                ? "warn"
+                : "ok"
+            }
+          />
           <span className="min-w-0 break-words">
             {app ?? "The app"}, {state.window ? "with its window" : "no window"}
             <span
@@ -583,6 +654,7 @@ function AppRow({
         </span>
       </div>
       {starting && <StartingLine state={state} />}
+      {!starting && !stopping && <HealthLine health={state.health?.app} />}
       <Dialog open={confirm} onOpenChange={setConfirm}>
         <DialogContent
           title={
@@ -712,7 +784,11 @@ function AppCard({
         </>
       ) : (
         <>
-          <MicroscopeRow connection={connection} starting={starting} />
+          <MicroscopeRow
+            connection={connection}
+            starting={starting}
+            health={state.health?.microscope}
+          />
           <AppRow
             state={state}
             starting={starting}

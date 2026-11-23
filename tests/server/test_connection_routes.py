@@ -114,3 +114,47 @@ def test_disconnect_is_refused_while_a_run_is_on(server, monkeypatch):
     assert answer.json()["detail"]["error_type"] == "run_on"
     assert session.microscope is not None
     monkeypatch.undo()  # before the fixture disconnects
+
+
+def test_health_says_the_connection_and_the_halt_without_the_hardware(server):
+    before = server.get("/microscope/health", headers=_as(OPERATOR))
+    assert before.status_code == 200, before.text
+    assert before.json() == {
+        "connected": False,
+        "connecting": None,
+        "error": None,
+        "halted": None,
+        "devices": {},
+        "services": {},
+    }
+    server.post("/microscope/connect", headers=_as(OPERATOR), json={})
+    _connected(server)
+
+    # Asking never reaches a device: no read, no claim of the imaging channel.
+    devices = server.session.microscope.devices.values()
+    for device in devices:
+        device.check_health = lambda: pytest.fail("health read the hardware")
+    with server.session.microscope.resources.claim("imaging_channel"):
+        health = server.get("/microscope/health", headers=_as(OPERATOR)).json()
+    assert health["connected"] is True and health["halted"] is None
+    # When each device was last heard from, from the calls made: none yet here.
+    assert "stage" in health["devices"]
+    server.session.microscope.get_stage_position()
+    health = server.get("/microscope/health", headers=_as(OPERATOR)).json()
+    stage = health["devices"]["stage"]
+    assert stage["last_ok"] is not None and stage["running"] == []
+
+    halt = next(iter(server.session.microscope.devices.values())).safety_halt
+    halt.set("door open")
+    try:
+        health = server.get("/microscope/health", headers=_as(OPERATOR)).json()
+        assert health["halted"] == "door open"
+    finally:
+        halt.clear()
+
+
+def test_the_agent_cannot_read_health(server):
+    assert server.get("/microscope/health", headers=_as(AGENT)).status_code in (
+        401,
+        403,
+    )

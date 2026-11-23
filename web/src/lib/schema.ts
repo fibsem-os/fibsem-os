@@ -194,6 +194,13 @@ export interface components {
             device: string;
             why: string;
         };
+        /** @description A call on a device running now (`fibsem.devices.heard`). */
+        CallRunning: {
+            call: string;
+            /** @default false */
+            long: boolean;
+            since: number;
+        };
         Change: {
             new: unknown;
             old: unknown;
@@ -1116,6 +1123,21 @@ export interface components {
             by: components["schemas"]["ActorKind"];
             since: number;
         };
+        /** @description The App Server's ``/microscope/health``: the connection, the Safety
+         *     Halt's reason while one is set, and when each device and service was last
+         *     heard from. Read from what the server holds, never from the hardware. */
+        InstrumentHealth: {
+            connected: boolean;
+            connecting: string | null;
+            devices: {
+                [key: string]: components["schemas"]["LastHeard"];
+            };
+            error: string | null;
+            halted: string | null;
+            services: {
+                [key: string]: components["schemas"]["LastHeard"];
+            };
+        };
         /** @description POST /app/experiment/analysis/intensity: points on a saved image. */
         IntensityBody: {
             channel?: string | null;
@@ -1300,6 +1322,16 @@ export interface components {
         };
         LamellaSummary: {
             items: components["schemas"]["LamellaRow"][];
+        };
+        /** @description When a device was last heard from, from the calls a run made to it: the
+         *     last that came back, the last that failed in the driver or the hardware
+         *     (refusals don't count), and those running now. */
+        LastHeard: {
+            last_error: string | null;
+            last_error_at: number | null;
+            last_error_call: string | null;
+            last_ok: number | null;
+            running: components["schemas"]["CallRunning"][];
         };
         LeaseTaken: {
             idle_s: number;

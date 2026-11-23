@@ -82,6 +82,13 @@ WAKE = "WAKE a fresh context: start from the handoff note above."
 FACTS_HEADING = "Where things stood (read by the harness as the context ended)"
 # How long each read of the App Server may take (s).
 FACTS_TIMEOUT_S = 10.0
+# The block the harness ends every wake with (`where_you_are`): the plan and what
+# waits on the operator, read from the App Server as the wake is sent.
+WHERE_HEADING = "Where you are (read by the harness for this wake)"
+# How long each of its reads may take (s): a wake must not wait long for it.
+WHERE_TIMEOUT_S = 3.0
+# The review items waiting on the operator it names, at most.
+WHERE_MAX_WAITS = 5
 # The wake-up that starts a fresh context a resume began (`Handoff.recovered`).
 RECOVERED_WAKE = "WAKE a fresh context: rebuild from the record, as above."
 # Why a resume starts a fresh context instead of reloading the conversation.
@@ -210,10 +217,15 @@ class Runs:
         return list(self._running.values())
 
 
-def _read(client, path: str, params: Optional[dict] = None) -> Tuple[Any, str]:
+def _read(
+    client,
+    path: str,
+    params: Optional[dict] = None,
+    timeout: float = FACTS_TIMEOUT_S,
+) -> Tuple[Any, str]:
     """(GET *path*'s answer, or None, and why not when None)."""
     try:
-        response = client.request("GET", path, params=params, timeout=FACTS_TIMEOUT_S)
+        response = client.request("GET", path, params=params, timeout=timeout)
     except Exception as error:  # noqa: BLE001 - said in the facts instead
         return None, type(error).__name__
     if response.status_code != 200:
@@ -310,7 +322,8 @@ def facts(
 ) -> str:
     """What the harness reads as a context ends, for its handoff note: the
     workflow (`/app/workflow/status`), the agent's pending requests
-    (`/app/agent/requests`) and which of *runs* still run, as the App Server
+    (`/app/agent/requests`), its review items that wait for the operator
+    (`/app/agent/review`) and which of *runs* still run, as the App Server
     (*client*) answers now, and the *wake_up* and budget the harness holds.
     Blocking; a read that fails is said, not raised."""
     lines: List[str] = []
@@ -332,6 +345,15 @@ def facts(
                 )
         else:
             lines.append(f"Your requests: could not read them ({why}).")
+        review, why = _read(client, "/app/agent/review", {"show": "waiting"})
+        if isinstance(review, dict):
+            for item in review.get("items") or []:
+                lines.append(
+                    f"Your review item {item.get('id')} waits for the operator: "
+                    f"{_title(item)}"
+                )
+        else:
+            lines.append(f"Your review list: could not read it ({why}).")
     lines += _runs(client, runs)
     if wake_up:
         lines.append(f"Wake-up set: {wake_up}.")
@@ -340,6 +362,77 @@ def facts(
     elif spent_usd is not None:
         lines.append(f"Spent: ${spent_usd:.2f} (no budget set).")
     return "\n".join(f"- {line}" for line in lines)
+
+
+def _title(item: Dict[str, Any]) -> str:
+    return " ".join(str(item.get("title") or "").split())[:120]
+
+
+def _step(step: Dict[str, Any]) -> str:
+    text = " ".join(str(step.get("text") or "").split())[:160]
+    group = str(step.get("group") or "").strip()
+    return f'"{group}: {text}"' if group else f'"{text}"'
+
+
+def where_you_are(client) -> str:
+    """The block the harness ends every wake with: the plan's steps done,
+    the one it is on and the next (`/app/agent/plan`), the workflow while it
+    runs (`/app/workflow/status`), and what waits on the operator: review
+    items (`/app/agent/review`), requests and proposals. Read as the wake is
+    sent, so the agent sees where it is in its plan at the end of every
+    prompt, the place it attends to most. "" when there is nothing to say or
+    no App Server; a read that fails is left out, not said: the wake's own
+    lines come first. Blocking."""
+    if client is None:
+        return ""
+    lines: List[str] = []
+    plan, why = _read(client, "/app/agent/plan", timeout=WHERE_TIMEOUT_S)
+    if plan is None and not why.startswith("HTTP") and why != "not JSON":
+        # No answer at all: the other reads would only wait as long again.
+        return ""
+    steps = (plan or {}).get("steps") or []
+    if steps:
+        open_steps = [step for step in steps if not step.get("done")]
+        said = f"Plan: {len(steps) - len(open_steps)} of {len(steps)} steps done"
+        if open_steps:
+            said += f"; now {_step(open_steps[0])}"
+            if len(open_steps) > 1:
+                said += f", then {_step(open_steps[1])}"
+        lines.append(said + ".")
+    elif isinstance(plan, dict) and plan.get("markdown"):
+        lines.append("Plan: no steps to check off yet.")
+    status, _ = _read(client, "/app/workflow/status", timeout=WHERE_TIMEOUT_S)
+    asking = []
+    if isinstance(status, dict):
+        flow = status.get("workflow") or {}
+        if flow.get("running"):
+            lines.append(_workflow(status)[0])
+        asking = [f"proposal {a.get('proposal_id')}" for a in flow.get("asking") or []]
+    waits = []
+    review, _ = _read(
+        client, "/app/agent/review", {"show": "waiting"}, timeout=WHERE_TIMEOUT_S
+    )
+    if isinstance(review, dict):
+        items = review.get("items") or []
+        waits += [
+            f'review {item.get("id")} "{_title(item)}"'
+            for item in items[:WHERE_MAX_WAITS]
+        ]
+        if len(items) > WHERE_MAX_WAITS:
+            waits.append(f"{len(items) - WHERE_MAX_WAITS} more review items")
+    requests, _ = _read(client, "/app/agent/requests", timeout=WHERE_TIMEOUT_S)
+    if isinstance(requests, dict):
+        waits += [
+            f"request {r.get('request_id')}"
+            for r in requests.get("requests") or []
+            if r.get("status") == "pending"
+        ]
+    waits += asking
+    if waits:
+        lines.append("Waiting on the operator: " + ", ".join(waits) + ".")
+    if not lines:
+        return ""
+    return f"{WHERE_HEADING}:\n" + "\n".join(f"- {line}" for line in lines)
 
 
 class Marks:

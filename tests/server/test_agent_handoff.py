@@ -584,6 +584,9 @@ def test_the_facts_say_what_runs_and_waits():
                     ]
                 },
             ),
+            "/app/agent/review": _Answer(
+                200, {"items": [{"id": "r3", "title": "Site list for grid 1"}]}
+            ),
             "/microscope/services/milling/run": _Answer(
                 200, {"run": {**run, "state": "running"}}
             ),
@@ -602,6 +605,7 @@ def test_the_facts_say_what_runs_and_waits():
         "- Proposal p-7 waits for an answer: Setup on Lamella-02.",
         "- On the microscope now: Milling, Rough (2/3).",
         "- Your request q1 waits for the operator: Move",
+        "- Your review item r3 waits for the operator: Site list for grid 1",
         "- Long command milling.run you started is running: run_id r1.",
         "- Long command imaging.run, run_id r0: running when last seen (HTTP 404 "
         "reading it now).",
@@ -611,6 +615,7 @@ def test_the_facts_say_what_runs_and_waits():
     assert ("/microscope/services/milling/run", {"run_id": "r1", "wait": 0}) in (
         server.asked
     )
+    assert ("/app/agent/review", {"show": "waiting"}) in server.asked
 
 
 def test_a_run_that_ended_or_was_followed_is_left_out():
@@ -623,6 +628,7 @@ def test_a_run_that_ended_or_was_followed_is_left_out():
             {
                 "/app/workflow/status": _Answer(200, {"workflow": {"running": False}}),
                 "/app/agent/requests": _Answer(200, {"requests": []}),
+                "/app/agent/review": _Answer(200, {"items": []}),
                 "/microscope/services/milling/run": _Answer(200, {"run": answer}),
             }
         )
@@ -635,7 +641,106 @@ def test_facts_that_cannot_be_read_are_said():
     assert text.splitlines() == [
         "- Workflow: could not read it (ConnectionError).",
         "- Your requests: could not read them (HTTP 404).",
+        "- Your review list: could not read it (HTTP 404).",
         "- Spent: $1.00 (no budget set).",
     ]
     # Without a server, only what the harness holds.
     assert handoff_mod.facts(None, budget_usd=5.0) == "- Budget: $0.00 spent of $5.00."
+
+
+def test_every_wake_ends_with_where_the_plan_is_and_what_waits():
+    server = _Server(
+        {
+            "/app/agent/plan": _Answer(
+                200,
+                {
+                    "markdown": "## Steps ...",
+                    "steps": [
+                        {"group": "Grid 1", "text": "Screen", "done": True},
+                        {"group": "Grid 1", "text": "Pick sites", "done": True},
+                        {
+                            "group": "Lamellae",
+                            "text": "Rough mill 01-04",
+                            "done": False,
+                        },
+                        {"group": "", "text": "Polish 01-04", "done": False},
+                        {"group": "", "text": "Review", "done": False},
+                    ],
+                },
+            ),
+            "/app/workflow/status": _Answer(
+                200,
+                {
+                    "workflow": {
+                        "running": True,
+                        "phase": "running",
+                        "current_task": "Rough Milling",
+                        "current_item": "Lamella-02",
+                        "queue_position": 2,
+                        "queue_total": 4,
+                        "asking": [{"proposal_id": "p-7"}],
+                    }
+                },
+            ),
+            "/app/agent/review": _Answer(
+                200,
+                {
+                    "items": [
+                        {"id": "r2", "title": "Site list  for grid 1"},
+                        {"id": "r5", "title": "First polish of the day"},
+                    ]
+                },
+            ),
+            "/app/agent/requests": _Answer(
+                200,
+                {
+                    "requests": [
+                        {"request_id": "q1", "status": "pending"},
+                        {"request_id": "q0", "status": "applied"},
+                    ]
+                },
+            ),
+        }
+    )
+    assert handoff_mod.where_you_are(server).splitlines() == [
+        f"{handoff_mod.WHERE_HEADING}:",
+        '- Plan: 2 of 5 steps done; now "Lamellae: Rough mill 01-04", then '
+        '"Polish 01-04".',
+        "- Workflow: running, task Rough Milling on Lamella-02 (2 of 4).",
+        '- Waiting on the operator: review r2 "Site list for grid 1", review r5 '
+        '"First polish of the day", request q1, proposal p-7.',
+    ]
+    assert ("/app/agent/review", {"show": "waiting"}) in server.asked
+
+
+def test_the_where_you_are_block_says_only_what_it_could_read():
+    # Nothing to say: no block at all.
+    quiet = _Server(
+        {
+            "/app/agent/plan": _Answer(200, {"markdown": "", "steps": []}),
+            "/app/workflow/status": _Answer(200, {"workflow": {"running": False}}),
+        }
+    )
+    assert handoff_mod.where_you_are(quiet) == ""
+    # A plan with no boxes yet, and reads that fail are left out.
+    plan_only = _Server(
+        {"/app/agent/plan": _Answer(200, {"markdown": "## Goal\nx", "steps": []})}
+    )
+    assert handoff_mod.where_you_are(plan_only).splitlines() == [
+        f"{handoff_mod.WHERE_HEADING}:",
+        "- Plan: no steps to check off yet.",
+    ]
+    # Every step done.
+    done = _Server(
+        {
+            "/app/agent/plan": _Answer(
+                200, {"steps": [{"group": "", "text": "A", "done": True}]}
+            )
+        }
+    )
+    assert "- Plan: 1 of 1 steps done." in handoff_mod.where_you_are(done).splitlines()
+    # An App Server that doesn't answer is asked once, not four times.
+    gone = _Server({"/app/agent/plan": ConnectionError("gone")})
+    assert handoff_mod.where_you_are(gone) == ""
+    assert len(gone.asked) == 1
+    assert handoff_mod.where_you_are(None) == ""
