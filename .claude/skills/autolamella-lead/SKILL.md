@@ -236,6 +236,11 @@ for it.
   return. It asks the Verifier about its plan and before every pass that
   would mill, and answers the lamella's Polishing proposals itself.
 
+On a correlative run, each lamella's target and correlation is a worker's
+job too, and a coincidence-milling polish gives the Polishing worker more
+in its brief: autolamella-correlative's and autolamella-coincidence-milling's
+*Workers*.
+
 When it answers, look at its first one or two evidence images yourself,
 then add the review item (its images, the result, the Verifier's answer as a
 fact) and update the plan. A result you disagree with: continue the same

@@ -77,3 +77,32 @@ the faces go:
 
 With a coincident FM, follow the target pass by pass with Iterative
 Polishing (autolamella-coincidence-milling).
+
+## Workers
+
+When the lead hands jobs to `fibsem-worker` (autolamella-lead, *Workers*),
+each lamella's target and correlation is one more job, done by one worker
+per lamella, so the FM planes and crops it looks through stay out of the
+lead's context. Finding the target and correlating it are one job: what
+the worker saw in the stack is still in its context when it places the
+target through the correlation.
+
+- **Target and correlation**, one worker per lamella, once its FM stack and
+  FIB image are saved (the lead or the workflow takes them). Brief it with:
+  the task ("find 04's target in its stack and correlate it to the FIB");
+  the limits (no milling; no stage moves; apply the correlation only on a
+  `good` verdict); the skill (this one, *Reading an FM stack* and
+  *Correlating FM to FIB*); the lamella, the stack's and the FIB image's
+  paths, the intake's target (channel, what it looks like) and the plan's
+  What worked; and what to return: the target and a control punctum (FM
+  pixel and z), crops of the target at two contrast settings, the
+  correlation's verdict, `ri_correction` and overlay, and whether it
+  applied it. With no target it is sure of, it applies nothing and says
+  why.
+- **Again after rough milling**: the same brief, with the new stack and
+  FIB image and the last answer's target, so it refits rather than starts
+  over.
+
+A doubtful target or a correlation it didn't apply comes back to the lead,
+which holds the lamella or asks the operator; the worker never asks them.
+
