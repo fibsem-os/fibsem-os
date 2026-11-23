@@ -554,7 +554,8 @@ function RunCard({
   );
 }
 
-/** The session's subagent runs, newest first: each opens in the Subagents tab. */
+/** The subagent runs, newest first, those still running above the finished
+ * ones: each opens in the Subagents tab. */
 function SubagentList({
   calls,
   answered,
@@ -566,32 +567,53 @@ function SubagentList({
   running: (step: TranscriptLine) => boolean;
   onOpen: (call: TranscriptLine) => void;
 }) {
-  const clock = useClock(calls.some((c) => !answered.has(stepKey(c.session_id, c.seq)) && running(c)));
+  const runs = (c: TranscriptLine) => !answered.has(stepKey(c.session_id, c.seq)) && running(c);
+  const clock = useClock(calls.some(runs));
   if (!calls.length) return null;
+  const newest = [...calls].reverse();
+  const groups: [string, TranscriptLine[]][] = [
+    ["Running", newest.filter(runs)],
+    ["Finished", newest.filter((c) => !runs(c))],
+  ];
   return (
-    <section>
-      {[...calls].reverse().map((c) => {
-        const answer = answered.get(stepKey(c.session_id, c.seq));
-        const state = runState(c, answer, !answer && running(c), clock);
-        return (
-          <button
-            key={stepKey(c.session_id, c.seq)}
-            className="flex w-full cursor-pointer items-baseline justify-between gap-3 border-0 bg-transparent px-0 py-1 text-left text-[13px] text-foreground hover:text-primary"
-            onClick={() => onOpen(c)}
-            title={c.text || undefined}
-          >
-            <span className="min-w-0 truncate">
-              {agentName(c.subagent ?? "")}
-              {c.text && <span className="text-muted-foreground"> · {c.text}</span>}
-            </span>
-            <span className="flex shrink-0 items-center gap-1 text-[12px] text-muted-foreground">
-              <RunBadge badge={state.badge} />
-              {state.text}
-            </span>
-          </button>
-        );
-      })}
-    </section>
+    <div className="flex flex-col gap-3.5">
+      {groups.map(([title, shown]) =>
+        shown.length ? (
+          <section key={title} className="border-b border-border/60 pb-3.5 last:border-b-0 last:pb-0">
+            <h4 className="m-0 mb-1 text-[12px] font-semibold text-muted-foreground">
+              {title} · {shown.length}
+            </h4>
+            {shown.map((c) => {
+              const answer = answered.get(stepKey(c.session_id, c.seq));
+              const state = runState(c, answer, runs(c), clock);
+              return (
+                <button
+                  key={stepKey(c.session_id, c.seq)}
+                  className="flex w-full cursor-pointer items-baseline justify-between gap-3 border-0 bg-transparent px-0 py-1 text-left text-[13px] text-foreground hover:text-primary"
+                  onClick={() => onOpen(c)}
+                  title={c.text || undefined}
+                >
+                  <span className="min-w-0 truncate">
+                    {agentName(c.subagent ?? "")}
+                    {c.text && <span className="text-muted-foreground"> · {c.text}</span>}
+                  </span>
+                  <span
+                    className={cn(
+                      "flex shrink-0 items-center gap-1 text-[12px]",
+                      state.failed ? "text-destructive" : "text-muted-foreground",
+                    )}
+                  >
+                    {runs(c) && <Loader size={11} className="animate-spin" aria-label="running" />}
+                    <RunBadge badge={state.badge} />
+                    {state.text}
+                  </span>
+                </button>
+              );
+            })}
+          </section>
+        ) : null,
+      )}
+    </div>
   );
 }
 
