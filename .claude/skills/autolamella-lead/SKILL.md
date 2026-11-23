@@ -27,7 +27,7 @@ start fresh, read only, and answer in JSON.
 | `autolamella-investigator` | when a task's result is bad | the cause, its evidence and a fix for you to apply (*A bad result*) |
 | `autolamella-auditor` | once, when the run is over | the session review, from the record |
 | `autolamella-site-finder` | when picking sites means looking through many squares, tiles or grids | a short list of what it saw, or candidate sites with their doubts and evidence, for you to check (screen-grids, *The site finder*) |
-| `fibsem-worker` | unless the operator said no at intake (question 9): each site's check, each Setup placement and each lamella's polishing, one at a time | the job done on the microscope in its own context, its proposal answered, its result and evidence for you to check (*Workers*) |
+| `fibsem-worker` | unless the operator said no at intake (question 9): each grid's sites (picked and checked), each Setup placement and each lamella's polishing, one at a time | the job done on the microscope in its own context, its proposal answered, its result and evidence for you to check (*Workers*) |
 
 **How to call one.** One call at a time, and wait for it: you keep the
 watcher. Put everything it needs in the prompt, since it sees nothing of
@@ -98,14 +98,15 @@ from one list.
       maximum, or stop.
    7. When they are back, and what is worth a message.
    8. Is this a dry run on the Demo microscope?
-   9. Hand each site's check, each Setup placement and each lamella's
+   9. Hand each grid's sites (picked and checked), each Setup placement and each lamella's
       polishing to a worker (*Workers*)? Default: yes.
    Sites, placements, skipping or failing a lamella and switching tasks to
    auto are yours; say so, and that the Verifier checks them. Say too that
    a hardware error stops the run until they're back (fibsem-microscope, *A
    hardware error is the operator's*).
 1. **Sites.** Pick them by screen-grids' *Finding sites*, and check each
-   one there before you keep it. Call the Verifier with the
+   one there before you keep it, or hand each grid to a worker
+   (*Workers*). Call the Verifier with the
    marked overview, the intake's rules and the list; drop or replace each
    site it flags, and ask it again about the replacements. Then write the
    sites in the plan's Steps, and add the list to the review list with the
@@ -198,21 +199,25 @@ tool saw one band.
 ## Workers
 
 Unless the operator said no at intake (question 9), hand `fibsem-worker`
-each site's check, each Setup placement and each lamella's polishing
+each grid's sites (picked and checked), each Setup placement and each lamella's polishing
 instead of doing them in your own context (fibsem-agent, *Working with a
 worker*). If they said no, do them yourself, as the rest of this skill says. Fiducial, rough milling and
 thinning stay the workflow's; a worker only redoes one of their results by
 hand. One worker at a time: it drives the microscope and your turn waits
 for it.
 
-- **Sites**, one worker per candidate site, after the site finder or your
-  own look at the overviews. Brief it with: the task ("check candidate 03
-  on the microscope: is it a site by the placement rule?"); the limits (no
-  milling; the stage within this square); the skill (screen-grids, *Finding
-  sites*); the candidate's position, the overview and the site finder's
-  crop by path, the intake's rule and example; and what to return: keep or
-  drop, why, its coincident height, an image of it. You make the list and
-  ask the Verifier about it, as the run's step 1 says.
+- **Sites**, one worker per grid: it picks the candidates from the grid's
+  saved overviews and checks each on the microscope, in one job, so what it
+  saw in the overview is still in its context when it looks closer. Brief
+  it with: the task ("find up to 8 sites on grid 2 by the placement rule:
+  pick candidates from the overview, then check each on the microscope");
+  the limits (no milling; the stage within this grid); the skill
+  (screen-grids, *Finding sites*); the grid, its overview by path, the
+  intake's rule, example and number of sites; and what to return: for each
+  candidate, keep or drop, why, its position, its coincident height and an
+  image of it, and the overview marked with the kept ones. The site finder
+  is not needed then. You make the list from its answer and ask the
+  Verifier about it, as the run's step 1 says.
 - **Setup**, one worker per site, when the site's Setup asks its first
   position question. Brief it with: the task ("place 03's lamella:
   coincidence, point of interest and alignment area, then answer its
