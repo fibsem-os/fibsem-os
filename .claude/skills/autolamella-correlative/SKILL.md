@@ -81,28 +81,34 @@ Polishing (autolamella-coincidence-milling).
 ## Workers
 
 When the lead hands jobs to `fibsem-worker` (autolamella-lead, *Workers*),
-each lamella's target and correlation is one more job, done by one worker
-per lamella, so the FM planes and crops it looks through stay out of the
-lead's context. Finding the target and correlating it are one job: what
-the worker saw in the stack is still in its context when it places the
-target through the correlation.
+each lamella's target and its correlation are two more jobs, one worker
+each, so the FM planes and crops stay out of the lead's context. They are
+separate because finding the target can mean imaging: trying channels,
+exposures and focus until the target shows.
 
-- **Target and correlation**, one worker per lamella, once its FM stack and
-  FIB image are saved (the lead or the workflow takes them). Brief it with:
-  the task ("find 04's target in its stack and correlate it to the FIB");
-  the limits (no milling; no stage moves; apply the correlation only on a
-  `good` verdict); the skill (this one, *Reading an FM stack* and
-  *Correlating FM to FIB*); the lamella, the stack's and the FIB image's
-  paths, the intake's target (channel, what it looks like) and the plan's
-  What worked; and what to return: the target and a control punctum (FM
-  pixel and z), crops of the target at two contrast settings, the
-  correlation's verdict, `ri_correction` and overlay, and whether it
-  applied it. With no target it is sure of, it applies nothing and says
-  why.
-- **Again after rough milling**: the same brief, with the new stack and
-  FIB image and the last answer's target, so it refits rather than starts
-  over.
+- **Target**, one worker per lamella, before its first correlation. Brief
+  it with: the task ("find 04's target"); the limits (no milling; the stage
+  at this lamella; FM stacks and channels as needed, the objective
+  retracted when it is done); the skill (fibsem-microscope for the FM objective, focus and images, and this
+  one's *Reading an FM stack*); the lamella, any stack already saved by
+  path, the intake's target (what it looks like, the channels it may show
+  in) and the plan's What worked; and what to return: the channel and
+  settings it shows best in, the stack's path, the target and a control
+  punctum (FM pixel and z), crops at two contrast settings, and how sure it
+  is. It stores the objective's position on the lamella
+  (`item_set_objective_position`). With no target it is sure of, it says
+  so and why.
+- **Correlation**, one worker per lamella, once the target is found and a
+  FIB image is saved. Brief it with: the task ("correlate 04's target to
+  the FIB"); the limits (no milling; no stage moves; apply only on a `good`
+  verdict); the skill (this one, *Correlating FM to FIB*); the stack's and
+  the FIB image's paths and the target worker's answer; and what to return:
+  the verdict, `ri_correction`, the overlay and whether it applied it.
+- **After rough milling**, the lead takes a new stack (or the Target worker
+  does, briefed with the last channel and target to refit) and a
+  Correlation worker correlates again with a surface point.
 
-A doubtful target or a correlation it didn't apply comes back to the lead,
-which holds the lamella or asks the operator; the worker never asks them.
-
+The best channel and settings for the target go in the plan's What worked,
+so the next lamella's Target worker starts there. A doubtful target or a
+correlation it didn't apply comes back to the lead, which holds the
+lamella or asks the operator; a worker never asks them.

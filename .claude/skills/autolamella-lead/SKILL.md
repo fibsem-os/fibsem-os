@@ -236,8 +236,8 @@ for it.
   return. It asks the Verifier about its plan and before every pass that
   would mill, and answers the lamella's Polishing proposals itself.
 
-On a correlative run, each lamella's target and correlation is a worker's
-job too, and a coincidence-milling polish gives the Polishing worker more
+On a correlative run, each lamella's FM target and its correlation are
+workers' jobs too, and a coincidence-milling polish gives the Polishing worker more
 in its brief: autolamella-correlative's and autolamella-coincidence-milling's
 *Workers*.
 
