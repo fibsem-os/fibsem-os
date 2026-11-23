@@ -1,11 +1,12 @@
 """fibsem-agent's side of an agent host (`fibsem.server.agent.host`): finding
 it, and the agent's token there.
 
-A host run on its own writes a discovery file, as the App Server does, with a
-token that only asks to connect. ``fibsem-agent --host`` with no address finds
-the host there; with no token set it asks to connect, the operator allows it on
-the host's Agent page, and the token it is given is kept (`fibsem.client.pairing`)
-for the next start, a resumed session's too.
+A host sits behind this PC's gateway, as the App Server does: the gateway
+passes calls to it, and allows agents. ``fibsem-agent --host`` with no address
+connects through the gateway; with no token set it asks to connect there
+(``gateway.json``'s token only asks), the operator allows it on the gateway's
+Agent page, and the token it is given is kept (`fibsem.client.pairing`) for the
+next start, a resumed session's too.
 """
 
 import sys
@@ -22,8 +23,8 @@ from fibsem.server import discovery
 # What --host shows when no host runs on this PC yet (--show-config only).
 ON_THIS_PC = "the agent host on this PC"
 NO_HOST = (
-    "fibsem-agent: no agent host is running on this PC. Start fibsem-agent-host, "
-    "or give --host its address."
+    "fibsem-agent: no agent host is running on this PC. Start the gateway and "
+    "fibsem-agent-host, or give --host an address."
 )
 # How long to wait for the operator's Allow.
 ALLOW_WAIT_S = 600.0
@@ -35,12 +36,14 @@ def _say(line: str) -> None:
 
 
 def host_url(given: Optional[str]) -> Optional[str]:
-    """--host's address: as given, else the one in the discovery file of a host
-    running on this PC; None when none runs."""
+    """--host's address: as given, else this PC's gateway while a host runs
+    behind it; None when no host runs."""
     if given:
         return given.rstrip("/")
-    found = discovery.read_discovery_file(discovery.HOST_DISCOVERY_FILE)
-    return found["url"].rstrip("/") if found is not None else None
+    if discovery.read_discovery_file(discovery.HOST_DISCOVERY_FILE) is None:
+        return None
+    gateway = discovery.read_gateway_file()
+    return gateway["url"].rstrip("/") if gateway is not None else None
 
 
 def _refused(url: str, token: str) -> bool:
@@ -61,10 +64,10 @@ def _refused(url: str, token: str) -> bool:
 def host_token(
     url: str, wait_s: float = ALLOW_WAIT_S, say: Callable[[str], None] = _say
 ) -> str:
-    """The agent's token at the host at *url*: set (``FIBSEM_HOST_TOKEN``, in
-    the environment or the key store), else the one kept from an earlier Allow
-    there, else asked for with the discovery file's token, waiting up to
-    *wait_s* for the operator. Raises ``LookupError`` when there is nothing to
+    """The agent's token at the host at *url* (this PC's gateway): set
+    (``FIBSEM_HOST_TOKEN``, in the environment or the key store), else the one
+    kept from an earlier Allow there, else asked for with the gateway's
+    connect token, waiting up to *wait_s* for the operator. Raises ``LookupError`` when there is nothing to
     ask with or nobody answers, ``PermissionError`` when the operator denies it."""
     token = get_secret(HOST_TOKEN_ENV)
     if token:
@@ -74,15 +77,16 @@ def host_token(
         if not _refused(url, kept):
             return kept
         forget_agent_token(url)
-    found = discovery.read_discovery_file(discovery.HOST_DISCOVERY_FILE)
+    found = discovery.read_gateway_file()
     if found is None or not found.get("connect_token"):
         raise LookupError(
-            f"the agent host at {url} wrote no discovery file on this PC: set "
-            f"{HOST_TOKEN_ENV} (the environment or the key store) to its agent token."
+            f"no gateway runs on this PC to ask for the agent host at {url}: "
+            f"start it, or set {HOST_TOKEN_ENV} (the environment or the key "
+            "store) to the agent's token."
         )
     say(
-        f"fibsem-agent: asking the agent host at {url} to let this agent connect. "
-        f"The operator allows it on the Agent page ({url}/ui/agent)."
+        f"fibsem-agent: asking this PC's gateway ({url}) to let this agent "
+        f"connect. The operator allows it on the Agent page ({url}/ui/agent)."
     )
     token = ask_to_connect(url, found["connect_token"], USER_AGENT, wait_s=wait_s)
     if token is None:

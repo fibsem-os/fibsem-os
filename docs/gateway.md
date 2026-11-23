@@ -194,6 +194,13 @@ Agent card shows the last one with **Resume**.
 Running `fibsem-agent` by hand still works as before. The gateway doesn't need to be running
 for it.
 
+An agent with no App Server (no instrument, or an instrument served by something else) runs
+against `fibsem-agent-host`. It sits behind the gateway the same way: it serves no pages and
+pairs nothing, checks tokens against the gateway's `paired.json`, and the gateway passes calls
+to it while no App Server runs. `fibsem-agent --host` asks to connect at the gateway, and the
+operator allows it on the gateway's Agent page. Agents allowed on a host before this have to
+ask again.
+
 ### The API key
 
 Store it once on this PC:
