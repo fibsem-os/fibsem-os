@@ -252,4 +252,4 @@ def test_the_worker_is_on_with_the_lead_and_asked_for_at_intake(lab, checkout):
     lead = (
         checkout / ".claude" / "skills" / "autolamella-lead" / "SKILL.md"
     ).read_text(encoding="utf-8")
-    assert "polishing to a worker (*Workers*)? Default: no." in " ".join(lead.split())
+    assert "polishing to a worker (*Workers*)? Default: yes." in " ".join(lead.split())
