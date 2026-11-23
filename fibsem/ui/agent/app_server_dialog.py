@@ -1,5 +1,5 @@
 """Tools → Host: the server itself -- status, services, the operator's
-token and paired computers, and a link to the event log.
+token, and links to the event log and to pairing, both on the gateway's page.
 
 The App Server is the API inside AutoLamella that the agent, the event log and
 ``FibsemClient`` reach. This dialog is about the server, not the agent:
@@ -25,7 +25,6 @@ from qtpy.QtWidgets import (
 )
 
 from fibsem import unreleased
-from fibsem.server.hosting import event_log_url
 from fibsem.theme.tokens import (
     ACCENT_COLOR,
     OK_COLOR,
@@ -34,7 +33,6 @@ from fibsem.theme.tokens import (
 )
 from fibsem.ui import stylesheets
 from fibsem.ui.agent.level_chip import last_heard_text
-from fibsem.ui.agent.pairing_widgets import PairedList, PairingCode
 
 __all__ = ["AppServerDialog"]
 
@@ -61,7 +59,7 @@ MICROSCOPE_TIP = (
     "clients carry on. Kept for the next launch."
 )
 
-PAIR_LABEL = "Pair a computer"
+PAIR_LABEL = "Pair a computer…"
 COPY_TOKEN_LABEL = "Copy token"
 
 _LINK_STYLE = (
@@ -87,14 +85,6 @@ def note(text: str) -> QLabel:
     label.setWordWrap(True)
     label.setStyleSheet(_NOTE_STYLE)
     return label
-
-
-def open_in_browser(url: str) -> None:
-    """Open *url* in the system browser."""
-    from qtpy.QtCore import QUrl
-    from qtpy.QtGui import QDesktopServices
-
-    QDesktopServices.openUrl(QUrl(url))
 
 
 class AppServerDialog(QDialog):
@@ -198,19 +188,15 @@ class AppServerDialog(QDialog):
         operator_row.addWidget(self._btn_copy_operator)
         operator_row.addWidget(self._btn_new_operator)
         operator_row.addStretch(1)
-        self._pair = PairingCode(
-            self._pairing,
-            PAIR_LABEL,
-            "Show a code to type on another computer or in the web app: it "
-            "gets a token of its own and acts as you. Works once, for 5 minutes.",
-            changed=self.refresh,
+        self._btn_pair = QPushButton(PAIR_LABEL)
+        self._btn_pair.setToolTip(
+            "Pairing is the gateway's: its page opens, the gateway starting "
+            "first if it isn't running. A browser, another computer, an agent "
+            "or a hub pairs there with a code, and is unpaired there."
         )
-        self._btn_pair = self._pair.button
+        self._btn_pair.clicked.connect(self._on_pair_clicked)
         operator_row.addWidget(self._btn_pair)
         layout.addLayout(operator_row)
-        layout.addLayout(self._pair.code_row)
-        self._computers = PairedList(self._pairing, changed=self.refresh)
-        layout.addWidget(self._computers)
 
         layout.addSpacing(6)
 
@@ -223,7 +209,7 @@ class AppServerDialog(QDialog):
         footer.addWidget(self._btn_close)
         layout.addLayout(footer)
 
-        # Keep "last heard" and a pairing code's time ticking while open.
+        # Keep "last heard" ticking while open.
         self._status_timer = QTimer(self)
         self._status_timer.setInterval(1000)
         self._status_timer.timeout.connect(self.refresh)
@@ -268,8 +254,6 @@ class AppServerDialog(QDialog):
         self._btn_event_log.setEnabled(running)
         self._btn_copy_operator.setEnabled(running)
         self._btn_new_operator.setEnabled(running)
-        self._pair.refresh()
-        self._computers.refresh()
         # Nothing to serve while the server is off.
         self._chk_microscope.setEnabled(
             self._chk_enabled.isChecked() or self._set_enabled is None
@@ -325,10 +309,9 @@ class AppServerDialog(QDialog):
         super().hideEvent(event)
 
     def _on_event_log_clicked(self) -> None:
-        host = self._host()
-        if host is None:
-            return
-        open_in_browser(event_log_url(host))
+        from fibsem.gateway.launch import open_page
+
+        open_page("events")
 
     def _copy_operator_token(self, token: Optional[str], copied: str) -> None:
         clipboard = QApplication.clipboard()
@@ -350,9 +333,10 @@ class AppServerDialog(QDialog):
             return
         self._copy_operator_token(host.new_operator_token(), "New token copied")
 
-    def _pairing(self):
-        host = self._host()
-        return getattr(getattr(host, "auth", None), "pairing", None)
+    def _on_pair_clicked(self) -> None:
+        from fibsem.gateway.launch import open_page
+
+        open_page("gateway")
 
     def _restore_copy_operator(self) -> None:
         self._btn_copy_operator.setText(COPY_TOKEN_LABEL)

@@ -231,6 +231,7 @@ def test_importing_the_client_needs_no_server_and_no_drivers():
 def test_with_nothing_given_the_transport_finds_no_server(monkeypatch):
     monkeypatch.delenv("FIBSEM_SERVER_URL", raising=False)
     monkeypatch.delenv("FIBSEM_SERVER_TOKEN", raising=False)
+    monkeypatch.setattr("fibsem.client.transport.read_gateway_file", lambda: None)
     monkeypatch.setattr("fibsem.client.transport.read_discovery_file", lambda: None)
     with pytest.raises(ServerUnreachable, match="No App Server found"):
         Transport()
@@ -239,9 +240,10 @@ def test_with_nothing_given_the_transport_finds_no_server(monkeypatch):
 def test_a_restarted_server_is_followed(app, monkeypatch):
     """A 401 from a server that came back with a new token: the transport reads the
     discovery file again and retries there once."""
-    found = {"url": "http://testserver", "token": "old", "pid": os.getpid()}
+    found = {"url": "http://testserver", "connect_token": "old", "pid": os.getpid()}
     monkeypatch.delenv("FIBSEM_SERVER_URL", raising=False)
     monkeypatch.delenv("FIBSEM_SERVER_TOKEN", raising=False)
+    monkeypatch.setattr("fibsem.client.transport.read_gateway_file", lambda: None)
     monkeypatch.setattr("fibsem.client.transport.read_discovery_file", lambda: found)
 
     class Discovered(InProcess):
@@ -250,7 +252,7 @@ def test_a_restarted_server_is_followed(app, monkeypatch):
             Transport.__init__(self)
 
     transport = Discovered()
-    found["token"] = TOKEN
+    found["connect_token"] = TOKEN
     assert transport.fetch("GET", "/capabilities")["level"] == "drive"
 
 
@@ -272,6 +274,7 @@ class _Mocked(Transport):
 def _discovered(monkeypatch, found):
     monkeypatch.delenv("FIBSEM_SERVER_URL", raising=False)
     monkeypatch.delenv("FIBSEM_SERVER_TOKEN", raising=False)
+    monkeypatch.setattr("fibsem.client.transport.read_gateway_file", lambda: None)
     monkeypatch.setattr("fibsem.client.transport.read_discovery_file", lambda: found)
 
 
@@ -286,12 +289,12 @@ def test_resolve_takes_what_is_given_then_the_environment_then_discovery(
     assert resolve("http://x", "t") == ("http://x", "t")
     monkeypatch.setenv("FIBSEM_SERVER_TOKEN", "e")
     assert resolve("http://x") == ("http://x", "e")
-    _discovered(monkeypatch, {"url": "http://d", "token": "d"})
+    _discovered(monkeypatch, {"url": "http://d", "connect_token": "d"})
     assert resolve() == ("http://d", "d")
 
 
 def test_a_401_with_nothing_new_to_find_is_answered_as_is(monkeypatch):
-    _discovered(monkeypatch, {"url": "http://x", "token": "t"})
+    _discovered(monkeypatch, {"url": "http://x", "connect_token": "t"})
     transport = _Mocked({"http://x": lambda request: httpx.Response(401)})
     assert transport.request("GET", "/capabilities").status_code == 401
 
@@ -299,7 +302,7 @@ def test_a_401_with_nothing_new_to_find_is_answered_as_is(monkeypatch):
 def test_a_refused_connection_follows_a_moved_server_with_its_user_agent(
     monkeypatch,
 ):
-    found = {"url": "http://x", "token": "t"}
+    found = {"url": "http://x", "connect_token": "t"}
     _discovered(monkeypatch, found)
     seen = []
 
@@ -319,7 +322,7 @@ def test_a_refused_connection_follows_a_moved_server_with_its_user_agent(
 
 
 def test_a_request_that_timed_out_is_not_sent_again(monkeypatch):
-    found = {"url": "http://x", "token": "t"}
+    found = {"url": "http://x", "connect_token": "t"}
     _discovered(monkeypatch, found)
     sent = []
 

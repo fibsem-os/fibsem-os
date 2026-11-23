@@ -14,7 +14,6 @@ pytest.importorskip("qtpy.QtWidgets")
 from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
 from fibsem.server.agent.setup import agent_setup_text, sidecar_path  # noqa: E402
 from fibsem.server.auth import AuthConfig  # noqa: E402
-from fibsem.server.hosting import event_log_url  # noqa: E402
 from fibsem.ui.agent.app_server_dialog import (  # noqa: E402
     AppServerDialog,
 )
@@ -187,9 +186,15 @@ def test_no_server_disables_the_event_log(qapp):
     dialog.deleteLater()
 
 
-def test_the_event_log_link_carries_the_operator_token(qapp, host):
-    url = event_log_url(host)
-    assert url == (f"http://127.0.0.1:8001/ui/events#token={host.auth.operator_token}")
+def test_the_event_log_and_pairing_open_the_gateways_pages(qapp, host, monkeypatch):
+    # The pages and pairing are the gateway's: the dialog opens them there.
+    opened = []
+    monkeypatch.setattr("fibsem.gateway.launch.open_page", opened.append)
+    dialog = AppServerDialog(lambda: host)
+    dialog._btn_event_log.click()
+    dialog._btn_pair.click()
+    assert opened == ["events", "gateway"]
+    dialog.deleteLater()
 
 
 def test_agent_text_reports_when_the_agent_was_last_heard_from():
@@ -217,7 +222,7 @@ def test_the_agent_text_registers_for_every_project_by_absolute_path(tmp_path):
 def test_the_agent_text_names_the_windows_desktop_config():
     text = agent_setup_text(r"C:\env\Scripts\fibsem-mcp.exe", platform="win32")
     assert r"%APPDATA%\Claude\claude_desktop_config.json" in text
-    assert '"connected to http://127.0.0.1:8001"' in text
+    assert '"connected to http://127.0.0.1:8010"' in text
     entry = text.split('"fibsem": ', 1)[1].split(" under", 1)[0]
     assert json.loads(entry) == {"command": r"C:\env\Scripts\fibsem-mcp.exe"}
 
@@ -264,30 +269,6 @@ def test_the_sidecar_is_found_beside_the_interpreter(tmp_path):
     assert sidecar_path(str(python)) is None
     (bin_dir / "fibsem-mcp").write_text("#!/bin/sh\n")
     assert sidecar_path(str(python)) == bin_dir / "fibsem-mcp"
-
-
-def test_a_computer_is_paired_and_unpaired_from_the_dialog(qapp, host, tmp_path):
-    from fibsem.server.pairing import PairedTokens, Pairing
-
-    dialog = AppServerDialog(lambda: host)
-    assert not dialog._btn_pair.isEnabled()
-    host.auth.pairing = Pairing(PairedTokens(tmp_path / "paired.json"))
-    dialog.refresh()
-    assert not dialog._pair.code.isVisibleTo(dialog)
-    dialog._btn_pair.click()
-    code = host.auth.pairing.state()["code"]
-    assert dialog._pair.code.text() == code
-    assert dialog._pair.left.text().endswith("left")
-    assert dialog._btn_pair.text() == "Stop pairing"
-    host.auth.pairing.pair(code, "lab laptop")
-    dialog.refresh()
-    assert not dialog._pair.code.isVisibleTo(dialog)
-    assert dialog._btn_pair.text() == "Pair a computer"
-    row = dialog._computers.layout().itemAt(0).widget().layout()
-    assert row.itemAt(0).widget().text() == "lab laptop"
-    row.itemAt(2).widget().click()
-    assert host.auth.pairing.tokens.computers() == []
-    dialog.deleteLater()
 
 
 def test_no_agent_where_it_is_not_released(qapp, monkeypatch):

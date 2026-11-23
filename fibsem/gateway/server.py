@@ -16,13 +16,18 @@ says which keys this PC has, never what they are.
 With *passthrough*, the App Server's ``/app``, ``/microscope``, ``/services``
 and ``/capabilities`` are served on the gateway's port too
 (`fibsem.gateway.passthrough`), its token checks as ever.
-Pairing is the App Server's (`fibsem.server.pairing_routes`), with the hub
-role, and the page is the web app's ``/ui/gateway``.
+The gateway alone pairs, for every server on this PC: the pairing routes
+(`fibsem.server.pairing_routes`) with the operator, agent and hub roles, an
+agent on this PC asking to connect (``POST /connect``, with ``gateway.json``'s
+token) and ``/gateway/connections``, where the operator allows or denies it.
+It serves the web app (``/ui``); the page is ``/ui/gateway``.
 """
 
 from __future__ import annotations
 
+import logging
 import os
+import secrets
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -55,8 +60,10 @@ from fibsem.gateway.host import HostMicroscope
 from fibsem.gateway.passthrough import PassThrough
 from fibsem.server.auth import _bearer_token, _matches
 from fibsem.server.bodies import refuse_invalid_requests
+from fibsem.server.hosting import agent_connections
 from fibsem.server.operator_token import load_operator_token
 from fibsem.server.pairing import (
+    AGENT,
     HUB,
     OPERATOR,
     SWITCH_MODES,
@@ -67,19 +74,24 @@ from fibsem.server.pairing import (
 from fibsem.server.pairing_routes import build_pairing_router
 from fibsem.server.web_app import web_app_router
 
+logger = logging.getLogger(__name__)
+
 __all__ = ["GatewayAuth", "build_gateway_app"]
 
 
 @dataclass
 class GatewayAuth:
-    """The install's operator token and this PC's paired computers, the App
-    Server's file (hubs are listed with its browsers and agents). Shaped
-    as the App Server's `AuthConfig` where the pairing routes look: no agents,
-    no connect asks."""
+    """The install's operator token and this PC's paired computers: the one
+    ``paired.json`` every server here checks tokens against. The gateway alone
+    pairs: browsers and other computers as the operator, agents, and hubs; and
+    an agent on this PC asks to connect with *connect_token* (in
+    ``gateway.json``), which the operator allows (*connections*). Shaped as the
+    App Server's `AuthConfig` where the pairing routes look."""
 
     token: str
     pairing: Pairing
     connections: Any = None
+    connect_token: Optional[str] = None
 
     def is_operator(self, token: Optional[str]) -> bool:
         return self.operator(token) is not None
@@ -102,18 +114,22 @@ class GatewayAuth:
         return False
 
     def is_connect(self, token: Optional[str]) -> bool:
-        return False
+        """Whether *token* is ``gateway.json``'s, which only asks to connect."""
+        return self.connect_token is not None and _matches(token, self.connect_token)
 
     @classmethod
     def from_disk(
         cls, token_file: Optional[Path] = None, paired_file: Optional[Path] = None
     ) -> "GatewayAuth":
+        """The install's tokens, and asks to connect with a fresh connect
+        token, allowed at once from this PC while the operator's setting says
+        so (``install.app_server.allow_local_agents``)."""
+        tokens = PairedTokens(paired_file)
         return cls(
             token=load_operator_token(token_file),
-            pairing=Pairing(
-                PairedTokens(paired_file),
-                roles=(OPERATOR, HUB),
-            ),
+            pairing=Pairing(tokens, roles=(OPERATOR, AGENT, HUB)),
+            connections=agent_connections(tokens, lambda: None),
+            connect_token=secrets.token_urlsafe(32),
         )
 
 
@@ -132,6 +148,20 @@ def _settings(body: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if not isinstance(settings, dict):
         raise _refused(422, "bad_setting", "settings is {name: value}.")
     return settings
+
+
+def _ask_view(ask, connections) -> dict:
+    """An ask to connect as the Allow card shows it: who asks, from where, and
+    what allowing it means."""
+    replaced = connections.tokens.agent()
+    replaces = replaced.name if replaced is not None else None
+    words = (
+        "It can read the session, and acts only at the agent level set on the "
+        "Agent page. It stays allowed until you unpair it in Pairing."
+    )
+    if replaces:
+        words += f" It replaces {replaces}, which is unpaired."
+    return {**ask.to_dict(), "replaces": replaces, "if_allowed": words}
 
 
 def _refused(status: int, error_type: str, message: str) -> HTTPException:
@@ -470,6 +500,68 @@ def build_gateway_app(
         if not found.operator:
             raise _refused(403, "operator_only", "Only the operator shows the window.")
         return {"shown": bool(on_show and on_show())}
+
+    def _connections():
+        if auth.connections is None:
+            raise _refused(404, "connect_off", "This gateway doesn't take asks.")
+        return auth.connections
+
+    def _operator(found: Caller) -> None:
+        if not found.operator:
+            raise _refused(
+                403, "operator_only", "Only the operator allows an agent in."
+            )
+
+    @app.get("/gateway/connections")
+    def get_connections(found: Caller = Depends(caller)) -> dict:
+        """``{asking, always_allow_local}``: the agent on this PC asking to
+        connect, as its card shows it, or none."""
+        _operator(found)
+        connections = _connections()
+        asks = connections.asking()
+        return {
+            "asking": _ask_view(asks[0], connections) if asks else None,
+            "always_allow_local": bool(connections.always_allow),
+        }
+
+    @app.post("/gateway/connections/{ask_id}/allow")
+    def allow_connection(ask_id: str, found: Caller = Depends(caller)) -> dict:
+        """Allow the agent asking to connect: a token of its own, in the one
+        paired list with Unpair. One agent per instrument: it replaces the
+        agent paired before."""
+        _operator(found)
+        connections = _connections()
+        replaced = connections.tokens.agent()
+        try:
+            computer = connections.allow(ask_id)
+        except LookupError as exc:
+            raise _refused(404, "not_found", str(exc)) from None
+        allowed = f"Allowed {computer.name}" + (
+            f", replacing {replaced.name}" if replaced else ""
+        )
+        logger.info("%s: %s", found.who, allowed)
+        gateway.record_access(found.who, "page", allowed)
+        return {"id": ask_id, "allowed": True, "name": computer.name}
+
+    @app.post("/gateway/connections/{ask_id}/deny")
+    def deny_connection(
+        ask_id: str,
+        body: Optional[Dict[str, Any]] = None,
+        found: Caller = Depends(caller),
+    ) -> dict:
+        """Refuse the agent asking to connect, with the operator's reason; its
+        next ask waits a minute."""
+        _operator(found)
+        reason = str((body or {}).get("reason") or "")[:500]
+        try:
+            ask = _connections().deny(ask_id, reason)
+        except LookupError as exc:
+            raise _refused(404, "not_found", str(exc)) from None
+        logger.info("%s denied %s", found.who, ask.name)
+        gateway.record_access(
+            found.who, "page", f"Denied {ask.name}" + (f": {reason}" if reason else "")
+        )
+        return {"id": ask_id, "allowed": False, "name": None}
 
     app.include_router(build_pairing_router(auth))
     app.include_router(web_app_router())

@@ -293,17 +293,6 @@ export interface components {
             replaces: string | null;
             user: string;
         };
-        /** @description POST /connect: an agent asking to connect, waiting up to ``wait_s``.
-         *     Unknown keys are ignored, as for pairing. */
-        ConnectBody: {
-            /** @default  */
-            client?: string;
-            /** @default  */
-            origin?: string;
-            /** @default  */
-            user?: string;
-            wait_s?: number | null;
-        };
         ConnectText: {
             text: string | null;
         };
@@ -727,10 +716,6 @@ export interface components {
             dir: string;
             entries: components["schemas"]["FileEntry"][];
             root: string;
-        };
-        /** @description PATCH /pairing/computers/{id}: the computer's grants, replaced. */
-        GrantsBody: {
-            grants?: string[];
         };
         /** @description A grid's summary, every task run with its files, and its items. */
         GridDetail: {
@@ -1641,13 +1626,6 @@ export interface components {
         NotificationTest: {
             channel_id: string;
         };
-        /** @description POST /pairing: for the operator's app, or ``agent`` (``hub`` on a
-         *     gateway, with ``grants``). */
-        OpenPairingBody: {
-            grants?: string[];
-            /** @default operator */
-            role?: string;
-        };
         /** @description POST /app/experiment/messages: the agent's message to the operator,
          *     ``reply_to`` the message it answers. */
         OperatorMessageBody: {
@@ -1703,16 +1681,6 @@ export interface components {
                 y: number | null;
                 z: number | null;
             };
-        };
-        /** @description POST /pair: the code shown, and what to call this computer. Unknown
-         *     keys are ignored: a client of another version pairs here too. */
-        PairBody: {
-            /** @default  */
-            browser?: string;
-            /** @default  */
-            code?: string;
-            /** @default  */
-            name?: string;
         };
         ParameterDescription: {
             agent: boolean | null;
@@ -2605,10 +2573,6 @@ export interface components {
         SupervisionBody: {
             supervise: boolean;
             task_name: string;
-        };
-        /** @description A setting turned on or off. */
-        SwitchBody: {
-            on: boolean;
         };
         /** @description Which instrument, and what software is running on it. Provenance.
          *

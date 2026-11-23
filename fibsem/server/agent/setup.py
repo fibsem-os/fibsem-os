@@ -34,7 +34,8 @@ def sidecar_path(executable: Optional[str] = None) -> Optional[Path]:
     return None
 
 
-DEFAULT_URL = "http://127.0.0.1:8001"
+# The gateway's port: where an agent on this PC connects.
+DEFAULT_URL = "http://127.0.0.1:8010"
 
 
 def desktop_config_path(platform: Optional[str] = None) -> str:

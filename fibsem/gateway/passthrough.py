@@ -6,7 +6,10 @@ its answer comes back unchanged: the status, the headers and the body,
 streamed both ways, so a long-poll, an image or a file read arrives as it
 would from the App Server itself. The caller's token goes on as it came, and
 the App Server checks it as ever (the gateway reads the same paired file, so
-nobody pairs again). With no App Server running, or one that refuses the
+nobody pairs again). A call with ``gateway.json``'s connect token is answered here, 403
+``connect_first``, as the App Server answers its own: the client asks to
+connect (``POST /connect``, the gateway's), and the operator allows it. With
+no App Server running, or one that refuses the
 connection, the gateway answers 503 or 502 ``no_app``; with one that stops
 answering mid-call, 504 ``app_lost``. A client reads both as the App Server
 not answering (`fibsem.client.transport`), as it would reading it directly.
@@ -30,10 +33,10 @@ from starlette.background import BackgroundTask
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["APP_LOST", "NO_APP", "PASSED", "PassThrough", "is_stop"]
+__all__ = ["APP_LOST", "CONNECT_FIRST", "NO_APP", "PASSED", "PassThrough", "is_stop"]
 
-# The App Server's routes the gateway serves on its own port. Its pairing,
-# web app, /health and /chat stay its own: the gateway has its own of each.
+# The App Server's routes the gateway serves on its own port. Its /health stays
+# its own; pairing and the web app are the gateway's alone.
 PASSED = ("app", "microscope", "services")
 ROOT_PASSED = ("capabilities",)
 
@@ -75,6 +78,9 @@ def is_stop(path: str) -> bool:
 # (`fibsem.client.transport`): nothing reached it, or a call may have.
 NO_APP = "no_app"
 APP_LOST = "app_lost"
+# What the App Server answers a connect token with (`fibsem.server.auth`): the
+# client asks to connect, then carries on with the token an Allow gives.
+CONNECT_FIRST = "connect_first"
 
 
 def _no_app(status: int, message: str) -> JSONResponse:
@@ -95,8 +101,11 @@ class PassThrough:
         self,
         upstream: Callable[[], Optional[str]],
         transport: Optional[httpx.AsyncBaseTransport] = None,
+        is_connect: Callable[[Optional[str]], bool] = lambda token: False,
     ) -> None:
         self._upstream = upstream
+        # gateway.json's token only asks to connect: answered here, never sent on
+        self._is_connect = is_connect
         timeout = httpx.Timeout(READ_TIMEOUT_S, connect=CONNECT_TIMEOUT_S)
         self._client = httpx.AsyncClient(timeout=timeout, transport=transport)
         # Stops have their own connections, never queued behind other calls.
@@ -117,6 +126,19 @@ class PassThrough:
             return None
 
     async def forward(self, request: Request):
+        bearer = request.headers.get("authorization", "")
+        if bearer.lower().startswith("bearer ") and self._is_connect(bearer[7:]):
+            return JSONResponse(
+                {
+                    "detail": {
+                        "error_type": CONNECT_FIRST,
+                        "message": "This token only asks to connect (POST "
+                        "/connect): the operator allows the agent on the "
+                        "gateway's page.",
+                    }
+                },
+                status_code=403,
+            )
         url = self._url()
         if url is None:
             return _no_app(

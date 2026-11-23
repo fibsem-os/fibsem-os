@@ -32,6 +32,7 @@ from fibsem.gateway.gateway import (
     Gateway,
     GatewayRefused,
     read_gateway_file,
+    write_gateway_file,
 )
 from fibsem.gateway.host import HostMicroscope
 from fibsem.server.discovery import read_discovery_file
@@ -88,7 +89,13 @@ def _parser() -> argparse.ArgumentParser:
     install.add_argument("connection", nargs=argparse.REMAINDER)
     commands.add_parser("uninstall", help="Stop starting it at logon.")
     pair = commands.add_parser("pair", help="Open pairing and show the code.")
-    pair.add_argument("--hub", action="store_true", help="Pair a hub.")
+    role = pair.add_mutually_exclusive_group()
+    role.add_argument("--hub", action="store_true", help="Pair a hub.")
+    role.add_argument(
+        "--agent",
+        action="store_true",
+        help="Pair an agent (fibsem-mcp pair <code> on its computer).",
+    )
     pair.add_argument(
         "--may-switch",
         action="store_true",
@@ -166,7 +173,7 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
                 microscope,
                 on_quit,
                 on_show,
-                passthrough=PassThrough(_app_url),
+                passthrough=PassThrough(_app_url, is_connect=auth.is_connect),
             ),
             host="127.0.0.1",
             port=port,
@@ -176,10 +183,7 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
     server.install_signal_handlers = lambda: None
     thread = threading.Thread(target=server.run, name="gateway-http", daemon=True)
     thread.start()
-    GATEWAY_FILE.parent.mkdir(parents=True, exist_ok=True)
-    GATEWAY_FILE.write_text(
-        json.dumps({"url": f"http://127.0.0.1:{port}", "pid": os.getpid()})
-    )
+    write_gateway_file(f"http://127.0.0.1:{port}", auth.connect_token)
     gateway.start()
     print(f"Gateway at http://127.0.0.1:{port}/ui/gateway")
     try:
@@ -421,7 +425,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.command in ("stop", "restart"):
         return stop(restart=args.command == "restart")
     if args.command == "pair":
-        body = {"role": "hub" if args.hub else "operator"}
+        body = {"role": "hub" if args.hub else "agent" if args.agent else "operator"}
         if args.hub and args.may_switch:
             body["grants"] = ["switch_modes"]
         listing = call("POST", "/pairing", body)

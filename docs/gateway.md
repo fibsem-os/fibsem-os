@@ -33,8 +33,7 @@ connect as it starts, give connection flags to `install` or `run` (`--manufactur
 `--ip-address`, `--config`): every start then connects with them.
 
 The gateway listens on this PC only (`http://127.0.0.1:8010`). Another computer reaches it
-over an SSH tunnel, as it reaches the App Server: see
-[Running the agent on another computer](ssh-tunnel.md).
+over an SSH tunnel: see [Running the agent on another computer](ssh-tunnel.md).
 
 The gateway's port also serves the App Server's routes: a call to `/app/...`,
 `/microscope/...`, `/services/...` or `/capabilities` on 8010 goes to the App Server running
@@ -44,13 +43,37 @@ is enough for a client. With no app running the gateway answers 503 `no_app`; a 
 that, and an app that stops answering mid-call (504 `app_lost`), as the App Server not
 answering, as it would calling the App Server directly. A stop (the workflow's, a task's, the
 agent's, or a device's stop or halt command) goes through connections of its own, so it never
-waits behind other calls. The App Server keeps its own port too, for now.
+waits behind other calls.
+
+The gateway is the one place this PC pairs, and it serves the web app (`/ui`). The App
+Server serves neither: it checks each call's token against the paired computers the gateway
+keeps (`~/.fibsem/paired.json`) and the operator's token, and nothing else. Its own port
+stays for now, for a program on this PC that names it.
+
+### Pairing
+
+Every browser, computer, agent and hub pairs at the gateway, with a 4-digit code from
+**Pairing → Pair a computer…** on its page (or **Pair a computer** in its window, or Tools →
+Host in AutoLamella, which opens the page). Pick what pairs: **Operator** (a browser or
+another computer, which acts as you), **Agent** (`fibsem-mcp pair <code>` on the agent's
+computer; one agent per microscope, so it replaces the one paired before) or **Hub**. The
+same list unpairs one.
+
+An agent on this PC asks instead: a program here reads the connect token in the gateway's
+`gateway.json` (readable by this PC's user only) and asks to connect. The ask shows on the
+gateway's Overview and on the Agent page, with **Allow** and **Deny**; Allow pairs it as the
+agent, listed with the rest. **Always allow agents logged in to this PC**, under Pairing,
+allows an ask from this PC at once.
+
+An App Server run alone, with no gateway (tests, live evals, scripts), pairs nothing: its
+agent token is the one its launcher sets in `FIBSEM_SERVER_TOKEN`, sent by the client the
+same way.
 
 ## The window and the page
 
 The gateway runs in a small window, on the taskbar (the Dock on a Mac). It shows the app, with
 **Start** and **Stop**; the microscope's connection; and the agent, with **End**. **Pair a
-computer** shows a code for another computer's browser. **Open page** opens the gateway's page,
+computer** shows a code to pair another computer, an agent or a hub. **Open page** opens the gateway's page,
 and **Restart** and **Stop** at the bottom restart or stop the gateway. The desktop shortcut brings the window to
 the front, starting the gateway first if none runs.
 Its icon's badge shows the app: grey for off, blue with its window, purple without one. Closing the window asks,
@@ -77,7 +100,8 @@ on the left has four pages:
   agent sessions, newest first. **All**, **App** and **Agent** filter it, and **Show older**
   reads further back, so every session on this PC can be opened and resumed. A session
   opens to show its playbook, spend, how it ended and what it last said, and **Resume**.
-- **Pairing.** The paired computers, and a code to pair another.
+- **Pairing.** The paired computers, agents and hubs, and a code to pair another
+  (see [Pairing](#pairing)).
 - **Settings.**
   - **Secrets:** whether each key fibsemOS reads is set on this PC, and where from (the
     environment or the key store). The page never shows or takes a key. **Copy command**
@@ -193,8 +217,8 @@ same from a terminal.
 
 ## Pairing a hub
 
-Pair a hub with a 4-digit code from `fibsem-gateway pair --hub --may-switch`. The
-window's **Pair a computer** pairs a browser, not a hub. With it a
+Pair a hub with a 4-digit code from `fibsem-gateway pair --hub --may-switch`, or pick
+**Hub** under **Pairing → Pair a computer…** on the page. With **May start and stop apps** a
 hub can also connect and disconnect the microscope. Without that grant a hub can only read
 the gateway. Untick **May start and stop apps** on the page to take it back, or unpair the
 hub. A hub can never force a stop past a running workflow; only the operator at the PC

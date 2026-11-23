@@ -1,5 +1,7 @@
 import { Check, ChevronDown, ChevronRight, X } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import type { AgentRequest, AgentState, ConnectAsk, RequestAction, Suggestion } from "@/lib/types";
 import { useAct } from "./act";
@@ -235,9 +237,23 @@ export function SuggestionCard({ suggestion, agent }: { suggestion: Suggestion; 
   );
 }
 
-/** An agent on this PC asking to connect: until it is allowed it reaches nothing. */
-export function ConnectCard({ ask }: { ask: ConnectAsk }) {
+/** The agent on this PC asking the gateway to connect, or none: the gateway
+ * pairs every agent. None where the page isn't the gateway's (an agent host). */
+export function useGatewayAsk(): ConnectAsk | null {
+  const asks = useQuery({
+    queryKey: ["gateway/connections"],
+    queryFn: () => api<{ asking: ConnectAsk | null }>("/gateway/connections"),
+    refetchInterval: 2000,
+    retry: false,
+  });
+  return asks.data?.asking ?? null;
+}
+
+/** An agent on this PC asking to connect: until it is allowed it reaches nothing.
+ * *decide* is where Allow and Deny go: the gateway's, or an agent host's. */
+export function ConnectCard({ ask, decide = "/gateway/connections" }: { ask: ConnectAsk; decide?: string }) {
   const { act, busy, error } = useAct();
+  const client = useQueryClient();
   const id = encodeURIComponent(ask.id);
   const rows: [string, string][] = [
     ["Agent", `${ask.client}, as it names itself`],
@@ -263,12 +279,14 @@ export function ConnectCard({ ask }: { ask: ConnectAsk }) {
         busy={busy}
         approveWord="Allow"
         refuseWord="Deny"
-        approve={() => act(`/app/agent/connections/${id}/allow`)}
+        approve={() =>
+          act(`${decide}/${id}/allow`).then(() => client.invalidateQueries({ queryKey: ["gateway/connections"] }))
+        }
         refuse={(reason) =>
-          act(`/app/agent/connections/${id}/deny`, {
+          act(`${decide}/${id}/deny`, {
             method: "POST",
             body: JSON.stringify({ reason }),
-          })
+          }).then(() => client.invalidateQueries({ queryKey: ["gateway/connections"] }))
         }
       />
       {error && <div className="text-[13px] text-destructive">{error}</div>}

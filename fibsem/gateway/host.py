@@ -71,6 +71,8 @@ class HostMicroscope:
         return self._call(self._url(), "POST", "/microscope/disconnect", {})
 
     def agent_page(self) -> str:
-        """The host's Agent page with the operator token in the fragment, the
-        link the window opens (`fibsem.server.hosting.chat_url`)."""
-        return f"{self._url()}/ui/agent#token={self._token() or ''}"
+        """The app's Agent page, on the gateway's own port (its calls pass
+        through to the app), with the operator token in the fragment; refused
+        while no app runs."""
+        self._url()
+        return f"/ui/agent#token={self._token() or ''}"

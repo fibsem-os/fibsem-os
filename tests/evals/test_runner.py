@@ -99,11 +99,11 @@ def test_run_scores_the_answer(home, case, tmp_path, monkeypatch):
     assert not (experiment / "what-the-run-did.json").exists()
     assert json.loads((folder / "result.json").read_text())["case"] == "polish"
     assert (folder / "session" / "session.json").is_file()
-    # Each run starts from its own state root, which lets the agent connect.
+    # Each run starts from its own state root, its App Server on.
     prefs = yaml.safe_load(
         (folder / "home" / "config" / "user-preferences.yaml").read_text()
     )
-    assert prefs["install"]["app_server"]["allow_local_agents"] is True
+    assert prefs["install"]["app_server"] == {"enabled": True}
     assert discovery.read_discovery_file() is None  # the server was ended
 
     (row,) = report.summarise(report.load_results(tmp_path / "out"))

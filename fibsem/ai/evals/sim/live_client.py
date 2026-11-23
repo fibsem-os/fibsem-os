@@ -2,15 +2,16 @@
 them, waiting for a long command's run to end."""
 
 import json
+import os
 import time
 from pathlib import Path
 from typing import Any, Dict
 
 import httpx
 
-from fibsem.client.pairing import ask_to_connect
 from fibsem.client.tools import send
 from fibsem.client.transport import Transport
+from fibsem.server.discovery import SERVER_TOKEN_ENV
 from fibsem.server.operator_token import read_operator_token
 
 RUN_WAIT_S = 30.0
@@ -30,13 +31,13 @@ class LiveClient:
         self.transport = Transport(url, token)
 
     @classmethod
-    def as_agent(cls, found_at: Path, name: str, wait_s: float = 30) -> "LiveClient":
-        """Connect to the server *found_at* names as the agent *name*, which
-        the server lets in without a click (``allow_local_agents``)."""
+    def as_agent(cls, found_at: Path) -> "LiveClient":
+        """The agent, at the server *found_at* names, with the token the run
+        gave the server and its agent (``FIBSEM_SERVER_TOKEN``)."""
         found = json.loads(Path(found_at).read_text())
-        token = ask_to_connect(found["url"], found["connect_token"], name, wait_s)
+        token = os.environ.get(SERVER_TOKEN_ENV)
         if not token:
-            raise LiveError(f"The App Server did not let {name} connect.")
+            raise LiveError(f"No agent token: {SERVER_TOKEN_ENV} is not set.")
         return cls(found["url"], token)
 
     @classmethod

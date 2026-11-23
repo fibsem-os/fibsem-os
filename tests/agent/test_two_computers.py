@@ -8,6 +8,7 @@ watches through the tunnel, says what to check when the tunnel drops, and
 watches again once it is back.
 """
 
+import contextlib
 import json
 import os
 import socket
@@ -159,10 +160,38 @@ def _end(process) -> None:
             process.wait(10)
 
 
+@contextlib.contextmanager
+def _gateway(home, app_port):
+    """The microscope PC's gateway in front of its App Server, on its operator
+    token and paired file: where a computer pairs and an agent connects."""
+    from fibsem.gateway.gateway import Gateway
+    from fibsem.gateway.passthrough import PassThrough
+    from fibsem.gateway.server import GatewayAuth, build_gateway_app
+    from tests.fixtures.app_server import serving
+
+    state = home / ".fibsem"
+    auth = GatewayAuth.from_disk(state / "operator-token.json", state / "paired.json")
+    gateway = Gateway(
+        home=state,
+        app_registry=lambda: {},
+        last=lambda: None,
+        recent=lambda: [],
+        new_folder=lambda: str(home),
+        configurations=lambda: [],
+        discovery=lambda: None,
+    )
+    passthrough = PassThrough(
+        lambda: f"http://127.0.0.1:{app_port}", is_connect=auth.is_connect
+    )
+    with serving(build_gateway_app(gateway, auth, passthrough=passthrough)) as url:
+        yield url
+
+
 @pytest.fixture
 def microscope_pc(tmp_path):
     """The App Server on the microscope PC, serving a new experiment on the
-    Demo microscope: its home, its url and its operator's client."""
+    Demo microscope, behind its gateway: its home, the gateway's port and its
+    operator's client there."""
     home = tmp_path / "microscope-pc"
     env = _computer(home)
     port = _free_port()
@@ -183,12 +212,15 @@ def microscope_pc(tmp_path):
         )
         assert server.poll() is None, (tmp_path / "microscope-pc.log").read_text()
         token = json.loads((home / ".fibsem" / "operator-token.json").read_text())
-        with httpx.Client(
-            base_url=f"http://127.0.0.1:{port}",
-            headers={"Authorization": f"Bearer {token['token']}"},
-            timeout=30,
-        ) as operator:
-            yield home, port, operator
+        with (
+            _gateway(home, port) as url,
+            httpx.Client(
+                base_url=url,
+                headers={"Authorization": f"Bearer {token['token']}"},
+                timeout=30,
+            ) as operator,
+        ):
+            yield home, int(url.rsplit(":", 1)[1]), operator
     finally:
         _end(server)
         log.close()

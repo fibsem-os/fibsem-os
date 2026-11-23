@@ -132,7 +132,9 @@ def build_operator_router(agent: AgentControl) -> APIRouter:
         on this machine, it registers the sidecar and checks the connection.
         None when the sidecar isn't installed."""
         host = agent.host
-        return answer(ConnectText(setup_text(host.url if host is not None else None)))
+        # where an agent connects: the gateway's, for the App Server
+        url = getattr(host, "connect_url", host.url) if host is not None else None
+        return answer(ConnectText(setup_text(url)))
 
     @router.get("/customisation", response_model=AgentCustomisation)
     def get_customisation(request: Request):

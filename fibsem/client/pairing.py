@@ -2,13 +2,14 @@
 microscope PC shows, and keep the token it answers for later connections.
 
 An agent on the microscope PC pairs by asking instead (`ask_to_connect`, with
-the discovery file's connect token), and the operator allows it in the app.
+``gateway.json``'s connect token), and the operator allows it on the gateway's
+page.
 
 The token is kept per server, written ``0600``: an operator's in
 ``~/.fibsem/remote/<host>_<port>.json`` (`RemoteMicroscope` reads it), an
 agent's in ``~/.fibsem/agent/`` (the sidecar reads it, through `resolve`), so
 an agent never picks up the operator's. The url defaults to the SSH tunnel's
-end, ``http://localhost:8001``.
+end, ``http://localhost:8010``: the microscope PC's gateway, which pairs.
 """
 
 from __future__ import annotations
@@ -37,7 +38,7 @@ __all__ = [
     "paired_token",
 ]
 
-DEFAULT_URL = "http://localhost:8001"
+DEFAULT_URL = "http://localhost:8010"
 REMOTE_DIR = DISCOVERY_DIR / "remote"
 AGENT_DIR = DISCOVERY_DIR / "agent"
 

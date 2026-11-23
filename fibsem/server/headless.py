@@ -118,9 +118,11 @@ def announce_host(session) -> None:
     what = experiment.name if experiment is not None else "no experiment"
     print(f"The fibsem host is serving {what} at {host.url} (agent at Watch).")
     # The plain address, never the token: scrollback and service logs keep it.
-    print(f"Chat and level controls: {host.url}/ui/agent (Pair this browser)")
+    # The pages, pairing and agents' asks are the gateway's.
+    print(f"Chat and level controls: {host.connect_url}/ui/agent (on the gateway)")
     print(
-        setup_text(host.url) or "fibsem-mcp is not installed beside this Python.",
+        setup_text(host.connect_url)
+        or "fibsem-mcp is not installed beside this Python.",
         flush=True,
     )
 

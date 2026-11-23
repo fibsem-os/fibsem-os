@@ -104,6 +104,21 @@ def _pair_hub(client, grants):
     return paired.json()
 
 
+def test_the_web_app_is_served(setup):
+    # Every page path gets index.html; assets are served with their type.
+    client, _, _ = setup
+    for path in ("/ui", "/ui/", "/ui/microscope", "/ui/events"):
+        answer = client.get(path)
+        assert answer.status_code == 200
+        assert "/ui/assets/index.js" in answer.text
+    script = client.get("/ui/assets/index.js")
+    assert script.status_code == 200
+    assert "javascript" in script.headers["content-type"]
+    assert client.get("/ui/assets/missing.js").status_code == 404
+    outside = client.get("/ui/assets/..%2F..%2Fserver.py")
+    assert "def build_server" not in outside.text
+
+
 def test_the_history_takes_how_many_to_read(setup):
     client, gateway, _ = setup
     assert (
@@ -413,11 +428,11 @@ def test_connecting_needs_the_app_running_and_the_grant(host_setup):
 
 
 def test_the_operator_opens_the_apps_agent_page_signed_in(host_setup):
-    # The page is the app's (8001), not the gateway's; the token rides in the
-    # fragment, as the window's own link carries it.
+    # The page is the gateway's own (its calls pass through to the app); the
+    # token rides in the fragment.
     client, host = host_setup
     r = client.get("/gateway/app/agent-page", headers=_as(OPERATOR_TOKEN))
-    assert r.json() == {"url": f"http://127.0.0.1:8001/ui/agent#token={OPERATOR_TOKEN}"}
+    assert r.json() == {"url": f"/ui/agent#token={OPERATOR_TOKEN}"}
     switcher = _pair_hub(client, [SWITCH_MODES])
     r = client.get("/gateway/app/agent-page", headers=_as(switcher["token"]))
     assert (r.status_code, r.json()["detail"]["error_type"]) == (403, "operator_only")

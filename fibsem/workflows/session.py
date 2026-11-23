@@ -557,7 +557,7 @@ class AppSession:
         if started:
             self.agent.keep_pictures()
             if self.alerts is None:
-                self.alerts = Alerts(self, link=f"{self.app_server.url}/ui")
+                self.alerts = Alerts(self, link=f"{self.app_server.connect_url}/ui")
                 self.alerts.start()
         return started
 

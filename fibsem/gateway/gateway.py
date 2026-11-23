@@ -27,7 +27,13 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import fibsem
 from fibsem.gateway.health import HealthWatch, ServersHealth
-from fibsem.server.discovery import DISCOVERY_DIR, read_discovery_file
+from fibsem.server.discovery import (
+    DISCOVERY_DIR,
+    GATEWAY_FILE,
+    GATEWAY_PORT,
+    read_discovery_file,
+    read_gateway_file,
+)
 from fibsem.tools.apps import App, apps
 from fibsem.update_check import Newer, check_newer
 from fibsem.util.process import kill_pid, pid_alive
@@ -44,6 +50,7 @@ __all__ = [
     "GatewayRefused",
     "GatewayState",
     "read_gateway_file",
+    "write_gateway_file",
 ]
 
 OFF = "off"
@@ -53,8 +60,6 @@ MODES = (OFF, RUNNING)
 STARTING = "starting"
 STOPPING = "stopping"
 
-GATEWAY_PORT = 8010
-GATEWAY_FILE = DISCOVERY_DIR / "gateway.json"
 # Set on a window the gateway started, so its launch doesn't ask the gateway.
 CHILD_ENV = "FIBSEM_GATEWAY"
 STOP_WAIT_S = 60.0
@@ -169,7 +174,8 @@ class GatewayConfiguration:
 
 @dataclass
 class Switch:
-    """One line of the gateway's history."""
+    """One line of the gateway's history: a start or stop of the app, or
+    (*kind* ``agent``) an agent the operator allowed or denied."""
 
     at: float
     to_mode: str
@@ -180,6 +186,7 @@ class Switch:
     app: Optional[str] = None
     experiment: Optional[str] = None
     window: Optional[bool] = None
+    kind: Optional[str] = None
 
 
 @dataclass
@@ -195,16 +202,23 @@ def close_file(pid: int, home: Path = DISCOVERY_DIR) -> Path:
     return home / f"gateway-close-{pid}"
 
 
-def read_gateway_file(path: Optional[Path] = None) -> Optional[dict]:
-    """The running gateway's ``{"url", "pid"}``, or None when none runs."""
-    try:
-        with open(path or GATEWAY_FILE) as f:
-            data = json.load(f)
-    except (OSError, ValueError):
-        return None
-    if not isinstance(data, dict) or "url" not in data:
-        return None
-    return data if pid_alive(data.get("pid")) else None
+def write_gateway_file(
+    url: str, connect_token: Optional[str], path: Optional[Path] = None
+) -> Path:
+    """``{"url", "pid", "connect_token"}``, readable by this PC's user only:
+    the connect token lets a program here ask the operator to let it in."""
+    path = Path(path or GATEWAY_FILE)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"url": url, "pid": os.getpid()}
+    if connect_token is not None:
+        payload["connect_token"] = connect_token
+    # Written whole, then moved into place: a reader never sees it half written.
+    partial = path.with_name(path.name + ".partial")
+    with open(partial, "w") as f:
+        json.dump(payload, f, indent=2)
+    os.chmod(partial, 0o600)
+    os.replace(partial, path)
+    return path
 
 
 def saved_configurations() -> List[dict]:
@@ -896,28 +910,47 @@ class Gateway:
             self._claimed = None
         self.run_file.unlink(missing_ok=True)
 
+    def record_access(self, who: str, via: str, result: str) -> None:
+        """An agent let in or turned away (``allowed claude-code on
+        mac-mini``), in the history beside the starts and stops."""
+        self._write(
+            Switch(
+                at=time.time(),
+                to_mode="",
+                from_mode="",
+                who=who,
+                via=via,
+                result=result,
+                kind="agent",
+            )
+        )
+
     def _record(
         self, from_mode, to_mode, who, via, result, app, experiment, window=None
     ) -> None:
-        line = Switch(
-            at=time.time(),
-            to_mode=to_mode,
-            from_mode=from_mode,
-            who=who,
-            via=via,
-            result=result,
-            app=app,
-            experiment=experiment,
-            window=window,
+        self._write(
+            Switch(
+                at=time.time(),
+                to_mode=to_mode,
+                from_mode=from_mode,
+                who=who,
+                via=via,
+                result=result,
+                app=app,
+                experiment=experiment,
+                window=window,
+            )
         )
+        # the last experiment and the recent ones may have changed
+        self._facts_due.set()
+
+    def _write(self, line: Switch) -> None:
         try:
             self.history_file.parent.mkdir(parents=True, exist_ok=True)
             with open(self.history_file, "a") as f:
                 f.write(json.dumps(asdict(line)) + "\n")
         except OSError:
             logger.exception("Gateway history not written")
-        # the last experiment and the recent ones may have changed
-        self._facts_due.set()
 
     # -- watching ----------------------------------------------------------
 

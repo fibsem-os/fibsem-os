@@ -81,6 +81,7 @@ def client(microscope):
         microscope,
         app_context=AutoLamellaAppContext(session),
         auth=AuthConfig(token="agent"),
+        pairs=True,  # the pairing bodies are described where pairing is served
     )
     with TestClient(app, raise_server_exceptions=False) as client:
         client.headers["Authorization"] = "Bearer agent"

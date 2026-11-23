@@ -32,7 +32,6 @@ from fibsem.server import discovery
 
 log = logging.getLogger(__name__)
 
-NAME = "fibsem-scripted-eval/1"
 ANSWER = "answer.json"
 
 # shared by the tasks' baselines
@@ -107,7 +106,7 @@ def main(argv=None) -> int:
     args, _ = parser.parse_known_args(argv)
     logging.basicConfig(level=logging.INFO)
     found_at = Path(os.environ[discovery.DISCOVERY_FILE_ENV])
-    with LiveClient.as_agent(found_at, NAME) as client:
+    with LiveClient.as_agent(found_at) as client:
         answer = agents()[args.task](client, args.work)
     (args.work / ANSWER).write_text(json.dumps(answer, indent=2))
     return 0

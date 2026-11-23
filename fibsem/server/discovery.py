@@ -43,6 +43,20 @@ LEGACY_DISCOVERY_FILE = (
 # shape, so the same functions write and read it. A host and an App Server
 # may run on one PC.
 HOST_DISCOVERY_FILE = DISCOVERY_DIR / "agent-host.json"
+# The gateway's (`fibsem.gateway`): this PC's one way in. Its url, pid and the
+# connect token an agent here asks to connect with.
+GATEWAY_FILE = DISCOVERY_DIR / "gateway.json"
+GATEWAY_PORT = 8010
+# The agent token an App Server running alone takes, and its clients send (tests,
+# live evals, scripts): with no gateway in front, nothing pairs or asks there.
+SERVER_TOKEN_ENV = "FIBSEM_SERVER_TOKEN"
+
+
+def gateway_url() -> str:
+    """This PC's gateway: the running one's address, else its usual port."""
+    found = read_gateway_file()
+    return found["url"] if found is not None else f"http://127.0.0.1:{GATEWAY_PORT}"
+
 
 # The version of the App Server's routes. A change that an older client can't
 # work with (a route or a field removed or renamed, an answer that changes
@@ -146,13 +160,15 @@ def write_discovery_file(
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "url": f"http://{_client_host(host)}:{port}",
-        # Only asks to connect: the operator allows an agent on this PC
-        # (fibsem.server.connections). Never the agent's own token.
-        "connect_token": auth.connect_token,
         "pid": os.getpid(),
         # No level: it changes while the server runs and a file
         # would go stale. /capabilities is the live answer.
     }
+    if auth.connect_token is not None:
+        # Only asks to connect: the operator allows an agent on this PC
+        # (fibsem.server.connections). Never the agent's own token. The App
+        # Server has none: an agent asks at the gateway.
+        payload["connect_token"] = auth.connect_token
     # Written whole, then moved into place: a reader never sees it half written.
     partial = path.with_name(path.name + ".partial")
     with open(partial, "w") as f:
@@ -186,11 +202,22 @@ def _read(path: Path) -> Optional[dict]:
         return None
     if not isinstance(data, dict) or "url" not in data:
         return None
-    if "token" not in data and "connect_token" not in data:
-        return None
     if not pid_alive(data.get("pid")):
         return None
     return data
+
+
+def read_gateway_file(path: Optional[Path] = None) -> Optional[dict]:
+    """The running gateway's ``{"url", "pid", "connect_token"}``, or None when
+    none runs."""
+    try:
+        with open(path or GATEWAY_FILE) as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict) or "url" not in data:
+        return None
+    return data if pid_alive(data.get("pid")) else None
 
 
 def remove_discovery_file(path: Optional[Path] = None) -> None:

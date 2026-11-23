@@ -4,7 +4,7 @@ when none runs, then its page signed in as the operator."""
 import pytest
 
 from fibsem.gateway import main as gateway_main
-from fibsem.gateway.launch import OpenFailed, gateway_page
+from fibsem.gateway.launch import OpenFailed, gateway_page, open_page
 
 URL = "http://127.0.0.1:8010"
 
@@ -131,3 +131,26 @@ def test_a_gateway_just_started_is_given_time_to_open_its_window():
 def test_a_gateway_without_a_window_opens_its_page():
     gateway = ShowGateway(opens_after=None)
     assert _open(gateway) == [f"{URL}/ui/gateway#token=operator"]
+
+
+def test_a_page_opens_from_the_gateway_in_the_background():
+    opened, asked = [], []
+
+    def url(page):
+        asked.append(page)
+        return f"{URL}/ui/{page}#token=operator"
+
+    open_page("events", open_url=opened.append, url=url).join(5)
+    assert asked == ["events"]
+    assert opened == [f"{URL}/ui/events#token=operator"]
+
+
+def test_a_page_that_cannot_open_is_logged(caplog):
+    opened = []
+
+    def url(page):
+        raise OpenFailed("no gateway")
+
+    open_page("agent", open_url=opened.append, url=url).join(5)
+    assert opened == []
+    assert "Could not open the agent page: no gateway" in caplog.text
