@@ -10,6 +10,7 @@ import { MicroscopePage } from "@/pages/Microscope";
 import { PositionsPage } from "@/pages/Positions";
 import { Notices } from "@/shell/Notices";
 import { Pair } from "@/shell/Pair";
+import { QuickSearch } from "@/shell/QuickSearch";
 import { Rail } from "@/shell/Rail";
 import { Settings } from "@/shell/Settings";
 import { TopLine } from "@/shell/TopLine";
@@ -48,6 +49,10 @@ function Shell() {
       </div>
       {agent && <Notices page={page} go={go} />}
       <Settings open={settings} onOpenChange={setSettings} />
+      {/* The Agent page has its own, with the agent's commands and record. */}
+      {!(page === "agent" && agent) && (
+        <QuickSearch page={page} go={go} agent={!!agent} volume={volume} openSettings={() => setSettings(true)} />
+      )}
     </div>
   );
 }

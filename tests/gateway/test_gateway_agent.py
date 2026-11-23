@@ -81,6 +81,7 @@ def made(tmp_path, monkeypatch):
         platform="linux",
         key="sk-test",
         stored=None,
+        own_url=None,
     ):
         gateway = gateway or FakeGateway()
         app = app or App()
@@ -107,6 +108,7 @@ def made(tmp_path, monkeypatch):
             stored=lambda name: stored if name == API_KEY else None,
             platform=platform,
             microscope="arctis-pc",
+            own_url=own_url,
         )
         built.append(agent)
         return agent, gateway, app
@@ -133,6 +135,15 @@ def until(test, agent=None, timeout=20.0):
 def _record(tmp_path):
     found = folders(tmp_path / "sessions")
     return read_json(found[0] / RECORD) if found else {}
+
+
+def test_the_agent_reaches_the_app_through_the_gateways_port(made, tmp_path):
+    agent, _, app = made(own_url="http://127.0.0.1:8010")
+    agent.start("default", None, "assist", "operator", "page")
+    # The level is set on the App Server itself; the agent goes through the gateway.
+    assert app.levels == [(URL, "assist")]
+    assert until(lambda: _record(tmp_path).get("args"))
+    assert _record(tmp_path)["args"][-2:] == ["--url", "http://127.0.0.1:8010"]
 
 
 def test_start_pairs_the_agent_sets_the_level_and_runs_the_playbook(made, tmp_path):

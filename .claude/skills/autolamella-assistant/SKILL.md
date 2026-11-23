@@ -38,5 +38,5 @@ then ask only what its intake adds that this run hasn't answered yet: the
 thickness target and range, whether to stop thicker or try thinner, the
 placement rule with an example (their decisions so far are the example),
 what spare time is for, and when they'll be back. Leading a run needs
-Drive: if you're below it, say so. Post the answers as `[intake]` before
-they go.
+Drive: if you're below it, say so. Put the answers in the plan's Brief and
+Rules before they go.

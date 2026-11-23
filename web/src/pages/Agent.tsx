@@ -8,11 +8,19 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardCheck,
+  Compass,
+  FileText,
+  Layers,
   ListChecks,
   ListFilter,
   MessageCircle,
   Loader,
   Microscope,
+  PanelRight,
+  Search,
+  Settings as SettingsIcon,
+  SlidersHorizontal,
+  SquareSlash,
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Popup } from "@/components/ui/popup";
@@ -20,6 +28,8 @@ import { api, imageUrl } from "@/lib/api";
 import { onEvents } from "@/lib/events";
 import { Markdown } from "@/lib/markdown";
 import type {
+  ItemSummary,
+  ReviewItem,
   AgentPlan,
   AgentState,
   Capabilities,
@@ -33,10 +43,11 @@ import { ConnectCard, RequestCard, SuggestionCard } from "./agent/Cards";
 import { carriesFiles, splitAttached, useAttachments } from "./agent/attach";
 import { SentFiles } from "./agent/Attachments";
 import { useAct } from "./agent/act";
-import { Composer } from "./agent/Composer";
+import { COMMANDS, compose, Composer } from "./agent/Composer";
 import { KnowledgeDialog } from "./agent/Knowledge";
 import { MicroscopeCustomise, MicroscopeTab, useMicroscopeShown } from "./agent/MicroscopeTab";
 import { EvidenceImage } from "./agent/Pictures";
+import { Palette, PALETTE_KEY, type PaletteEntry, usePaletteKey } from "./agent/Palette";
 import { PlanDialog } from "./agent/PlanDialog";
 import { say, since } from "./agent/steps";
 import { asking, SideChat } from "./agent/SideChat";
@@ -140,7 +151,10 @@ function Message({ row, unread }: { row: RecentRow; unread?: [string, string, bo
   const sent = splitAttached(row.text);
   if (row.kind === "you")
     return (
-      <div className={cn("my-1 flex gap-2 rounded-md bg-card py-2 pr-2.5 pl-2.5", unread && "opacity-75")}>
+      <div
+        data-row={row.at || undefined}
+        className={cn("my-1 flex gap-2 rounded-md bg-card py-2 pr-2.5 pl-2.5", unread && "opacity-75")}
+      >
         <Time when={row.when} />
         <div className="min-w-0 flex-1">
           <div className="flex gap-2 text-[12px] font-semibold text-muted-foreground">
@@ -159,7 +173,7 @@ function Message({ row, unread }: { row: RecentRow; unread?: [string, string, bo
       </div>
     );
   return (
-    <div className="my-2 flex gap-2 py-1 pl-2.5">
+    <div data-row={row.at || undefined} className="my-2 flex gap-2 rounded-md py-1 pl-2.5">
       <Time when={row.when} />
       <div className="min-w-0 flex-1 break-words text-[15px]">
         <div className="text-[12px] font-semibold text-[#c4b5fd]">{row.kind === "note" ? "Agent · note" : "Agent"}</div>
@@ -884,6 +898,193 @@ function LiveLine({ agent, heard, hide }: { agent: AgentState; heard: boolean; h
   );
 }
 
+// How long a message found by the quick search stays lit.
+const FOUND_MS = 1600;
+
+// The app's pages, as the quick search lists them.
+const PAGE_LINKS: [string, string][] = [
+  ["microscope", "Microscope"],
+  ["experiment", "Experiment"],
+  ["lamellae", "Lamellae"],
+  ["grids", "Grids"],
+  ["positions", "Positions"],
+  ["events", "Events"],
+];
+const LEVELS: [string, string][] = [
+  ["off", "the agent can read and do nothing"],
+  ["watch", "it reads and adds notes, acts on nothing"],
+  ["assist", "each action waits for your approval"],
+  ["drive", "it acts on the session itself"],
+];
+
+/** What the quick search lists on the agent page: commands, panels, pages and,
+ * once something is typed, the chat, review items, plan steps, lamellae and
+ * subagent runs the page has read. Stop and the safety buttons stay where they are. */
+function paletteEntries(p: {
+  tabs: ColumnTab[];
+  rows: RecentRow[];
+  review: ReviewItem[];
+  steps: AgentPlan["steps"];
+  lamellae: ItemSummary[];
+  runs: TranscriptLine[];
+  show: Show;
+  calls: boolean;
+  onTab: (id: string) => void;
+  onPlan: () => void;
+  onKnowledge: () => void;
+  onShow: (show: Show) => void;
+  onCalls: () => void;
+  onReview: (id: string) => void;
+  onRun: (call: TranscriptLine) => void;
+  onMessage: (at: string) => void;
+}): PaletteEntry[] {
+  const out: PaletteEntry[] = [];
+  const slash = <SquareSlash size={14} />;
+  for (const c of COMMANDS) {
+    if (c.name === "/level") continue;
+    out.push({
+      id: `cmd${c.name}`,
+      group: "Commands",
+      label: c.name,
+      detail: c.say,
+      icon: slash,
+      run: () => compose(`${c.name} `),
+    });
+  }
+  for (const [level, say] of LEVELS)
+    out.push({
+      id: `level-${level}`,
+      group: "Commands",
+      label: `/level ${level}`,
+      detail: `Set the level: ${say}`,
+      icon: slash,
+      words: "level",
+      run: () => compose(`/level ${level}`),
+    });
+  const panel = <PanelRight size={14} />;
+  out.push({
+    id: "plan",
+    group: "Panels",
+    label: "Open the plan",
+    icon: <FileText size={14} />,
+    words: "plan.md steps",
+    run: p.onPlan,
+  });
+  for (const t of p.tabs)
+    out.push({
+      id: `tab-${t.id}`,
+      group: "Panels",
+      label: t.label,
+      detail: "Side column",
+      icon: t.icon ?? panel,
+      run: () => p.onTab(t.id),
+    });
+  out.push({
+    id: "knowledge",
+    group: "Panels",
+    label: "Knowledge",
+    detail: "The lab's notes and skills",
+    icon: <BookOpen size={14} />,
+    run: p.onKnowledge,
+  });
+  for (const [key, word] of SHOWS)
+    if (key !== p.show)
+      out.push({
+        id: `show-${key}`,
+        group: "Panels",
+        label: `Show ${word.toLowerCase()}`,
+        detail: "In the chat",
+        icon: <ListFilter size={14} />,
+        words: "filter",
+        run: () => p.onShow(key),
+      });
+  out.push({
+    id: "calls",
+    group: "Panels",
+    label: p.calls ? "Hide tool calls" : "Show tool calls",
+    detail: "In the chat",
+    icon: <SlidersHorizontal size={14} />,
+    run: p.onCalls,
+  });
+  for (const [page, name] of PAGE_LINKS)
+    out.push({
+      id: `page-${page}`,
+      group: "Go to",
+      label: name,
+      detail: "Page",
+      icon: <Compass size={14} />,
+      run: () => openPage(`/ui/${page}`),
+    });
+  out.push({
+    id: "page-settings",
+    group: "Go to",
+    label: "Settings",
+    icon: <SettingsIcon size={14} />,
+    run: () => openPage("/ui/settings"),
+  });
+  // Found only once something is typed, newest first.
+  for (const item of [...p.review].reverse())
+    out.push({
+      id: `review-${item.id}`,
+      group: "Review",
+      label: item.title,
+      detail: item.about || item.text,
+      words: `${item.text} ${item.state.replace("_", " ")}`,
+      icon: <ClipboardCheck size={14} />,
+      find: true,
+      run: () => p.onReview(item.id),
+    });
+  p.steps.forEach((step, i) =>
+    out.push({
+      id: `step-${i}`,
+      group: "Plan",
+      label: step.text,
+      detail: [step.group, step.done ? "done" : ""].filter(Boolean).join(" · "),
+      icon: step.done ? <Check size={14} /> : <ListChecks size={14} />,
+      find: true,
+      run: p.onPlan,
+    }),
+  );
+  for (const item of p.lamellae)
+    out.push({
+      id: `item-${item.item_name}`,
+      group: "Lamellae",
+      label: item.item_name,
+      detail: item.last_completed_task ? `Last: ${item.last_completed_task}` : undefined,
+      words: "lamella item",
+      icon: <Layers size={14} />,
+      find: true,
+      run: () => openPage(`/ui/lamellae?item=${encodeURIComponent(item.item_name)}`),
+    });
+  for (const c of [...p.runs].reverse())
+    out.push({
+      id: `run-${stepKey(c.session_id, c.seq)}`,
+      group: "Subagents",
+      label: agentName(c.subagent ?? ""),
+      detail: c.text,
+      words: "subagent run",
+      icon: <Bot size={14} />,
+      find: true,
+      run: () => p.onRun(c),
+    });
+  for (const row of [...p.rows].reverse()) {
+    if (row.kind === "action" || !row.at) continue;
+    const text = splitAttached(row.text).text.replace(/\s+/g, " ").trim();
+    if (!text) continue;
+    out.push({
+      id: `row-${row.at}-${row.kind}`,
+      group: "Chat",
+      label: row.kind === "you" ? "You" : row.kind === "note" ? "Agent note" : "Agent",
+      detail: `${row.when} · ${text}`,
+      words: text,
+      icon: <MessageCircle size={14} />,
+      find: true,
+      run: () => p.onMessage(row.at),
+    });
+  }
+  return out;
+}
+
 export function AgentPage() {
   const client = useQueryClient();
   const agent = useQuery({
@@ -977,6 +1178,19 @@ export function AgentPage() {
   useEffect(() => {
     if (focus) setFocus(null);
   }, [focus]);
+  // The quick search (Cmd/Ctrl+K), and the review item it last opened.
+  const [palette, setPalette] = useState(false);
+  usePaletteKey(() => setPalette((on) => !on));
+  const [reviewOpen, setReviewOpen] = useState<{ id: string } | null>(null);
+  // Read once by the Review tab as it opens, then cleared, so going back to the tab doesn't reopen it.
+  useEffect(() => {
+    if (reviewOpen) setReviewOpen(null);
+  }, [reviewOpen]);
+  const lamellae = useQuery({
+    queryKey: ["app/experiment"],
+    queryFn: () => api<{ items: ItemSummary[] }>("/app/experiment"),
+    enabled: palette && !!agent.data?.experiment,
+  });
   const newest = rows.length ? rows[rows.length - 1].at : "";
   const seen = useRef(newest);
   useEffect(() => {
@@ -1070,7 +1284,7 @@ export function AgentPage() {
       badge: review.data.counts.waiting ? (
         <span className="block size-1.5 rounded-full bg-[#e0a030]" aria-label="waiting on you" />
       ) : undefined,
-      render: () => <ReviewTab />,
+      render: () => <ReviewTab open={reviewOpen} />,
     });
   if (instrument)
     tabs.push({
@@ -1127,6 +1341,42 @@ export function AgentPage() {
         ),
     });
   }
+  // A message found in the quick search: shown (Actions alone hides messages), scrolled to and lit briefly.
+  const jumpTo = (at: string) => {
+    if (show === "actions") setShow("all");
+    pinned.current = false;
+    setTimeout(() => {
+      const el = list.current?.querySelector<HTMLElement>(`[data-row="${CSS.escape(at)}"]`);
+      if (!el) return;
+      el.scrollIntoView({ block: "center", behavior: "smooth" });
+      el.classList.add("ring-2", "ring-primary");
+      setTimeout(() => el.classList.remove("ring-2", "ring-primary"), FOUND_MS);
+    }, 50);
+  };
+  const found = paletteEntries({
+    tabs,
+    rows: all,
+    review: review.data?.items ?? [],
+    steps: plan.data?.steps ?? [],
+    lamellae: lamellae.data?.items ?? [],
+    runs: idx.calls,
+    show,
+    calls,
+    onTab: setFocus,
+    onPlan: () => setPlanOpen(true),
+    onKnowledge: () => setKnowledge(true),
+    onShow: setShow,
+    onCalls: () => {
+      keepCalls(!calls);
+      setCalls(!calls);
+    },
+    onReview: (id) => {
+      setReviewOpen({ id });
+      setFocus("review");
+    },
+    onRun: openRun,
+    onMessage: jumpTo,
+  });
   return (
     <div className="flex h-full">
       <div
@@ -1149,6 +1399,16 @@ export function AgentPage() {
         }}
       >
         <div className="flex items-center justify-end gap-3 pt-2.5">
+          <button
+            className="mr-auto flex cursor-pointer items-center gap-1.5 rounded border-0 bg-transparent px-2 py-1 text-[12px] text-muted-foreground hover:bg-accent hover:text-foreground"
+            onClick={() => setPalette(true)}
+            aria-keyshortcuts="Meta+K Control+K"
+          >
+            <Search size={14} />
+            Search
+            <kbd className="rounded border border-border px-1 text-[11px]">{PALETTE_KEY}</kbd>
+          </button>
+          <Palette open={palette} onOpenChange={setPalette} entries={found} />
           <button
             className="flex cursor-pointer items-center gap-1.5 rounded border-0 bg-transparent px-2 py-1 text-[12px] text-muted-foreground hover:bg-accent hover:text-foreground"
             onClick={() => setKnowledge(true)}

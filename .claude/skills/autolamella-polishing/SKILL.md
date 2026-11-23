@@ -69,8 +69,8 @@ Either way, stop at once on a stop sign below. For every pass:
 | Imaging the band once it is under about 400 nm | 15 µm |
 | Comparing thickness readings (`item_measure_thickness`) | 20 µm, at similar contrast |
 
-In a lead run, the recipe card records the fields of view the first lamella
-used; use the card's where it differs from this table.
+In a lead run, the plan's What worked records the fields of view the first
+lamella used; use those where they differ from this table.
 
 ## Iterative Polishing
 

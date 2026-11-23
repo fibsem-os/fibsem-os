@@ -36,6 +36,16 @@ The gateway listens on this PC only (`http://127.0.0.1:8010`). Another computer 
 over an SSH tunnel, as it reaches the App Server: see
 [Running the agent on another computer](ssh-tunnel.md).
 
+The gateway's port also serves the App Server's routes: a call to `/app/...`,
+`/microscope/...`, `/services/...` or `/capabilities` on 8010 goes to the App Server running
+on this PC, and its answer comes back unchanged (status, headers and body, streamed). The
+caller's token goes on as it came and the App Server checks it as ever, so one tunnel to 8010
+is enough for a client. With no app running the gateway answers 503 `no_app`; a client reads
+that, and an app that stops answering mid-call (504 `app_lost`), as the App Server not
+answering, as it would calling the App Server directly. A stop (the workflow's, a task's, the
+agent's, or a device's stop or halt command) goes through connections of its own, so it never
+waits behind other calls. The App Server keeps its own port too, for now.
+
 ## The window and the page
 
 The gateway runs in a small window, on the taskbar (the Dock on a Mac). It shows the app, with
@@ -104,7 +114,8 @@ was never pushed, it shows nothing.
 
 ## The agent
 
-The gateway can run the agent on this PC, next to the app. The **Agent** card on the page
+The gateway can run the agent on this PC, next to the app. The agent reaches the app
+through the gateway's port. The **Agent** card on the page
 starts it with:
 
 - a **playbook** (the default in Settings, else `fibsem-agent`, the general one);

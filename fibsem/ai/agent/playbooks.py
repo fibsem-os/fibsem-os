@@ -35,7 +35,7 @@
       before_milling: Confirm the current and depth.
     rules:
       - Stop at the operator's thickness target, 200 nm by default.
-    plan: [Brief, Playbook, Rules, Steps, Progress, Summary]   # plan.md's headings
+    plan: [Brief, Playbook, Rules, Steps, Progress, What worked, Summary]   # plan.md's headings
 
 A playbook is ``<name>.yaml`` in the lab's ``~/.fibsem/knowledge/playbooks/``
 or the shipped ``.claude/fibsem-agent/playbooks/``, the lab's winning. Skills,
@@ -106,7 +106,7 @@ FIELDS = (
     "plan",
 )
 # plan.md's headings when a playbook names none (fibsem.server.agent.plan).
-PLAN = ["Brief", "Playbook", "Rules", "Steps", "Progress", "Summary"]
+PLAN = ["Brief", "Playbook", "Rules", "Steps", "Progress", "What worked", "Summary"]
 _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
 # An MCP server's name, as it sits in mcp__<server>__<tool> (`extra_mcp.NAME`).
 _SERVER = re.compile(r"[A-Za-z][\w-]*")
@@ -814,6 +814,10 @@ class Reminders:
         given = (state or {}).get("playbook")
         if not given:
             return None
+        # A session that ended before it kept its playbook's state recorded only
+        # the name it started with.
+        if isinstance(given, str):
+            given = {"name": given}
         try:
             playbook = load(given["name"], checkout)
         except PlaybookError as error:

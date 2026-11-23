@@ -158,6 +158,9 @@ CLI_ENV = {
     # The agent's prompt cache lasts an hour, not the CLI's 5 min: a Watch
     # session waits longer than that between wakes (`wake_policy`).
     "CLAUDE_CODE_PROMPT_CACHE_TTL": wake_policy.PROMPT_CACHE_TTL,
+    # A subagent may start one more: the worker asks the Verifier before it
+    # mills (its tools line names only that one, `Agent(autolamella-verifier)`).
+    "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "2",
 }
 
 # One message from the CLI: a tool result carrying an image (the Read tool on

@@ -1,7 +1,7 @@
 ---
 name: autolamella-auditor
 description: AutoLamella post-run review for the Run Lead, written from the record in a fresh context - the events, the log, the saved images and the Run Lead's decision notes - with every figure cited to its source. Read-only; call it once the run is over.
-tools: mcp__fibsem__app_get_status, mcp__fibsem__app_get_events, mcp__fibsem__app_get_log, mcp__fibsem__experiment_get_task_history, mcp__fibsem__workflow_get_summary, mcp__fibsem__item_list, mcp__fibsem__item_get, mcp__fibsem__item_list_outputs, mcp__fibsem__item_get_output_image, mcp__fibsem__protocol_get, mcp__fibsem__grid_list, mcp__fibsem__grid_get_markers, mcp__fibsem__experiment_list_files, mcp__fibsem__experiment_read_file, mcp__fibsem__analysis_crop_image, Read, Grep, Glob, Bash
+tools: mcp__fibsem__plan_get, mcp__fibsem__review_list, mcp__fibsem__app_get_status, mcp__fibsem__app_get_events, mcp__fibsem__app_get_log, mcp__fibsem__experiment_get_task_history, mcp__fibsem__workflow_get_summary, mcp__fibsem__item_list, mcp__fibsem__item_get, mcp__fibsem__item_list_outputs, mcp__fibsem__item_get_output_image, mcp__fibsem__protocol_get, mcp__fibsem__grid_list, mcp__fibsem__grid_get_markers, mcp__fibsem__experiment_list_files, mcp__fibsem__experiment_read_file, mcp__fibsem__analysis_crop_image, Read, Grep, Glob, Bash
 model: opus
 effort: medium
 skills: fibsem-agent, autolamella, autolamella-polishing
@@ -15,10 +15,11 @@ change nothing on the microscope or in the experiment.
 The prompt gives the experiment and the operator's intake. Read the session
 as autolamella's *Reading a finished experiment offline* says: through the MCP tools, and with its
 offline reader on the experiment's folder where you have a shell. The Run
-Lead's notes carry the run state (`[run_state vN]`), the recipe card
-(`[recipe_card]`) and one note per decision (`[decision]`). The Verifier
-puts each of its answers on the record itself (`[verdict]`). Read them from
-the events, and check them against what the record shows.
+Lead keeps the run in its plan (`plan_get`: the intake in Brief and Rules,
+the sites in Steps, what was held, Progress, and What worked), each
+lamella's state in its item notes, and one review item per key decision
+(`review_list`). The Verifier puts each of its answers on the record itself
+(`[verdict]` notes). Check all of them against what the record shows.
 
 ## What the review covers
 

@@ -18,6 +18,7 @@ optional:
       - autolamella-investigator
       - autolamella-auditor
       - autolamella-site-finder
+      - fibsem-worker
   - skill: autolamella-assistant
     when: the operator runs the workflow and asks you to help
   - skill: screen-grids

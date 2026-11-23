@@ -195,3 +195,61 @@ def test_a_specialist_gets_the_tools_an_extra_server_gives_specialists(
     assert data["model"] == shipped["model"] and body.strip()
     # No tools line is every tool already: a line would narrow it.
     assert (copied / "anything.md").read_text("utf-8") == anything
+
+
+def _worker(checkout):
+    data, body = subagents.front_matter(
+        (checkout / ".claude" / "agents" / f"{subagents.WORKER}.md").read_text(
+            encoding="utf-8"
+        )
+    )
+    return data, body
+
+
+def test_every_tool_is_the_workers_or_the_leads(checkout):
+    from fibsem.ai.agent.catalog import CATALOG
+
+    data, _ = _worker(checkout)
+    listed = subagents.names(data["tools"])
+    fibsem = {
+        t[len("mcp__fibsem__") :] for t in listed if t.startswith("mcp__fibsem__")
+    }
+    catalog = {spec.name for spec in CATALOG}
+    # A new tool is a choice: the worker's line or the lead-only list.
+    assert subagents.LEAD_ONLY <= catalog
+    assert fibsem == catalog - subagents.LEAD_ONLY, (
+        "add the new tool to fibsem-worker.md's tools line, or to "
+        "subagents.LEAD_ONLY when it is the lead's job"
+    )
+    # The record, the operator and the run are the lead's.
+    for lead in ("plan_set_section", "experiment_message_operator", "workflow_start"):
+        assert lead in subagents.LEAD_ONLY
+    # It may answer its own item's proposal, and start only the Verifier.
+    assert "mcp__fibsem__proposal_decide" in listed
+    agents = [t for t in listed if t.startswith("Agent")]
+    assert agents == ["Agent(autolamella-verifier)"]
+
+
+def test_the_worker_file_is_checked_and_an_agent_limit_is_a_tool(lab, checkout):
+    subagents.check_file(subagents.WORKER, checkout)
+    limited = _subagent("my-lead", tools=f"{TOOL}, Agent(my-checker)")
+    assert subagents.check(limited)["name"] == "my-lead"
+    with pytest.raises(subagents.SubagentError, match="no tool Agent"):
+        subagents.check(_subagent("bad", tools="Agent(no spaces allowed here)"))
+    # A worker may start the Verifier: one level of nesting.
+    assert harness_mod.CLI_ENV["CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH"] == "2"
+
+
+def test_the_worker_is_on_with_the_lead_and_asked_for_at_intake(lab, checkout):
+    found = playbooks.load("autolamella", checkout)
+    assert subagents.WORKER in found.optional_skill("autolamella-lead").agents
+    on = playbooks.Reminders()
+    on.set(found, "named by the operator")
+    assert subagents.WORKER not in on.subagents(), "only in lead mode"
+    on.loaded("autolamella-lead")
+    assert subagents.WORKER in on.subagents()
+    # Whether the lead uses it is the operator's answer at intake.
+    lead = (
+        checkout / ".claude" / "skills" / "autolamella-lead" / "SKILL.md"
+    ).read_text(encoding="utf-8")
+    assert "polishing to a worker (*Workers*)? Default: yes." in " ".join(lead.split())

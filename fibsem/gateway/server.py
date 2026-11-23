@@ -13,6 +13,9 @@ PC's agent (`fibsem.gateway.agent`), resuming an ended session too, with
 the same rules as starting the app. ``/gateway/defaults`` is what the page
 fills in for the next start (the operator saves it), and ``/gateway/secrets``
 says which keys this PC has, never what they are.
+With *passthrough*, the App Server's ``/app``, ``/microscope``, ``/services``
+and ``/capabilities`` are served on the gateway's port too
+(`fibsem.gateway.passthrough`), its token checks as ever.
 Pairing is the App Server's (`fibsem.server.pairing_routes`), with the hub
 role, and the page is the web app's ``/ui/gateway``.
 """
@@ -20,6 +23,7 @@ role, and the page is the web app's ``/ui/gateway``.
 from __future__ import annotations
 
 import os
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -48,6 +52,7 @@ from fibsem.gateway.gateway import (
 )
 from fibsem.gateway.health import ServersHealth
 from fibsem.gateway.host import HostMicroscope
+from fibsem.gateway.passthrough import PassThrough
 from fibsem.server.auth import _bearer_token, _matches
 from fibsem.server.bodies import refuse_invalid_requests
 from fibsem.server.operator_token import load_operator_token
@@ -141,8 +146,15 @@ def build_gateway_app(
     on_quit: Optional[Callable[[bool], None]] = None,
     on_show: Optional[Callable[[], bool]] = None,
     defaults_file: Optional[Path] = None,
+    passthrough: Optional[PassThrough] = None,
 ) -> FastAPI:
-    app = FastAPI(title="fibsem gateway")
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        yield
+        if passthrough is not None:
+            await passthrough.close()
+
+    app = FastAPI(title="fibsem gateway", lifespan=lifespan)
     refuse_invalid_requests(app)
     app.state.auth = auth
 
@@ -461,4 +473,8 @@ def build_gateway_app(
 
     app.include_router(build_pairing_router(auth))
     app.include_router(web_app_router())
+    if passthrough is not None:
+        # Last: the gateway's own routes are found first.
+        app.include_router(passthrough.router())
+
     return app
