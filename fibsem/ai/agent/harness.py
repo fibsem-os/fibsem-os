@@ -449,11 +449,12 @@ DEADLINE = "deadline"
 
 # The wake-ups that cut the agent's turn short: news that makes the turn's
 # work wrong, not news that is only new. Everything else waits for the turn
-# to end.
+# to end. The operator's message waits too, unless they sent it with /now
+# (`is_urgent`).
 URGENT = frozenset(
     {
-        # The operator wrote to the agent.
-        watch_mod.MESSAGE,
+        # The operator cut the turn short for a message already sent.
+        watch_mod.INTERRUPT,
         # The level went down, or the operator took control back.
         watch_mod.LEVEL_LOWERED,
         watch_mod.AGENT_OFF,
@@ -498,8 +499,14 @@ BUDGET_LOW = (
 
 
 def is_urgent(line) -> bool:
-    """Whether *line* cuts the agent's turn short (`URGENT`)."""
-    return getattr(line, "kind", None) in URGENT
+    """Whether *line* cuts the agent's turn short: one of `URGENT`, or the
+    operator's message sent with ``/now``."""
+    kind = getattr(line, "kind", None)
+    if kind in URGENT:
+        return True
+    return kind == watch_mod.MESSAGE and bool(
+        (getattr(line, "facts", None) or {}).get(aside.INTERRUPT)
+    )
 
 
 class Wakes:
@@ -574,14 +581,22 @@ class Wakes:
         """Whether a held line wakes the agent: any, unless the playbook names
         its ``wakes``; then one of those, an urgent one or one that always does
         (`wake_lines.ALWAYS`). The rest wait for the next turn."""
+        # The operator's /note waits for a line that wakes the agent.
+        held = [
+            line
+            for line in self._held
+            if getattr(line, "kind", None) != watch_mod.RECORD_NOTE
+        ]
+        if not held:
+            return False
         kinds = self._waking() if self._waking is not None else None
         if kinds is None:
             return True
-        for line in self._held:
+        for line in held:
             kind = getattr(line, "kind", None)
             if kind is None or kind in kinds or kind in wake_lines.ALWAYS:
                 return True
-            if kind in URGENT:
+            if is_urgent(line):
                 return True
         return False
 
@@ -1240,6 +1255,9 @@ class Harness:
         # what a resume may start after while lines wait for a digest.
         self._cursor_unheld: Optional[str] = None
         self._cursor_kept: Optional[str] = after
+        # From a turn's end until the next batch is taken: every line read so
+        # far was that turn's, so a cursor coming now is kept at once.
+        self._after_turn = False
         # What the agent is told, for the session's instrument kind.
         self._words = words or texts()
         self._quiet_s = quiet_s
@@ -1423,6 +1441,10 @@ class Harness:
             # those lines again on a resume.
             if watcher is self._watcher:
                 self._cursor_given = item.event_id
+                if self._after_turn and not self._in_turn:
+                    # That turn is over already: no later turn need come
+                    # for its lines to be kept.
+                    self._keep_given_cursor()
             return
         self._items.put_nowait((watcher, item))
         if watcher is self._watcher and is_urgent(item):
@@ -1520,6 +1542,7 @@ class Harness:
             reporter.cancel()
         self._turns += 1
         self._keep_given_cursor()
+        self._after_turn = True
         spent_before = self._spent_usd
         if end.cost_usd is not None:
             self._count_spend(end.cost_usd + self._carried_usd)
@@ -2160,6 +2183,7 @@ class Harness:
         while the agent is Off. None when the run is over."""
         while True:
             item = await self._get()
+            self._after_turn = False
             if item is None:
                 return None
             # Everything waiting is taken now: an urgent line after this

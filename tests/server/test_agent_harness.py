@@ -1361,6 +1361,41 @@ def test_a_resumed_session_hears_what_it_missed_while_it_was_down(session):
     assert first not in again.prompts[1], "a message it had already heard came again"
 
 
+def test_a_cursor_that_comes_after_its_turn_ended_is_kept(session, monkeypatch):
+    # On a busy machine the watcher's cursor can come after the turn carrying
+    # its lines is over: it is still that turn's, kept without a next turn.
+    watch = watch_mod.watch
+
+    def late(client, *args, on_cursor=None, **kwargs):
+        def later(event_id):
+            time.sleep(0.5)
+            on_cursor(event_id)
+
+        return watch(client, *args, on_cursor=later, **kwargs)
+
+    monkeypatch.setattr(harness_mod.watch_mod, "watch", late)
+    kept = []
+
+    async def reply(prompt):
+        return None
+
+    agent = ScriptedAgent(reply)
+    running = _harness(session, agent, keep_cursor=kept.append)
+    assert wait_for(lambda: agent.prompts, timeout=20), "no kickoff"
+    first = AgentControl(session).message("is 01 ok?")
+    assert wait_for(lambda: len(agent.prompts) >= 2, timeout=20), "no second turn"
+    (sent,) = [
+        e
+        for e in session.recorder.buffer.events_since(0)["events"]
+        if (e.get("payload") or {}).get("id") == first
+    ]
+    assert wait_for(
+        lambda: any(split_event_id(k)[1] >= sent["seq"] for k in kept), timeout=20
+    ), "the message's event id was not kept after its turn"
+    assert running.stop() == 0
+    assert len(agent.prompts) == 2
+
+
 def test_lines_that_arrive_during_a_turn_are_the_next_turn(session, caplog):
     async def reply(prompt):
         if prompt.startswith("You are"):
@@ -1910,8 +1945,8 @@ def test_the_transcript_goes_soon_after_a_line_not_on_the_ten_second_clock(
 
 def test_the_urgent_lines_are_the_four_the_operator_chose():
     assert harness_mod.URGENT == {
-        # an operator message
-        watch_mod.MESSAGE,
+        # the operator interrupted for a message (a plain one waits)
+        watch_mod.INTERRUPT,
         # the level lowered, or control taken back
         watch_mod.LEVEL_LOWERED,
         watch_mod.AGENT_OFF,
@@ -1932,8 +1967,13 @@ def test_the_urgent_lines_are_the_four_the_operator_chose():
         watch_mod.Wake(watch_mod.PROPOSAL, "PROPOSAL item=01"),
         watch_mod.Wake(harness_mod.ALARM, "WAKE check drift"),
         "MESSAGE id=ab12 from the operator: a plain string is never urgent",
+        watch_mod.Wake(watch_mod.MESSAGE, "MESSAGE id=ab12 from the operator: hi"),
     ):
         assert not harness_mod.is_urgent(line), line
+    # Sent with /now, it cuts the turn short.
+    assert harness_mod.is_urgent(
+        watch_mod.Wake(watch_mod.MESSAGE, "MESSAGE id=ab12 ...", interrupt=True)
+    )
 
 
 def test_a_lowered_level_or_a_stop_asks_the_agent_to_re_read_its_level():
@@ -1953,7 +1993,7 @@ def test_an_urgent_line_cuts_the_turn_short_and_others_wait(session, caplog):
                 await asyncio.sleep(0.05)
             await asyncio.sleep(3 * POLL_S)
             assert agent.interrupts == 0
-            operator.message("stop and look at 01")
+            operator.message("/now look at 01")
             return await agent.until_interrupted()
 
     agent = ScriptedAgent(reply)
@@ -1967,7 +2007,82 @@ def test_an_urgent_line_cuts_the_turn_short_and_others_wait(session, caplog):
     after = agent.prompts[1]
     assert after.startswith(harness_mod.INTERRUPTED + "\n\nThe watcher printed:\n")
     assert "LEVEL assist (was watch)" in after
-    assert "from the operator: stop and look at 01" in after
+    assert "from the operator, who stopped your turn to say this: look at 01" in after
+
+
+def test_a_note_for_the_record_wakes_nothing_and_comes_with_the_next_turn():
+    wakes = Wakes()
+    note = watch_mod.Wake(
+        watch_mod.RECORD_NOTE, "NOTE from the operator, for the record: thin film"
+    )
+    assert wakes.add([note]) is None
+    prompt = wakes.add([watch_mod.Wake(watch_mod.LEVEL, "LEVEL drive (was watch)")])
+    assert "for the record: thin film" in prompt and "LEVEL drive" in prompt
+
+
+def test_a_note_for_the_record_goes_on_the_record_not_to_the_agent(session):
+    operator = AgentControl(session)
+    assert operator.message("/note film thin on grid 2") is not None
+    notes = [
+        e
+        for e in session.recorder.buffer.events_since(0)["events"]
+        if e["kind"] == "note" and e["actor"] == "operator"
+    ]
+    assert notes[-1]["payload"] == {"text": "film thin on grid 2", "for_record": True}
+
+
+def test_a_plain_message_waits_for_the_turn_to_end(session, caplog):
+    operator = AgentControl(session)
+    sent = []
+
+    async def reply(prompt):
+        if prompt.startswith("You are"):
+            sent.append(operator.message("how is 01?"))
+            while not _heard(caplog, f"MESSAGE id={sent[0]}"):
+                await asyncio.sleep(0.05)
+            await asyncio.sleep(3 * POLL_S)
+
+    agent = ScriptedAgent(reply)
+    running = _harness(session, agent)
+    assert wait_for(lambda: len(agent.prompts) >= 2, timeout=20), (
+        "timed out waiting for the turn after the message"
+    )
+    assert running.stop() == 0
+
+    assert agent.interrupts == 0, "a plain message cut the turn short"
+    assert f"MESSAGE id={sent[0]} from the operator: how is 01?" in agent.prompts[1]
+    assert not agent.prompts[1].startswith(harness_mod.INTERRUPTED)
+
+
+def test_interrupt_now_cuts_the_turn_short_for_a_waiting_message(session, caplog):
+    operator = AgentControl(session)
+    sent = []
+
+    async def reply(prompt):
+        if prompt.startswith("You are"):
+            sent.append(operator.message("look at 01 first"))
+            while not _heard(caplog, f"MESSAGE id={sent[0]}"):
+                await asyncio.sleep(0.05)
+            await asyncio.sleep(2 * POLL_S)
+            assert agent.interrupts == 0, "the message cut the turn short itself"
+            assert operator.interrupt(sent[0])
+            return await agent.until_interrupted()
+
+    agent = ScriptedAgent(reply)
+    running = _harness(session, agent)
+    assert wait_for(lambda: len(agent.prompts) >= 2, timeout=20), (
+        "timed out waiting for the turn after the interrupt"
+    )
+    assert running.stop() == 0
+
+    assert agent.interrupts == 1
+    after = agent.prompts[1]
+    assert after.startswith(harness_mod.INTERRUPTED)
+    assert f"MESSAGE id={sent[0]} from the operator: look at 01 first" in after
+    assert (
+        f"INTERRUPT the operator stopped your turn so you read their message id={sent[0]}"
+        in after
+    )
 
 
 def test_a_stage_move_cut_short_finishes_once_and_lets_go_of_control(session):

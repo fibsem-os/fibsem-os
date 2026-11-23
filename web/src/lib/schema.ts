@@ -1397,6 +1397,9 @@ export interface components {
             /** @default  */
             text?: string;
         };
+        MessageInterrupted: {
+            id: string;
+        };
         MessageSent: {
             evidence_id: string | null;
             id: string;

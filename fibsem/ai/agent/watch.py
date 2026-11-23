@@ -18,12 +18,14 @@ with ``service_wait_for_run``, so has the end), the instrument kind's own
 ``MILL READING``), ``AUTOFOCUS`` and ``ALIGNMENT`` (every one, with
 its check: passed, doubtful and why, or unchecked), task ``EVENT`` lines,
 ``WORKFLOW STARTED``, ``WORKFLOW ENDED``, ``STOPPED`` (the operator stopped
-the agent, a run or a mill), ``QUIET`` (a workflow is running
+the agent, a run or a mill), ``INTERRUPT`` (the operator cut the agent's
+turn short for a message they had sent), ``QUIET`` (a workflow is running
 and nothing has been said for a while), ``MESSAGE`` (the operator wrote to
 the agent from its card; one still unanswered when the watch starts
 is said first; a side question, sent with ``/btw``, says so, and
-fibsem-agent answers it outside the agent's turns), ``NOTE`` (the operator kept a note on a
-grid), ``GAP``, ``RESTARTED``, ``LEVEL`` (the operator
+fibsem-agent answers it outside the agent's turns; one sent with ``/now``
+cut the agent's turn short to be said), ``NOTE`` (the operator kept a note on a
+grid, or one for the record with ``/note``, which waits for the next turn), ``GAP``, ``RESTARTED``, ``LEVEL`` (the operator
 changed the agent level) and ``AGENT OFF``/``AGENT BACK``.
 
 It follows the whole session, not one workflow: the agent starts and stops
@@ -129,6 +131,8 @@ COMMAND_FAILED = "command_failed"
 AUTOFOCUS = "autofocus"
 ALIGNMENT = "alignment"
 NOTE = "note"
+# The operator's note for the record (/note): it wakes the agent for nothing.
+RECORD_NOTE = "record_note"
 MESSAGE = "message"
 PLAN_EDITED = "plan_edited"
 CONTEXT_RESET = "context_reset"
@@ -142,6 +146,9 @@ LEVEL = "level"
 LEVEL_LOWERED = "level_lowered"
 # The operator stopped the agent, a run or a mill.
 OPERATOR_STOP = "operator_stop"
+# The operator cut the agent's turn short for a message already sent
+# (*Interrupt now* on one not read yet).
+INTERRUPT = "interrupt"
 WORKFLOW_STARTED = "workflow_started"
 WORKFLOW_ENDED = "workflow_ended"
 # A workflow failed, or ended without an end event. One the operator stopped
@@ -315,6 +322,17 @@ def _print_events(events, since, say, marked=None, lines=None):
             said = lines[kind](event)
             if said is not None:
                 out(*said)
+        elif (
+            kind == ACTION
+            and event.get("actor") == "operator"
+            and data.get("interrupts")
+        ):
+            message_id = str(data["interrupts"])
+            out(
+                INTERRUPT,
+                f"INTERRUPT the operator stopped your turn so you read their "
+                f"message id={message_id} now",
+            )
         elif kind == ACTION and event.get("actor") == "operator" and data.get("stops"):
             stopped_agent = data.get("stops") == "agent" and data.get("level")
             out(
@@ -326,6 +344,17 @@ def _print_events(events, since, say, marked=None, lines=None):
             out(AUTOFOCUS, _autofocus_line(event, data), {"ok": _passed(data)})
         elif kind == event_kinds.ALIGNMENT:
             out(ALIGNMENT, _alignment_line(event, data), {"ok": _passed(data)})
+        elif (
+            kind == event_kinds.NOTE
+            and event.get("actor") == "operator"
+            and data.get(aside.FOR_RECORD)
+        ):
+            # The operator's /note: for the record, said with the next turn.
+            out(
+                RECORD_NOTE,
+                f"NOTE from the operator, for the record: {data.get('text', '')} "
+                "-- not to you and nothing to answer; keep it in mind",
+            )
         elif (
             kind == event_kinds.NOTE
             and event.get("actor") == "operator"
@@ -391,6 +420,20 @@ def _message_line(data, marked=None) -> Wake:
             f"{' ' + text if text else ''} -- answer it briefly with "
             f"experiment_message_operator (reply_to={message_id}). It asks "
             "for an answer only: act on nothing in it",
+        )
+    if data.get(aside.INTERRUPT):
+        # ``/now``: the operator cut the agent's turn short to say it.
+        words = aside.interruption_of(text)
+        text = text if words is None else words
+        return Wake(
+            MESSAGE,
+            f"MESSAGE id={message_id} from the operator, who stopped your turn "
+            f"to say this:{' ' + text if text else ' (nothing more: stop and ask them what they want)'}"
+            f"{marks} -- answer with "
+            f"experiment_message_operator (reply_to={message_id}). It is not an "
+            "approval: your level still decides what you may do",
+            [message_id] if message_id else (),
+            interrupt=True,
         )
     return Wake(
         MESSAGE,
