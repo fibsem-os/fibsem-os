@@ -25,6 +25,7 @@ import {
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Popup } from "@/components/ui/popup";
 import { api, imageUrl } from "@/lib/api";
+import { ago } from "@/lib/format";
 import { onEvents } from "@/lib/events";
 import { Markdown } from "@/lib/markdown";
 import type {
@@ -449,29 +450,45 @@ function Lines({
   );
 }
 
-/** "verifier" as "Verifier", "autolamella-verifier" as "Verifier". */
+/** "verifier" as "Verifier", "autolamella-verifier" as "Verifier",
+ * "autolamella-site-finder" as "Site finder": the app's prefix goes. */
 function agentName(agent: string): string {
-  const last = agent.split(/[-_:]/).filter(Boolean).pop() ?? "Subagent";
-  return last.charAt(0).toUpperCase() + last.slice(1);
+  const parts = agent.split(/[-_:]/).filter(Boolean);
+  const name = (parts.length > 1 ? parts.slice(1) : parts).join(" ") || "Subagent";
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
+/** What fibsem-agent says of a step its run ended before answering
+ * (harness.STEP_ENDED): the run stopped, not failed. */
+const STEP_ENDED = "Ended without an answer";
+
+/** When a run started: "2 h ago" today, else "Mon 16 Nov". */
+function when(t: string, now: number): string {
+  const at = new Date(t);
+  if (now - at.getTime() < 20 * 3600 * 1000) return ago(t, now);
+  return at.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
 }
 
 /** A run's state: running, done or failed, and its badge when the subagent
  * gave a verdict or asked for attention. */
 function runState(call: TranscriptLine, answer: TranscriptLine | undefined, runs: boolean, clock: number) {
-  const failed = answer?.kind === "failed";
+  const stopped = answer?.kind === "failed" && answer.text.startsWith(STEP_ENDED);
+  const failed = answer?.kind === "failed" && !stopped;
   const verdict = answer?.verdict;
   const badge = verdict
     ? { text: verdict === "agree" ? "Agrees" : "Concern", warn: verdict === "concern" }
     : answer?.attention
       ? { text: "Needs attention", warn: true }
       : null;
-  const text = failed
-    ? "Failed"
-    : answer
-      ? [badge ? "" : "Done", took(answer.took_s)].filter(Boolean).join(" · ")
-      : runs
-        ? `Running · ${since(call.t, clock)}`
-        : "Stopped";
+  const text = stopped
+    ? ["Stopped", took(answer?.took_s)].filter(Boolean).join(" after ")
+    : failed
+      ? "Failed"
+      : answer
+        ? [badge ? "" : "Done", took(answer.took_s)].filter(Boolean).join(" · ")
+        : runs
+          ? `Running · ${since(call.t, clock)}`
+          : "Stopped";
   return { failed, badge, text };
 }
 
@@ -603,7 +620,7 @@ function SubagentList({
               return (
                 <button
                   key={stepKey(c.session_id, c.seq)}
-                  className="flex w-full cursor-pointer items-baseline justify-between gap-3 border-0 bg-transparent px-0 py-1 text-left text-[13px] text-foreground hover:text-primary"
+                  className="flex w-full cursor-pointer flex-col gap-0.5 border-0 bg-transparent px-0 py-1 text-left text-[13px] text-foreground hover:text-primary"
                   onClick={() => onOpen(c)}
                   title={c.text || undefined}
                 >
@@ -613,13 +630,14 @@ function SubagentList({
                   </span>
                   <span
                     className={cn(
-                      "flex shrink-0 items-center gap-1 text-[12px]",
+                      "flex items-center gap-1 text-[12px]",
                       state.failed ? "text-destructive" : "text-muted-foreground",
                     )}
                   >
                     {runs(c) && <Loader size={11} className="animate-spin" aria-label="running" />}
                     <RunBadge badge={state.badge} />
                     {state.text}
+                    {!runs(c) && <span className="text-muted-foreground/70"> · {when(c.t, clock)}</span>}
                   </span>
                 </button>
               );
