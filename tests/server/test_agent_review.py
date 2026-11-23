@@ -96,7 +96,13 @@ def test_the_agent_adds_finished_work_checks_and_waits_beside_the_plan(server):
     # The operator reads it all; the agent a slice.
     listed = operator.get("/app/agent/review").json()
     assert [i["id"] for i in listed["items"]] == ["r1", "r2", "r3"]
-    assert listed["counts"] == {"waiting": 1, "to_check": 1, "rejected": 0, "all": 3}
+    assert listed["counts"] == {
+        "waiting": 1,
+        "to_check": 1,
+        "rejected": 0,
+        "all": 3,
+        "scores": {},
+    }
     waiting = agent.get("/app/agent/review", params={"show": "waiting"}).json()
     assert [i["id"] for i in waiting["items"]] == ["r3"]
     about = agent.get("/app/agent/review", params={"about": "lamella 01"}).json()
@@ -222,3 +228,40 @@ def test_accepting_done_work_with_nothing_to_add_is_not_told(server):
     )
     assert told.json()["told"] is True
     assert fake.messages[0][0] == 'Review r2 "Thinned": Accept. Nice.'
+
+
+def test_scored_items_count_a_pass_or_a_fail_per_kind(server):
+    agent, operator, recorded, *_ = server
+    sites = add(agent, title="Sites on Grid 1", about="Grid 1", score="sites").json()
+    assert sites["score"] == "sites"
+    assert sites["options"] == ["Accept", "Reject"]
+    add(agent, title="Target found", about="Lamella 01", score="target")
+    add(agent, title="Target found", about="Lamella 02", score="target")
+    add(agent, title="Polished to 190 nm", about="Lamella 01", score="polishing")
+    add(agent, title="Rough mill done", about="Lamella 01")
+    assert recorded[0][1]["score"] == "sites"
+    operator.post("/app/agent/review/r1/answer", json={"choice": "Accept"})
+    operator.post(
+        "/app/agent/review/r2/answer",
+        json={"choice": "Reject", "note": "The other cilium."},
+    )
+    operator.post("/app/agent/review/r3/answer", json={"choice": "Accept"})
+    counts = agent.get("/app/agent/review").json()["counts"]
+    assert counts["scores"] == {
+        "sites": {"passed": 1, "failed": 0, "open": 0},
+        "target": {"passed": 1, "failed": 1, "open": 0},
+        "polishing": {"passed": 0, "failed": 0, "open": 1},
+    }
+
+
+def test_a_scored_item_names_what_it_scores_and_keeps_accept_or_reject(server):
+    agent, *_ = server
+    assert add(agent, title="x", score="speed", about="L1").status_code == 422
+    # The grid or the lamella it scores goes in about.
+    assert add(agent, title="x", score="target").status_code == 422
+    assert (
+        add(
+            agent, title="x", score="target", about="L1", options=["Good", "Bad"]
+        ).status_code
+        == 422
+    )

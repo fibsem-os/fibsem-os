@@ -266,6 +266,8 @@ export interface ReviewItem {
   evidence: string | null;
   facts: { label: string; value: string }[];
   options: string[];
+  /** The result it scores, when it is a scored item: Accept is a pass, Reject a fail. */
+  score?: "sites" | "target" | "polishing";
   answer?: { choice: string; note: string; evidence: string | null; at: string } | null;
   closed?: { reason: string; at: string } | null;
 }
@@ -274,7 +276,14 @@ export interface ReviewItem {
 export interface ReviewList {
   session_id: string | null;
   items: ReviewItem[];
-  counts: { waiting: number; to_check: number; rejected: number; all: number };
+  counts: {
+    waiting: number;
+    to_check: number;
+    rejected: number;
+    all: number;
+    /** Per kind scored: passed (Accept), failed (Reject), still open. */
+    scores?: Record<string, { passed: number; failed: number; open: number }>;
+  };
 }
 
 /** One row of GET /app/agent/recent. */

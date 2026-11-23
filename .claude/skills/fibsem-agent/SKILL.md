@@ -444,7 +444,9 @@ item, with any marks they drew; a Reject asks you to look again (an Accept
 of a `done` item with no note is kept on the list, not sent). Review ids (`r1`,
 `r2`) name review items, not lamellae: never pass one as an `item`. Read a slice
 with `review_list` (`show: waiting`) when you need it, not the whole list,
-and close an item answered in the chat or no longer needed (`review_close`).
+and close an item answered in the chat or no longer needed (`review_close`). A
+task skill may ask for scored items (`score`): add each one it names, good
+or bad.
 
 For a small change, don't resend the section: `plan_append` adds a line
 (a Progress line, a rule, a new box) and `plan_check_step` ticks a box by

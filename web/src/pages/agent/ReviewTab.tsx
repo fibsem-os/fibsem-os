@@ -13,14 +13,38 @@ import { type Mark, listMarks, toMarks } from "@/lib/marks";
 import type { EvidenceAnswer, ReviewItem, ReviewList } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-type Show = "all" | ReviewItem["state"];
+type Show = "all" | "to_score" | ReviewItem["state"];
 const SHOWS: { show: Show; name: string }[] = [
   { show: "all", name: "All" },
   { show: "waiting", name: "Waiting on you" },
   { show: "to_check", name: "To check" },
+  { show: "to_score", name: "To score" },
   { show: "answered", name: "Answered" },
   { show: "done", name: "Done" },
 ];
+
+const toScore = (i: ReviewItem) => !!i.score && !i.answer && !i.closed;
+const shows = (i: ReviewItem, show: Show) => show === "all" || (show === "to_score" ? toScore(i) : i.state === show);
+
+// What a fail asks the operator to mark, so the right answer is kept with it.
+const MARK_ON_FAIL: Record<NonNullable<ReviewItem["score"]>, string> = {
+  sites: "Mark the good squares it missed.",
+  target: "Mark the right target.",
+  polishing: "Say why in the note: too thick, too thin, damaged.",
+};
+
+/** "Scored: sites 1 of 1, target 3 of 4 passed · 2 to score", or nothing. */
+function scoreLine(scores: ReviewList["counts"]["scores"]): string {
+  const kinds = Object.entries(scores ?? {});
+  if (!kinds.length) return "";
+  const passed = kinds
+    .filter(([, t]) => t.passed + t.failed > 0)
+    .map(([k, t]) => `${k} ${t.passed} of ${t.passed + t.failed}`);
+  const open = kinds.reduce((n, [, t]) => n + t.open, 0);
+  return [passed.length ? `Passed: ${passed.join(", ")}` : "", open ? `${open} to score` : ""]
+    .filter(Boolean)
+    .join(" · ");
+}
 
 // A small dot says what an item wants: orange waits on the operator, grey asks for a look.
 const DOT: Partial<Record<ReviewItem["state"], string>> = { waiting: "#e0a030", to_check: "#8a8f98" };
@@ -70,7 +94,7 @@ function Row({ item, selected, onOpen }: { item: ReviewItem; selected: boolean; 
   const marked = useEvidence(item.evidence);
   const shown = imagesOf(item, marked?.image ?? null).slice(0, 2);
   const choice = item.answer?.choice;
-  const line = [item.about, SAYS[item.state], choice && `${choice}${item.answer?.note ? `: “${item.answer.note}”` : ""}`]
+  const line = [item.about, item.score, SAYS[item.state], choice && `${choice}${item.answer?.note ? `: “${item.answer.note}”` : ""}`]
     .filter(Boolean)
     .join(" · ");
   return (
@@ -147,7 +171,9 @@ function Answer({
   return (
     <section className="flex flex-col gap-3 text-[13px]">
       <span className="text-[12px] text-muted-foreground">
-        {[item.about, SAYS[item.state], fmt.clock(item.at)].filter(Boolean).join(" · ")}
+        {[item.about, item.score && `scores ${item.score}`, SAYS[item.state], fmt.clock(item.at)]
+          .filter(Boolean)
+          .join(" · ")}
       </span>
       {item.text && <p className="m-0 leading-snug">{item.text}</p>}
       {item.facts.length > 0 && (
@@ -181,10 +207,15 @@ function Answer({
               </Button>
             ))}
           </div>
+          {item.score && (
+            <p className="m-0 text-[12px] text-muted-foreground">
+              {choice === "Reject" ? MARK_ON_FAIL[item.score] : "Accept is a pass, Reject a fail."}
+            </p>
+          )}
           <textarea
             rows={3}
             aria-label="Note for the agent"
-            placeholder="Note for the agent (optional)"
+            placeholder={item.score ? "Why (optional)" : "Note for the agent (optional)"}
             className="resize-y rounded border border-input bg-background px-2 py-1.5 text-[13px]"
             value={note}
             onChange={(e) => setNote(e.target.value)}
@@ -249,7 +280,8 @@ export function ReviewTab({ open }: { open?: { id: string } | null }) {
     if (open) setOpenId(open.id);
   }, [open]);
   const items = [...(review.data?.items ?? [])].reverse();
-  const shown = show === "all" ? items : items.filter((i) => i.state === show);
+  const shown = items.filter((i) => shows(i, show));
+  const scored = scoreLine(review.data?.counts.scores);
   const opened = items.find((i) => i.id === openId);
   const count = review.data?.counts.all ?? 0;
   return (
@@ -297,6 +329,7 @@ export function ReviewTab({ open }: { open?: { id: string } | null }) {
           )}
         </Popup>
       </div>
+      {scored && <p className="m-0 px-4 pb-2 text-[12px] text-muted-foreground">{scored}</p>}
       {shown.length === 0 && (
         <p className="m-0 px-4 py-3 text-[13px] text-muted-foreground">
           {count ? "Nothing here." : "The agent's finished work shows here, with its pictures."}

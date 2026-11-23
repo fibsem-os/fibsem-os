@@ -583,3 +583,22 @@ As fibsem-agent says, and:
   and its reason.
 - Overnight, report failures as they happen and the summary at the end; stay
   quiet about tasks that went as expected.
+
+## Scored results
+
+Three results get a review item each, at any level, with `score` set,
+whether they went well or not: they are how the run is scored.
+
+- **sites**: each grid's site list, once you have it, about the grid
+  (`about: "Grid 1"`), with the overview marked with your picks.
+- **target**: each lamella's FM target on a correlative run, once it is
+  chosen, about the lamella, with the FM image marked with the target.
+- **polishing**: each lamella's polishing, when it stops or fails, about
+  the lamella, with its final SEM image.
+
+The operator answers Accept (a pass) or Reject (a fail) with a note, and on a
+fail marks what was right: the target, or the good squares you missed.
+A lamella that fails before a scored step gets no item for it; one that
+reaches the step and has none counts as a fail of its own. Add the item
+even when you think the result is bad: a fail you name is still a fail,
+but one you leave out counts twice.
