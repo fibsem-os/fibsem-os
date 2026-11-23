@@ -1,7 +1,6 @@
 """The gateway's health of the App Server and its microscope: one shape, from
 the App Server's answers and its silences."""
 
-
 from fibsem.gateway import health as h
 from fibsem.gateway.gateway import STARTING, GatewayState
 
