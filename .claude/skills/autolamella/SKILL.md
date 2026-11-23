@@ -594,7 +594,8 @@ whether they went well or not: they are how the run is scored.
 - **target**: each lamella's FM target on a correlative run, once it is
   chosen, about the lamella, with the FM image marked with the target.
 - **polishing**: each lamella's polishing, when it stops or fails, about
-  the lamella, with its final SEM image.
+  the lamella, with its final SEM and FIB images as a pair, the SEM
+  first.
 
 The operator answers Accept (a pass) or Reject (a fail) with a note, and on a
 fail marks what was right: the target, or the good squares you missed.
