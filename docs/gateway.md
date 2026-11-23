@@ -65,6 +65,14 @@ gateway's Overview and on the Agent page, with **Allow** and **Deny**; Allow pai
 agent, listed with the rest. **Always allow agents logged in to this PC**, under Pairing,
 allows an ask from this PC at once.
 
+One agent holds the microscope's slot at a time: the one the gateway started, or one paired
+another way. Taking the slot from an agent in use is always the operator's choice. Start
+asks before it disconnects an agent paired another way. The Allow card says when allowing
+ends the agent the gateway started, and Allow then ends it as its End does. Always allow
+never replaces an agent in use (the gateway's running agent, or one the app heard from in
+the last two minutes): the ask waits on the card instead. Every Allow and Deny, by the
+operator or by the setting, goes on the History.
+
 An App Server run alone, with no gateway (tests, live evals, scripts), pairs nothing: its
 agent token is the one its launcher sets in `FIBSEM_SERVER_TOKEN`, sent by the client the
 same way.

@@ -150,16 +150,19 @@ def _settings(body: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return settings
 
 
-def _ask_view(ask, connections) -> dict:
+def _ask_view(ask, connections, own: Optional[str] = None) -> dict:
     """An ask to connect as the Allow card shows it: who asks, from where, and
-    what allowing it means."""
+    what allowing it means. *own*: the agent the gateway started, running,
+    which allowing ends."""
     replaced = connections.tokens.agent()
-    replaces = replaced.name if replaced is not None else None
+    replaces = own or (replaced.name if replaced is not None else None)
     words = (
         "It can read the session, and acts only at the agent level set on the "
         "Agent page. It stays allowed until you unpair it in Pairing."
     )
-    if replaces:
+    if own:
+        words += f" It replaces {own}, which is running: allowing ends it."
+    elif replaces:
         words += f" It replaces {replaces}, which is unpaired."
     return {**ask.to_dict(), "replaces": replaces, "if_allowed": words}
 
@@ -512,6 +515,23 @@ def build_gateway_app(
                 403, "operator_only", "Only the operator allows an agent in."
             )
 
+    def _own() -> Optional[str]:
+        return agent.own_running() if agent is not None else None
+
+    if agent is not None and auth.connections is not None:
+        # One agent per instrument: always allowing never replaces one in use.
+        auth.connections.in_use = agent.in_use
+
+        def always_allowed(computer, replaced) -> None:
+            gateway.record_access(
+                "always allow",
+                "setting",
+                f"Allowed {computer.name}"
+                + (f", replacing {replaced}" if replaced else ""),
+            )
+
+        auth.connections.on_allowed_always(always_allowed)
+
     @app.get("/gateway/connections")
     def get_connections(found: Caller = Depends(caller)) -> dict:
         """``{asking, always_allow_local}``: the agent on this PC asking to
@@ -520,7 +540,7 @@ def build_gateway_app(
         connections = _connections()
         asks = connections.asking()
         return {
-            "asking": _ask_view(asks[0], connections) if asks else None,
+            "asking": _ask_view(asks[0], connections, _own()) if asks else None,
             "always_allow_local": bool(connections.always_allow),
         }
 
@@ -528,16 +548,24 @@ def build_gateway_app(
     def allow_connection(ask_id: str, found: Caller = Depends(caller)) -> dict:
         """Allow the agent asking to connect: a token of its own, in the one
         paired list with Unpair. One agent per instrument: it replaces the
-        agent paired before."""
+        agent paired before, and ends the gateway's own agent if it runs."""
         _operator(found)
         connections = _connections()
+        if not any(ask.id == ask_id for ask in connections.asking()):
+            raise _refused(404, "not_found", "No agent is asking with that id.")
+        # The agent the gateway started stops first, as its End does: the
+        # card said allowing ends it.
+        own = _own()
+        if own is not None:
+            agent.end(found.who, "page")
         replaced = connections.tokens.agent()
         try:
             computer = connections.allow(ask_id)
         except LookupError as exc:
             raise _refused(404, "not_found", str(exc)) from None
+        replacing = own or (replaced.name if replaced else None)
         allowed = f"Allowed {computer.name}" + (
-            f", replacing {replaced.name}" if replaced else ""
+            f", replacing {replacing}" if replacing else ""
         )
         logger.info("%s: %s", found.who, allowed)
         gateway.record_access(found.who, "page", allowed)

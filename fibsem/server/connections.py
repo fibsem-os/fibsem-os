@@ -16,8 +16,10 @@ the token an Allow mints.
 With **Always allow agents logged in to this PC** on
 (``install.app_server.allow_local_agents``), an ask that reaches the server from this
 PC's loopback address is allowed at once, as if the operator had clicked Allow:
-anyone who can log in to the PC, over SSH too. The ask's ``origin`` ("this PC",
-"<address> over SSH") is what the client says, shown on the card only.
+anyone who can log in to the PC, over SSH too; never over an agent in use
+(``in_use``): one agent per instrument, and only the operator replaces it.
+The ask's ``origin`` ("this PC", "<address> over SSH") is what the client says,
+shown on the card only.
 """
 
 from __future__ import annotations
@@ -110,6 +112,9 @@ class Connections:
         self._allowed: Optional[_Decided] = None
         self._denied: Optional[_Decided] = None
         self._listeners: List[Callable[[], None]] = []
+        # The agent holding this instrument's one slot and in use (its name),
+        # or None: always allowing never replaces it, the operator's card does.
+        self.in_use: Callable[[], Optional[str]] = lambda: None
 
     def on_change(self, callback: Callable[[], None]) -> Callable[[], None]:
         """Follow asks and decisions; returns the unsubscribe."""
@@ -156,7 +161,10 @@ class Connections:
         *wait_s* for the operator; *loopback* when the request came from this
         PC's loopback address, which always allowing allows at once. ``{"state": "allowed", "token", "name"}``,
         ``{"state": "denied", "message", "retry_in_s"}`` or ``{"state":
-        "waiting", "id"}``, when the asker asks again."""
+        "waiting", "id"}``, when the asker asks again. An agent in use is
+        never replaced by always allowing: the ask waits for the operator."""
+        # Read before the lock: it may ask the App Server when it last heard.
+        busy = self.in_use() if self.always_allow and loopback else None
         with self._changed_cond:
             answered = self._answer()
             if answered is not None:
@@ -171,7 +179,7 @@ class Connections:
                     asked_at=time.time(),
                 )
             ask_id = self._ask.id
-            always = self.always_allow and loopback
+            always = self.always_allow and loopback and busy is None
         if always:
             replaced = self.tokens.agent()
             try:
