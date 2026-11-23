@@ -299,8 +299,7 @@ def session_names(
 ) -> Loaded:
     """What a session loads. Started on a playbook other than the base one:
     that playbook's skills and subagents (with what it extends). Else every
-    playbook's of its instrument kind but the opt-in ones, as intake may set
-    any of them. The lab's
+    playbook's of its instrument kind, as intake may set any of them. The lab's
     own skills and subagents always, a lab copy of a shipped one replacing it."""
     if playbook is not None and playbook.name != playbooks.DEFAULT:
         found = [playbook]
@@ -313,8 +312,7 @@ def session_names(
             except playbooks.PlaybookError as error:
                 log.warning("Playbook %s is left out: %s", name, error)
                 continue
-            # An opt-in playbook's only when a session starts on it.
-            if _kind(each) == kind and not each.opt_in:
+            if _kind(each) == kind:
                 found.append(each)
     skills: List[str] = []
     agents: List[str] = []

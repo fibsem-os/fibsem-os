@@ -240,25 +240,16 @@ def test_the_worker_file_is_checked_and_an_agent_limit_is_a_tool(lab, checkout):
     assert harness_mod.CLI_ENV["CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH"] == "2"
 
 
-def test_the_worker_is_on_only_in_its_opt_in_playbook(lab, checkout):
-    worker = playbooks.load("autolamella-worker", checkout)
-    assert worker.opt_in and subagents.WORKER in worker.all_agents()
-    assert "autolamella-lead" in worker.all_skills()
-    # Not inherited: the playbook it extends is not opt-in.
-    assert not playbooks.load("autolamella", checkout).opt_in
-    # A session on no particular playbook, or on autolamella, has no worker.
-    assert subagents.WORKER not in _all().agents
-    assert (
-        subagents.WORKER
-        not in harness_mod.session_names(
-            checkout, playbooks.load("autolamella", checkout)
-        ).agents
-    )
-    started = harness_mod.session_names(checkout, worker)
-    assert subagents.WORKER in started.agents
-    assert "autolamella-verifier" in started.agents
-    with pytest.raises(playbooks.PlaybookError, match="opt_in is true or false"):
-        ours = lab.parent / "playbooks" / "ours.yaml"
-        ours.parent.mkdir(parents=True)
-        ours.write_text("extends: autolamella\nopt_in: maybe\n", encoding="utf-8")
-        playbooks.load("ours", checkout)
+def test_the_worker_is_on_with_the_lead_and_asked_for_at_intake(lab, checkout):
+    found = playbooks.load("autolamella", checkout)
+    assert subagents.WORKER in found.optional_skill("autolamella-lead").agents
+    on = playbooks.Reminders()
+    on.set(found, "named by the operator")
+    assert subagents.WORKER not in on.subagents(), "only in lead mode"
+    on.loaded("autolamella-lead")
+    assert subagents.WORKER in on.subagents()
+    # Whether the lead uses it is the operator's answer at intake.
+    lead = (
+        checkout / ".claude" / "skills" / "autolamella-lead" / "SKILL.md"
+    ).read_text(encoding="utf-8")
+    assert "polishing to a worker (*Workers*)? Default: no." in " ".join(lead.split())

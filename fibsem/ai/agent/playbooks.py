@@ -36,7 +36,6 @@
     rules:
       - Stop at the operator's thickness target, 200 nm by default.
     plan: [Brief, Playbook, Rules, Steps, Progress, What worked, Summary]   # plan.md's headings
-    opt_in: true                     # only for a session started on it
 
 A playbook is ``<name>.yaml`` in the lab's ``~/.fibsem/knowledge/playbooks/``
 or the shipped ``.claude/fibsem-agent/playbooks/``, the lab's winning. Skills,
@@ -105,7 +104,6 @@ FIELDS = (
     "reminders",
     "rules",
     "plan",
-    "opt_in",
 )
 # plan.md's headings when a playbook names none (fibsem.server.agent.plan).
 PLAN = ["Brief", "Playbook", "Rules", "Steps", "Progress", "What worked", "Summary"]
@@ -260,10 +258,6 @@ class Playbook:
     mcp: List[str] = field(default_factory=list)
     # The fibsem tools the CLI loads from the first turn, not deferred.
     tools: List[str] = field(default_factory=list)
-    # Its skills and subagents only for a session started on it, not among
-    # those a session on no particular playbook loads (`harness.session_names`):
-    # a way of working still being tried. Not inherited.
-    opt_in: bool = False
     # The groups of lines that wake the agent (`wake_lines.GROUPS`); None
     # for every line.
     wakes: Optional[List[str]] = None
@@ -555,9 +549,6 @@ def _read(
     hooks = _reminders(data.get("reminders"), path)
     rules = _names(data.get("rules"), "rules", path)
     agents = _names(data.get("agents"), "agents", path)
-    opt_in = data.get("opt_in", False)
-    if not isinstance(opt_in, bool):
-        raise PlaybookError(f"{path}: opt_in is true or false")
     plan = _names(data.get("plan"), "plan", path)
     session = _session(data.get("session"), path, efforts)
     if any("#" in h or len(h) > 60 for h in plan):
@@ -598,7 +589,6 @@ def _read(
         mcp=_merge(parent.mcp if parent else [], mcp),
         tools=_merge(parent.tools if parent else [], tools),
         wakes=wakes if wakes is not None else (parent.wakes if parent else None),
-        opt_in=opt_in,
     )
     return playbook
 

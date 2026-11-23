@@ -27,7 +27,7 @@ start fresh, read only, and answer in JSON.
 | `autolamella-investigator` | when a task's result is bad | the cause, its evidence and a fix for you to apply (*A bad result*) |
 | `autolamella-auditor` | once, when the run is over | the session review, from the record |
 | `autolamella-site-finder` | when picking sites means looking through many squares, tiles or grids | a short list of what it saw, or candidate sites with their doubts and evidence, for you to check (screen-grids, *The site finder*) |
-| `fibsem-worker` | only when it is in your Agent tool (the autolamella-worker playbook): each Setup placement and each lamella's polishing, one at a time | the job done on the microscope in its own context, its proposal answered, its result and evidence for you to check (*Workers*) |
+| `fibsem-worker` | only when the operator said yes at intake (question 9): each site's check, each Setup placement and each lamella's polishing, one at a time | the job done on the microscope in its own context, its proposal answered, its result and evidence for you to check (*Workers*) |
 
 **How to call one.** One call at a time, and wait for it: you keep the
 watcher. Put everything it needs in the prompt, since it sees nothing of
@@ -98,6 +98,8 @@ from one list.
       maximum, or stop.
    7. When they are back, and what is worth a message.
    8. Is this a dry run on the Demo microscope?
+   9. Hand each site's check, each Setup placement and each lamella's
+      polishing to a worker (*Workers*)? Default: no.
    Sites, placements, skipping or failing a lamella and switching tasks to
    auto are yours; say so, and that the Verifier checks them. Say too that
    a hardware error stops the run until they're back (fibsem-microscope, *A
@@ -195,13 +197,22 @@ tool saw one band.
 
 ## Workers
 
-When `fibsem-worker` is in your Agent tool, hand it each Setup placement
-and each lamella's polishing instead of doing them in your own context
-(fibsem-agent, *Working with a worker*). Fiducial, rough milling and
+When the operator said yes at intake (question 9), hand `fibsem-worker`
+each site's check, each Setup placement and each lamella's polishing
+instead of doing them in your own context (fibsem-agent, *Working with a
+worker*). Otherwise do them yourself, as the rest of this skill says. Fiducial, rough milling and
 thinning stay the workflow's; a worker only redoes one of their results by
 hand. One worker at a time: it drives the microscope and your turn waits
 for it.
 
+- **Sites**, one worker per candidate site, after the site finder or your
+  own look at the overviews. Brief it with: the task ("check candidate 03
+  on the microscope: is it a site by the placement rule?"); the limits (no
+  milling; the stage within this square); the skill (screen-grids, *Finding
+  sites*); the candidate's position, the overview and the site finder's
+  crop by path, the intake's rule and example; and what to return: keep or
+  drop, why, its coincident height, an image of it. You make the list and
+  ask the Verifier about it, as the run's step 1 says.
 - **Setup**, one worker per site, when the site's Setup asks its first
   position question. Brief it with: the task ("place 03's lamella:
   coincidence, point of interest and alignment area, then answer its
