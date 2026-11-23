@@ -77,3 +77,38 @@ the faces go:
 
 With a coincident FM, follow the target pass by pass with Iterative
 Polishing (autolamella-coincidence-milling).
+
+## Workers
+
+When the lead hands jobs to `fibsem-worker` (autolamella-lead, *Workers*),
+each lamella's target and its correlation are two more jobs, one worker
+each, so the FM planes and crops stay out of the lead's context. They are
+separate because finding the target can mean imaging: trying channels,
+exposures and focus until the target shows.
+
+- **Target**, one worker per lamella, before its first correlation. Brief
+  it with: the task ("find 04's target"); the limits (no milling; the stage
+  at this lamella; FM stacks and channels as needed, the objective
+  retracted when it is done); the skill (fibsem-microscope for the FM objective, focus and images, and this
+  one's *Reading an FM stack*); the lamella, any stack already saved by
+  path, the intake's target (what it looks like, the channels it may show
+  in) and the plan's What worked; and what to return: the channel and
+  settings it shows best in, the stack's path, the target and a control
+  punctum (FM pixel and z), crops at two contrast settings, and how sure it
+  is. It stores the objective's position on the lamella
+  (`item_set_objective_position`). With no target it is sure of, it says
+  so and why.
+- **Correlation**, one worker per lamella, once the target is found and a
+  FIB image is saved. Brief it with: the task ("correlate 04's target to
+  the FIB"); the limits (no milling; no stage moves; apply only on a `good`
+  verdict); the skill (this one, *Correlating FM to FIB*); the stack's and
+  the FIB image's paths and the target worker's answer; and what to return:
+  the verdict, `ri_correction`, the overlay and whether it applied it.
+- **After rough milling**, the lead takes a new stack (or the Target worker
+  does, briefed with the last channel and target to refit) and a
+  Correlation worker correlates again with a surface point.
+
+The best channel and settings for the target go in the plan's What worked,
+so the next lamella's Target worker starts there. A doubtful target or a
+correlation it didn't apply comes back to the lead, which holds the
+lamella or asks the operator; a worker never asks them.
