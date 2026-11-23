@@ -64,6 +64,7 @@ from fibsem.keystore import get_secret
 from fibsem.server import discovery
 from fibsem.server.agent.files import AgentFiles
 from fibsem.server.agent.handoff import build_agent_handoff_router
+from fibsem.server.agent.notes import latest_notes
 from fibsem.server.agent.operator import build_operator_router
 from fibsem.server.agent.plan import (
     PlanStore,
@@ -282,6 +283,13 @@ class AgentHost:
                 )
             return {**held, "events": earlier + held["events"], "resumed": resumed}
         return self.buffer.wait_for(since=since, timeout=timeout)
+
+    def notes(self, tags: List[str], each: int = 1) -> Dict[str, Any]:
+        """The newest *each* notes of each tag, from the buffer and then the
+        host's record (`fibsem.server.agent.notes`)."""
+
+        held = self.buffer.events_since(0).get("events") or []
+        return latest_notes(held, self.events_file, tags, each)
 
     @property
     def following(self) -> bool:

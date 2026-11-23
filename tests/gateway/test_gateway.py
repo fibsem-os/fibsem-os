@@ -2,6 +2,7 @@
 window a desktop launch claims, the refusals, and the history, with stand-in
 apps (tests/gateway/sleeper.py) in real child processes."""
 
+import json
 import os
 import subprocess
 import sys
@@ -476,6 +477,30 @@ def test_the_history_reads_only_its_last_lines(tmp_path):
     assert _tail(path, 50) == ["a", "b"]
     path.write_text("x" * 100_000 + "\nlast\n")
     assert _tail(path, 2) == ["x" * 100_000, "last"]
+
+
+def test_the_history_pages_back_through_older_starts(tmp_path, fakes):
+    gateway = _gateway(tmp_path, fakes)
+    lines = [
+        {
+            "at": float(i),
+            "to_mode": "running",
+            "from_mode": "off",
+            "who": "operator",
+            "via": "page",
+            "result": "started",
+        }
+        for i in range(120)
+    ]
+    gateway.history_file.write_text("".join(json.dumps(line) + "\n" for line in lines))
+    first = gateway.history()
+    assert len(first.switches) == 50 and first.more
+    assert first.switches[0].at == 119.0
+    older = gateway.history(100)
+    assert len(older.switches) == 100 and older.more
+    every = gateway.history(500)
+    assert len(every.switches) == 120 and not every.more
+    assert every.switches[-1].at == 0.0
 
 
 def _reap(gateway):

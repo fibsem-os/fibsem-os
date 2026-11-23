@@ -14,7 +14,7 @@ import os
 from dataclasses import asdict
 from typing import Any, Dict, Optional, Tuple
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from fibsem import knowledge
 from fibsem.ai.agent.catalog import tools_for_capabilities
@@ -25,6 +25,8 @@ from fibsem.ai.agent.levels import (
     AgentLevel,
     chip_text,
 )
+from fibsem.ai.agent.recent import MAX_SIZE as RECENT_MAX
+from fibsem.ai.agent.recent import SIZE as RECENT_SIZE
 from fibsem.ai.agent.session import MESSAGE_LIMIT, AgentControl
 from fibsem.codec import encode
 from fibsem.imaging.marks import plane_shown
@@ -146,10 +148,12 @@ def build_operator_router(agent: AgentControl) -> APIRouter:
         return answer(customisation(tools))
 
     @router.get("/recent", response_model=RecentRows)
-    def recent():
-        """The card's rows: the conversation and the agent's actions, oldest
-        first, as the card reads them from the record."""
-        return answer(RecentRows(agent.recent()))
+    def recent(rows: int = Query(RECENT_SIZE, ge=1, le=RECENT_MAX)):
+        """The card's last *rows* rows: the conversation and the agent's
+        actions, oldest first, as the card reads them from the record, back
+        past an app restart; ``more`` when there are earlier ones."""
+        found, more = agent.recent_page(rows)
+        return answer(RecentRows(found, more))
 
     @router.get("/pictures/{kind}", response_model=Picture)
     def get_picture(kind: str):

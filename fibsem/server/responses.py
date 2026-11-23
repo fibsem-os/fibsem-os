@@ -1100,6 +1100,17 @@ class LibraryIndex:
 
 
 @dataclass
+class TaggedNotes:
+    """The newest notes of each tag asked for, from the whole record
+    (`fibsem.server.agent.notes`): each ``{tag, id, timestamp, text}``, with
+    ``item_name`` and ``evidence`` when it named them; by tag as asked,
+    newest first. ``missing``: the tags with no note on the record."""
+
+    notes: List[Dict[str, Any]] = field(default_factory=list)
+    missing: List[str] = field(default_factory=list)
+
+
+@dataclass
 class Recorded:
     """A note, a message or evidence put on the record; for a message, its
     ``id``; for evidence, its record (`fibsem.workflows.evidence.save`)."""
@@ -1483,6 +1494,8 @@ class ConnectText:
 @dataclass
 class RecentRows:
     rows: List[RecentRow]
+    # Earlier rows are on the record: the page's Show earlier asks for more.
+    more: bool = False
 
 
 @dataclass

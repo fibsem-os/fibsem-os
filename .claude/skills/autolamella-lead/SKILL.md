@@ -45,7 +45,9 @@ minutes, and one
 `[decision]` note per site list, placement and polishing pass with the image
 paths, your decision, the Verifier's answer and what you did, its image as
 the evidence. After a compaction, a restart or a fresh context, read the
-latest of each from `app_get_events` before you act, never from memory.
+latest of each with `experiment_get_notes` (tags `intake,sites,run_state,recipe_card`;
+`decision` with `each`) before you act, never from memory. It reads the
+whole record; `app_get_events` holds only the recent events.
 
 **Fresh contexts** (fibsem-agent, *A fresh context*): this run's natural
 boundaries are after the sites are approved, after the first lamella's

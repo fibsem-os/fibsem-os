@@ -34,9 +34,10 @@ class FakeGateway:
     def state(self):
         return GatewayState(mode=OFF, version="test")
 
-    def history(self):
+    def history(self, limit=50):
         from fibsem.gateway.gateway import History
 
+        self.calls.append(("history", limit))
         return History()
 
     def _do(self, *call):
@@ -101,6 +102,24 @@ def _pair_hub(client, grants):
     paired = client.post("/pair", json={"code": opened["code"], "name": "mac-mini"})
     assert paired.status_code == 200
     return paired.json()
+
+
+def test_the_history_takes_how_many_to_read(setup):
+    client, gateway, _ = setup
+    assert (
+        client.get("/gateway/history", headers=_as(OPERATOR_TOKEN)).status_code == 200
+    )
+    assert (
+        client.get("/gateway/history?limit=200", headers=_as(OPERATOR_TOKEN)).json()[
+            "more"
+        ]
+        is False
+    )
+    assert gateway.calls[-2:] == [("history", 50), ("history", 200)]
+    assert (
+        client.get("/gateway/history?limit=0", headers=_as(OPERATOR_TOKEN)).status_code
+        == 422
+    )
 
 
 def test_the_operator_starts_and_forces(setup):
