@@ -85,7 +85,8 @@ def test_the_agent_writes_its_plan_a_section_at_a_time_beside_the_experiment(ser
     ]
     kept = (session_folder("s1") / "plan-s1.md").read_text(encoding="utf-8")
     assert not (experiment / "agent").exists(), "the experiment holds its own data"
-    assert f'"path": "{experiment}"' in (session_folder("s1") / LINK).read_text()
+    link = json.loads((session_folder("s1") / LINK).read_text())
+    assert link["path"] == str(experiment)
     assert kept.index("## Brief") < kept.index("## Steps"), "the default order"
     assert kept == plan["markdown"]
     assert [(k, p["sample"], a) for k, p, a in recorded] == [
