@@ -114,3 +114,37 @@ def test_disconnect_is_refused_while_a_run_is_on(server, monkeypatch):
     assert answer.json()["detail"]["error_type"] == "run_on"
     assert session.microscope is not None
     monkeypatch.undo()  # before the fixture disconnects
+
+
+def test_health_says_the_connection_the_halt_and_each_devices_check(server):
+    before = server.get("/microscope/health", headers=_as(OPERATOR))
+    assert before.status_code == 200, before.text
+    assert before.json() == {
+        "connected": False,
+        "connecting": None,
+        "error": None,
+        "halted": None,
+        "devices": {},
+    }
+    server.post("/microscope/connect", headers=_as(OPERATOR), json={})
+    _connected(server)
+
+    health = server.get("/microscope/health", headers=_as(OPERATOR)).json()
+    assert health["connected"] is True and health["halted"] is None
+    assert health["devices"], "every served device is listed"
+    assert all(d["ok"] and d["answered"] for d in health["devices"].values())
+
+    halt = next(iter(server.session.microscope.devices.values())).safety_halt
+    halt.set("door open")
+    try:
+        health = server.get("/microscope/health", headers=_as(OPERATOR)).json()
+        assert health["halted"] == "door open"
+    finally:
+        halt.clear()
+
+
+def test_the_agent_cannot_read_health(server):
+    assert server.get("/microscope/health", headers=_as(AGENT)).status_code in (
+        401,
+        403,
+    )

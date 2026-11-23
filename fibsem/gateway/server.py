@@ -1,11 +1,11 @@
 """The gateway's routes, on its own port, localhost only.
 
-``GET /gateway`` and ``/gateway/history`` for anyone paired; ``POST
-/gateway/start`` and ``/gateway/stop`` for the operator, or a hub the operator
-granted "may start and stop apps" (`SWITCH_MODES`); forcing past a running
-workflow, and ``/gateway/claim`` (a desktop launch on this PC), for the
-operator only. ``/gateway/microscope/...`` connects and disconnects the
-running host's microscope, ``/gateway/app/agent-page`` links the operator to
+``GET /gateway``, ``/gateway/health`` and ``/gateway/history`` for anyone
+paired; ``POST /gateway/start`` and ``/gateway/stop`` for the operator, or a
+hub the operator granted "may start and stop apps" (`SWITCH_MODES`); forcing
+past a running workflow, and ``/gateway/claim`` (a desktop launch on this
+PC), for the operator only. ``/gateway/microscope/...`` connects and
+disconnects the running host's microscope, ``/gateway/app/agent-page`` links the operator to
 its Agent page, ``/gateway/show`` brings the gateway's window to the front,
 ``/gateway/quit`` stops (or restarts) the gateway for the
 operator, and ``/gateway/agent`` reads, starts and ends this
@@ -38,6 +38,7 @@ from fibsem.gateway.gateway import (
     GatewayState,
     History,
 )
+from fibsem.gateway.health import ServersHealth
 from fibsem.gateway.host import HostMicroscope
 from fibsem.server.auth import _bearer_token, _matches
 from fibsem.server.bodies import refuse_invalid_requests
@@ -183,6 +184,11 @@ def build_gateway_app(
         """Off or running, the app and its process, another host the
         gateway didn't start, and the last exit."""
         return gateway.state()
+
+    @app.get("/gateway/health", response_model=ServersHealth)
+    def get_health(found: Caller = Depends(caller)):
+        """How the App Server and its microscope are, as last asked."""
+        return gateway.health.state()
 
     @app.get("/gateway/history", response_model=History)
     def get_history(found: Caller = Depends(caller)):

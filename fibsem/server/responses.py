@@ -354,6 +354,28 @@ class Health:
     devices: Dict[str, DeviceHealth]
 
 
+@dataclass
+class DeviceCheck:
+    """A device's check in ``/microscope/health``: `DeviceHealth`, and whether
+    it answered in time (False: it may be hung or busy)."""
+
+    ok: bool
+    detail: Optional[str] = None
+    answered: bool = True
+
+
+@dataclass
+class InstrumentHealth:
+    """The App Server's ``/microscope/health``: the connection, the Safety Halt's
+    reason while one is set, and whether each device's hardware answers."""
+
+    connected: bool
+    connecting: Optional[str] = None
+    error: Optional[str] = None
+    halted: Optional[str] = None
+    devices: Dict[str, DeviceCheck] = field(default_factory=dict)
+
+
 # --- The app's experiment and workflow (/app) ---
 #
 # A read with nothing to read is refused (`Refusal`): 409 ``no_experiment`` with
