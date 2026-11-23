@@ -1543,6 +1543,11 @@ class MessageSent:
 
 
 @dataclass
+class MessageInterrupted:
+    id: str
+
+
+@dataclass
 class LevelSet:
     level: str
 

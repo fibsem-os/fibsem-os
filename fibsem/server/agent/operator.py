@@ -47,6 +47,7 @@ from fibsem.server.responses import (
     EvidenceView,
     LevelOption,
     LevelSet,
+    MessageInterrupted,
     MessageSent,
     Picture,
     PictureInfo,
@@ -258,6 +259,18 @@ def build_operator_router(agent: AgentControl) -> APIRouter:
             )
         evidence_id = record["evidence_id"] if record is not None else None
         return answer(MessageSent(message_id, evidence_id), status_code=201)
+
+    @router.post("/messages/{message_id}/interrupt", response_model=MessageInterrupted)
+    def interrupt_for_message(message_id: str):
+        """Interrupt now: cut the agent's turn short so it reads the message
+        *message_id* now instead of when the turn ends."""
+        if not agent.interrupt(message_id):
+            raise refusal_error(
+                409,
+                "not_recording",
+                "Nothing is recording, so the agent can't hear it.",
+            )
+        return answer(MessageInterrupted(message_id))
 
     @router.put("/level", response_model=LevelSet)
     def set_level(body: LevelBody):

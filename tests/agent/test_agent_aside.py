@@ -111,6 +111,60 @@ def test_a_side_question_is_a_message_starting_btw():
         assert aside.question_of(text) is None, text
 
 
+def test_an_interrupting_message_is_one_starting_stop():
+    assert aside.interruption_of("/now look at 01 first") == "look at 01 first"
+    assert aside.interruption_of("  /NOW\nwrong lamella") == "wrong lamella"
+    # /now alone interrupts with nothing more to say.
+    assert aside.interruption_of("/now") == ""
+    for text in ("/nowx please", "now do 02", "please /now", "/btw now?"):
+        assert aside.interruption_of(text) is None, text
+
+
+def test_the_watch_says_an_interrupting_message_and_marks_it_urgent():
+    said = watch_mod._message_line(
+        {"id": "ab12", "text": "/now wrong lamella", aside.INTERRUPT: True}
+    )
+    assert said.kind == watch_mod.MESSAGE and said.facts == {"interrupt": True}
+    assert said.startswith(
+        "MESSAGE id=ab12 from the operator, who stopped your turn to say this: "
+        "wrong lamella --"
+    )
+    bare = watch_mod._message_line(
+        {"id": "cd34", "text": "/now", aside.INTERRUPT: True}
+    )
+    assert "stop and ask them what they want" in bare
+    # Unmarked (another client, an older server), it is an ordinary message.
+    plain = watch_mod._message_line({"id": "ef56", "text": "/now later"})
+    assert plain.facts == {} and "from the operator: /now later" in plain
+
+
+def test_status_is_a_side_question_asked_for_the_operator():
+    assert aside.question_of("/status") == aside.STATUS
+    assert aside.question_of("/STATUS and the budget?") == (
+        f"{aside.STATUS} and the budget?"
+    )
+    assert aside.question_of("/statusx") is None
+
+
+def test_a_note_for_the_record_is_one_starting_note():
+    assert aside.note_of("/note film thin on grid 2") == "film thin on grid 2"
+    for text in ("/note", "/note  ", "/notes here", "a /note"):
+        assert aside.note_of(text) is None, text
+
+
+def test_the_watch_says_a_note_for_the_record_as_its_own_line():
+    lines = []
+    event = {
+        "seq": 1,
+        "kind": "note",
+        "actor": "operator",
+        "payload": {"text": "film thin on grid 2", aside.FOR_RECORD: True},
+    }
+    watch_mod._print_events([event], 0, lines.append)
+    assert [line.kind for line in lines] == [watch_mod.RECORD_NOTE]
+    assert "for the record: film thin on grid 2" in lines[0]
+
+
 def test_the_watch_says_a_side_question_apart_from_a_message():
     said = watch_mod._message_line(
         {"id": "ab12", "text": "/btw where is the report?", aside.MARK: True}

@@ -31,6 +31,7 @@ import { cn } from "@/lib/utils";
 import { ConnectCard, RequestCard, SuggestionCard } from "./agent/Cards";
 import { carriesFiles, splitAttached, useAttachments } from "./agent/attach";
 import { SentFiles } from "./agent/Attachments";
+import { useAct } from "./agent/act";
 import { Composer } from "./agent/Composer";
 import { KnowledgeDialog } from "./agent/Knowledge";
 import { MicroscopeCustomise, MicroscopeTab, useMicroscopeShown } from "./agent/MicroscopeTab";
@@ -99,14 +100,39 @@ function Time({ when }: { when: string }) {
   return <div className="w-12 shrink-0 pt-0.5 text-[12px] text-muted-foreground tabular-nums">{when}</div>;
 }
 
-/** Why a message isn't read yet, and when it will be. */
-function unreadWhy(agent: AgentState | undefined): [string, string] {
-  if (agent?.last_heard_s == null) return ["No agent connected", "An agent reads it when one connects."];
-  if (agent.level === "off") return ["The agent is off", "The agent reads it when its level is back on."];
-  return ["The agent is working...", "The agent reads it when its current turn ends."];
+/** Why a message isn't read yet, and when it will be; the last says whether the
+ * agent is mid turn, so Interrupt now can reach it. */
+function unreadWhy(agent: AgentState | undefined): [string, string, boolean] {
+  if (agent?.last_heard_s == null) return ["No agent connected", "An agent reads it when one connects.", false];
+  if (agent.level === "off") return ["The agent is off", "The agent reads it when its level is back on.", false];
+  return [
+    "The agent is working...",
+    "The agent reads it when its current turn ends. Interrupt now, or start a message with /now, to have it read it at once.",
+    true,
+  ];
 }
 
-function Message({ row, unread }: { row: RecentRow; unread?: [string, string] }) {
+/** Cut the agent's turn short so it reads this waiting message now. */
+function InterruptNow({ id }: { id: string }) {
+  const { act, busy, error } = useAct();
+  const [asked, setAsked] = useState(false);
+  if (asked) return <span className="font-normal">Interrupting...</span>;
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      title={error ?? "Stop the agent's turn so it reads this message now. The run carries on."}
+      className="cursor-pointer rounded border border-input px-1.5 font-normal text-foreground hover:bg-accent disabled:opacity-50"
+      onClick={async () => {
+        if ((await act(`/app/agent/messages/${encodeURIComponent(id)}/interrupt`)) !== undefined) setAsked(true);
+      }}
+    >
+      {error ? "Retry interrupt" : "Interrupt now"}
+    </button>
+  );
+}
+
+function Message({ row, unread }: { row: RecentRow; unread?: [string, string, boolean] }) {
   const sent = splitAttached(row.text);
   if (row.kind === "you")
     return (
@@ -120,6 +146,7 @@ function Message({ row, unread }: { row: RecentRow; unread?: [string, string] })
                 Not read yet. {unread[0]}
               </span>
             )}
+            {unread?.[2] && row.message_id && <InterruptNow id={row.message_id} />}
           </div>
           <div className="whitespace-pre-wrap break-words">{sent.text}</div>
           <SentFiles files={sent.files} />
