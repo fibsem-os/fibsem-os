@@ -131,6 +131,21 @@ def _app_url() -> Optional[str]:
     return found.get("url") if found else None
 
 
+# How long the gateway waits for its port before giving up.
+LISTEN_WAIT_S = 15.0
+
+
+def _listening(server, thread: threading.Thread, wait_s: float = LISTEN_WAIT_S) -> bool:
+    """Whether *server* is listening: False when its thread ended first (its
+    port is taken) or it didn't start within *wait_s*."""
+    deadline = time.monotonic() + wait_s
+    while not server.started:
+        if not thread.is_alive() or time.monotonic() > deadline:
+            return False
+        time.sleep(0.02)
+    return True
+
+
 def run(port: int, window: bool, connection: List[str], minimised: bool = False) -> int:
     import uvicorn
 
@@ -183,8 +198,24 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
         )
     )
     server.install_signal_handlers = lambda: None
-    thread = threading.Thread(target=server.run, name="gateway-http", daemon=True)
+
+    def serve() -> None:
+        try:
+            server.run()
+        except SystemExit:
+            # uvicorn exits when it can't bind; _listening tells the operator.
+            logger.debug("the gateway's server ended", exc_info=True)
+
+    thread = threading.Thread(target=serve, name="gateway-http", daemon=True)
     thread.start()
+    if not _listening(server, thread):
+        # Never a gateway.json for an address another program answers on.
+        print(
+            f"The gateway could not listen on port {port}: another program uses "
+            "it. Stop that program, or start the gateway with --port <another>."
+        )
+        gateway.close()
+        return 1
     write_gateway_file(f"http://127.0.0.1:{port}", auth.connect_token)
     gateway.start()
     print(f"Gateway at http://127.0.0.1:{port}/ui/gateway")

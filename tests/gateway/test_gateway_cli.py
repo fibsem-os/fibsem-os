@@ -59,3 +59,47 @@ def test_the_gateway_file_is_this_users_alone(tmp_path):
     if os.name == "posix":
         assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert [p.name for p in tmp_path.iterdir()] == ["g.json"]
+
+
+def test_a_taken_port_stops_the_gateway_before_it_writes_its_file(monkeypatch, capsys):
+    """Another program on the port: the gateway says so and ends, and never
+    writes gateway.json, which would send agents to that program."""
+    import socket
+
+    from fibsem.gateway import server as gateway_server
+
+    taken = socket.socket()
+    taken.bind(("127.0.0.1", 0))
+    taken.listen()
+    port = taken.getsockname()[1]
+    written = []
+
+    class Stub:
+        def __init__(self, *args, **kwargs):
+            self.pairing = type("P", (), {"tokens": None})()
+            self.connect_token = "c"
+            self.is_connect = lambda token: False
+
+        def start(self):
+            pytest.fail("started")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(gateway_main, "read_gateway_file", lambda: None)
+    monkeypatch.setattr(gateway_main, "Gateway", Stub)
+    monkeypatch.setattr(gateway_main, "GatewayAgent", Stub)
+    monkeypatch.setattr(gateway_main, "HostMicroscope", Stub)
+    monkeypatch.setattr(gateway_server.GatewayAuth, "from_disk", Stub)
+    monkeypatch.setattr(
+        gateway_server, "build_gateway_app", lambda *a, **k: gateway_server.FastAPI()
+    )
+    monkeypatch.setattr(
+        gateway_main, "write_gateway_file", lambda *a: written.append(a)
+    )
+    try:
+        assert gateway_main.run(port, window=False, connection=[]) == 1
+    finally:
+        taken.close()
+    assert written == []
+    assert f"could not listen on port {port}" in capsys.readouterr().out
