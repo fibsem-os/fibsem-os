@@ -115,9 +115,18 @@ def _connection(extra: List[str]) -> List[str]:
     return extra
 
 
+def _app_url() -> Optional[str]:
+    """The App Server running on this PC, whoever started it."""
+    from fibsem.server.discovery import read_discovery_file
+
+    found = read_discovery_file()
+    return found.get("url") if found else None
+
+
 def run(port: int, window: bool, connection: List[str], minimised: bool = False) -> int:
     import uvicorn
 
+    from fibsem.gateway.passthrough import PassThrough
     from fibsem.gateway.server import GatewayAuth, build_gateway_app
     from fibsem.server.uvicorn_server import Server
 
@@ -127,7 +136,9 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
         return 1
     gateway = Gateway(connection)
     auth = GatewayAuth.from_disk()
-    agent = GatewayAgent(gateway, auth.pairing.tokens)
+    agent = GatewayAgent(
+        gateway, auth.pairing.tokens, own_url=f"http://127.0.0.1:{port}"
+    )
     microscope = HostMicroscope()
     # Set by the quit route; *again* starts a new one.
     stopping = threading.Event()
@@ -149,7 +160,15 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
 
     server = Server(
         uvicorn.Config(
-            build_gateway_app(gateway, auth, agent, microscope, on_quit, on_show),
+            build_gateway_app(
+                gateway,
+                auth,
+                agent,
+                microscope,
+                on_quit,
+                on_show,
+                passthrough=PassThrough(_app_url),
+            ),
             host="127.0.0.1",
             port=port,
             log_level="warning",

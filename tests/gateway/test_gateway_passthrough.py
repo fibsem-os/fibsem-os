@@ -1,0 +1,208 @@
+"""The gateway's one port: the App Server's routes through the gateway answer
+exactly as the App Server does, the caller's token checked by the App Server as
+ever; with no App Server the gateway says so; stops go their own way."""
+
+import threading
+import time
+
+import httpx
+import pytest
+import uvicorn
+from fastapi.testclient import TestClient
+
+from fibsem.gateway.gateway import Gateway
+from fibsem.gateway.passthrough import PassThrough, is_stop
+from fibsem.gateway.server import GatewayAuth, build_gateway_app
+from fibsem.server.pairing import HUB, OPERATOR, PairedTokens, Pairing
+from tests.waiting import free_port, wait_for
+
+AGENT = "agent-token"
+OPERATOR_TOKEN = "operator-token"
+
+
+@pytest.fixture(scope="module")
+def app_server():
+    """A real App Server over a session with no microscope, on a port."""
+    import os
+
+    os.environ["FIBSEM_SIM_NO_DELAY"] = "1"
+    from fibsem.ai.agent.levels import AgentLevel
+    from fibsem.applications.autolamella.server.context import AutoLamellaAppContext
+    from fibsem.server import AuthConfig, build_server
+    from fibsem.workflows.session import AppSession
+
+    session = AppSession()
+    auth = AuthConfig.generate(level=AgentLevel.DRIVE, token=AGENT)
+    auth.operator_token = OPERATOR_TOKEN
+    app = build_server(
+        session=session,
+        app_context=AutoLamellaAppContext(session),
+        auth=auth,
+        operator=session.agent,
+    )
+    port = free_port()
+    server = uvicorn.Server(uvicorn.Config(app, port=port, log_level="warning"))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    url = f"http://127.0.0.1:{port}"
+
+    def up():
+        try:
+            return httpx.get(f"{url}/health", timeout=1).is_success
+        except httpx.HTTPError:
+            return False
+
+    assert wait_for(up)
+    yield url, session
+    server.should_exit = True
+    thread.join(5)
+    session.disconnect()
+
+
+@pytest.fixture
+def gateways(tmp_path):
+    """Gateways over an App Server url, each a client on one event loop, as
+    uvicorn runs it."""
+    made = []
+
+    def make(upstream):
+        client = TestClient(_gateway_app(tmp_path, upstream))
+        client.__enter__()
+        made.append(client)
+        return client
+
+    yield make
+    for client in made:
+        client.__exit__(None, None, None)
+
+
+def _gateway_app(tmp_path, upstream):
+    gateway = Gateway(
+        home=tmp_path,
+        app_registry=lambda: {},
+        last=lambda: None,
+        recent=lambda: [],
+        new_folder=lambda: str(tmp_path),
+        configurations=lambda: [],
+        discovery=lambda: None,
+    )
+    auth = GatewayAuth(
+        token=OPERATOR_TOKEN,
+        pairing=Pairing(PairedTokens(tmp_path / "paired.json"), roles=(OPERATOR, HUB)),
+    )
+    return build_gateway_app(gateway, auth, passthrough=PassThrough(upstream))
+
+
+def _as(token):
+    return {"Authorization": f"Bearer {token}"}
+
+
+CALLS = [
+    ("GET", "/capabilities", AGENT, None),
+    ("GET", "/capabilities", None, None),
+    ("GET", "/app/workflow/status", AGENT, None),
+    ("GET", "/microscope", AGENT, None),
+    ("GET", "/microscope/connection", OPERATOR_TOKEN, None),
+    ("GET", "/microscope/connection", AGENT, None),
+    ("GET", "/microscope/health", OPERATOR_TOKEN, None),
+    ("GET", "/app/no/such/route", AGENT, None),
+    ("POST", "/microscope/connect", OPERATOR_TOKEN, {"configuration": "nope"}),
+    ("POST", "/app/experiment/notes", AGENT, {"text": ""}),
+]
+
+
+@pytest.mark.parametrize("method,path,token,body", CALLS)
+def test_an_answer_through_the_gateway_is_the_app_servers(
+    app_server, gateways, method, path, token, body
+):
+    url, _ = app_server
+    gateway = gateways(lambda: url)
+    headers = _as(token) if token else {}
+    direct = httpx.request(method, f"{url}{path}", json=body, headers=headers)
+    through = gateway.request(method, path, json=body, headers=headers)
+    assert through.status_code == direct.status_code, through.text
+    assert through.content == direct.content
+    assert through.headers.get("content-type") == direct.headers.get("content-type")
+
+
+def test_a_query_and_a_long_poll_pass_through(app_server, gateways):
+    url, _ = app_server
+    gateway = gateways(lambda: url)
+    now = gateway.get("/app/events", headers=_as(AGENT)).json()["latest_seq"] or 0
+    started = time.monotonic()
+    answer = gateway.get(
+        "/app/events", params={"since": now, "timeout": 1}, headers=_as(AGENT)
+    )
+    assert answer.status_code == 200, answer.text
+    assert time.monotonic() - started >= 0.9, "the App Server held it, not the gateway"
+
+
+def test_the_gateways_own_routes_stay_its_own(app_server, gateways):
+    url, _ = app_server
+    gateway = gateways(lambda: url)
+    assert gateway.get("/health").json() == {"status": "ok"}
+    assert gateway.get("/gateway", headers=_as(OPERATOR_TOKEN)).status_code == 200
+
+
+def test_with_no_app_the_gateway_says_so(gateways):
+    gateway = gateways(lambda: None)
+    answer = gateway.get("/app/workflow/status", headers=_as(AGENT))
+    assert answer.status_code == 503
+    assert answer.json()["detail"]["error_type"] == "no_app"
+
+
+def test_an_app_that_has_gone_is_a_502(gateways):
+    gateway = gateways(lambda: f"http://127.0.0.1:{free_port()}")
+    answer = gateway.get("/capabilities", headers=_as(AGENT))
+    assert answer.status_code == 502
+    assert answer.json()["detail"]["error_type"] == "no_app"
+
+
+def test_stops_are_told_apart():
+    for path in (
+        "/app/workflow/stop",
+        "/app/workflow/stop_task",
+        "/app/agent/stop",
+        "/microscope/devices/stage/commands/stop",
+        "/microscope/devices/milling/commands/safety_halt",
+    ):
+        assert is_stop(path), path
+    for path in ("/app/workflow/status", "/app/stopwatch", "/microscope/devices"):
+        assert not is_stop(path), path
+
+
+def test_a_client_through_the_gateway_reads_no_app_as_unreachable(gateways):
+    from fibsem.client.transport import (
+        GATEWAY_APP_LOST,
+        GATEWAY_NO_APP,
+        ServerUnreachable,
+    )
+    from fibsem.gateway.passthrough import APP_LOST, NO_APP
+
+    assert (NO_APP, APP_LOST) == (GATEWAY_NO_APP, GATEWAY_APP_LOST)
+    gateway = gateways(lambda: None)
+    port = free_port()
+    server = uvicorn.Server(uvicorn.Config(gateway.app, port=port, log_level="warning"))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    try:
+        assert wait_for(lambda: _answers(port))
+        from fibsem.client.transport import Transport
+
+        transport = Transport(f"http://127.0.0.1:{port}", AGENT, discover=False)
+        try:
+            with pytest.raises(ServerUnreachable) as raised:
+                transport.request("GET", "/capabilities")
+            assert not raised.value.timed_out
+        finally:
+            transport.close()
+    finally:
+        server.should_exit = True
+        thread.join(5)
+
+
+def _answers(port):
+    try:
+        return httpx.get(f"http://127.0.0.1:{port}/health", timeout=1).is_success
+    except httpx.HTTPError:
+        return False

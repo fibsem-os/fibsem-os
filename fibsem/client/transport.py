@@ -79,6 +79,12 @@ def unreachable_why(url: str) -> str:
     )
 
 
+# The gateway's answers for an App Server that isn't there or stopped
+# answering mid-call (`fibsem.gateway.passthrough`), kept in step by a test.
+GATEWAY_NO_APP = "no_app"
+GATEWAY_APP_LOST = "app_lost"
+
+
 class ServerUnreachable(ConnectionError):
     """No server was found, or it did not answer: ``timed_out`` when a request
     may have reached it."""
@@ -286,7 +292,7 @@ class Transport:
         """The server's answer whatever its status, as httpx's ``request``
         answers it; `fetch` reads it as data."""
         try:
-            return self._attempt(method, path, kwargs)
+            response = self._attempt(method, path, kwargs)
         except httpx.TimeoutException:
             raise ServerUnreachable(
                 f"{method} {self.url}{path}: no answer in time", timed_out=True
@@ -296,6 +302,16 @@ class Transport:
                 f"{method} {self.url}{path}: {type(error).__name__}. "
                 + unreachable_why(self.url)
             ) from None
+        # Through the gateway (`fibsem.gateway.passthrough`): its App Server
+        # not answering reads as the server not answering, as it would direct.
+        if response.status_code in (502, 503, 504):
+            gone = _detail(response).get("error_type")
+            if gone in (GATEWAY_NO_APP, GATEWAY_APP_LOST):
+                raise ServerUnreachable(
+                    f"{method} {self.url}{path}: {_detail(response).get('message')}",
+                    timed_out=gone == GATEWAY_APP_LOST,
+                )
+        return response
 
     def _attempt(
         self, method: str, path: str, kwargs: Dict[str, Any]
