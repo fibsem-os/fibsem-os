@@ -25,6 +25,7 @@ import {
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Popup } from "@/components/ui/popup";
 import { api, imageUrl } from "@/lib/api";
+import { ago } from "@/lib/format";
 import { onEvents } from "@/lib/events";
 import { Markdown } from "@/lib/markdown";
 import type {
@@ -449,29 +450,45 @@ function Lines({
   );
 }
 
-/** "verifier" as "Verifier", "autolamella-verifier" as "Verifier". */
+/** "verifier" as "Verifier", "autolamella-verifier" as "Verifier",
+ * "autolamella-site-finder" as "Site finder": the app's prefix goes. */
 function agentName(agent: string): string {
-  const last = agent.split(/[-_:]/).filter(Boolean).pop() ?? "Subagent";
-  return last.charAt(0).toUpperCase() + last.slice(1);
+  const parts = agent.split(/[-_:]/).filter(Boolean);
+  const name = (parts.length > 1 ? parts.slice(1) : parts).join(" ") || "Subagent";
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
+/** What fibsem-agent says of a step its run ended before answering
+ * (harness.STEP_ENDED): the run stopped, not failed. */
+const STEP_ENDED = "Ended without an answer";
+
+/** When a run started: "2 h ago" today, else "Mon 16 Nov". */
+function when(t: string, now: number): string {
+  const at = new Date(t);
+  if (now - at.getTime() < 20 * 3600 * 1000) return ago(t, now);
+  return at.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
 }
 
 /** A run's state: running, done or failed, and its badge when the subagent
  * gave a verdict or asked for attention. */
 function runState(call: TranscriptLine, answer: TranscriptLine | undefined, runs: boolean, clock: number) {
-  const failed = answer?.kind === "failed";
+  const stopped = answer?.kind === "failed" && answer.text.startsWith(STEP_ENDED);
+  const failed = answer?.kind === "failed" && !stopped;
   const verdict = answer?.verdict;
   const badge = verdict
     ? { text: verdict === "agree" ? "Agrees" : "Concern", warn: verdict === "concern" }
     : answer?.attention
       ? { text: "Needs attention", warn: true }
       : null;
-  const text = failed
-    ? "Failed"
-    : answer
-      ? [badge ? "" : "Done", took(answer.took_s)].filter(Boolean).join(" · ")
-      : runs
-        ? `Running · ${since(call.t, clock)}`
-        : "Stopped";
+  const text = stopped
+    ? ["Stopped", took(answer?.took_s)].filter(Boolean).join(" after ")
+    : failed
+      ? "Failed"
+      : answer
+        ? [badge ? "" : "Done", took(answer.took_s)].filter(Boolean).join(" · ")
+        : runs
+          ? `Running · ${since(call.t, clock)}`
+          : "Stopped";
   return { failed, badge, text };
 }
 
@@ -568,7 +585,8 @@ function RunCard({
   );
 }
 
-/** The session's subagent runs, newest first: each opens in the Subagents tab. */
+/** The subagent runs, newest first, those still running above the finished
+ * ones: each opens in the Subagents tab. */
 function SubagentList({
   calls,
   answered,
@@ -580,32 +598,54 @@ function SubagentList({
   running: (step: TranscriptLine) => boolean;
   onOpen: (call: TranscriptLine) => void;
 }) {
-  const clock = useClock(calls.some((c) => !answered.has(stepKey(c.session_id, c.seq)) && running(c)));
+  const runs = (c: TranscriptLine) => !answered.has(stepKey(c.session_id, c.seq)) && running(c);
+  const clock = useClock(calls.some(runs));
   if (!calls.length) return null;
+  const newest = [...calls].reverse();
+  const groups: [string, TranscriptLine[]][] = [
+    ["Running", newest.filter(runs)],
+    ["Finished", newest.filter((c) => !runs(c))],
+  ];
   return (
-    <section>
-      {[...calls].reverse().map((c) => {
-        const answer = answered.get(stepKey(c.session_id, c.seq));
-        const state = runState(c, answer, !answer && running(c), clock);
-        return (
-          <button
-            key={stepKey(c.session_id, c.seq)}
-            className="flex w-full cursor-pointer items-baseline justify-between gap-3 border-0 bg-transparent px-0 py-1 text-left text-[13px] text-foreground hover:text-primary"
-            onClick={() => onOpen(c)}
-            title={c.text || undefined}
-          >
-            <span className="min-w-0 truncate">
-              {agentName(c.subagent ?? "")}
-              {c.text && <span className="text-muted-foreground"> · {c.text}</span>}
-            </span>
-            <span className="flex shrink-0 items-center gap-1 text-[12px] text-muted-foreground">
-              <RunBadge badge={state.badge} />
-              {state.text}
-            </span>
-          </button>
-        );
-      })}
-    </section>
+    <div className="flex flex-col gap-3.5">
+      {groups.map(([title, shown]) =>
+        shown.length ? (
+          <section key={title} className="border-b border-border/60 pb-3.5 last:border-b-0 last:pb-0">
+            <h4 className="m-0 mb-1 text-[12px] font-semibold text-muted-foreground">
+              {title} · {shown.length}
+            </h4>
+            {shown.map((c) => {
+              const answer = answered.get(stepKey(c.session_id, c.seq));
+              const state = runState(c, answer, runs(c), clock);
+              return (
+                <button
+                  key={stepKey(c.session_id, c.seq)}
+                  className="flex w-full cursor-pointer flex-col gap-0.5 border-0 bg-transparent px-0 py-1 text-left text-[13px] text-foreground hover:text-primary"
+                  onClick={() => onOpen(c)}
+                  title={c.text || undefined}
+                >
+                  <span className="min-w-0 truncate">
+                    {agentName(c.subagent ?? "")}
+                    {c.text && <span className="text-muted-foreground"> · {c.text}</span>}
+                  </span>
+                  <span
+                    className={cn(
+                      "flex items-center gap-1 text-[12px]",
+                      state.failed ? "text-destructive" : "text-muted-foreground",
+                    )}
+                  >
+                    {runs(c) && <Loader size={11} className="animate-spin" aria-label="running" />}
+                    <RunBadge badge={state.badge} />
+                    {state.text}
+                    {!runs(c) && <span className="text-muted-foreground/70"> · {when(c.t, clock)}</span>}
+                  </span>
+                </button>
+              );
+            })}
+          </section>
+        ) : null,
+      )}
+    </div>
   );
 }
 
@@ -614,8 +654,9 @@ const LIVE_FOR_MS = 60_000;
 
 /** The transcript's lines sorted for showing: each step's answer and pictures
  * by the step, each subagent run's lines by its Agent call, and the agent's own
- * lines (*top*). *heard*: the agent was heard from lately (`Record`). */
-function indexLines(lines: TranscriptLine[], heard: boolean) {
+ * lines (*top*). *heard*: the agent was heard from lately (`Record`);
+ * *live*: the session it reports, whose steps alone may still run. */
+function indexLines(lines: TranscriptLine[], heard: boolean, live?: string | null) {
   const answered: Answers = new Map();
   const lastAnswered = new Map<string, number>();
   const pictures: Pictures = new Map();
@@ -634,8 +675,13 @@ function indexLines(lines: TranscriptLine[], heard: boolean) {
   }
   const saysDone = lines.some((l) => l.kind === "done");
   const lastStep = [...lines].reverse().find((l) => l.kind === "step");
+  // Only the live session runs (else the newest): an older one's open steps,
+  // and a step its run ended before answering (`ended`), stopped with it.
+  const newest = live ?? (lines.length ? lines[lines.length - 1].session_id : null);
   const running = (step: TranscriptLine) =>
     heard &&
+    !step.ended &&
+    step.session_id === newest &&
     (step.subagent != null
       ? !answered.has(stepKey(step.session_id, step.seq))
       : saysDone
@@ -653,6 +699,59 @@ function indexLines(lines: TranscriptLine[], heard: boolean) {
   return { answered, pictures, runs, running, calls, top: shown.filter((l) => l.run == null) };
 }
 
+/** Every subagent run in the experiment, however old, not only those the chat
+ * has loaded: read again when a loaded run starts or ends. *shown*, a run the
+ * chat hasn't loaded: its own lines, read when the Subagents tab opens it. */
+function useAllRuns(lines: TranscriptLine[], shown: string | null) {
+  const calls = new Set<string>();
+  for (const l of lines) if (l.kind === "step" && l.subagent != null) calls.add(stepKey(l.session_id, l.seq));
+  const seen = [...calls]
+    .map((key) => (lines.some((l) => answers(l) && stepKey(l.session_id, l.step) === key) ? `${key}+` : key))
+    .join(",");
+  const all = useQuery({
+    queryKey: ["app/agent/transcript-runs", seen],
+    queryFn: () => api<{ entries: TranscriptLine[] }>("/app/agent/transcript/runs"),
+    placeholderData: keepPreviousData,
+  });
+  const [session, call] = shown ? [shown.slice(0, shown.lastIndexOf("|")), shown.slice(shown.lastIndexOf("|") + 1)] : [];
+  const loaded = shown != null && lines.some((l) => l.run != null && stepKey(l.session_id, l.run) === shown);
+  const run = useQuery({
+    queryKey: ["app/agent/transcript-runs", "run", shown],
+    queryFn: () =>
+      api<{ entries: TranscriptLine[] }>(
+        `/app/agent/transcript/runs/${encodeURIComponent(session!)}/${encodeURIComponent(call!)}`,
+      ),
+    enabled: shown != null && !loaded && /^\d+$/.test(call ?? ""),
+  });
+  return { all: all.data?.entries ?? [], run: loaded ? [] : (run.data?.entries ?? []) };
+}
+
+/** The chat's index with every run in it: the calls and answers of *all*, and
+ * the lines of *run*, a run the chat hasn't loaded. */
+function withAllRuns(idx: ReturnType<typeof indexLines>, all: TranscriptLine[], run: TranscriptLine[]) {
+  const answered: Answers = new Map(idx.answered);
+  const pictures: Pictures = new Map(idx.pictures);
+  const runs: Runs = new Map(idx.runs);
+  const byKey = new Map<string, TranscriptLine>();
+  for (const l of [...all, ...run]) {
+    if (answers(l)) {
+      if (!answered.has(stepKey(l.session_id, l.step))) answered.set(stepKey(l.session_id, l.step), l);
+    } else if (l.kind === "picture" && l.step != null && l.path) {
+      const key = stepKey(l.session_id, l.step);
+      if (!idx.pictures.has(key)) pictures.set(key, [...(pictures.get(key) ?? []), l]);
+    } else if (l.run != null) {
+      const key = stepKey(l.session_id, l.run);
+      if (!idx.runs.has(key)) runs.set(key, [...(runs.get(key) ?? []), l]);
+    } else if (l.kind === "step" && l.subagent != null) {
+      byKey.set(stepKey(l.session_id, l.seq), l);
+    }
+  }
+  // The loaded lines win: they are the newest read.
+  for (const c of idx.calls) byKey.set(stepKey(c.session_id, c.seq), c);
+  const calls = [...byKey.values()].sort((a, b) => time(a.t) - time(b.t));
+  return { ...idx, answered, pictures, runs, calls };
+}
+
 /** *heard*: the agent was heard from lately, so a step it started may still run
  * with no lines coming (a long milling call). A step runs until its answer
  * comes, while the agent is heard from and no later step of its session has
@@ -663,6 +762,7 @@ function Record({
   lines: all,
   show,
   heard,
+  live,
   now,
   calls,
   onOpen,
@@ -671,6 +771,7 @@ function Record({
   lines: TranscriptLine[];
   show: Show;
   heard: boolean;
+  live?: string | null;
   now?: string | null;
   calls: boolean;
   onOpen?: (call: TranscriptLine) => void;
@@ -678,7 +779,7 @@ function Record({
   const out: JSX.Element[] = [];
   let run: RecentRow[] = [];
   let working: TranscriptLine[] = [];
-  const indexed = indexLines(all, heard);
+  const indexed = indexLines(all, heard, live);
   const { answered, pictures, runs, running } = indexed;
   const lines = indexed.top;
   // Keyed by what a row says, not where it sits: the oldest rows drop off the
@@ -1148,6 +1249,7 @@ export function AgentPage() {
     return () => watcher.disconnect();
   });
 
+  const allRuns = useAllRuns(transcript.data?.entries ?? [], shownRun);
   // A failed read keeps the last answer on screen; the top line says why.
   if (!a) return agent.error ? <div className="p-5 text-destructive">{agent.error.message}</div> : null;
   const request = a.request && ["pending", "applying"].includes(a.request.status) ? a.request : null;
@@ -1161,10 +1263,11 @@ export function AgentPage() {
     isWorking &&
     !a.stopped &&
     lastStep != null &&
+    !lastStep.ended &&
     !entries.some((l) => answers(l) && l.session_id === lastStep.session_id && l.step === lastStep.seq);
   const session = reported.data?.session;
   const heard = isWorking && !a.stopped;
-  const idx = indexLines(entries, heard);
+  const idx = withAllRuns(indexLines(entries, heard, session?.session_id), allRuns.all, allRuns.run);
   const openRun = (call: TranscriptLine) => {
     setShownRun(stepKey(call.session_id, call.seq));
     setFocus("subagents");
@@ -1438,6 +1541,7 @@ export function AgentPage() {
                   lines={lines}
                   show={show}
                   heard={heard}
+                  live={reported.data?.session?.session_id}
                   now={a.now}
                   calls={calls}
                   onOpen={openRun}

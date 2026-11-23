@@ -64,3 +64,14 @@ paths.
 - **Thickness with the objective in** reads differently from the operator's
   measurement with it out (560 against 483 nm, 474 against 467 nm on one
   run). Report your last reading as objective-in.
+
+## Workers
+
+When a worker polishes the lamella (autolamella-lead, *Workers*), its brief
+also names this skill and gives it the target and control from the last
+correlation, the `target_channel`, the objective's position and this
+skill's stop-and-ask list. The worker cannot ask the operator: when one of
+those stops is hit, it stops polishing and returns what it saw, and the
+lead asks the operator. The worker still asks the Verifier before every pass
+that would mill.
+

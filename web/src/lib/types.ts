@@ -189,6 +189,8 @@ export interface McpServer {
 
 /** GET /app/agent/session: what the agent reported of its session. */
 export interface ReportedSession {
+  /** The fibsem session's id: its transcript lines carry it. */
+  session_id?: string | null;
   /** The reminders on now. */
   hooks?: { when: string; label: string; say: string }[];
   /** The skills it has read, in order. */
@@ -306,6 +308,9 @@ export interface TranscriptLine {
   verdict?: "agree" | "concern";
   /** On a subagent call's "done": the subagent says someone should look before going on. */
   attention?: boolean;
+  /** On a step: its run ended (stopped, crashed, or the session resumed)
+   * before it answered, so it no longer runs. */
+  ended?: boolean;
   session_id: string;
 }
 

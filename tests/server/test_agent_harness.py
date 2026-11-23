@@ -1821,6 +1821,39 @@ def test_a_subagent_s_lines_are_kept_under_the_call_that_started_it():
     assert done["text"] == "Concern: the left edge."
 
 
+def test_a_run_that_ends_says_its_open_steps_ended():
+    """Stopped mid subagent run: the Agent call and the subagent's own step get
+    failed lines, so the web page shows them stopped, not running for ever."""
+    pytest.importorskip("claude_agent_sdk")
+    from claude_agent_sdk import AssistantMessage, ToolUseBlock
+
+    from fibsem.ai.agent.harness import STEP_ENDED, SdkAgent, _show
+
+    agent = SdkAgent(harness_mod.build_options(harness_mod.find_checkout()))
+    asked = {"subagent_type": "autolamella-auditor", "description": "Audit"}
+    _show(
+        AssistantMessage(content=[ToolUseBlock("a1", "Agent", asked)], model="m"),
+        agent,
+    )
+    _show(
+        AssistantMessage(
+            content=[ToolUseBlock("v1", "mcp__fibsem__app_get_log", {})],
+            model="m",
+            parent_tool_use_id="a1",
+        ),
+        agent,
+    )
+    call, read = agent.transcript
+    agent.end_open_steps(STEP_ENDED)
+    ended = agent.transcript[2:]
+    assert sorted(line["step"] for line in ended) == [call["seq"], read["seq"]]
+    assert all(line["kind"] == "failed" for line in ended)
+    assert {line.get("run") for line in ended} == {None, call["seq"]}
+    # Said once: nothing is open now.
+    agent.end_open_steps(STEP_ENDED)
+    assert len(agent.transcript) == 4
+
+
 def test_a_subagent_s_json_answer_gives_its_card_a_verdict_or_attention():
     from fibsem.ai.agent.harness import _answer
 
