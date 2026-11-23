@@ -222,7 +222,7 @@ def test_the_agent_text_registers_for_every_project_by_absolute_path(tmp_path):
 def test_the_agent_text_names_the_windows_desktop_config():
     text = agent_setup_text(r"C:\env\Scripts\fibsem-mcp.exe", platform="win32")
     assert r"%APPDATA%\Claude\claude_desktop_config.json" in text
-    assert '"connected to http://127.0.0.1:8001"' in text
+    assert '"connected to http://127.0.0.1:8010"' in text
     entry = text.split('"fibsem": ', 1)[1].split(" under", 1)[0]
     assert json.loads(entry) == {"command": r"C:\env\Scripts\fibsem-mcp.exe"}
 
