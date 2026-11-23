@@ -50,9 +50,13 @@ def mount_agent_routes(
     app.include_router(build_request_router(app.state.requests))
     # The agent's own report of its session: model, goal, budget, spend.
     app.include_router(build_agent_session_router(emit))
-    # Where each session's plan and transcript go: its experiment, or its own
-    # folder until one is open.
-    app.state.agent_files = AgentFiles(experiment_path)
+    # Where each session's plan and transcript go: its own folder, linked
+    # both ways to the experiment it works on.
+    app.state.agent_files = AgentFiles(
+        experiment_path,
+        joined=emit,
+        experiment_id=lambda: getattr(app_context._experiment, "id", None),
+    )
     app.state.agent_plan = PlanStore(
         experiment_path,
         lambda: app_context.experiment_sample,

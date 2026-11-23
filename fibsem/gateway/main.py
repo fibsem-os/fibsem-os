@@ -35,7 +35,7 @@ from fibsem.gateway.gateway import (
     write_gateway_file,
 )
 from fibsem.gateway.host import HostMicroscope
-from fibsem.server.discovery import read_discovery_file
+from fibsem.server.discovery import HOST_DISCOVERY_FILE, read_discovery_file
 from fibsem.server.operator_token import read_operator_token
 from fibsem.unreleased import refuse
 
@@ -124,8 +124,10 @@ def _connection(extra: List[str]) -> List[str]:
 
 
 def _app_url() -> Optional[str]:
-    """The App Server running on this PC, whoever started it."""
-    found = read_discovery_file()
+    """The server the gateway passes calls to: the App Server running on this
+    PC, whoever started it, else an agent host running here (an agent with no
+    App Server: it has the same /app/agent routes)."""
+    found = read_discovery_file() or read_discovery_file(HOST_DISCOVERY_FILE)
     return found.get("url") if found else None
 
 

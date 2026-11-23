@@ -1789,7 +1789,7 @@ class Harness:
             except Exception:  # noqa: BLE001 - the session goes on
                 log.debug("Keeping the new context failed.", exc_info=True)
         where = (
-            f"{kept} in the experiment"
+            f"{kept} in the session's folder on the App Server's PC"
             if kept
             else "handoff.md in the session's folder on the agent's PC"
         )

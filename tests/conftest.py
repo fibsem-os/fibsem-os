@@ -445,3 +445,13 @@ def pytest_unconfigure(config):
     sys.stdout.flush()
     sys.stderr.flush()
     os._exit(config.stash[_EXIT_STATUS])
+
+
+@pytest.fixture(autouse=True)
+def _agent_sessions_of_the_test(tmp_path_factory, monkeypatch):
+    """Each test's agent sessions keep their own record in a folder of its own:
+    tests reuse session ids ("s1"), which would find another test's folder."""
+    import fibsem.server.agent.files as agent_files
+
+    root = tmp_path_factory.mktemp("agent-sessions")
+    monkeypatch.setattr(agent_files, "sessions_root", lambda: root)

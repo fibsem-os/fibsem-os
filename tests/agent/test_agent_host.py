@@ -431,8 +431,9 @@ def on_its_own(tmp_path, monkeypatch):
     monkeypatch.setattr(host_mod, "get_secret", lambda name: None)
     monkeypatch.setattr("fibsem.ai.agent.host_link.get_secret", lambda name: None)
     monkeypatch.setattr(host_mod, "load_operator_token", lambda: OPERATOR)
-    monkeypatch.setattr(host_mod, "HOST_PAIRED_FILE", tmp_path / "paired.json")
+    monkeypatch.setattr(host_mod, "PAIRED_FILE", tmp_path / "paired.json")
     monkeypatch.setattr(discovery, "HOST_DISCOVERY_FILE", tmp_path / "agent-host.json")
+    monkeypatch.setattr(discovery, "GATEWAY_FILE", tmp_path / "gateway.json")
     monkeypatch.setattr(client_pairing, "AGENT_DIR", tmp_path / "agent")
     return tmp_path / "agent-host.json"
 
@@ -449,11 +450,20 @@ def _serving(app, port):
     return server, thread
 
 
-def test_on_its_own_it_makes_its_tokens_and_the_operator_allows_the_agent(
+def test_on_its_own_it_sits_behind_the_gateway_which_allows_the_agent(
     on_its_own, tmp_path, monkeypatch
 ):
+    """The host serves no pages and pairs nothing: the gateway passes calls to
+    it, the agent asks there, the operator allows it there, and the host takes
+    the token the gateway gave (one paired.json)."""
+    import os
+
     from fibsem.ai.agent import host_link
+    from fibsem.gateway.gateway import Gateway
+    from fibsem.gateway.passthrough import PassThrough
+    from fibsem.gateway.server import GatewayAuth, build_gateway_app
     from fibsem.server.agent import host as host_mod
+    from tests.fixtures.app_server import serving
 
     port = _free_port()
     seen = {}
@@ -461,51 +471,78 @@ def test_on_its_own_it_makes_its_tokens_and_the_operator_allows_the_agent(
     def run(app, host, port, log_level):
         found = json.loads(on_its_own.read_text())
         seen["file"] = found
-        url = found["url"]
-        assert host_link.host_url("") == url
         server, thread = _serving(app, port)
+        auth = GatewayAuth.from_disk(tmp_path / "op.json", tmp_path / "paired.json")
+        gateway = Gateway(
+            home=tmp_path / "home",
+            app_registry=lambda: {},
+            last=lambda: None,
+            recent=lambda: [],
+            new_folder=lambda: str(tmp_path),
+            configurations=lambda: [],
+            discovery=lambda: None,
+        )
+        passthrough = PassThrough(lambda: found["url"], is_connect=auth.is_connect)
         try:
-            operator = TestClient(app, headers=_as(OPERATOR))
-            # The connect token only asks.
-            asks = TestClient(app, headers=_as(found["connect_token"]))
-            assert asks.get("/app/events").json()["detail"]["error_type"] == (
-                "connect_first"
-            )
-            # The web app, for the operator's Agent page.
-            assert TestClient(app).get("/ui/agent").status_code == 200
-            got = {}
-            asking = threading.Thread(
-                target=lambda: got.update(token=host_link.host_token(url, wait_s=20)),
-                daemon=True,
-            )
-            asking.start()
-            deadline = time.monotonic() + 20
-            while asking.is_alive() and time.monotonic() < deadline:
-                ask = operator.get("/app/agent").json().get("asking")
-                if ask:
-                    operator.post(f"/app/agent/connections/{ask['id']}/allow")
-                time.sleep(0.05)
-            asking.join(timeout=5)
-            token = got["token"]
-            assert token not in (found["connect_token"], OPERATOR)
-            assert (
-                TestClient(app, headers=_as(token)).get("/app/events").status_code
-                == 200
-            )
-            # Kept: the next start (a resumed session's) doesn't ask again.
-            assert host_link.host_token(url, wait_s=0) == token
-            seen["token"] = token
+            with serving(
+                build_gateway_app(gateway, auth, passthrough=passthrough)
+            ) as gw:
+                (tmp_path / "gateway.json").write_text(
+                    json.dumps(
+                        {
+                            "url": gw,
+                            "pid": os.getpid(),
+                            "connect_token": auth.connect_token,
+                        }
+                    )
+                )
+                # --host finds the gateway while a host runs behind it.
+                assert host_link.host_url("") == gw
+                # No pages and no pairing at the host itself.
+                assert TestClient(app).get("/ui/agent").status_code == 404
+                assert TestClient(app).post("/connect").status_code == 404
+                operator = TestClient(
+                    build_gateway_app(gateway, auth), headers=_as(auth.token)
+                )
+                got = {}
+                asking = threading.Thread(
+                    target=lambda: got.update(
+                        token=host_link.host_token(gw, wait_s=20)
+                    ),
+                    daemon=True,
+                )
+                asking.start()
+                deadline = time.monotonic() + 20
+                while asking.is_alive() and time.monotonic() < deadline:
+                    ask = operator.get("/gateway/connections").json()["asking"]
+                    if ask:
+                        operator.post(f"/gateway/connections/{ask['id']}/allow")
+                    time.sleep(0.05)
+                asking.join(timeout=5)
+                token = got["token"]
+                assert token not in (auth.connect_token, auth.token)
+                # The host takes the gateway's token, directly and through it.
+                assert (
+                    TestClient(app, headers=_as(token)).get("/app/events").status_code
+                    == 200
+                )
+                import httpx
+
+                through = httpx.get(f"{gw}/app/events", headers=_as(token), timeout=10)
+                assert through.status_code == 200
+                # Kept: the next start (a resumed session's) doesn't ask again.
+                assert host_link.host_token(gw, wait_s=0) == token
+                seen["token"] = token
         finally:
             server.should_exit = True
             thread.join(timeout=5)
 
     monkeypatch.setattr(uvicorn, "run", run)
     assert host_mod.main(["--folder", str(tmp_path / "host"), "--port", str(port)]) == 0
-    assert "token" not in seen["file"]
+    assert "token" not in seen["file"] and "connect_token" not in seen["file"]
     assert seen["file"]["url"] == f"http://127.0.0.1:{port}"
-    # Gone when it stops; the agent it allowed is still allowed next time.
     assert not on_its_own.exists()
-    assert seen["token"] and (tmp_path / "paired.json").exists()
+    assert seen["token"]
 
 
 def test_a_second_host_on_the_pc_is_refused(on_its_own, tmp_path, monkeypatch):

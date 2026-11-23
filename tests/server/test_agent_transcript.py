@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.ai.agent.session import session_facts, session_line
 from fibsem.server import AuthConfig
+from fibsem.server.agent.files import session_folder
 from fibsem.server.agent.session import report
 from fibsem.server.agent.transcript import build_agent_transcript_router
 
@@ -47,10 +48,11 @@ def test_the_lines_are_kept_in_their_own_file_and_read_back_in_order(server):
     _post(client, "s1", failed)
     _post(client, "s2", {"kind": "step", "verb": "Wrote", "text": "b.py"})
 
-    kept = (folder / "agent" / "transcript-s1.jsonl").read_text().splitlines()
+    kept = (session_folder("s1") / "transcript-s1.jsonl").read_text().splitlines()
     assert [json.loads(line)["kind"] for line in kept] == ["said", "step", "failed"]
-    # Not on the record: the experiment's events stay as they were.
+    # Not on the record, nor in the experiment: its data stays its own.
     assert not (folder / "events.jsonl").exists()
+    assert not (folder / "agent").exists()
 
     entries = client.get("/app/agent/transcript").json()["entries"]
     assert [e["text"] for e in entries] == [
@@ -66,7 +68,9 @@ def test_the_lines_are_kept_in_their_own_file_and_read_back_in_order(server):
     assert [e["text"] for e in since["entries"]] == ["python a.py", "no cv2", "b.py"]
 
 
-def test_with_no_experiment_open_it_waits_in_the_sessions_folder(server, tmp_path):
+def test_with_no_experiment_open_it_is_kept_in_the_sessions_folder_all_along(
+    server, tmp_path
+):
     client, experiment, folder = server
     experiment["path"] = None
     report(client.app.state.auth, {"session_id": "s1"})
@@ -74,10 +78,11 @@ def test_with_no_experiment_open_it_waits_in_the_sessions_folder(server, tmp_pat
     assert not (folder / "agent").exists()
     entries = client.get("/app/agent/transcript").json()["entries"]
     assert [e["text"] for e in entries] == ["before"]
-    # The first experiment that opens takes it, and what follows.
+    # The first experiment that opens is the session's; nothing moves.
     experiment["path"] = str(folder)
     _post(client, "s1", {"kind": "said", "text": "after"})
-    kept = (folder / "agent" / "transcript-s1.jsonl").read_text().splitlines()
+    assert not (folder / "agent").exists()
+    kept = (session_folder("s1") / "transcript-s1.jsonl").read_text().splitlines()
     assert [json.loads(line)["text"] for line in kept] == ["before", "after"]
     entries = client.get("/app/agent/transcript").json()["entries"]
     assert [e["text"] for e in entries] == ["before", "after"]
@@ -225,11 +230,11 @@ def test_a_picture_is_kept_beside_the_transcript_and_served(server):
         "media_type": "image/png",
     }
     assert _post(client, "s1", step, picture).json() == {"kept": 2}
-    saved = folder / "agent" / "pictures" / "s1-5.png"
+    saved = session_folder("s1") / "pictures" / "s1-5.png"
     assert saved.read_bytes() == base64.b64decode(PNG)
     # The line keeps the picture's path, not the picture.
     line = json.loads(
-        (folder / "agent" / "transcript-s1.jsonl").read_text().splitlines()[-1]
+        (session_folder("s1") / "transcript-s1.jsonl").read_text().splitlines()[-1]
     )
     assert line["path"] == "pictures/s1-5.png" and "image" not in line
     entries = client.get("/app/agent/transcript").json()["entries"]
@@ -260,10 +265,10 @@ def test_a_bad_picture_is_refused_and_keeps_nothing(server, change):
     picture.update(change)
     picture = {k: v for k, v in picture.items() if v is not None}
     assert _post(client, "s1", picture).status_code == 422
-    assert not (folder / "agent" / "pictures").exists()
+    assert not (session_folder("s1") / "pictures").exists()
 
 
-def test_a_waiting_picture_moves_into_the_experiment(server):
+def test_a_picture_stays_in_the_sessions_folder_when_an_experiment_opens(server):
     client, experiment, folder = server
     experiment["path"] = None
     report(client.app.state.auth, {"session_id": "s1"})
@@ -273,7 +278,8 @@ def test_a_waiting_picture_moves_into_the_experiment(server):
     assert client.get("/app/agent/transcript/pictures/s1-2.png").status_code == 200
     experiment["path"] = str(folder)
     _post(client, "s1", {"kind": "said", "text": "after"})
-    assert (folder / "agent" / "pictures" / "s1-2.png").is_file()
+    assert (session_folder("s1") / "pictures" / "s1-2.png").is_file()
+    assert not (folder / "agent").exists()
     assert client.get("/app/agent/transcript/pictures/s1-2.png").status_code == 200
 
 

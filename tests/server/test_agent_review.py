@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.server import AuthConfig
+from fibsem.server.agent.files import session_folder
 from fibsem.server.agent.operator import build_operator_router
 from fibsem.server.agent.review import (
     ADDED,
@@ -101,7 +102,8 @@ def test_the_agent_adds_finished_work_checks_and_waits_beside_the_plan(server):
     assert [i["id"] for i in waiting["items"]] == ["r3"]
     about = agent.get("/app/agent/review", params={"about": "lamella 01"}).json()
     assert [i["id"] for i in about["items"]] == ["r1", "r2"]
-    kept = experiment / "agent" / "review-s1.jsonl"
+    kept = session_folder("s1") / "review-s1.jsonl"
+    assert not (experiment / "agent").exists()
     assert [json.loads(line)["op"] for line in kept.read_text().splitlines()] == [
         "add",
         "add",

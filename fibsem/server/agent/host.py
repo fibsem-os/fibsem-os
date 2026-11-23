@@ -13,7 +13,7 @@ own route, over the host (`record`, `session`, `plan`, `transcript`, and
 What it holds is the session's, not an instrument's: an event stream of its
 own (written to ``events.jsonl`` in its folder), the session the harness
 reports, the plan and transcript (in each session's own folder, as the App
-Server keeps them while no experiment is open), and the level and Stop. It
+Server keeps them), and the level and Stop. It
 acts on nothing: the level gates only this host's routes, and an instrument
 the agent uses keeps its own gate.
 
@@ -30,12 +30,14 @@ by itself, or mounted under a path by a server that holds several (the
 gateway, the hub). Its tokens are an :class:`~fibsem.server.auth.AuthConfig`,
 made by whoever builds it and never passed on a command line.
 
-Run on its own (``fibsem-agent-host``), it makes its tokens as the App Server
-does: the agent's afresh at each start, the operator's this account's, and a
-discovery file (``~/.fibsem/agent-host.json``) with the token that only asks to
-connect. ``fibsem-agent --host`` finds it there and asks; the operator allows
-it on the Agent page (``/ui/agent``), and the agent keeps the token it is
-given, so a restarted host still knows it.
+Run on its own (``fibsem-agent-host``), it sits behind this PC's gateway, as
+the App Server does: it serves no pages and pairs nothing. It checks tokens
+against the gateway's ``paired.json``, writes a discovery file
+(``~/.fibsem/agent-host.json``, its address only), and the gateway passes
+calls to it while no App Server runs. ``fibsem-agent --host`` connects through
+the gateway: it asks there, the operator allows it on the gateway's Agent
+page, the one place agents are allowed on this PC, and the agent keeps the
+token it is given.
 """
 
 import logging
@@ -84,12 +86,9 @@ from fibsem.server.bodies import (
     refuse_invalid_requests,
 )
 from fibsem.server.discovery import API_VERSION, fibsem_folder
-from fibsem.server.hosting import agent_connections
 from fibsem.server.operator_token import load_operator_token
-from fibsem.server.pairing import ROLES, PairedTokens, Pairing
-from fibsem.server.pairing_routes import build_pairing_router
+from fibsem.server.pairing import PAIRED_FILE, ROLES, PairedTokens, Pairing
 from fibsem.server.responses import Refusal
-from fibsem.server.web_app import web_app_router
 from fibsem.workflows.actions import ACTION, NOTE, note_record
 from fibsem.workflows.events import EventBuffer, split_event_id
 from fibsem.workflows.events import kinds as event_kinds
@@ -518,11 +517,8 @@ def build_agent_host(
         }
 
     app.include_router(base)
-    # The web app, whose Agent page is the operator's side here; and asking to
-    # connect, and pairing: the App Server's own routes. With no pairing in
-    # *auth* they refuse (``pairing_off``).
-    app.include_router(web_app_router())
-    app.include_router(build_pairing_router(auth))
+    # No pages and no pairing here: the gateway serves the web app and allows
+    # agents, and passes their calls on.
 
     # The agent's record: the events long-poll, its notes and messages. The
     # App Server's own routes, over the host.
@@ -581,20 +577,17 @@ HOST_OPERATOR_TOKEN = "FIBSEM_HOST_OPERATOR_TOKEN"
 # The instrument's operator token, by default: the App Server's.
 INSTRUMENT_TOKEN = "FIBSEM_OPERATOR_TOKEN"
 DEFAULT_PORT = 8030
-# The agents allowed to connect to a host on this PC, apart from the App
-# Server's: allowing one at either replaces only that place's agent.
-HOST_PAIRED_FILE = discovery.DISCOVERY_DIR / "agent-host-paired.json"
 
 
 def own_auth(paired: Optional[Path] = None) -> AuthConfig:
     """The tokens a host makes for itself, as the App Server does: the agent's
-    new at each start (it reaches nothing until the operator allows an agent),
-    this account's operator token, and the agents allowed before, kept in
-    *paired*. Asks to connect go on the operator's Agent page; the host adds
-    them (`serve`), as they need its record."""
+    new at each start (nobody holds it), this account's operator token, and
+    the agents the gateway allowed, in its *paired* file (``paired.json``)."""
     auth = AuthConfig.generate()
     auth.operator_token = load_operator_token()
-    auth.pairing = Pairing(PairedTokens(paired or HOST_PAIRED_FILE), roles=ROLES)
+    auth.pairing = Pairing(PairedTokens(paired or PAIRED_FILE), roles=ROLES)
+    # Agents ask to connect at the gateway, never here.
+    auth.connect_token = None
     return auth
 
 
@@ -607,10 +600,9 @@ def serve(
     open_page: bool = False,
 ) -> int:
     """Serve the host *app* until it stops. With *discover*, a discovery file
-    (``HOST_DISCOVERY_FILE``), written while it serves so fibsem-agent finds
-    it, and asks to connect taken; refused while another host's file is live.
-    *open_page* opens the Agent page in this PC's browser, signed in as the
-    operator."""
+    (``HOST_DISCOVERY_FILE``), written while it serves so the gateway finds
+    it; refused while another host's file is live. *open_page* opens the
+    gateway's Agent page in this PC's browser."""
     import uvicorn
 
     run = run or uvicorn.run
@@ -626,26 +618,18 @@ def serve(
             )
             host.close()
             return 1
-        if auth.connections is None:
-            auth.connections = agent_connections(
-                auth.pairing.tokens, lambda: host.buffer
-            )
         discovery.write_discovery_file(bind, port, auth, path=discover)
     url = f"http://{discovery._client_host(bind)}:{port}"
+    page = f"{discovery.gateway_url()}/ui/agent"
     # Never a token: a terminal is read by more people than the file.
     print(
-        f"fibsem-agent-host on {url}; its Agent page is {url}/ui/agent"
-        + ("" if open_page else " (--open opens it signed in)"),
+        f"fibsem-agent-host on {url}, behind this PC's gateway; the Agent page "
+        f"is {page}" + ("" if open_page else " (--open opens it)"),
         file=sys.stderr,
     )
     if open_page:
-        # In the fragment, as the App Server's menu opens it: the browser
-        # keeps it, and it is never sent to a server or logged.
-        threading.Timer(
-            1.0,
-            webbrowser.open,
-            args=(f"{url}/ui/agent#token={auth.operator_token}",),
-        ).start()
+        # The gateway signs the operator in on this PC.
+        threading.Timer(1.0, webbrowser.open, args=(page,)).start()
     try:
         run(app, host=bind, port=port, log_level="warning")
     finally:
@@ -662,12 +646,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         prog="fibsem-agent-host",
         description="Serve the agent's routes (events, session, plan, "
-        "transcript, messages, level and Stop) and the web app's Agent page "
-        "with no microscope, for fibsem-agent --host. It makes its own tokens "
-        "and writes a discovery file, as the App Server does; fibsem-agent "
-        "asks to connect and the operator allows it on the Agent page. To set "
-        f"them instead: {HOST_TOKEN} (the agent's) and {HOST_OPERATOR_TOKEN}, "
-        "in the environment or the key store.",
+        "transcript, messages, level and Stop) with no microscope, for "
+        "fibsem-agent --host, behind this PC's gateway as the App Server is: "
+        "fibsem-agent asks to connect at the gateway and the operator allows "
+        "it on the gateway's Agent page. To set its tokens instead (run alone, "
+        f"for development): {HOST_TOKEN} (the agent's) and "
+        f"{HOST_OPERATOR_TOKEN}, in the environment or the key store.",
     )
     parser.add_argument("--bind", default="127.0.0.1", help="address to serve on")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
@@ -700,7 +684,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument(
         "--open",
         action="store_true",
-        help="open the Agent page in this PC's browser, signed in as the operator",
+        help="open the gateway's Agent page in this PC's browser",
     )
     args = parser.parse_args(argv)
 
@@ -726,8 +710,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         instrument = InstrumentLink(
             args.instrument, instrument_token, name=args.instrument_name
         )
-    # Set tokens: as given, and no discovery file (a gateway or the hub sets
-    # them the same way when it mounts the host). Else its own.
+    # Set tokens: as given, and no discovery file (run alone, for
+    # development). Else its own, checked against the gateway's pairings.
     own = not token
     auth = own_auth() if own else AuthConfig(token=token, operator_token=operator)
     folder = Path(args.folder).expanduser() if args.folder else None

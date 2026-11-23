@@ -136,6 +136,11 @@ AGENT_SESSION_STARTED = _kind(
     "agent_session_started", OTHER, "An agent session started."
 )
 AGENT_SESSION_ENDED = _kind("agent_session_ended", OTHER, "An agent session ended.")
+AGENT_SESSION_JOINED = _kind(
+    "agent_session_joined",
+    OTHER,
+    "An agent session took this experiment; its own record is in its folder.",
+)
 AGENT_SESSION_BUDGET = _kind(
     "agent_session_budget", OTHER, "The agent has used much of its budget."
 )
