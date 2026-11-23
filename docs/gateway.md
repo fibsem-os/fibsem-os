@@ -82,8 +82,9 @@ on the left has four pages:
 
 The gateway asks the App Server how it is every 5 seconds (its `/health`, timed), and how
 its microscope is every 15 seconds and as soon as the app comes up or goes (its
-`/microscope/health`: the connection, a Safety Halt, and whether each device's hardware
-answers). Each answers in one shape, at `GET /gateway/health` and in `GET /gateway`'s
+`/microscope/health`: the connection and a Safety Halt). Neither reaches the hardware: both
+are what the App Server already holds, so asking never takes the microscope's locks or
+switches its imaging channel. Each answers in one shape, at `GET /gateway/health` and in `GET /gateway`'s
 `health`: a status (`ok`, `slow`, `not_answering`, `stopped`, `starting`, and for the
 microscope also `not_connected`, `connecting`, `halted`, `fault` or `unknown` while the
 app doesn't answer), why in a line, how long the answer took, and since when. A hub reads

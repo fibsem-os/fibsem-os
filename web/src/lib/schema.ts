@@ -387,14 +387,6 @@ export interface components {
             saved: boolean | null;
             synced_tasks: string[] | null;
         };
-        /** @description A device's check in ``/microscope/health``: `DeviceHealth`, and whether
-         *     it answered in time (False: it may be hung or busy). */
-        DeviceCheck: {
-            /** @default true */
-            answered: boolean;
-            detail: string | null;
-            ok: boolean;
-        };
         DisplayImages: {
             devices: {
                 [key: string]: components["schemas"]["ImagePayload"];
@@ -1122,14 +1114,12 @@ export interface components {
             by: components["schemas"]["ActorKind"];
             since: number;
         };
-        /** @description The App Server's ``/microscope/health``: the connection, the Safety Halt's
-         *     reason while one is set, and whether each device's hardware answers. */
+        /** @description The App Server's ``/microscope/health``: the connection, and the Safety
+         *     Halt's reason while one is set. Read from what the server holds, never
+         *     from the hardware. */
         InstrumentHealth: {
             connected: boolean;
             connecting: string | null;
-            devices: {
-                [key: string]: components["schemas"]["DeviceCheck"];
-            };
             error: string | null;
             halted: string | null;
         };

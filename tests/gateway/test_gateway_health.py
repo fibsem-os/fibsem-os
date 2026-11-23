@@ -1,15 +1,12 @@
 """The gateway's health of the App Server and its microscope: one shape, from
-the App Server's answers (and its silences), and the App Server's own device
-checks, which never wait on a hung driver twice."""
+the App Server's answers and its silences."""
 
-import threading
 
 from fibsem.gateway import health as h
 from fibsem.gateway.gateway import STARTING, GatewayState
-from fibsem.server.connection import DeviceChecks
 
 URL = "http://127.0.0.1:8001"
-HEALTHY = {"connected": True, "devices": {"stage": {"ok": True, "answered": True}}}
+HEALTHY = {"connected": True, "halted": None}
 
 
 class Clock:
@@ -113,26 +110,20 @@ def test_the_microscope_from_its_health_answer():
         ({"connected": False, "error": "no AutoScript"}, h.FAULT),
         ({**HEALTHY, "halted": "door open"}, h.HALTED),
         (HEALTHY, h.OK),
-        (
-            {"connected": True, "devices": {"fm": {"ok": False, "answered": False}}},
-            h.NOT_ANSWERING,
-        ),
-        (
-            {"connected": True, "devices": {"fm": {"ok": False, "detail": "lost"}}},
-            h.FAULT,
-        ),
     ):
         app.answers["/microscope/health"] = (200, answer)
         w.check_microscope()
         assert w.state().microscope.status == status, answer
-    assert w.state().devices["fm"].detail == "lost"
+    app.answers["/microscope/health"] = h.Unreachable("timed out")
+    w.check_microscope()
+    assert w.state().microscope.status == h.NOT_ANSWERING
 
 
 def test_a_slow_microscope_and_an_old_app_without_the_route():
     w, app, _, _, _ = watch()
     w.check_app()
     app.answers["/microscope/health"] = (200, HEALTHY)
-    app.took = 4.0
+    app.took = 2.0
     w.check_microscope()
     assert w.state().microscope.status == h.SLOW
     app.answers["/microscope/health"] = (404, {"detail": "Not Found"})
@@ -156,41 +147,3 @@ def test_the_gateway_state_carries_the_health(tmp_path):
     )
     w.check_app()
     assert gateway.state().health.app.status == h.STOPPED
-
-
-# -- the App Server's device checks ---------------------------------------
-
-
-class Device:
-    def __init__(self, problem=None, hang=None):
-        self.problem, self.hang, self.calls = problem, hang, 0
-
-    def check_health(self):
-        self.calls += 1
-        if self.hang is not None:
-            self.hang.wait(10)
-        return self.problem
-
-
-def test_device_checks_answer_each_and_skip_devices_without_one():
-    checks = DeviceChecks(wait_s=1.0)
-    found = checks.run(
-        {"stage": object(), "fm": Device(), "gis": Device(problem="no gas")}
-    )
-    assert found["stage"].ok and found["fm"].ok
-    assert not found["gis"].ok and found["gis"].detail == "no gas"
-    assert found["gis"].answered
-
-
-def test_a_hung_check_is_no_answer_and_is_not_started_again():
-    release = threading.Event()
-    hung = Device(hang=release)
-    checks = DeviceChecks(wait_s=0.1)
-    try:
-        first = checks.run({"fm": hung})["fm"]
-        assert not first.ok and not first.answered
-        again = checks.run({"fm": hung})["fm"]
-        assert not again.answered and "still" in again.detail
-        assert hung.calls == 1
-    finally:
-        release.set()

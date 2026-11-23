@@ -14,7 +14,6 @@ operator's only, never the agent's.
 from __future__ import annotations
 
 import threading
-import time
 from types import MappingProxyType
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
@@ -29,22 +28,16 @@ from fibsem.server.responses import (
     ConfigurationOption,
     ConnectedConfiguration,
     ConnectionView,
-    DeviceCheck,
     InstrumentHealth,
     RunAnswer,
     answer,
 )
 
 __all__ = [
-    "HEALTH_WAIT_S",
     "NOT_CONNECTED_MESSAGE",
-    "DeviceChecks",
     "ServedInstrument",
     "build_connection_router",
 ]
-
-# How long ``/microscope/health`` waits for the devices' checks.
-HEALTH_WAIT_S = 5.0
 
 NOT_CONNECTED_MESSAGE = (
     "No microscope is connected: the operator connects one in the app."
@@ -206,67 +199,10 @@ def connection_view(session: Any) -> ConnectionView:
     )
 
 
-class DeviceChecks:
-    """Each device's ``check_health()`` (`fibsem.server.devices.device_health`)
-    on a thread of its own, waited for up to *wait_s* in all. A check that
-    doesn't answer in time is "no answer", and one still running when asked
-    again is not started twice, so a hung driver costs one thread, not one
-    per ask."""
-
-    def __init__(self, wait_s: float = HEALTH_WAIT_S) -> None:
-        self._wait_s = wait_s
-        self._lock = threading.Lock()
-        self._running: Dict[str, threading.Thread] = {}
-
-    def run(self, devices: Mapping[str, Any]) -> Dict[str, DeviceCheck]:
-        found: Dict[str, DeviceCheck] = {}
-        started = []
-        for name, device in devices.items():
-            if getattr(device, "check_health", None) is None:
-                found[name] = DeviceCheck(ok=True)
-                continue
-            with self._lock:
-                if name in self._running:
-                    found[name] = DeviceCheck(
-                        ok=False,
-                        detail="Its last check still hasn't answered.",
-                        answered=False,
-                    )
-                    continue
-                box: Dict[str, DeviceCheck] = {}
-                thread = threading.Thread(
-                    target=self._check,
-                    args=(name, device, box),
-                    name=f"health-{name}",
-                    daemon=True,
-                )
-                self._running[name] = thread
-            thread.start()
-            started.append((name, thread, box))
-        deadline = time.monotonic() + self._wait_s
-        for name, thread, box in started:
-            thread.join(max(0.0, deadline - time.monotonic()))
-            found[name] = box.get("health") or DeviceCheck(
-                ok=False,
-                detail=f"No answer in {self._wait_s:g} s.",
-                answered=False,
-            )
-        return found
-
-    def _check(self, name: str, device: Any, box: Dict[str, DeviceCheck]) -> None:
-        from fibsem.server.devices import device_health
-
-        try:
-            found = device_health(device)
-            box["health"] = DeviceCheck(ok=found.ok, detail=found.detail)
-        finally:
-            with self._lock:
-                self._running.pop(name, None)
-
-
-def instrument_health(session: Any, checks: DeviceChecks) -> InstrumentHealth:
-    """The connection, the Safety Halt and each device's check, for
-    ``/microscope/health``."""
+def instrument_health(session: Any) -> InstrumentHealth:
+    """The connection and the Safety Halt, for ``/microscope/health``: what
+    the session already holds, with no call to the hardware, so asking often
+    never takes the microscope's locks or its imaging channel."""
     view = connection_view(session)
     instrument = session.instrument
     devices: Mapping[str, Any] = {}
@@ -283,7 +219,6 @@ def instrument_health(session: Any, checks: DeviceChecks) -> InstrumentHealth:
         connecting=view.connecting,
         error=view.error,
         halted=halted,
-        devices=checks.run(devices),
     )
 
 
@@ -300,13 +235,12 @@ def build_connection_router(session: Any) -> APIRouter:
     token."""
     router = APIRouter(prefix="/microscope", dependencies=[Depends(require_operator())])
     starting = threading.Lock()
-    checks = DeviceChecks()
 
     @router.get("/health", response_model=InstrumentHealth)
     def get_health():
-        """Whether the microscope is connected, halted, and whether each
-        device's hardware answers (the gateway reads it for its health)."""
-        return answer(instrument_health(session, checks))
+        """Whether the microscope is connected or halted, with no call to the
+        hardware (the gateway reads it for its health)."""
+        return answer(instrument_health(session))
 
     @router.get("/connection", response_model=ConnectionView)
     def get_connection():

@@ -43,7 +43,6 @@ interface Health {
 interface ServersHealth {
   app: Health;
   microscope: Health;
-  devices: Record<string, { ok: boolean; detail: string | null; answered: boolean }>;
 }
 
 /** The statuses that need the operator's eye. */

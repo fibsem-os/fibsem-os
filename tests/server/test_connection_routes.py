@@ -116,7 +116,7 @@ def test_disconnect_is_refused_while_a_run_is_on(server, monkeypatch):
     monkeypatch.undo()  # before the fixture disconnects
 
 
-def test_health_says_the_connection_the_halt_and_each_devices_check(server):
+def test_health_says_the_connection_and_the_halt_without_the_hardware(server):
     before = server.get("/microscope/health", headers=_as(OPERATOR))
     assert before.status_code == 200, before.text
     assert before.json() == {
@@ -124,15 +124,17 @@ def test_health_says_the_connection_the_halt_and_each_devices_check(server):
         "connecting": None,
         "error": None,
         "halted": None,
-        "devices": {},
     }
     server.post("/microscope/connect", headers=_as(OPERATOR), json={})
     _connected(server)
 
-    health = server.get("/microscope/health", headers=_as(OPERATOR)).json()
+    # Asking never reaches a device: no read, no claim of the imaging channel.
+    devices = server.session.microscope.devices.values()
+    for device in devices:
+        device.check_health = lambda: pytest.fail("health read the hardware")
+    with server.session.microscope.resources.claim("imaging_channel"):
+        health = server.get("/microscope/health", headers=_as(OPERATOR)).json()
     assert health["connected"] is True and health["halted"] is None
-    assert health["devices"], "every served device is listed"
-    assert all(d["ok"] and d["answered"] for d in health["devices"].values())
 
     halt = next(iter(server.session.microscope.devices.values())).safety_halt
     halt.set("door open")

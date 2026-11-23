@@ -4,9 +4,11 @@ a hub both read.
 
 The gateway asks on a thread of its own, never on a page's request: the App
 Server's ``/health`` every few seconds, timed, and its ``/microscope/health``
-(the connection, the Safety Halt, whether each device's hardware answers)
-less often, since that reads the hardware. It only reports: nothing is
-restarted (auto-restart is planned for later).
+(the connection and the Safety Halt) less often. Neither reaches the
+hardware: both are what the App Server already holds, so asking never takes
+the microscope's locks or switches its imaging channel. Whether the hardware
+itself answers is the microscope server's to say, once it is its own process.
+It only reports: nothing is restarted (auto-restart is planned for later).
 """
 
 from __future__ import annotations
@@ -14,7 +16,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from fibsem.server.discovery import read_discovery_file
@@ -56,10 +58,9 @@ APP_EVERY_S = 5.0
 MICROSCOPE_EVERY_S = 15.0
 # An answer slower than this is "slow".
 APP_SLOW_S = 1.0
-MICROSCOPE_SLOW_S = 3.0
+MICROSCOPE_SLOW_S = 1.0
 APP_TIMEOUT_S = 5.0
-# The App Server waits up to 5 s for the devices' checks.
-MICROSCOPE_TIMEOUT_S = 10.0
+MICROSCOPE_TIMEOUT_S = 5.0
 
 
 @dataclass
@@ -76,19 +77,9 @@ class Health:
 
 
 @dataclass
-class DeviceStatus:
-    """A device's own check, as the App Server answered it."""
-
-    ok: bool
-    detail: Optional[str] = None
-    answered: bool = True
-
-
-@dataclass
 class ServersHealth:
     app: Health
     microscope: Health
-    devices: Dict[str, DeviceStatus] = field(default_factory=dict)
 
 
 class Unreachable(Exception):
@@ -132,15 +123,6 @@ def microscope_health(answer: Dict[str, Any]) -> Tuple[str, Optional[str]]:
         if error:
             return FAULT, f"The last connect failed: {error}"
         return NOT_CONNECTED, None
-    devices = answer.get("devices") or {}
-    silent = [n for n, d in devices.items() if not d.get("answered", True)]
-    if silent:
-        return NOT_ANSWERING, f"No answer from {', '.join(sorted(silent))}."
-    bad = {n: d for n, d in devices.items() if not d.get("ok", True)}
-    if bad:
-        return FAULT, "; ".join(
-            f"{n}: {d.get('detail') or 'not ok'}" for n, d in sorted(bad.items())
-        )
     return OK, None
 
 
@@ -167,7 +149,6 @@ class HealthWatch:
         self._lock = threading.Lock()
         self._app = Health(status=STOPPED)
         self._microscope = Health(status=STOPPED)
-        self._devices: Dict[str, DeviceStatus] = {}
         self._closed = threading.Event()
 
     # -- reading -----------------------------------------------------------
@@ -177,7 +158,6 @@ class HealthWatch:
             return ServersHealth(
                 app=replace(self._app),
                 microscope=replace(self._microscope),
-                devices=dict(self._devices),
             )
 
     # -- asking ------------------------------------------------------------
@@ -253,12 +233,10 @@ class HealthWatch:
             self._set("_app", OK, None, took)
 
     def check_microscope(self) -> None:
-        """The App Server's ``/microscope/health``: the connection, the Safety
-        Halt and each device's check."""
+        """The App Server's ``/microscope/health``: the connection and the
+        Safety Halt."""
         app = self.state().app.status
         if app in (STOPPED, STARTING):
-            with self._lock:
-                self._devices = {}
             self._set("_microscope", STOPPED, "The app isn't running.")
             return
         url = self._url()
@@ -284,16 +262,7 @@ class HealthWatch:
             return
         found, detail = microscope_health(answer)
         if found == OK and took > MICROSCOPE_SLOW_S:
-            found, detail = SLOW, f"Its checks took {took:.1f} s."
-        with self._lock:
-            self._devices = {
-                name: DeviceStatus(
-                    ok=bool(d.get("ok", True)),
-                    detail=d.get("detail"),
-                    answered=bool(d.get("answered", True)),
-                )
-                for name, d in (answer.get("devices") or {}).items()
-            }
+            found, detail = SLOW, f"/microscope/health took {took:.1f} s."
         self._set("_microscope", found, detail, took)
 
     # -- the thread --------------------------------------------------------
