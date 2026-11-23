@@ -4,8 +4,9 @@ and ended from the gateway's page or window, kept by an `AgentSessionManager`.
 Start needs the app running, with or without a microscope connected. It pairs the agent's
 token straight into the shared ``paired.json`` (the operator starting it is
 the Allow), sets the App Server's level, then starts
-``fibsem-agent --playbook NAME``. The token and the API key go only in the
-agent's environment. When the app comes back after a restart the manager
+``fibsem-agent --playbook NAME``, with the gateway's own address: the agent
+reaches the App Server through the gateway's port. The token and the API key
+go only in the agent's environment. When the app comes back after a restart the manager
 resumes the agent, and the gateway sets the Start level again: the App Server
 starts at Watch on every launch. End stops the agent and unpairs it.
 Resume carries an ended session on, whoever started it, as its record says.
@@ -227,8 +228,12 @@ class GatewayAgent:
         stored: Callable[[str], Optional[str]] = stored_secret,
         platform: str = sys.platform,
         microscope: Optional[str] = None,
+        own_url: Optional[str] = None,
     ) -> None:
         self._gateway = gateway
+        # The gateway's own address: the agent reaches the App Server through
+        # it (`fibsem.gateway.passthrough`), else directly.
+        self._own_url = own_url
         self._tokens = tokens
         self._discovery = discovery
         self._level = level
@@ -343,7 +348,7 @@ class GatewayAgent:
             except GatewayRefused:
                 self._unpair()
                 raise
-            args = ["--playbook", playbook, "--url", url]
+            args = ["--playbook", playbook, "--url", self._own_url or url]
             if budget_usd is not None:
                 args += ["--max-budget-usd", f"{float(budget_usd):g}"]
             about = {
@@ -405,7 +410,10 @@ class GatewayAgent:
             except GatewayRefused:
                 self._unpair()
                 raise
-            args = (["--playbook", playbook] if playbook else []) + ["--url", url]
+            args = (["--playbook", playbook] if playbook else []) + [
+                "--url",
+                self._own_url or url,
+            ]
             cwd = record.get("cwd")
             if mode in ("code", "files"):
                 # Its own work/ is the flag alone; any other folder is named.
