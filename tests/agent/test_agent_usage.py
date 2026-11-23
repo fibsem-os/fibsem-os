@@ -148,3 +148,67 @@ def test_without_the_clis_figure_the_context_is_the_last_calls_size():
         message_id="m1",
     )
     assert _turn([said, _result(1.0)]).context == {"used": 1210}
+
+
+class _Servers(_Client):
+    """The SDK's client stood in, its MCP servers as the CLI says they are."""
+
+    def __init__(self, servers, reconnects=True):
+        super().__init__([])
+        self.servers, self.reconnects, self.reconnected = servers, reconnects, []
+
+    async def get_mcp_status(self):
+        return {"mcpServers": self.servers}
+
+    async def reconnect_mcp_server(self, name):
+        if not self.reconnects:
+            raise RuntimeError("it exited again")
+        self.reconnected.append(name)
+
+
+def _agent(client):
+    from fibsem.ai.agent.harness import SdkAgent
+
+    agent = SdkAgent(harness_mod.build_options(harness_mod.find_checkout()))
+    agent._client = client
+    return agent
+
+
+def test_a_turn_starts_again_a_failed_mcp_server_first():
+    pytest.importorskip("claude_agent_sdk")
+    client = _Servers(
+        [
+            {"name": "fibsem", "status": "failed", "error": "exited"},
+            {"name": "lab", "status": "connected"},
+            {"name": "off", "status": "disabled"},
+        ]
+    )
+    agent = _agent(client)
+    asyncio.run(agent.turn("go"))
+
+    assert client.reconnected == ["fibsem"]
+    step, done = agent.transcript[:2]
+    assert (step["kind"], step["verb"], step["text"]) == (
+        "step",
+        "Reconnected",
+        "the fibsem tools",
+    )
+    assert done["kind"] == "done" and done["step"] == step["seq"]
+
+
+def test_a_server_that_wont_reconnect_is_a_failed_line_and_the_turn_goes_on():
+    pytest.importorskip("claude_agent_sdk")
+    client = _Servers([{"name": "fibsem", "status": "failed"}], reconnects=False)
+    agent = _agent(client)
+    assert asyncio.run(agent.reconnect_failed()) == []
+    assert agent.transcript[-1]["kind"] == "failed"
+    assert "it exited again" in agent.transcript[-1]["text"]
+    asyncio.run(agent.turn("go"))
+
+
+def test_connected_servers_and_an_older_cli_reconnect_nothing():
+    pytest.importorskip("claude_agent_sdk")
+    client = _Servers([{"name": "fibsem", "status": "connected"}])
+    assert asyncio.run(_agent(client).reconnect_failed()) == []
+    # No get_mcp_status at all: the turn goes on as before.
+    assert asyncio.run(_agent(_Client([])).reconnect_failed()) == []

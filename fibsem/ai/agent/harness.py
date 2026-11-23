@@ -166,6 +166,10 @@ MAX_BUFFER_SIZE = 32 * 1024 * 1024
 SERVER_WAIT_S = 600.0
 # How long the CLI has to say how full the context is, after a turn.
 CONTEXT_WAIT_S = 10.0
+# Before a turn: how long the CLI has to say how its MCP servers are, and to
+# start a failed one again (`SdkAgent.reconnect_failed`).
+MCP_STATUS_WAIT_S = 10.0
+MCP_RECONNECT_WAIT_S = 60.0
 # The transcript (`Harness._send_transcript`): sent this soon after a line is
 # printed, so a burst goes together, and again this often while the server
 # can't take it; at most this many lines at once, at most this many kept while
@@ -2426,6 +2430,7 @@ class SdkAgent:
     async def turn(self, prompt: str) -> TurnEnd:
         from claude_agent_sdk import AssistantMessage, ResultMessage, ToolUseBlock
 
+        await self.reconnect_failed()
         await self._client.query(prompt)
         end, error, result = TurnEnd(subtype="no_result"), None, None
         async for message in self._client.receive_response():
@@ -2458,6 +2463,47 @@ class SdkAgent:
             if result.total_cost_usd is not None:
                 self._cost_usd = result.total_cost_usd
         return end
+
+    async def reconnect_failed(self) -> List[str]:
+        """Before a turn, start again each MCP server the CLI has given up on,
+        so the turn has its tools. A server whose process ended (a crash, or
+        killed) stays failed in the CLI for the rest of the session otherwise;
+        an App Server that restarts needs none of this, as the sidecar follows
+        it (`fibsem.client.transport.Transport`). The names it reconnected."""
+        try:
+            status = await asyncio.wait_for(
+                self._client.get_mcp_status(), MCP_STATUS_WAIT_S
+            )
+        except Exception:  # noqa: BLE001 - an older CLI, or a slow one
+            log.debug("The MCP servers' status couldn't be read.", exc_info=True)
+            return []
+        failed = [
+            server.get("name")
+            for server in (status or {}).get("mcpServers") or []
+            if server.get("status") == "failed" and server.get("name")
+        ]
+        back = []
+        for name in failed:
+            seq = _line(self, "step", f"the {name} tools", verb="Reconnected")
+            began = time.monotonic()
+            try:
+                await asyncio.wait_for(
+                    self._client.reconnect_mcp_server(name), MCP_RECONNECT_WAIT_S
+                )
+            except Exception as exc:  # noqa: BLE001 - the turn goes on without
+                log.warning("MCP server %s failed and didn't reconnect: %s", name, exc)
+                _line(
+                    self,
+                    "failed",
+                    _clip(f"{name} didn't reconnect: {exc}", 160),
+                    step=seq,
+                    took_s=round(time.monotonic() - began, 1),
+                )
+                continue
+            log.warning("MCP server %s had failed: reconnected.", name)
+            _line(self, "done", "", step=seq, took_s=round(time.monotonic() - began, 1))
+            back.append(name)
+        return back
 
     async def _context(self) -> Optional[Dict[str, int]]:
         """How full the context is, from the CLI; the last call's size, if
