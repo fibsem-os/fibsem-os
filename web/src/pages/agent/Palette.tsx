@@ -51,10 +51,12 @@ export function Palette({
   open,
   onOpenChange,
   entries,
+  placeholder = "Search commands, the chat, review items, lamellae, pages…",
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   entries: PaletteEntry[];
+  placeholder?: string;
 }) {
   const [query, setQuery] = useState("");
   const [at, setAt] = useState(0);
@@ -108,7 +110,7 @@ export function Palette({
               aria-controls="palette-list"
               aria-activedescendant={shown.length ? `palette-${current}` : undefined}
               aria-label="Search"
-              placeholder="Search commands, the chat, review items, lamellae, pages…"
+              placeholder={placeholder}
               value={query}
               onChange={(e) => {
                 setQuery(e.target.value);
