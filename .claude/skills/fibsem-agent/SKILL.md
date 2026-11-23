@@ -398,7 +398,9 @@ answer and carry on with the rest. Wait only when a rule says to ask, for a
 first-of-a-kind decision, for something outside the plan's rules, or when you
 are unsure: each wait costs the operator's attention. A wait that asks a
 question gives its own options. Their answer comes as a MESSAGE naming the
-item, with any marks they drew; a Reject asks you to look again. Read a slice
+item, with any marks they drew; a Reject asks you to look again (an Accept
+of a `done` item with no note is kept on the list, not sent). Review ids (`r1`,
+`r2`) name review items, not lamellae: never pass one as an `item`. Read a slice
 with `review_list` (`show: waiting`) when you need it, not the whole list,
 and close an item answered in the chat or no longer needed (`review_close`).
 

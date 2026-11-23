@@ -206,3 +206,19 @@ def test_a_restarted_app_reads_the_list_back(server, tmp_path):
         ("r1", None),
         ("r2", "Accept"),
     ]
+
+
+def test_accepting_done_work_with_nothing_to_add_is_not_told(server):
+    agent, operator, _, _, fake = server
+    add(agent, title="Rough mill done")
+    add(agent, title="Thinned")
+    quiet = operator.post("/app/agent/review/r1/answer", json={"choice": "Accept"})
+    assert quiet.json()["state"] == "answered"
+    assert quiet.json()["told"] is False
+    assert fake.messages == []
+    # A Reject, or an Accept with a note, still reaches the agent.
+    told = operator.post(
+        "/app/agent/review/r2/answer", json={"choice": "Accept", "note": "Nice."}
+    )
+    assert told.json()["told"] is True
+    assert fake.messages[0][0] == 'Review r2 "Thinned": Accept. Nice.'

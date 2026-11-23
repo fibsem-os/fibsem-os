@@ -294,8 +294,18 @@ def build_operator_router(agent: AgentControl) -> APIRouter:
                 raise HTTPException(
                     status_code=refusal.status_code, detail=refusal.detail
                 )
-        text = agent_review.answered_text(item, body.choice, note)
-        message_id = agent.message(text, evidence=record)
+        # Accepting finished work, with nothing to add, is kept on the list
+        # but not told: the agent has nothing to do with it.
+        quiet = (
+            item["level"] == "done"
+            and body.choice == "Accept"
+            and not note
+            and record is None
+        )
+        message_id = None
+        if not quiet:
+            text = agent_review.answered_text(item, body.choice, note)
+            message_id = agent.message(text, evidence=record)
         answered = store.answer(
             session_id,
             item_id,
