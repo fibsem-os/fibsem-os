@@ -9,6 +9,7 @@ from fibsem.server.agent.handoff import build_agent_handoff_router
 from fibsem.server.agent.library import build_library_router
 from fibsem.server.agent.plan import PlanStore, build_agent_plan_router
 from fibsem.server.agent.requests import RequestStore, build_request_router
+from fibsem.server.agent.review import build_agent_review_router
 from fibsem.server.agent.session import build_agent_session_router
 from fibsem.server.agent.transcript import build_agent_transcript_router
 
@@ -59,6 +60,8 @@ def mount_agent_routes(
         files=app.state.agent_files,
     )
     app.include_router(build_agent_plan_router(experiment_path, emit))
+    # Its review list: finished work, checks and waits for the operator.
+    app.include_router(build_agent_review_router(experiment_path, emit))
     # What fibsem-agent printed, and the agent's handoff notes.
     app.include_router(build_agent_transcript_router(experiment_path, emit))
     app.include_router(build_agent_handoff_router(experiment_path))

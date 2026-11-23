@@ -1,0 +1,335 @@
+"""The agent's review list: its finished work, what it wants the operator to
+look at, and what it waits on, each with its pictures.
+
+The agent adds an item (``review_add``) at one of three levels: ``done`` (a
+record of finished work), ``check`` (it wants a look, and carries on) or
+``wait`` (it holds that piece of work until someone answers). The operator
+reads the list on the Agent page and answers an item with one of its options
+(Accept or Reject unless the agent gave its own), a note and marks on a
+picture; the answer reaches the agent as the operator's message
+(`fibsem.server.agent.operator`). The agent may close an item it no longer
+needs answered. Nothing is enforced: a wait is the agent's own promise.
+
+Kept at ``agent/review-<session id>.jsonl`` beside the plan (`AgentFiles`):
+one line per item added, answered or closed, read back in order.
+"""
+
+import json
+import logging
+from datetime import datetime
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, Callable, Dict, List, Optional
+
+from fastapi import APIRouter, Depends, Request
+
+from fibsem.ai.agent.levels import AgentLevel
+from fibsem.server.agent.files import AgentFiles
+from fibsem.server.agent.plan import running_session
+from fibsem.server.agent.record import cited_evidence
+from fibsem.server.auth import (
+    AuthConfig,
+    is_operator_token,
+    refusal_error,
+    require_level,
+)
+from fibsem.server.bodies import ReviewAddBody, ReviewCloseBody
+
+logger = logging.getLogger(__name__)
+
+ADDED = "agent_review_added"
+ANSWERED = "agent_review_answered"
+CLOSED = "agent_review_closed"
+LEVELS = ("done", "check", "wait")
+OPTIONS = ("Accept", "Reject")
+MAX_TITLE = 120
+MAX_TEXT = 2000
+MAX_ABOUT = 60
+MAX_OPTION = 40
+MAX_OPTIONS = 4
+MAX_IMAGES = 4
+MAX_FACTS = 4
+MAX_NOTE = 4000
+
+
+def _invalid(message: str) -> Exception:
+    return refusal_error(422, "invalid", message)
+
+
+def now() -> str:
+    return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def _line(raw: Any, name: str, most: int, required: bool = False) -> str:
+    text = raw.strip() if isinstance(raw, str) else ""
+    if (required and not text) or len(text) > most or "\n" in text:
+        need = "a line" if required else "at most a line"
+        raise _invalid(f"{name} is {need} of at most {most} characters.")
+    return text
+
+
+def _images(raw: Optional[List[str]]) -> List[str]:
+    found = [p.strip().replace("\\", "/") for p in raw or [] if p and p.strip()]
+    if len(found) > MAX_IMAGES:
+        raise _invalid(f"images is at most {MAX_IMAGES} paths.")
+    for path in found:
+        if path.startswith("/") or ".." in path.split("/") or ":" in path:
+            raise _invalid(
+                f"{path!r}: images are paths inside the experiment, as the "
+                "image tools answer them."
+            )
+    return found
+
+
+def _facts(raw: Optional[List[Dict[str, Any]]]) -> List[Dict[str, str]]:
+    found = []
+    for fact in raw or []:
+        if not isinstance(fact, dict):
+            raise _invalid("facts is a list of {label, value}.")
+        found.append(
+            {
+                "label": _line(fact.get("label"), "A fact's label", 30, True),
+                "value": _line(fact.get("value"), "A fact's value", 80, True),
+            }
+        )
+    if len(found) > MAX_FACTS:
+        raise _invalid(f"facts is at most {MAX_FACTS}.")
+    return found
+
+
+def _options(raw: Optional[List[str]]) -> List[str]:
+    if not raw:
+        return list(OPTIONS)
+    found = [_line(o, "An option", MAX_OPTION, True) for o in raw]
+    if not 2 <= len(found) <= MAX_OPTIONS or len(set(found)) < len(found):
+        raise _invalid(f"options is 2 to {MAX_OPTIONS} different answers.")
+    return found
+
+
+def state(item: Dict[str, Any]) -> str:
+    """waiting, to_check, answered, closed or done."""
+    if item.get("answer"):
+        return "answered"
+    if item.get("closed"):
+        return "closed"
+    return {"wait": "waiting", "check": "to_check"}.get(item["level"], "done")
+
+
+class ReviewStore:
+    """One session's review list, in memory and in the session's folder."""
+
+    def __init__(
+        self,
+        experiment_path: Callable[[], Optional[str]],
+        files: Optional[AgentFiles] = None,
+    ) -> None:
+        self._files = files or AgentFiles(experiment_path)
+        self.session_id: Optional[str] = None
+        self.items: List[Dict[str, Any]] = []
+
+    def _file(self, session_id: str) -> Optional[Path]:
+        folder = self._files.folder(session_id)
+        return folder / f"review-{session_id}.jsonl" if folder is not None else None
+
+    def current(self, session_id: Optional[str]) -> List[Dict[str, Any]]:
+        """The list of *session_id*: what is held, else read from its file."""
+        if session_id != self.session_id:
+            self.session_id, self.items = session_id, []
+            path = self._file(session_id) if session_id else None
+            if path is not None and path.is_file():
+                try:
+                    for line in path.read_text(encoding="utf-8").splitlines():
+                        if line.strip():
+                            self._apply(json.loads(line))
+                except (OSError, ValueError):
+                    logger.warning("could not read the review %s", path, exc_info=True)
+        return self.items
+
+    def _apply(self, change: Dict[str, Any]) -> None:
+        op = change.get("op")
+        if op == "add":
+            self.items.append({k: v for k, v in change.items() if k != "op"})
+            return
+        item = self.find(change.get("id"))
+        if item is None:
+            return
+        if op == "answer":
+            item["answer"] = change.get("answer")
+        elif op == "close":
+            item["closed"] = change.get("closed")
+
+    def _write(self, change: Dict[str, Any]) -> None:
+        self._apply(change)
+        path = self._file(self.session_id) if self.session_id else None
+        if path is None:
+            return
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "a", encoding="utf-8") as out:
+                out.write(json.dumps(change) + "\n")
+        except OSError:
+            logger.warning("could not write the review %s", path, exc_info=True)
+
+    def find(self, item_id: Any) -> Optional[Dict[str, Any]]:
+        return next((i for i in self.items if i["id"] == item_id), None)
+
+    def add(self, session_id: str, item: Dict[str, Any]) -> Dict[str, Any]:
+        self.current(session_id)
+        item = {"id": f"r{len(self.items) + 1}", "at": now(), **item}
+        self._write({"op": "add", **item})
+        return self.find(item["id"])
+
+    def answer(
+        self, session_id: str, item_id: str, answer: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        self.current(session_id)
+        self._write({"op": "answer", "id": item_id, "answer": answer})
+        return self.find(item_id)
+
+    def close(self, session_id: str, item_id: str, reason: str) -> Dict[str, Any]:
+        self.current(session_id)
+        closed = {"reason": reason, "at": now()}
+        self._write({"op": "close", "id": item_id, "closed": closed})
+        return self.find(item_id)
+
+    def view(self, item: Dict[str, Any]) -> Dict[str, Any]:
+        return {**item, "state": state(item)}
+
+    def counts(self) -> Dict[str, int]:
+        found = {"waiting": 0, "to_check": 0, "rejected": 0, "all": len(self.items)}
+        for item in self.items:
+            said = state(item)
+            if said in found:
+                found[said] += 1
+            choice = (item.get("answer") or {}).get("choice")
+            if choice == "Reject":
+                found["rejected"] += 1
+        return found
+
+
+def store_of(
+    request: Request, experiment_path: Callable[[], Optional[str]]
+) -> ReviewStore:
+    """The app's review store, made on first use."""
+    store = getattr(request.app.state, "agent_review", None)
+    if store is None:
+        store = request.app.state.agent_review = ReviewStore(
+            experiment_path, files=getattr(request.app.state, "agent_files", None)
+        )
+    return store
+
+
+def open_item(store: ReviewStore, session_id: Optional[str], item_id: str):
+    """The item *item_id* of the session's list, refused when it is not
+    there or no longer waits for an answer."""
+    store.current(session_id)
+    item = store.find(item_id)
+    if item is None:
+        raise refusal_error(404, "not_found", f"No review item {item_id}.")
+    if item.get("answer") or item.get("closed"):
+        raise refusal_error(
+            409, "not_open", f"Review item {item_id} is already {state(item)}."
+        )
+    return item
+
+
+def build_agent_review_router(
+    experiment_path: Callable[[], Optional[str]],
+    emit: Optional[Callable[..., None]] = None,
+) -> APIRouter:
+    """``/app/agent/review``: the agent adds and closes items, both read
+    them; the operator's answer is on the operator's router."""
+    router = APIRouter(
+        prefix="/app/agent", dependencies=[Depends(require_level(AgentLevel.WATCH))]
+    )
+
+    def _record(kind: str, payload: Dict[str, Any]) -> None:
+        if emit is None:
+            return
+        try:
+            emit(kind, payload, actor="agent")
+        except Exception:  # noqa: BLE001 - the record never costs the item
+            logger.debug("could not record %s", kind, exc_info=True)
+
+    def _agent_session(request: Request) -> str:
+        auth: AuthConfig = request.app.state.auth
+        if is_operator_token(auth, request.headers.get("Authorization")):
+            raise refusal_error(
+                403, "agent_only", "The agent adds and closes review items."
+            )
+        found = running_session(auth)
+        if found is None:
+            raise refusal_error(
+                409,
+                "no_session",
+                "No agent session is running: the review list is the session's.",
+            )
+        return found
+
+    @router.get("/review")
+    def get_review(request: Request, show: str = "all", about: str = ""):
+        session = request.app.state.auth.agent_session or {}
+        store = store_of(request, experiment_path)
+        items = store.current(session.get("session_id"))
+        shown = [store.view(i) for i in items]
+        if show != "all":
+            shown = [i for i in shown if i["state"] == show]
+        if about:
+            shown = [i for i in shown if about.lower() in i.get("about", "").lower()]
+        return {
+            "session_id": store.session_id,
+            "items": shown,
+            "counts": store.counts(),
+        }
+
+    @router.post("/review")
+    def add_review(request: Request, body: ReviewAddBody):
+        session_id = _agent_session(request)
+        if body.level not in LEVELS:
+            raise _invalid(f"level is one of {list(LEVELS)}.")
+        if len(body.text) > MAX_TEXT:
+            raise _invalid(f"text is at most {MAX_TEXT} characters.")
+        cited = cited_evidence(
+            SimpleNamespace(experiment_path=experiment_path()), request
+        )
+        item = {
+            "level": body.level,
+            "title": _line(body.title, "title", MAX_TITLE, True),
+            "text": body.text.strip(),
+            "about": _line(body.about, "about", MAX_ABOUT),
+            "images": _images(body.images),
+            "evidence": cited["evidence_id"] if cited else None,
+            "facts": _facts(body.facts),
+            "options": _options(body.options),
+        }
+        store = store_of(request, experiment_path)
+        added = store.add(session_id, item)
+        _record(
+            ADDED,
+            {
+                "id": added["id"],
+                "level": added["level"],
+                "title": added["title"],
+                "about": added["about"],
+                "session_id": session_id,
+            },
+        )
+        return store.view(added)
+
+    @router.post("/review/{item_id}/close")
+    def close_review(request: Request, item_id: str, body: ReviewCloseBody):
+        session_id = _agent_session(request)
+        reason = _line(body.reason, "reason", 300, True)
+        store = store_of(request, experiment_path)
+        open_item(store, session_id, item_id)
+        closed = store.close(session_id, item_id, reason)
+        _record(CLOSED, {"id": item_id, "reason": reason, "session_id": session_id})
+        return store.view(closed)
+
+    return router
+
+
+def answered_text(item: Dict[str, Any], choice: str, note: str) -> str:
+    """The operator's answer as the message the agent reads."""
+    said = f'Review {item["id"]} "{item["title"]}": {choice}.'
+    return f"{said} {note}" if note else said

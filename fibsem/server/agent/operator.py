@@ -32,11 +32,12 @@ from fibsem.codec import encode
 from fibsem.imaging.marks import plane_shown
 from fibsem.server import files
 from fibsem.server.agent import plan as agent_plan
+from fibsem.server.agent import review as agent_review
 from fibsem.server.agent.customisation import customisation
 from fibsem.server.agent.requests import RequestRefused
 from fibsem.server.agent.setup import setup_text
 from fibsem.server.auth import refusal_error, require_operator
-from fibsem.server.bodies import LevelBody, MessageBody, ReasonBody
+from fibsem.server.bodies import LevelBody, MessageBody, ReasonBody, ReviewAnswerBody
 from fibsem.server.knowledge_routes import entry_source, request_instrument
 from fibsem.server.parts import served_parts
 from fibsem.server.responses import (
@@ -263,6 +264,64 @@ def build_operator_router(agent: AgentControl) -> APIRouter:
             )
         evidence_id = record["evidence_id"] if record is not None else None
         return answer(MessageSent(message_id, evidence_id), status_code=201)
+
+    @router.post("/review/{item_id}/answer")
+    def answer_review(request: Request, item_id: str, body: ReviewAnswerBody):
+        """The operator's answer to a review item: one of its options, a note
+        and marks on one of its pictures. It reaches the agent as a message
+        naming the item."""
+        session = request.app.state.auth.agent_session or {}
+        session_id = session.get("session_id")
+        store = agent_review.store_of(request, agent.experiment_path)
+        item = agent_review.open_item(store, session_id, item_id)
+        if body.choice not in item["options"]:
+            raise refusal_error(422, "invalid", f"choice is one of {item['options']}.")
+        note = body.note.strip()
+        if len(note) > agent_review.MAX_NOTE:
+            raise refusal_error(
+                422,
+                "too_long",
+                f"A note is at most {agent_review.MAX_NOTE} characters.",
+            )
+        record = None
+        if body.evidence is not None:
+            marked = asdict(body.evidence)
+            try:
+                record = evidence.save(
+                    agent.experiment_path,
+                    image=marked.get("image"),
+                    marks=marked.get("marks"),
+                    channels=marked.get("channels"),
+                    by=evidence.OPERATOR,
+                )
+            except evidence.EvidenceRefused as refusal:
+                raise HTTPException(
+                    status_code=refusal.status_code, detail=refusal.detail
+                )
+        # Accepting finished work, with nothing to add, is kept on the list
+        # but not told: the agent has nothing to do with it.
+        quiet = (
+            item["level"] == "done"
+            and body.choice == "Accept"
+            and not note
+            and record is None
+        )
+        message_id = None
+        if not quiet:
+            text = agent_review.answered_text(item, body.choice, note)
+            message_id = agent.message(text, evidence=record)
+        answered = store.answer(
+            session_id,
+            item_id,
+            {
+                "choice": body.choice,
+                "note": note,
+                "evidence": record["evidence_id"] if record else None,
+                "message_id": message_id,
+                "at": agent_review.now(),
+            },
+        )
+        return {**store.view(answered), "told": message_id is not None}
 
     @router.post("/messages/{message_id}/interrupt", response_model=MessageInterrupted)
     def interrupt_for_message(message_id: str):

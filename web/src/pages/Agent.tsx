@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ClipboardCheck,
   ListChecks,
   ListFilter,
   MessageCircle,
@@ -39,6 +40,7 @@ import { EvidenceImage } from "./agent/Pictures";
 import { PlanDialog } from "./agent/PlanDialog";
 import { say, since } from "./agent/steps";
 import { asking, SideChat } from "./agent/SideChat";
+import { ReviewTab, useReview } from "./agent/ReviewTab";
 import { type ColumnTab, SafetyRow, SideColumn, useSafetyActions } from "./agent/SideColumn";
 import { hasPanel, SidePanel } from "./agent/SidePanel";
 
@@ -826,6 +828,8 @@ export function AgentPage() {
     queryFn: () => api<AgentPlan>("/app/agent/plan"),
   });
   const [planOpen, setPlanOpen] = useState(false);
+  // The review list: the agent's finished work, its checks and its waits.
+  const review = useReview();
   // The side column's Microscope tab and safety row, while the microscope's routes are served.
   const caps = useQuery({ queryKey: ["capabilities"], queryFn: () => api<Capabilities>("/capabilities") });
   const instrument =
@@ -973,6 +977,16 @@ export function AgentPage() {
         ),
     },
   ];
+  if (review.data?.items.length)
+    tabs.push({
+      id: "review",
+      label: "Review",
+      icon: <ClipboardCheck size={14} />,
+      badge: review.data.counts.waiting ? (
+        <span className="block size-1.5 rounded-full bg-[#e0a030]" aria-label="waiting on you" />
+      ) : undefined,
+      render: () => <ReviewTab />,
+    });
   if (instrument)
     tabs.push({
       id: "microscope",

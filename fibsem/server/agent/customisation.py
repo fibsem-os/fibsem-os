@@ -17,7 +17,15 @@ from fibsem.server.responses import (
 # The dialog's filter: the catalog's groups (a tool name's first word) in fewer
 # categories.
 CATEGORIES: Dict[str, Tuple[str, ...]] = {
-    "Microscope": ("server", "plan", "microscope", "device", "service", "stage"),
+    "Microscope": (
+        "server",
+        "plan",
+        "review",
+        "microscope",
+        "device",
+        "service",
+        "stage",
+    ),
     "Imaging": ("beam", "fm", "correlation"),
     "Milling": ("milling", "alignment", "coating"),
     "Analysis": ("analysis",),

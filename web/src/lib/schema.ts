@@ -2161,6 +2161,33 @@ export interface components {
         ResultAnswer: {
             result: unknown;
         };
+        /** @description POST /app/agent/review: an item for the operator's review list. */
+        ReviewAddBody: {
+            /** @default  */
+            about?: string;
+            facts?: {
+                [key: string]: unknown;
+            }[] | null;
+            images?: string[] | null;
+            /** @default done */
+            level?: string;
+            options?: string[] | null;
+            /** @default  */
+            text?: string;
+            title: string;
+        };
+        /** @description POST /app/agent/review/{id}/answer: the operator's answer, a note and
+         *     marks on one of its pictures. */
+        ReviewAnswerBody: {
+            choice: string;
+            evidence?: components["schemas"]["MarkedEvidence"] | null;
+            /** @default  */
+            note?: string;
+        };
+        /** @description POST /app/agent/review/{id}/close: the agent no longer needs an answer. */
+        ReviewCloseBody: {
+            reason: string;
+        };
         /** @description One entry in the index. */
         Row: {
             /** @default false */

@@ -284,6 +284,7 @@ EVIDENCE_PARAM = (
 GROUP_TITLES: Dict[str, str] = {
     "server": "Server",
     "plan": "Plan",
+    "review": "Review",
     "microscope": "Microscope",
     "device": "Device",
     "service": "Service",
@@ -316,6 +317,8 @@ _WRITES_AT_WATCH = frozenset(
         "plan_set_section",  # the session's plan.md, beside the experiment
         "plan_append",
         "plan_check_step",
+        "review_add",  # the session's review list, beside the plan
+        "review_close",
         "request_create",
         "request_withdraw",
         "item_measure_thickness",  # saves its result beside the image

@@ -359,7 +359,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="plan_set_section",
-        description="Write one section of your plan (plan.md), replacing it; empty text removes it. Brief: the operator's question, the sample and the target, the goal, in their words, with a first line 'Sample: <name>' -- the sample is written once, and only the operator changes it after (409 sample_set). Playbook: which one runs and who chose it. Rules: the operator's standing rules, one '- ' line each, in their words. Steps: '- [ ] step' boxes, grouped under '### Group' lines, ticked '- [x]' only when done and said. Progress: what happened, newest last. Summary: at the end. No # or ## headings inside a section. To add a line use plan_append, to tick a box plan_check_step. Answers the section's name and length and the boxes done of total, not the plan (plan_get reads it). Refused (409 no_session) before your session is reported.",
+        description="Write one section of your plan (plan.md), replacing it; empty text removes it. Brief: the operator's question, the sample and the target, the goal, in their words, with a first line 'Sample: <name>' -- the sample is written once, and only the operator changes it after (409 sample_set). Playbook: which one runs and who chose it. Rules: the operator's standing rules, one '- ' line each, in their words. Steps: '- [ ] step' boxes, grouped under '### Group' lines, ticked '- [x]' only when done and said. Progress: one line per block of work, newest last (finished results and their pictures go on the review list, review_add). Summary: at the end. No # or ## headings inside a section. To add a line use plan_append, to tick a box plan_check_step. Answers the section's name and length and the boxes done of total, not the plan (plan_get reads it). Refused (409 no_session) before your session is reported.",
         method="POST",
         path="/app/agent/plan/section",
         level="watch",
@@ -394,6 +394,58 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "group": "optional: the ### group it is under, when two boxes read alike",
         },
         optional=("done", "group"),
+    ),
+    ToolSpec(
+        name="review_add",
+        description="Put a piece of finished work on the operator's review list, with its pictures, so they see what was done without reading the chat: one item per result worth seeing (a lamella thinned, a site placed, a screen done), not per call. level: done, a record (they may still reject it); check, you want a look and carry on; wait, you hold that piece of work until they answer (other work goes on), for a rule that says to ask, a first-of-a-kind decision, something outside the plan's rules or that you are unsure of. Keep waits rare. images: up to 4 experiment images, the key one first; evidence, a picture with your marks. Their answer comes as a MESSAGE naming the item ('Review r3 ...: Reject. ...'), with any marks they drew. Answers the item with its id. Keep the plan's Progress to one line per block of work: the detail goes here.",
+        method="POST",
+        path="/app/agent/review",
+        level="watch",
+        router="app",
+        params={
+            "title": "what was done or what you ask, one line ('Polished to 290 nm', 'Keep site 3 or move it 1 µm in?')",
+            "level": "done (default), check or wait",
+            "text": "optional: a sentence or two on what you did and saw",
+            "about": "optional: what it is about, as the operator names it ('Lamella 01', 'Setup')",
+            "images": arg(
+                "optional: up to 4 image paths inside the experiment, as the image tools answered them",
+                List[str],
+            ),
+            "facts": arg(
+                "optional: up to 4 {label, value} the operator should see at a glance ({label: 'Thickness', value: '290 nm (target 300 ± 20)'})",
+                list,
+            ),
+            "options": arg(
+                "optional: 2 to 4 answers to choose from (default Accept, Reject), for a wait that asks a question",
+                List[str],
+            ),
+        },
+        optional=("level", "text", "about", "images", "facts", "options"),
+    ),
+    ToolSpec(
+        name="review_list",
+        description="Your review list, or a slice of it: show waiting (what you hold for the operator), to_check, answered, closed or done; about filters by what it is about. Each item has its state and the operator's answer when given. Read a slice, not the whole list: the answers already reached you as messages. Answers the items and the counts.",
+        method="GET",
+        path="/app/agent/review",
+        level="watch",
+        router="app",
+        params={
+            "show": "optional: all (default), waiting, to_check, answered, closed or done",
+            "about": "optional: only items whose about contains this",
+        },
+        optional=("show", "about"),
+    ),
+    ToolSpec(
+        name="review_close",
+        description="Close a review item that no longer needs an answer, with why: the operator answered in the chat, or it became moot. Refused (409 not_open) once answered or closed.",
+        method="POST",
+        path="/app/agent/review/{item_id}/close",
+        level="watch",
+        router="app",
+        params={
+            "item_id": "the item's id, as review_add answered it (r3)",
+            "reason": "why it no longer needs an answer, one line",
+        },
     ),
     ToolSpec(
         name="microscope_get_info",
