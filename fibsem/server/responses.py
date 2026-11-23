@@ -1494,6 +1494,8 @@ class ConnectText:
 @dataclass
 class RecentRows:
     rows: List[RecentRow]
+    # Earlier rows are on the record: the page's Show earlier asks for more.
+    more: bool = False
 
 
 @dataclass

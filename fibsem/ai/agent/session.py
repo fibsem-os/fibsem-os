@@ -13,12 +13,14 @@ import threading
 import time
 import uuid
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 
 from fibsem.acting import AGENT, OPERATOR
 from fibsem.ai.agent import aside
 from fibsem.ai.agent.levels import AgentLevel, if_allowed
 from fibsem.workflows.actions import ACTION, NOTE, action_record, note_record
+from fibsem.workflows.events.recording import EVENTS_FILENAME
 from fibsem.workflows.evidence import EVIDENCE
 from fibsem.workflows.proposals import DecisionResult
 
@@ -167,6 +169,8 @@ class AgentControl:
         self._now: Optional[Any] = None
         self._now_microscope: Optional[Any] = None
         self._stop_now: Optional[Callable[[], None]] = None
+        # The chat's records from before the live buffer (`recent_page`).
+        self._earlier: Optional[Any] = None
 
     @property
     def host(self) -> Optional[Any]:
@@ -693,17 +697,39 @@ class AgentControl:
             self._now_microscope = microscope
         return self._now.text if self._now is not None else None
 
-    def recent(self) -> List[Any]:
-        """The agent card's rows (`recent.RecentRow`), read from the session's
-        record now: for a reader outside the window."""
-        from fibsem.ai.agent.recent import RecentActions
+    def recent(self, size: Optional[int] = None) -> List[Any]:
+        """The agent card's last *size* rows (`recent.RecentRow`), read from
+        the session's record now: for a reader outside the window."""
+        return self.recent_page(size)[0]
+
+    def recent_page(self, size: Optional[int] = None) -> Tuple[List[Any], bool]:
+        """The last *size* rows and whether there are earlier ones: from the
+        live buffer and, past it, the record's file, so the chat survives an
+        app restart and pages back through a long run."""
+        from fibsem.ai.agent.recent import SIZE, EarlierRecords, read_rows
 
         recorder = self._session.recorder
-        rows = RecentActions()
-        if recorder is not None:
-            for record in recorder.buffer.events_since(0).get("events", []):
-                rows.add(record)
-        return rows.rows
+        if recorder is None:
+            return [], False
+        held = recorder.buffer.events_since(0).get("events", [])
+        if self._earlier is None:
+            self._earlier = EarlierRecords()
+        return read_rows(
+            held,
+            self._events_file(),
+            size or SIZE,
+            self._earlier,
+            getattr(recorder.buffer, "stream", None),
+        )
+
+    def _events_file(self) -> Optional[Path]:
+        """The file the session's record is written to: the host's own, or
+        the experiment's."""
+        own = getattr(self._session.recorder, "events_file", None)
+        if own is not None:
+            return Path(own)
+        root = self.experiment_path()
+        return Path(root) / EVENTS_FILENAME if root is not None else None
 
     def citing(self, evidence_id: str) -> Optional[str]:
         """What the agent was doing when it cited the evidence *evidence_id*,
