@@ -197,7 +197,7 @@ fibsem-agent
 
   A picture a lab tool answers with shows on the Agent page under its step,
   as the agent saw it. It is kept beside the transcript, in the session's
-  `agent/pictures/` folder.
+  `agent/pictures/` folder (under `~/.fibsem/agent/sessions/`).
 
   A server is on only for a playbook that names it in its `mcp` list. For a
   shipped playbook, the lab adds one of its own that extends it:

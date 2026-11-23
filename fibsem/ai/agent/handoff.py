@@ -3,7 +3,8 @@ the handoff note it writes, and the context sizes it is told of.
 
 The agent calls ``context_reset`` with its note; when that turn ends the
 harness keeps the note (``handoff.md`` in the session folder, and
-``agent/handoff-<session id>.md`` beside the plan through the App Server),
+``agent/handoff-<session id>.md`` in the session's folder on the App
+Server's PC, beside the plan),
 starts a new CLI conversation under the same session, and gives it the
 instrument kind's ``handoff.md`` ``start`` text with the note as its first
 prompt. The session's id, chat, budget, spend and plan stay as they were.
@@ -652,7 +653,7 @@ def skills_to_read(
 
 def post(client, session_id: str, text: str) -> Optional[str]:
     """*text* added to the session's handoff file at the App Server; the
-    file's path in the experiment as it answers, or None."""
+    file's name in the session's folder as it answers, or None."""
     try:
         response = client.request(
             "POST",

@@ -314,7 +314,7 @@ _WRITES_AT_WATCH = frozenset(
         "experiment_message_operator",
         "knowledge_write",  # the microscope's knowledge base, not the experiment
         "server_report_session",  # the agent's own session, on the record
-        "plan_set_section",  # the session's plan.md, beside the experiment
+        "plan_set_section",  # the session's plan.md, in its own folder
         "plan_append",
         "plan_check_step",
         "review_add",  # the session's review list, beside the plan

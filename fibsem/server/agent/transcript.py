@@ -1,10 +1,10 @@
-"""The agent's transcript: what its harness printed, kept beside the experiment.
+"""The agent's transcript: what its harness printed, kept in the session's folder.
 
 ``fibsem-agent`` posts the lines it prints between the agent's messages (its
 words, and one line per step: "Wrote analyse.py", "Ran python analyse.py") so
 the web page can show what the agent was doing without a login on the agent's
 machine. They go to ``agent/transcript-<session id>.jsonl`` in the session's
-experiment, or its own folder until one is open (`agent_files`), not on the
+own folder (`agent_files`), not the experiment's, and not on the
 record: the record stays the events the app and later agents read.
 Self-reported, like the session.
 
@@ -33,7 +33,7 @@ import re
 import threading
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
@@ -236,12 +236,18 @@ def _file_lines(path: Path) -> List[Dict[str, Any]]:
         return lines
 
 
-def _read_all(folder: Path) -> List[Dict[str, Any]]:
-    """Every transcript entry in an agent/ *folder*, every session's, each
-    with its ``_at`` time, unsorted. Copies: `_runs` renumbers them."""
+def _read_all(folder: Union[Path, Sequence[Path]]) -> List[Dict[str, Any]]:
+    """Every transcript entry in an agent/ *folder* (or several), every
+    session's, each with its ``_at`` time, unsorted. Copies: `_runs`
+    renumbers them. A session's file is read once, from the first folder."""
+    folders = [folder] if isinstance(folder, Path) else list(folder)
     entries: List[Dict[str, Any]] = []
-    for path in sorted(folder.glob("transcript-*.jsonl")):
+    seen = set()
+    for path in (p for f in folders for p in sorted(f.glob("transcript-*.jsonl"))):
         session = path.stem[len("transcript-") :]
+        if session in seen:
+            continue
+        seen.add(session)
         first = len(entries)
         entries.extend({**line, "session_id": session} for line in _file_lines(path))
         _runs(entries[first:])
@@ -254,7 +260,9 @@ def _public(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return [{k: v for k, v in e.items() if k != "_at"} for e in entries]
 
 
-def read(folder: Path, since: Optional[str] = None) -> List[Dict[str, Any]]:
+def read(
+    folder: Union[Path, Sequence[Path]], since: Optional[str] = None
+) -> List[Dict[str, Any]]:
     """The transcript entries in an agent/ *folder*, every session's, oldest
     first; from *since* (an ISO time) on when given. The newest `READ_LIMIT`."""
     from datetime import datetime
@@ -273,7 +281,7 @@ def _answers(entry: Dict[str, Any]) -> bool:
     return entry["kind"] in ("done", "failed") and isinstance(entry.get("step"), int)
 
 
-def read_runs(folder: Path) -> List[Dict[str, Any]]:
+def read_runs(folder: Union[Path, Sequence[Path]]) -> List[Dict[str, Any]]:
     """Every subagent run in an agent/ *folder*, however old: each Agent call's
     line and its answer, oldest first. Only a few lines per run, so the
     Subagents tab lists them all, not only those the chat has loaded."""
@@ -293,7 +301,9 @@ def read_runs(folder: Path) -> List[Dict[str, Any]]:
     )
 
 
-def read_run(folder: Path, session_id: str, call: int) -> List[Dict[str, Any]]:
+def read_run(
+    folder: Union[Path, Sequence[Path]], session_id: str, call: int
+) -> List[Dict[str, Any]]:
     """One subagent run's own lines (``run`` is *call*), with their steps'
     answers and pictures, oldest first."""
     entries = [e for e in _read_all(folder) if e["session_id"] == session_id]
@@ -358,43 +368,45 @@ def build_agent_transcript_router(
                 log.debug("could not record %s", AGENT_TRANSCRIPT, exc_info=True)
         return {"kept": len(entries)}
 
-    def _folder(request: Request) -> Optional[Path]:
-        # The running session's folder, else the open experiment's.
+    def _running(request: Request) -> Optional[str]:
         auth: AuthConfig = request.app.state.auth
         session = auth.agent_session or {}
         running = None if session.get("ended") else session.get("session_id")
-        return _files(request).folder(running if isinstance(running, str) else None)
+        return running if isinstance(running, str) else None
+
+    def _folders(request: Request) -> List[Path]:
+        # The running session's folder and the other sessions' on its
+        # experiment; without one, those of the open experiment.
+        return _files(request).folders(_running(request))
 
     @router.get("/transcript")
     def get_transcript(request: Request, since: Optional[str] = None):
-        folder = _folder(request)
-        if folder is None or not folder.is_dir():
-            return {"entries": []}
-        return {"entries": read(folder, since)}
+        folders = _folders(request)
+        return {"entries": read(folders, since) if folders else []}
 
     @router.get("/transcript/runs")
     def get_runs(request: Request):
         """Every subagent run: each Agent call's line and its answer."""
-        folder = _folder(request)
-        if folder is None or not folder.is_dir():
-            return {"entries": []}
-        return {"entries": read_runs(folder)}
+        folders = _folders(request)
+        return {"entries": read_runs(folders) if folders else []}
 
     @router.get("/transcript/runs/{session_id}/{call}")
     def get_run(request: Request, session_id: str, call: int):
         """One subagent run's own lines, for a run the chat hasn't loaded."""
         if not _SESSION.match(session_id):
             raise _invalid("session_id is the session's id: letters, digits, - and _.")
-        folder = _folder(request)
-        if folder is None or not folder.is_dir():
-            return {"entries": []}
-        return {"entries": read_run(folder, session_id, call)}
+        folders = _folders(request)
+        return {"entries": read_run(folders, session_id, call) if folders else []}
 
     @router.get("/transcript/pictures/{name}")
     def get_picture(request: Request, name: str):
-        folder = _folder(request)
-        path = None if folder is None else folder / PICTURES / name
-        if not _PICTURE_NAME.match(name) or path is None or not path.is_file():
+        found = (
+            [f / PICTURES / name for f in _folders(request)]
+            if _PICTURE_NAME.match(name)
+            else []
+        )
+        path = next((p for p in found if p.is_file()), None)
+        if path is None:
             raise refusal_error(404, "not_found", f"No picture {name}.")
         media_type = next(
             kind for kind, ext in PICTURE_TYPES.items() if name.endswith("." + ext)

@@ -3,8 +3,8 @@
 When the agent starts a fresh context (``context_reset``,
 `fibsem.ai.agent.handoff`), ``fibsem-agent`` posts its note here; only the
 running session's are taken. The notes go to ``agent/handoff-<session
-id>.md`` in the session's experiment, beside its plan and transcript, or its
-own folder until one is open (`agent_files`), each after the earlier ones, so
+id>.md`` in the session's own folder, beside its plan and transcript
+(`agent_files`), each after the earlier ones, so
 the operator can read why and where the agent started over. Self-reported,
 like the transcript.
 """
@@ -73,7 +73,7 @@ def build_agent_handoff_router(
         path = path_for(folder, body.session_id)
         with open(path, "a", encoding="utf-8") as file:
             file.write(text + "\n\n")
-        return {"path": f"{FOLDER}/{path.name}"}
+        return {"path": path.name}
 
     @router.get("/handoff")
     def get_handoff(request: Request, session_id: Optional[str] = None):
@@ -85,8 +85,7 @@ def build_agent_handoff_router(
             session_id = session.get("session_id")
         if not isinstance(session_id, str) or not _SESSION.match(session_id):
             return {"session_id": None, "text": ""}
-        folder = _files(request).folder(session_id)
-        path = None if folder is None else path_for(folder, session_id)
+        path = _files(request).find(session_id, path_for(Path(), session_id).name)
         text = path.read_text(encoding="utf-8") if path and path.is_file() else ""
         return {"session_id": session_id, "text": text}
 

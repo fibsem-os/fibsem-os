@@ -1,5 +1,6 @@
 """The agent's plan for its session, plan.md: ``/app/agent/plan``."""
 
+import json
 from datetime import datetime, timedelta
 
 import pytest
@@ -10,6 +11,7 @@ from fibsem.ai.agent import watch
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.ai.agent.report import MAX_CHECKLIST, MAX_ITEM
 from fibsem.server import AuthConfig
+from fibsem.server.agent.files import JOINED, LINK, AgentFiles, session_folder
 from fibsem.server.agent.plan import (
     PLAN_EDITED,
     SAMPLE_SET,
@@ -81,7 +83,9 @@ def test_the_agent_writes_its_plan_a_section_at_a_time_beside_the_experiment(ser
         {"group": "Sites", "text": "Setup", "done": False},
         {"group": "Polish", "text": "01", "done": False},
     ]
-    kept = (experiment / "agent" / "plan-s1.md").read_text(encoding="utf-8")
+    kept = (session_folder("s1") / "plan-s1.md").read_text(encoding="utf-8")
+    assert not (experiment / "agent").exists(), "the experiment holds its own data"
+    assert f'"path": "{experiment}"' in (session_folder("s1") / LINK).read_text()
     assert kept.index("## Brief") < kept.index("## Steps"), "the default order"
     assert kept == plan["markdown"]
     assert [(k, p["sample"], a) for k, p, a in recorded] == [
@@ -287,7 +291,7 @@ def test_a_rule_with_a_time_is_a_deadline_saved_with_its_date(server, experiment
 
 @pytest.fixture
 def experiment_s1(server):
-    return server[3] / "agent" / "plan-s1.md"
+    return session_folder("s1") / "plan-s1.md"
 
 
 def test_a_clock_time_is_its_next_occurrence():
@@ -321,28 +325,28 @@ def test_a_restarted_app_reads_the_plan_back_and_none_is_kept_without_a_session(
     agent.post("/app/agent/session", json={"ended": True})
     assert section(agent, "Brief", "x").json()["detail"]["error_type"] == "no_session"
 
-    # No experiment open: kept in the session's own folder, so a restarted
-    # app reads it back, and moved into the first experiment that opens.
+    # No experiment open: kept in the session's own folder all along, so a
+    # restarted app reads it back; the first experiment that opens is its.
     opened["path"] = None
     agent.post("/app/agent/session", json={"session_id": "s3"})
     assert section(agent, "Progress", "Started.").status_code == 200
     assert agent.get("/app/agent/plan").json()["sections"] == [
         {"name": "Progress", "text": "Started."}
     ]
-    assert not list(experiment.glob("agent/plan-s3.md"))
     assert PlanStore(lambda: None).current("s3") == {"Progress": "Started."}
     later = tmp_path / "grid-2"
     later.mkdir()
     opened["path"] = str(later)
     section(agent, "Brief", "Sample: yeast")
-    kept = (later / "agent" / "plan-s3.md").read_text(encoding="utf-8")
+    kept = (session_folder("s3") / "plan-s3.md").read_text(encoding="utf-8")
     assert "Started." in kept and "Sample: yeast" in kept
-    assert PlanStore(lambda: None).current("s3") == {}, "moved, not copied"
-    # The session keeps its experiment when the operator opens another.
+    assert not (later / "agent").exists(), "nothing moves into the experiment"
+    # The session keeps its experiment when the operator opens another, and
+    # a restarted app finds it from the session's link.
     opened["path"] = str(experiment)
     section(agent, "Progress", "Milled 01.")
-    assert "Milled 01." in (later / "agent" / "plan-s3.md").read_text()
-    assert not (experiment / "agent" / "plan-s3.md").exists()
+    assert "Milled 01." in (session_folder("s3") / "plan-s3.md").read_text()
+    assert AgentFiles(lambda: str(experiment)).experiment("s3") == str(later)
 
 
 def test_a_plan_reads_back_as_it_was_written():
@@ -396,9 +400,13 @@ def test_a_later_session_reads_an_earlier_sessions_plan_on_the_experiment(server
     refused = agent.get("/app/agent/plan", params={"previous": True})
     assert refused.status_code == 404
     assert refused.json()["detail"]["error_type"] == "no_plan"
-    # Two earlier sessions left plans; the newest is read first.
+    # Two earlier sessions left plans; the newest is read first. One is
+    # linked from its own folder, one is from before, in the experiment's.
+    files = AgentFiles(lambda: str(experiment))
+    files.experiment("s0")
     folder = experiment / "agent"
-    (folder / "plan-s0.md").write_text(
+    folder.mkdir()
+    (session_folder("s0") / "plan-s0.md").write_text(
         "## Rules\n\n- Stop thicker.\n\n## What worked\n\n- 30 pA, 1 µm passes.\n",
         encoding="utf-8",
     )
@@ -424,3 +432,29 @@ def test_a_later_session_reads_an_earlier_sessions_plan_on_the_experiment(server
     assert (
         agent.get("/app/agent/plan", params={"session_id": "nope"}).status_code == 404
     )
+
+
+def test_a_session_and_its_experiment_name_each_other_and_nothing_is_copied(
+    tmp_path,
+):
+    """The session's folder names its experiment; the experiment's record
+    says the session joined it, once; earlier sessions are found from it."""
+    experiment = tmp_path / "grid-1"
+    experiment.mkdir()
+    joined = []
+    files = AgentFiles(
+        lambda: str(experiment),
+        joined=lambda kind, payload: joined.append((kind, payload)),
+        experiment_id=lambda: "exp-1",
+    )
+    folder = files.folder("s1")
+    files.folder("s1")
+    link = json.loads((folder / LINK).read_text())
+    assert link["path"] == str(experiment) and link["id"] == "exp-1"
+    assert link["session_id"] == "s1"
+    assert joined == [
+        (JOINED, {"session_id": "s1", "folder": str(session_folder("s1").parent)})
+    ]
+    files.folder("s2")
+    assert sorted(s for s, _ in files.sessions(str(experiment))) == ["s1", "s2"]
+    assert not (experiment / "agent").exists()

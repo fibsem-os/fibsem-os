@@ -23,9 +23,8 @@ session reports it, and fibsem-agent wakes the agent before it and at it. A
 clock time alone is written out with its date as the plan is saved ("by
 2026-11-06 07:00", its next occurrence), so it doesn't move once passed.
 
-Kept at ``agent/plan-<session id>.md`` in the session's experiment, beside
-the transcript, or in the session's own folder until an experiment is open
-(`agent_files`).
+Kept at ``agent/plan-<session id>.md`` in the session's own folder, beside
+the transcript, not in the experiment (`agent_files`).
 """
 
 import logging
@@ -291,7 +290,11 @@ class PlanStore:
         if session_id != self.session_id:
             self.session_id, self.sections = session_id, {}
             self.updated = self.updated_by = None
-            path = self._file(session_id) if session_id else None
+            path = (
+                self._files.find(session_id, f"plan-{session_id}.md")
+                if session_id
+                else None
+            )
             if path is not None and path.is_file():
                 try:
                     self.sections = parse(path.read_text(encoding="utf-8"))
@@ -307,18 +310,7 @@ class PlanStore:
     def others(self, session_id: Optional[str]) -> List[Tuple[str, Path]]:
         """The other sessions' plans beside *session_id*'s (the experiment's
         agent folder), newest first, as (session id, file)."""
-        folder = self._files.folder(session_id)
-        if folder is None or not folder.is_dir():
-            return []
-        found = []
-        for path in folder.glob("plan-*.md"):
-            other = path.stem[len("plan-") :]
-            if other and other != session_id:
-                try:
-                    found.append((path.stat().st_mtime, other, path))
-                except OSError:
-                    continue
-        return [(other, path) for _, other, path in sorted(found, reverse=True)]
+        return self._files.earlier(session_id, "plan-", ".md")
 
     def write(self, session_id: str, sections: Dict[str, str], by: str) -> None:
         self.session_id, self.sections = session_id, sections

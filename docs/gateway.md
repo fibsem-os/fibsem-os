@@ -184,7 +184,11 @@ app or has restarted.
 
 The page has **End** while one runs. A hub with "may start and stop apps" can start and
 end the agent too. Each session's record and log are in
-`~/.fibsem/agent/sessions/<date>-<session id>/`. History lists the latest sessions, and the
+`~/.fibsem/agent/sessions/<date>-<session id>/`: its plan, transcript, review list and
+handoff notes go in its `agent/` folder there, not in the experiment, so the experiment
+holds only what the experiment made. The two name each other: `agent/experiment.json` in
+the session's folder, and an `agent_session_joined` event on the experiment's record.
+History lists the latest sessions, and the
 Agent card shows the last one with **Resume**.
 
 Running `fibsem-agent` by hand still works as before. The gateway doesn't need to be running

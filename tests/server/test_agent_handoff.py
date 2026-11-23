@@ -160,7 +160,7 @@ def test_a_reset_starts_a_new_conversation_when_the_turn_ends(session):
     # The note is kept beside the plan, and the chat shows where it started.
     text = _handoff_text(session)
     assert "## Handoff to context 2, " in text and "Start Setup on site 01." in text
-    assert "agent/handoff-scripted.md in the experiment" in fresh
+    assert "handoff-scripted.md in the session's folder on the App Server's PC" in fresh
     with _http(session) as http:
         entries = http.get("/app/agent/transcript").json()["entries"]
     marker = [e for e in entries if e["kind"] == "context"]
@@ -497,7 +497,7 @@ def test_only_the_running_session_adds_handoff_notes(session):
         assert other.status_code == 409
         kept = http.post("/app/agent/handoff", json=note)
         assert kept.status_code == 200, kept.text
-        assert kept.json()["path"] == "agent/handoff-scripted.md"
+        assert kept.json()["path"] == "handoff-scripted.md"
         http.post("/app/agent/session", json={"session_id": "scripted", "ended": True})
         assert http.post("/app/agent/handoff", json=note).status_code == 409
 
