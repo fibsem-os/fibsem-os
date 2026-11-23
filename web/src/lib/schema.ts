@@ -337,7 +337,9 @@ export interface components {
         /** @description How full its context is, in tokens, and of what. */
         ContextUse: {
             compact_at: number | null;
+            due_at: number | null;
             parts: components["schemas"]["ContextPart"][] | null;
+            suggest_at: number | null;
             used: number | null;
             window: number | null;
         };
