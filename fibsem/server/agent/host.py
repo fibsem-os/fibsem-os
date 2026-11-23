@@ -72,6 +72,7 @@ from fibsem.server.agent.plan import (
     running_session,
 )
 from fibsem.server.agent.record import build_record_router
+from fibsem.server.agent.review import build_agent_review_router
 from fibsem.server.agent.session import build_agent_session_router
 from fibsem.server.agent.transcript import build_agent_transcript_router
 from fibsem.server.app_routes import build_analysis_router, build_files_router
@@ -533,6 +534,7 @@ def build_agent_host(
     # The agent's session, plan and transcript: the App Server's own routes.
     app.include_router(build_agent_session_router(host.record))
     app.include_router(build_agent_plan_router(lambda: None, host.record))
+    app.include_router(build_agent_review_router(lambda: None, host.record))
     app.include_router(build_agent_transcript_router(lambda: None, host.record))
     app.include_router(build_agent_handoff_router(lambda: None))
     # The operator's side, what the Agent page does: the App Server's own

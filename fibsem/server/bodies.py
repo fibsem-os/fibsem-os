@@ -166,6 +166,42 @@ class PlanStepBody:
 
 
 @dataclass
+class ReviewAddBody:
+    """POST /app/agent/review: an item for the operator's review list."""
+
+    __pydantic_config__ = STRICT
+
+    title: str
+    level: str = "done"
+    text: str = ""
+    about: str = ""
+    images: Optional[List[str]] = None
+    facts: Optional[List[Dict[str, Any]]] = None
+    options: Optional[List[str]] = None
+
+
+@dataclass
+class ReviewCloseBody:
+    """POST /app/agent/review/{id}/close: the agent no longer needs an answer."""
+
+    __pydantic_config__ = STRICT
+
+    reason: str
+
+
+@dataclass
+class ReviewAnswerBody:
+    """POST /app/agent/review/{id}/answer: the operator's answer, a note and
+    marks on one of its pictures."""
+
+    __pydantic_config__ = STRICT
+
+    choice: str
+    note: str = ""
+    evidence: Optional[MarkedEvidence] = None
+
+
+@dataclass
 class PlanBody:
     """PUT /app/agent/plan: the whole plan, its sections under ## headings."""
 

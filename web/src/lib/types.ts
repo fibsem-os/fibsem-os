@@ -249,6 +249,32 @@ export interface AgentPlan {
   updated_by: "agent" | "operator" | null;
 }
 
+/** One item of GET /app/agent/review: the agent's finished work, a check or a wait. */
+export interface ReviewItem {
+  id: string;
+  at: string;
+  level: "done" | "check" | "wait";
+  state: "done" | "to_check" | "waiting" | "answered" | "closed";
+  title: string;
+  text: string;
+  about: string;
+  /** Images inside the experiment, the key one first. */
+  images: string[];
+  /** The picture with the agent's marks, if it gave one. */
+  evidence: string | null;
+  facts: { label: string; value: string }[];
+  options: string[];
+  answer?: { choice: string; note: string; evidence: string | null; at: string } | null;
+  closed?: { reason: string; at: string } | null;
+}
+
+/** GET /app/agent/review. */
+export interface ReviewList {
+  session_id: string | null;
+  items: ReviewItem[];
+  counts: { waiting: number; to_check: number; rejected: number; all: number };
+}
+
 /** One row of GET /app/agent/recent. */
 export type RecentRow = Narrow<
   S["RecentRow"],

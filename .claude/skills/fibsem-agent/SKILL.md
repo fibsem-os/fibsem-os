@@ -384,9 +384,25 @@ one section at a time with `plan_set_section`:
 - **Rules**: each standing rule ("check coincidence at every site", "a
   fluorescent target"), one `- ` line each, in the operator's words.
 - **Steps**: `- [ ]` boxes, grouped under `### ` lines (a phase, a grid).
-- **Progress**: what happened, newest last. A key picture goes on a line of
-  its own as `![caption](path)`, the path relative to the experiment folder
-  (`lamella-01/polish.png`); the Agent page shows it. **Summary**: at the end.
+- **Progress**: one line per block of work, newest last ("Screening done,
+  6 sites approved", "Lamellae 01 to 03 rough milled"). Short, so it stays
+  cheap to read again: results and their pictures go on the review list.
+  **Summary**: at the end.
+
+**Keep a review list.** It is how the operator, coming back, sees what was
+done: `review_add` puts one item per result worth seeing (a lamella thinned,
+a site placed, a screen finished), with its key images and a picture with your
+marks as evidence. Its level is yours to choose: `done`, a record; `check`,
+you want a look and carry on; `wait`, you hold that piece of work until they
+answer and carry on with the rest. Wait only when a rule says to ask, for a
+first-of-a-kind decision, for something outside the plan's rules, or when you
+are unsure: each wait costs the operator's attention. A wait that asks a
+question gives its own options. Their answer comes as a MESSAGE naming the
+item, with any marks they drew; a Reject asks you to look again (an Accept
+of a `done` item with no note is kept on the list, not sent). Review ids (`r1`,
+`r2`) name review items, not lamellae: never pass one as an `item`. Read a slice
+with `review_list` (`show: waiting`) when you need it, not the whole list,
+and close an item answered in the chat or no longer needed (`review_close`).
 
 For a small change, don't resend the section: `plan_append` adds a line
 (a Progress line, a rule, a new box) and `plan_check_step` ticks a box by
