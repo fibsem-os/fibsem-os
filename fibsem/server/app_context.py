@@ -11,6 +11,7 @@ import logging
 import os
 import uuid
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from fibsem.acting import OPERATOR, WORKFLOW, Actor, current_actor, signer
@@ -19,6 +20,7 @@ from fibsem.codec import decode, encode
 from fibsem.config import get_recent_experiments
 from fibsem.instrument import needs_microscope
 from fibsem.server import log_tail
+from fibsem.server.agent.notes import latest_notes
 from fibsem.server.files import FileRefusal
 from fibsem.server.image_payloads import image_info, image_payload
 from fibsem.server.responses import (
@@ -503,7 +505,6 @@ class AppContext:
         (and per session's operations outside a task), with its shown images
         and operations, through the tab's filter. ``tasks`` names every task
         the item ran, for a task filter; ``total`` counts the runs unfiltered."""
-        from pathlib import Path
 
         experiment = self._experiment
         item, refusal = find_item(experiment, item_name)
@@ -1061,6 +1062,18 @@ class AppContext:
             note_record(text, item_id=item_id, item_name=item_name, **fields),
         )
         return {"recorded": True}
+
+    def notes(self, tags: List[str], each: int = 1) -> Dict[str, Any]:
+        """The newest *each* notes of each tag, from the live buffer and then
+        the open experiment's record (`fibsem.server.agent.notes`)."""
+        from pathlib import Path
+
+        held = []
+        if self._event_buffer is not None:
+            held = self._event_buffer.events_since(0).get("events") or []
+        experiment = self._experiment
+        path = Path(experiment.path) / EVENTS_FILENAME if experiment else None
+        return latest_notes(held, path, tags, each)
 
     def add_evidence(
         self, item_name: Optional[str], save: Callable[[], Dict[str, Any]]

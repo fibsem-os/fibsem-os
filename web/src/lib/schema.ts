@@ -2592,6 +2592,16 @@ export interface components {
             /** @default Unknown */
             software_version: string;
         };
+        /** @description The newest notes of each tag asked for, from the whole record
+         *     (`fibsem.server.agent.notes`): each ``{tag, id, timestamp, text}``, with
+         *     ``item_name`` and ``evidence`` when it named them; by tag as asked,
+         *     newest first. ``missing``: the tags with no note on the record. */
+        TaggedNotes: {
+            missing: string[];
+            notes: {
+                [key: string]: unknown;
+            }[];
+        };
         /** @description A task's config document, at the protocol's level or an item's, with the
          *     version a patch echoes. */
         TaskConfigRead: {

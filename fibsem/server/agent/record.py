@@ -9,18 +9,20 @@ One router over a *source*: the App Server's app context
 - ``add_note(text, item_name=None, evidence=None)``,
   ``add_message(text, item_name=None, reply_to=None, evidence=None)`` and
   ``add_evidence(item_name, save)``: the record, or a `Refusal`;
-- ``experiment_path``: where evidence is kept and read from; None for none.
+- ``experiment_path``: where evidence is kept and read from; None for none;
+- ``notes(tags, each)``: the newest notes of each tag (`notes.latest_notes`).
 """
 
-from typing import Any, Callable, Dict, Optional, Protocol, Tuple, Type
+from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple, Type
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.routing import APIRoute
 
 from fibsem.ai.agent.calls import current_call, from_headers
+from fibsem.server.agent.notes import MAX_EACH, NotesRefused
 from fibsem.server.auth import refusal_error
 from fibsem.server.bodies import EvidenceBody, NoteBody, OperatorMessageBody
-from fibsem.server.responses import Events, Recorded, Refusal
+from fibsem.server.responses import Events, Recorded, Refusal, TaggedNotes
 from fibsem.workflows import evidence
 from fibsem.workflows.events.text import note_asked, with_text
 
@@ -56,6 +58,8 @@ class RecordSource(Protocol):
     def add_evidence(
         self, item_name: Optional[str], save: Callable[[], Dict[str, Any]]
     ) -> Any: ...
+
+    def notes(self, tags: List[str], each: int = 1) -> Dict[str, Any]: ...
 
 
 def described(answer: Dict[str, Any]) -> Dict[str, Any]:
@@ -137,6 +141,18 @@ def build_record_router(
         else:
             answer = source.events(since=since, timeout=timeout)
         return described(answer) if text else answer
+
+    @router.get("/experiment/notes", response_model=TaggedNotes)
+    def latest_notes(
+        tags: List[str] = Query(...),
+        each: int = Query(1, ge=1, le=MAX_EACH),
+    ):
+        # The newest notes of each tag, from the whole record: the long-poll
+        # holds only the live buffer, which a long run's progress fills.
+        try:
+            return source.notes(tags, each)
+        except NotesRefused as refused:
+            raise refusal_error(422, "invalid", str(refused)) from None
 
     @router.post("/experiment/notes", response_model=Recorded)
     def add_note(request: Request, body: NoteBody):
