@@ -149,6 +149,7 @@ def gateway(server, tmp_path):
             client.operator = server.operator
             client.agent = server.agent
             client.server = server
+            client.history = gateway.history
             yield client
 
 
@@ -239,6 +240,13 @@ def test_the_operator_allows_the_asking_agent_and_it_acts_at_the_level(gateway):
     assert [(c["name"], c["role"]) for c in listed] == [
         ("claude-code on this PC", "agent")
     ]
+    # Who let it in, on the gateway's History.
+    (line,) = gateway.history().switches
+    assert (line.kind, line.result, line.who) == (
+        "agent",
+        "Allowed claude-code on this PC",
+        "operator",
+    )
 
 
 def test_the_operator_denies_with_a_reason(gateway):
@@ -252,6 +260,11 @@ def test_the_operator_denies_with_a_reason(gateway):
     assert denied.json() == {"id": waiting["id"], "allowed": False, "name": None}
     again = _ask(gateway, wait_s=0)
     assert again["state"] == "denied" and "who is this?" in again["message"]
+    (line,) = gateway.history().switches
+    assert (line.kind, line.result) == (
+        "agent",
+        "Denied an agent on this PC: who is this?",
+    )
     missing = gateway.post("/gateway/connections/nope/deny", headers=gateway.operator)
     assert missing.status_code == 404
 

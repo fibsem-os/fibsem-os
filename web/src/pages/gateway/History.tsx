@@ -25,6 +25,8 @@ export interface Switch {
   app: string | null;
   experiment: string | null;
   window?: boolean | null;
+  /** "agent": an agent the operator allowed or denied, not a start or stop. */
+  kind?: string | null;
 }
 
 type Kind = "app" | "agent";
@@ -67,12 +69,13 @@ function Tag({ kind }: { kind: Kind }) {
 }
 
 function AppRow({ s, name }: { s: Switch; name: string }) {
+  const access = s.kind === "agent";
   return (
     <div className={ROW}>
       <span className="text-muted-foreground tabular-nums">
         {fmt.when(s.at)}
       </span>
-      <Tag kind="app" />
+      <Tag kind={access ? "agent" : "app"} />
       <span
         className={cn(
           "min-w-0 break-words",
@@ -80,7 +83,7 @@ function AppRow({ s, name }: { s: Switch; name: string }) {
             "text-[var(--fibsem-semantic-warning-color)]",
         )}
       >
-        {happened(s, name)}
+        {access ? s.result : happened(s, name)}
         {s.experiment && (
           <span className="text-muted-foreground" title={s.experiment}>
             {" "}
@@ -238,6 +241,9 @@ export function History({
   const appEntries = (history.data?.switches ?? []).map(
     (s): Entry => ({ kind: "app", at: s.at * 1000, switch: s }),
   );
+  // An agent allowed or denied is filed under Agent.
+  const shownAs = (e: Entry): Kind =>
+    e.kind === "app" && e.switch.kind === "agent" ? "agent" : e.kind;
   const agentEntries = [...(state?.running ? [state.running] : []), ...listed]
     .filter((s) => s.started)
     .map(
@@ -259,7 +265,7 @@ export function History({
       ? Math.max(oldest(appEntries, appMore), oldest(agentEntries, agentMore))
       : -Infinity;
   const entries: Entry[] = [...appEntries, ...agentEntries]
-    .filter((e) => shown === "all" || e.kind === shown)
+    .filter((e) => shown === "all" || shownAs(e) === shown)
     .filter((e) => e.at >= floor)
     .sort((a, b) => b.at - a.at);
   const more = shown === "app" ? appMore : shown === "agent" ? agentMore : appMore || agentMore;

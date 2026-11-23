@@ -536,12 +536,11 @@ def build_gateway_app(
             computer = connections.allow(ask_id)
         except LookupError as exc:
             raise _refused(404, "not_found", str(exc)) from None
-        logger.info(
-            "%s allowed %s to connect%s",
-            found.who,
-            computer.name,
-            f" (replaces {replaced.name})" if replaced else "",
+        allowed = f"Allowed {computer.name}" + (
+            f", replacing {replaced.name}" if replaced else ""
         )
+        logger.info("%s: %s", found.who, allowed)
+        gateway.record_access(found.who, "page", allowed)
         return {"id": ask_id, "allowed": True, "name": computer.name}
 
     @app.post("/gateway/connections/{ask_id}/deny")
@@ -559,6 +558,9 @@ def build_gateway_app(
         except LookupError as exc:
             raise _refused(404, "not_found", str(exc)) from None
         logger.info("%s denied %s", found.who, ask.name)
+        gateway.record_access(
+            found.who, "page", f"Denied {ask.name}" + (f": {reason}" if reason else "")
+        )
         return {"id": ask_id, "allowed": False, "name": None}
 
     app.include_router(build_pairing_router(auth))

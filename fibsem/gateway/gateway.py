@@ -174,7 +174,8 @@ class GatewayConfiguration:
 
 @dataclass
 class Switch:
-    """One line of the gateway's history."""
+    """One line of the gateway's history: a start or stop of the app, or
+    (*kind* ``agent``) an agent the operator allowed or denied."""
 
     at: float
     to_mode: str
@@ -185,6 +186,7 @@ class Switch:
     app: Optional[str] = None
     experiment: Optional[str] = None
     window: Optional[bool] = None
+    kind: Optional[str] = None
 
 
 @dataclass
@@ -908,28 +910,47 @@ class Gateway:
             self._claimed = None
         self.run_file.unlink(missing_ok=True)
 
+    def record_access(self, who: str, via: str, result: str) -> None:
+        """An agent let in or turned away (``allowed claude-code on
+        mac-mini``), in the history beside the starts and stops."""
+        self._write(
+            Switch(
+                at=time.time(),
+                to_mode="",
+                from_mode="",
+                who=who,
+                via=via,
+                result=result,
+                kind="agent",
+            )
+        )
+
     def _record(
         self, from_mode, to_mode, who, via, result, app, experiment, window=None
     ) -> None:
-        line = Switch(
-            at=time.time(),
-            to_mode=to_mode,
-            from_mode=from_mode,
-            who=who,
-            via=via,
-            result=result,
-            app=app,
-            experiment=experiment,
-            window=window,
+        self._write(
+            Switch(
+                at=time.time(),
+                to_mode=to_mode,
+                from_mode=from_mode,
+                who=who,
+                via=via,
+                result=result,
+                app=app,
+                experiment=experiment,
+                window=window,
+            )
         )
+        # the last experiment and the recent ones may have changed
+        self._facts_due.set()
+
+    def _write(self, line: Switch) -> None:
         try:
             self.history_file.parent.mkdir(parents=True, exist_ok=True)
             with open(self.history_file, "a") as f:
                 f.write(json.dumps(asdict(line)) + "\n")
         except OSError:
             logger.exception("Gateway history not written")
-        # the last experiment and the recent ones may have changed
-        self._facts_due.set()
 
     # -- watching ----------------------------------------------------------
 
