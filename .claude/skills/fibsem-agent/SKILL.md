@@ -376,7 +376,8 @@ decision you want is a proposal or a request.
 
 **Keep a plan.** Your plan for the session is plan.md, which the operator
 reads and edits on the Agent page. Write it at intake under the playbook's
-plan headings (Brief, Playbook, Rules, Steps, Progress, Summary by default),
+plan headings (Brief, Playbook, Rules, Steps, Progress, What worked, Summary
+by default),
 one section at a time with `plan_set_section`:
 
 - **Brief**: the question, the sample and the target, and the goal, in the
@@ -393,7 +394,42 @@ one section at a time with `plan_set_section`:
 - **Progress**: one line per block of work, newest last ("Screening done,
   6 sites approved", "Lamellae 01 to 03 rough milled"). Short, so it stays
   cheap to read again: results and their pictures go on the review list.
-  **Summary**: at the end.
+- **What worked**: per task, the settings and signs that worked on this
+  sample (a polish's gap, current and what the band looked like; an
+  alignment area that held), each change old → new. The next lamella and the
+  next session start from it.
+- **Summary**: at the end.
+
+On an experiment an earlier session worked on, read that session's plan
+before you write yours (`plan_get` with `previous=true`): its Rules, where
+it stood and its What worked carry over.
+
+**Working with a worker.** Some playbooks give you `fibsem-worker`, a
+subagent that does one job on one site or item on the microscope in its
+own context, so its images and tries stay out of yours. Which job goes
+where turns on whether it needs judgement between its steps:
+
+- **The workflow** when the steps are fixed in advance and the result can
+  be checked afterwards: queue the task and check each result as it ends.
+- **A worker** when each step depends on what the last image showed, on
+  one item.
+- **Yourself** for one or two looks, such as a proposal that is already
+  fine.
+
+Only one agent drives the microscope at a time: yours, or the worker you
+started, and your turn waits for it. Start one worker at a time, never one
+for a task across every item: that is the workflow's job. Its brief is all
+it knows, so give it, in this order: (1) the task and when it is done; (2)
+the limits: whether it may mill and what, the stage range, the steps at
+most, the stop rules; (3) the skill and section to read; (4) the item and
+its state: its name, its proposal id, its images by path, its item notes
+and the plan's What worked; (5) what to return. Without 1 to 3 it refuses
+(`"status": "refused"`) and names what is missing. It answers its own
+item's proposal for its job, may ask the Verifier, and never writes the
+plan, notes or the review list, runs the workflow or messages the operator:
+those stay yours. Read its answer, look at its first one or two evidence
+images yourself, then record the result. To follow up (one more pass, a
+concern to fix), continue the same worker with `SendMessage`.
 
 **Keep a review list.** It is how the operator, coming back, sees what was
 done: `review_add` puts one item per result worth seeing (a lamella thinned,

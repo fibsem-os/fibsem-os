@@ -22,7 +22,7 @@ import pytest
 
 from fibsem.ai.agent import handoff as handoff_mod
 from fibsem.ai.agent import harness as harness_mod
-from fibsem.ai.agent import instruments, playbooks, usage, wake_policy
+from fibsem.ai.agent import instruments, playbooks, subagents, usage, wake_policy
 from fibsem.ai.agent import watch as watch_mod
 from fibsem.ai.agent.catalog import CATALOG
 from fibsem.ai.agent.harness import Harness, TurnEnd, Wakes, kickoff
@@ -500,6 +500,8 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
         "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
         # The main conversation's prompt cache lasts an hour (`wake_policy`).
         "CLAUDE_CODE_PROMPT_CACHE_TTL": "1h",
+        # A worker may start the Verifier.
+        "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "2",
         # The base playbook's compaction window, the context ceiling's backstop.
         "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "700000",
         "FIBSEM_SERVER_URL": "http://127.0.0.1:9",
@@ -1106,7 +1108,7 @@ def _specialists():
 
     checkout = harness_mod.find_checkout()
     agents = {}
-    for path in sorted((checkout / ".claude" / "agents").glob("autolamella-*.md")):
+    for path in sorted((checkout / ".claude" / "agents").glob("*.md")):
         _, front, _ = path.read_text(encoding="utf-8").split("---\n", 2)
         agents[path.stem] = yaml.safe_load(front)
     return agents
@@ -1132,6 +1134,12 @@ def test_a_specialist_has_only_tools_that_exist_and_the_harness_can_refuse():
         for tool in _tools(front):
             if tool.startswith("mcp__fibsem__"):
                 assert tool.removeprefix("mcp__fibsem__") in catalog, (name, tool)
+            elif tool in ("Skill", "ToolSearch"):
+                # The lead's own built-ins: reading a skill, finding a tool.
+                assert tool in harness_mod.BUILT_IN_TOOLS, (name, tool)
+            elif tool.startswith("Agent("):
+                # Only the subagents it names, each one of the checkout's.
+                assert tool[len("Agent(") : -1] in _specialists(), (name, tool)
             else:
                 # An agent gets a tool it lists unless the harness denies it.
                 assert tool in harness_mod.DENIED_TOOLS, (name, tool)
@@ -1142,6 +1150,10 @@ def test_only_the_run_lead_decides_and_its_agents_only_read():
 
     read_only = {spec.name for spec in CATALOG if spec.read_only}
     for name, front in _specialists().items():
+        if name == subagents.WORKER:
+            # The worker acts on the microscope; its limits are
+            # tests/agent/test_agent_subagents.py's.
+            continue
         fibsem = {
             tool.removeprefix("mcp__fibsem__")
             for tool in _tools(front)

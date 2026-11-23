@@ -387,3 +387,40 @@ def test_the_experiments_sample_is_the_sessions_and_the_agents_is_saved_on_it(
     assert refused.status_code == 409 and "Sample: yeast" in str(refused.json())
     assert section(agent, "Brief", "Sample: yeast\nThe question.").status_code == 200
     assert kept["sample"] == "yeast"
+
+
+def test_a_later_session_reads_an_earlier_sessions_plan_on_the_experiment(server):
+    agent, _, _, experiment, _ = server
+    # None yet: the running session's own plan is not an earlier one.
+    section(agent, "Rules", "- Stop at 200 nm.")
+    refused = agent.get("/app/agent/plan", params={"previous": True})
+    assert refused.status_code == 404
+    assert refused.json()["detail"]["error_type"] == "no_plan"
+    # Two earlier sessions left plans; the newest is read first.
+    folder = experiment / "agent"
+    (folder / "plan-s0.md").write_text(
+        "## Rules\n\n- Stop thicker.\n\n## What worked\n\n- 30 pA, 1 µm passes.\n",
+        encoding="utf-8",
+    )
+    older = folder / "plan-old.md"
+    older.write_text("## Steps\n\n- [x] Setup 01\n- [ ] Polish 01\n", encoding="utf-8")
+    import os
+
+    os.utime(older, (1_000_000, 1_000_000))
+    newest = agent.get("/app/agent/plan", params={"previous": True}).json()
+    assert newest["session_id"] == "s0"
+    assert [s["name"] for s in newest["sections"]] == ["Rules", "What worked"]
+    assert newest["earlier"] == ["s0", "old"]
+    named = agent.get("/app/agent/plan", params={"session_id": "old"}).json()
+    assert named["steps"] == [
+        {"group": "", "text": "Setup 01", "done": True},
+        {"group": "", "text": "Polish 01", "done": False},
+    ]
+    assert named["done"] == 1
+    # Reading one leaves the running session's plan as it was.
+    mine = agent.get("/app/agent/plan").json()
+    assert mine["session_id"] == "s1"
+    assert [s["name"] for s in mine["sections"]] == ["Rules"]
+    assert (
+        agent.get("/app/agent/plan", params={"session_id": "nope"}).status_code == 404
+    )
