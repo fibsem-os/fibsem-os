@@ -337,3 +337,44 @@ def test_a_resumed_session_s_lines_follow_on_and_a_cut_step_has_ended(server):
         False,
         False,
     ]
+
+
+def test_every_subagent_run_is_listed_and_one_run_s_lines_read(server):
+    """The Subagents tab lists every run however old: each Agent call's line
+    and its answer; a run's own lines come on their own."""
+    client, _, _ = server
+    old = {"seq": 1, "kind": "step", "text": "Find sites", "subagent": "site-finder"}
+    said = {"seq": 2, "kind": "said", "text": "Looking.", "run": 1}
+    looked = {"seq": 3, "kind": "step", "text": "Read grid", "run": 1}
+    looked_done = {"seq": 4, "kind": "done", "text": "", "step": 3, "run": 1}
+    found = {"seq": 5, "kind": "done", "text": "Six sites.", "step": 1}
+    mine = {"seq": 6, "kind": "step", "text": "Move stage"}
+    _post(client, "s1", {**old, "age_s": 3600}, said, looked, looked_done, found, mine)
+    check = {"seq": 1, "kind": "step", "text": "Check", "subagent": "verifier"}
+    _post(client, "s2", check)
+    runs = client.get("/app/agent/transcript/runs").json()["entries"]
+    assert [(r["session_id"], r["seq"], r["kind"]) for r in runs] == [
+        ("s1", 1, "step"),
+        ("s1", 5, "done"),
+        ("s2", 1, "step"),
+    ]
+    lines = client.get("/app/agent/transcript/runs/s1/1").json()["entries"]
+    assert [line["seq"] for line in lines] == [2, 3, 4]
+    assert client.get("/app/agent/transcript/runs/s9/1").json() == {"entries": []}
+    assert client.get("/app/agent/transcript/runs/a.b/1").status_code == 422
+
+
+def test_a_transcript_file_is_read_once_then_only_what_was_added(tmp_path):
+    from fibsem.server.agent import transcript
+
+    path = tmp_path / "transcript-s1.jsonl"
+    line = {"t": "2026-11-23T10:00:00+11:00", "kind": "said", "text": "a", "seq": 1}
+    path.write_text(json.dumps(line) + "\n" + '{"t": "2026-11-23T10:0', "utf-8")
+    assert [e["seq"] for e in transcript.read(tmp_path)] == [1]
+    with open(path, "a", encoding="utf-8") as f:
+        f.write('1:00+11:00", "kind": "said", "text": "b", "seq": 2}\n')
+    assert [e["seq"] for e in transcript.read(tmp_path)] == [1, 2]
+    # Read back, the renumbering of one read never leaks into the next.
+    assert [e["seq"] for e in transcript.read(tmp_path)] == [1, 2]
+    path.write_text(json.dumps({**line, "seq": 7}) + "\n", "utf-8")
+    assert [e["seq"] for e in transcript.read(tmp_path)] == [7]

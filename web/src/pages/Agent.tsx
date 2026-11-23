@@ -645,6 +645,59 @@ function indexLines(lines: TranscriptLine[], heard: boolean, live?: string | nul
   return { answered, pictures, runs, running, calls, top: shown.filter((l) => l.run == null) };
 }
 
+/** Every subagent run in the experiment, however old, not only those the chat
+ * has loaded: read again when a loaded run starts or ends. *shown*, a run the
+ * chat hasn't loaded: its own lines, read when the Subagents tab opens it. */
+function useAllRuns(lines: TranscriptLine[], shown: string | null) {
+  const calls = new Set<string>();
+  for (const l of lines) if (l.kind === "step" && l.subagent != null) calls.add(stepKey(l.session_id, l.seq));
+  const seen = [...calls]
+    .map((key) => (lines.some((l) => answers(l) && stepKey(l.session_id, l.step) === key) ? `${key}+` : key))
+    .join(",");
+  const all = useQuery({
+    queryKey: ["app/agent/transcript-runs", seen],
+    queryFn: () => api<{ entries: TranscriptLine[] }>("/app/agent/transcript/runs"),
+    placeholderData: keepPreviousData,
+  });
+  const [session, call] = shown ? [shown.slice(0, shown.lastIndexOf("|")), shown.slice(shown.lastIndexOf("|") + 1)] : [];
+  const loaded = shown != null && lines.some((l) => l.run != null && stepKey(l.session_id, l.run) === shown);
+  const run = useQuery({
+    queryKey: ["app/agent/transcript-runs", "run", shown],
+    queryFn: () =>
+      api<{ entries: TranscriptLine[] }>(
+        `/app/agent/transcript/runs/${encodeURIComponent(session!)}/${encodeURIComponent(call!)}`,
+      ),
+    enabled: shown != null && !loaded && /^\d+$/.test(call ?? ""),
+  });
+  return { all: all.data?.entries ?? [], run: loaded ? [] : (run.data?.entries ?? []) };
+}
+
+/** The chat's index with every run in it: the calls and answers of *all*, and
+ * the lines of *run*, a run the chat hasn't loaded. */
+function withAllRuns(idx: ReturnType<typeof indexLines>, all: TranscriptLine[], run: TranscriptLine[]) {
+  const answered: Answers = new Map(idx.answered);
+  const pictures: Pictures = new Map(idx.pictures);
+  const runs: Runs = new Map(idx.runs);
+  const byKey = new Map<string, TranscriptLine>();
+  for (const l of [...all, ...run]) {
+    if (answers(l)) {
+      if (!answered.has(stepKey(l.session_id, l.step))) answered.set(stepKey(l.session_id, l.step), l);
+    } else if (l.kind === "picture" && l.step != null && l.path) {
+      const key = stepKey(l.session_id, l.step);
+      if (!idx.pictures.has(key)) pictures.set(key, [...(pictures.get(key) ?? []), l]);
+    } else if (l.run != null) {
+      const key = stepKey(l.session_id, l.run);
+      if (!idx.runs.has(key)) runs.set(key, [...(runs.get(key) ?? []), l]);
+    } else if (l.kind === "step" && l.subagent != null) {
+      byKey.set(stepKey(l.session_id, l.seq), l);
+    }
+  }
+  // The loaded lines win: they are the newest read.
+  for (const c of idx.calls) byKey.set(stepKey(c.session_id, c.seq), c);
+  const calls = [...byKey.values()].sort((a, b) => time(a.t) - time(b.t));
+  return { ...idx, answered, pictures, runs, calls };
+}
+
 /** *heard*: the agent was heard from lately, so a step it started may still run
  * with no lines coming (a long milling call). A step runs until its answer
  * comes, while the agent is heard from and no later step of its session has
@@ -941,6 +994,7 @@ export function AgentPage() {
     return () => watcher.disconnect();
   });
 
+  const allRuns = useAllRuns(transcript.data?.entries ?? [], shownRun);
   // A failed read keeps the last answer on screen; the top line says why.
   if (!a) return agent.error ? <div className="p-5 text-destructive">{agent.error.message}</div> : null;
   const request = a.request && ["pending", "applying"].includes(a.request.status) ? a.request : null;
@@ -958,7 +1012,7 @@ export function AgentPage() {
     !entries.some((l) => answers(l) && l.session_id === lastStep.session_id && l.step === lastStep.seq);
   const session = reported.data?.session;
   const heard = isWorking && !a.stopped;
-  const idx = indexLines(entries, heard, session?.session_id);
+  const idx = withAllRuns(indexLines(entries, heard, session?.session_id), allRuns.all, allRuns.run);
   const openRun = (call: TranscriptLine) => {
     setShownRun(stepKey(call.session_id, call.seq));
     setFocus("subagents");

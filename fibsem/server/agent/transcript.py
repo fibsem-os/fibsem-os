@@ -30,9 +30,10 @@ import binascii
 import json
 import logging
 import re
+import threading
 import time
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
@@ -192,32 +193,124 @@ def _runs(entries: List[Dict[str, Any]]) -> None:
             answered.add(entry["step"])
 
 
+# Each transcript file's lines as read so far, by path: (bytes read, lines).
+# The files only grow, so a read parses just what was added since.
+_READ: Dict[Path, Tuple[int, List[Dict[str, Any]]]] = {}
+_READ_LOCK = threading.Lock()
+# How many files the cache holds before it starts again.
+_READ_FILES = 64
+
+
+def _file_lines(path: Path) -> List[Dict[str, Any]]:
+    """*path*'s lines, each with its ``_at`` time: the cached ones, and any
+    whole lines added since. A file that shrank is read again."""
+    from datetime import datetime
+
+    with _READ_LOCK:
+        done, lines = _READ.get(path, (0, []))
+        try:
+            size = path.stat().st_size
+        except OSError:
+            _READ.pop(path, None)
+            return []
+        if size < done:
+            done, lines = 0, []
+        if size > done:
+            with open(path, "rb") as f:
+                f.seek(done)
+                added = f.read(size - done)
+            # A line still being written waits for the next read.
+            whole = added.rfind(b"\n") + 1
+            lines = list(lines)
+            for raw in added[:whole].splitlines():
+                try:
+                    entry = json.loads(raw.decode("utf-8"))
+                    at = datetime.fromisoformat(entry["t"])
+                except (ValueError, KeyError, TypeError, UnicodeDecodeError):
+                    continue
+                lines.append({**entry, "_at": at})
+            done += whole
+            if path not in _READ and len(_READ) >= _READ_FILES:
+                _READ.clear()
+            _READ[path] = (done, lines)
+        return lines
+
+
+def _read_all(folder: Path) -> List[Dict[str, Any]]:
+    """Every transcript entry in an agent/ *folder*, every session's, each
+    with its ``_at`` time, unsorted. Copies: `_runs` renumbers them."""
+    entries: List[Dict[str, Any]] = []
+    for path in sorted(folder.glob("transcript-*.jsonl")):
+        session = path.stem[len("transcript-") :]
+        first = len(entries)
+        entries.extend({**line, "session_id": session} for line in _file_lines(path))
+        _runs(entries[first:])
+    return entries
+
+
+def _public(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """*entries* oldest first, without their ``_at``."""
+    entries = sorted(entries, key=lambda e: e["_at"])
+    return [{k: v for k, v in e.items() if k != "_at"} for e in entries]
+
+
 def read(folder: Path, since: Optional[str] = None) -> List[Dict[str, Any]]:
     """The transcript entries in an agent/ *folder*, every session's, oldest
     first; from *since* (an ISO time) on when given. The newest `READ_LIMIT`."""
     from datetime import datetime
 
-    entries: List[Dict[str, Any]] = []
-    for path in sorted(folder.glob("transcript-*.jsonl")):
-        session = path.stem[len("transcript-") :]
-        first = len(entries)
-        with open(path, encoding="utf-8") as f:
-            for line in f:
-                try:
-                    entry = json.loads(line)
-                    at = datetime.fromisoformat(entry["t"])
-                except (ValueError, KeyError, TypeError):
-                    continue
-                entries.append({**entry, "session_id": session, "_at": at})
-        _runs(entries[first:])
+    entries = _read_all(folder)
     if since:
         try:
             start = datetime.fromisoformat(since)
         except ValueError:
             raise _invalid("since is an ISO time.")
         entries = [e for e in entries if e["_at"] >= start]
-    entries.sort(key=lambda e: e["_at"])
-    return [{k: v for k, v in e.items() if k != "_at"} for e in entries[-READ_LIMIT:]]
+    return _public(entries)[-READ_LIMIT:]
+
+
+def _answers(entry: Dict[str, Any]) -> bool:
+    return entry["kind"] in ("done", "failed") and isinstance(entry.get("step"), int)
+
+
+def read_runs(folder: Path) -> List[Dict[str, Any]]:
+    """Every subagent run in an agent/ *folder*, however old: each Agent call's
+    line and its answer, oldest first. Only a few lines per run, so the
+    Subagents tab lists them all, not only those the chat has loaded."""
+    entries = _read_all(folder)
+    calls = {
+        (e["session_id"], e["seq"])
+        for e in entries
+        if e["kind"] == "step" and e.get("subagent") and isinstance(e.get("seq"), int)
+    }
+    return _public(
+        [
+            e
+            for e in entries
+            if (e["session_id"], e.get("seq")) in calls
+            or (_answers(e) and (e["session_id"], e["step"]) in calls)
+        ]
+    )
+
+
+def read_run(folder: Path, session_id: str, call: int) -> List[Dict[str, Any]]:
+    """One subagent run's own lines (``run`` is *call*), with their steps'
+    answers and pictures, oldest first."""
+    entries = [e for e in _read_all(folder) if e["session_id"] == session_id]
+    own = [e for e in entries if e.get("run") == call]
+    steps = {e["seq"] for e in own if e["kind"] == "step"}
+    return _public(
+        own
+        + [
+            e
+            for e in entries
+            if e.get("run") != call
+            and (
+                (_answers(e) and e["step"] in steps)
+                or (e["kind"] == "picture" and e.get("step") in steps)
+            )
+        ]
+    )
 
 
 def build_agent_transcript_router(
@@ -278,6 +371,24 @@ def build_agent_transcript_router(
         if folder is None or not folder.is_dir():
             return {"entries": []}
         return {"entries": read(folder, since)}
+
+    @router.get("/transcript/runs")
+    def get_runs(request: Request):
+        """Every subagent run: each Agent call's line and its answer."""
+        folder = _folder(request)
+        if folder is None or not folder.is_dir():
+            return {"entries": []}
+        return {"entries": read_runs(folder)}
+
+    @router.get("/transcript/runs/{session_id}/{call}")
+    def get_run(request: Request, session_id: str, call: int):
+        """One subagent run's own lines, for a run the chat hasn't loaded."""
+        if not _SESSION.match(session_id):
+            raise _invalid("session_id is the session's id: letters, digits, - and _.")
+        folder = _folder(request)
+        if folder is None or not folder.is_dir():
+            return {"entries": []}
+        return {"entries": read_run(folder, session_id, call)}
 
     @router.get("/transcript/pictures/{name}")
     def get_picture(request: Request, name: str):
