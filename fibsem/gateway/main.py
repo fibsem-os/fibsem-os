@@ -34,6 +34,7 @@ from fibsem.gateway.gateway import (
     read_gateway_file,
 )
 from fibsem.gateway.host import HostMicroscope
+from fibsem.server.discovery import read_discovery_file
 from fibsem.server.operator_token import read_operator_token
 from fibsem.unreleased import refuse
 
@@ -117,8 +118,6 @@ def _connection(extra: List[str]) -> List[str]:
 
 def _app_url() -> Optional[str]:
     """The App Server running on this PC, whoever started it."""
-    from fibsem.server.discovery import read_discovery_file
-
     found = read_discovery_file()
     return found.get("url") if found else None
 
