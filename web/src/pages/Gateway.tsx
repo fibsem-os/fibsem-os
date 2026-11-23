@@ -14,6 +14,7 @@ import {
   type AgentState,
   notReady,
 } from "@/pages/gateway/AgentCard";
+import { ConnectCard, useGatewayAsk } from "@/pages/agent/Cards";
 import { History } from "@/pages/gateway/History";
 import { type AppFacts, type Defaults, forApp, Settings } from "@/pages/gateway/Settings";
 // The same icon as the gateway's window and its Desktop shortcut.
@@ -961,6 +962,7 @@ function Gateway({
     queryFn: () => api<AgentState>("/gateway/agent"),
     refetchInterval: 2000,
   });
+  const gatewayAsk = useGatewayAsk();
   const state = gateway.data;
   const running = state?.mode === "running";
   const newer = state ? newerLabel(state.newer) : null;
@@ -1039,6 +1041,7 @@ function Gateway({
                 starting={appStarting}
                 up={appUp}
               />
+              {gatewayAsk && <ConnectCard key={gatewayAsk.id} ask={gatewayAsk} />}
               <AgentCard
                 appRunning={appUp}
                 appStarting={appStarting}
@@ -1054,7 +1057,7 @@ function Gateway({
           )}
           {tab === "pairing" && (
             <Card>
-              <Connections roles={["operator", "hub"]} />
+              <Connections roles={["operator", "agent", "hub"]} />
             </Card>
           )}
           {tab === "settings" && state && (

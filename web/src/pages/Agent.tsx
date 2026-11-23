@@ -39,7 +39,7 @@ import type {
   WorkflowStatus,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { ConnectCard, RequestCard, SuggestionCard } from "./agent/Cards";
+import { ConnectCard, RequestCard, SuggestionCard, useGatewayAsk } from "./agent/Cards";
 import { carriesFiles, splitAttached, useAttachments } from "./agent/attach";
 import { SentFiles } from "./agent/Attachments";
 import { useAct } from "./agent/act";
@@ -1037,6 +1037,7 @@ export function AgentPage() {
     !!caps.data?.routers.microscope && (caps.data.connected !== false || !!caps.data.instruments?.length);
   const fibsem = (caps.data?.instruments?.[0] ?? "fibsem") === "fibsem";
   const safety = useSafetyActions(instrument);
+  const gatewayAsk = useGatewayAsk();
   const [shown, setShown] = useMicroscopeShown();
   const rowsNow = recent.data?.rows ?? [];
   const since = rowsNow.find((r) => r.at)?.at;
@@ -1505,7 +1506,8 @@ export function AgentPage() {
                 <span className="text-muted-foreground">· {a.waiting.who}</span>
               </div>
             ))}
-          {a.asking && <ConnectCard key={a.asking.id} ask={a.asking} />}
+          {gatewayAsk && <ConnectCard key={gatewayAsk.id} ask={gatewayAsk} />}
+          {a.asking && <ConnectCard key={a.asking.id} ask={a.asking} decide="/app/agent/connections" />}
           {request && <RequestCard key={request.request_id} request={request} agent={a} />}
           {!request && suggestion && <SuggestionCard key={suggestion.proposal_id} suggestion={suggestion} agent={a} />}
           <div

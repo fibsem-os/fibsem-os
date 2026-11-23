@@ -135,6 +135,7 @@ class _FakeHost:
         self.running = False
         self.starts = 0
         self.url = "http://127.0.0.1:8001"
+        self.connect_url = "http://127.0.0.1:8010"
         # Seconds since the agent was last heard; None: never.
         self.seen = None
 

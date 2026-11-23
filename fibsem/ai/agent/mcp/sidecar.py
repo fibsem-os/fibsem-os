@@ -16,10 +16,11 @@ Register with Claude Code:
 
     claude mcp add -s user fibsem -- fibsem-mcp
 
-From another computer, pair once with the code Connect an agent shows (the url
-defaults to the SSH tunnel's end, http://localhost:8001):
+From another computer, pair once with the code the gateway's Pairing shows for
+an agent (the url defaults to the SSH tunnel's end, the gateway's port,
+http://localhost:8010):
 
-    fibsem-mcp pair 1234 [--url http://microscope-pc:8001]
+    fibsem-mcp pair 1234 [--url http://microscope-pc:8010]
 
 Requires the [mcp] extra (Python 3.10+): pip install fibsem[mcp]
 
@@ -1591,7 +1592,7 @@ def main(argv=None):
         "this computer's agent (fibsem-mcp pair --help).",
     )
     parser.add_argument(
-        "--url", default=None, help="Server URL, e.g. http://127.0.0.1:8001"
+        "--url", default=None, help="Server URL, e.g. http://127.0.0.1:8010"
     )
     parser.add_argument(
         "--token", default=None, help="Bearer token (from the server log or dialog)"

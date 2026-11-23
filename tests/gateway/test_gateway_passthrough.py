@@ -11,7 +11,7 @@ import uvicorn
 from fastapi.testclient import TestClient
 
 from fibsem.gateway.gateway import Gateway
-from fibsem.gateway.passthrough import PassThrough, is_stop
+from fibsem.gateway.passthrough import CONNECT_FIRST, PassThrough, is_stop
 from fibsem.gateway.server import GatewayAuth, build_gateway_app
 from fibsem.server.pairing import HUB, OPERATOR, PairedTokens, Pairing
 from tests.waiting import free_port, wait_for
@@ -76,7 +76,7 @@ def gateways(tmp_path):
         client.__exit__(None, None, None)
 
 
-def _gateway_app(tmp_path, upstream):
+def _gateway_app(tmp_path, upstream, passthrough=None):
     gateway = Gateway(
         home=tmp_path,
         app_registry=lambda: {},
@@ -90,7 +90,9 @@ def _gateway_app(tmp_path, upstream):
         token=OPERATOR_TOKEN,
         pairing=Pairing(PairedTokens(tmp_path / "paired.json"), roles=(OPERATOR, HUB)),
     )
-    return build_gateway_app(gateway, auth, passthrough=PassThrough(upstream))
+    return build_gateway_app(
+        gateway, auth, passthrough=passthrough or PassThrough(upstream)
+    )
 
 
 def _as(token):
@@ -149,6 +151,22 @@ def test_with_no_app_the_gateway_says_so(gateways):
     answer = gateway.get("/app/workflow/status", headers=_as(AGENT))
     assert answer.status_code == 503
     assert answer.json()["detail"]["error_type"] == "no_app"
+
+
+def test_the_connect_token_is_never_passed_to_the_app_server(tmp_path):
+    """The gateway file's token only asks to connect: the gateway answers it
+    itself, without asking the App Server."""
+    asked = []
+    passthrough = PassThrough(
+        lambda: asked.append(1) or None, is_connect=lambda token: token == "connect"
+    )
+    through = TestClient(_gateway_app(tmp_path, None, passthrough))
+    answer = through.get("/capabilities", headers=_as("connect"))
+    assert answer.status_code == 403
+    assert answer.json()["detail"]["error_type"] == CONNECT_FIRST
+    assert asked == []
+    assert through.get("/capabilities", headers=_as(AGENT)).status_code == 503
+    assert asked == [1]
 
 
 def test_an_app_that_has_gone_is_a_502(gateways):

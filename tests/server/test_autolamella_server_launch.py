@@ -14,7 +14,7 @@ from fibsem.applications.autolamella import launch
 from fibsem.applications.autolamella.structures import Experiment
 from fibsem.server.operator_token import load_operator_token
 from tests.fixtures.headless import (
-    allowed_agent,
+    AGENT_TOKEN,
     confine_host,
     run_in_background,
     serving,
@@ -51,12 +51,10 @@ def test_a_new_experiment_is_served_and_the_operator_hands_over(
         found = serving(discovery)
         operator_token = load_operator_token(discovery.parent / "operator-token.json")
         with httpx.Client(base_url=found["url"]) as client:
-            agent_token = allowed_agent(found, operator_token)
-            agent = {"Authorization": f"Bearer {agent_token}"}
+            agent = {"Authorization": f"Bearer {AGENT_TOKEN}"}
             operator = {"Authorization": f"Bearer {operator_token}"}
             capabilities = client.get("/capabilities", headers=agent).json()
             assert capabilities["app_name"] == "AutoLamella"
-            assert client.get("/ui/agent", headers=operator).status_code == 200
             # Watch first: the agent reads but can't add a position
             site = {"name": "site-a"}
             refused = client.post("/app/experiment/items", json=site, headers=agent)
@@ -77,7 +75,7 @@ def test_a_new_experiment_is_served_and_the_operator_hands_over(
     assert fibsem_cfg.get_last_experiment_file() == str(folder / "experiment.yaml")
     out = capsys.readouterr().out
     # The plain chat address: the token stays out of the terminal.
-    assert "/ui/agent (Pair this browser)" in out and "#token=" not in out
+    assert "/ui/agent (on the gateway)" in out and "#token=" not in out
 
 
 def test_with_no_folder_none_is_open_and_last_opens_the_most_recent(
@@ -102,8 +100,7 @@ def test_the_agent_creates_the_experiment_in_the_named_folder(discovery, places)
         found = serving(discovery)
         operator_token = load_operator_token(discovery.parent / "operator-token.json")
         with httpx.Client(base_url=found["url"]) as client:
-            agent_token = allowed_agent(found, operator_token)
-            agent = {"Authorization": f"Bearer {agent_token}"}
+            agent = {"Authorization": f"Bearer {AGENT_TOKEN}"}
             operator = {"Authorization": f"Bearer {operator_token}"}
             # no experiment open yet
             assert client.get("/app/experiment", headers=agent).status_code == 409

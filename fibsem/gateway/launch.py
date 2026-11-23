@@ -9,7 +9,9 @@ operator picks the microscope, the app and the agent in the window or on the pag
 
 from __future__ import annotations
 
+import logging
 import sys
+import threading
 import time
 import webbrowser
 from typing import Any, Callable, Optional
@@ -20,7 +22,15 @@ from fibsem.server.operator_token import read_operator_token
 from fibsem.tools.apps import GATEWAY
 from fibsem.unreleased import refuse
 
-__all__ = ["OpenFailed", "gateway_page", "open_gateway", "open_gateway_page"]
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    "OpenFailed",
+    "gateway_page",
+    "open_gateway",
+    "open_gateway_page",
+    "open_page",
+]
 
 GATEWAY_WAIT_S = 60.0
 # How long a gateway just started has to open its window.
@@ -40,6 +50,7 @@ def _answers(ask: Callable[..., Any]) -> bool:
 
 
 def gateway_page(
+    page: str = "gateway",
     ask: Callable[..., Any] = call,
     start: Callable[[], None] = start_gateway,
     found: Callable[[], Optional[dict]] = read_gateway_file,
@@ -47,8 +58,9 @@ def gateway_page(
     clock: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
 ) -> str:
-    """The gateway's page, signed in as the operator; the gateway started
-    first when none runs. Raises `OpenFailed`."""
+    """The web app's *page* on the gateway (``gateway``, ``agent``,
+    ``events``), signed in as the operator; the gateway started first when none
+    runs. Raises `OpenFailed`."""
     if not _answers(ask):
         start()
         deadline = clock() + GATEWAY_WAIT_S
@@ -62,7 +74,7 @@ def gateway_page(
     gateway = found()
     if gateway is None:
         raise OpenFailed("The gateway stopped.")
-    return f"{gateway['url']}/ui/gateway#token={token() or ''}"
+    return f"{gateway['url']}/ui/{page}#token={token() or ''}"
 
 
 def show_window(
@@ -115,6 +127,27 @@ def _show(text: str) -> None:
         _say(GATEWAY, text)
     except ImportError:
         pass
+
+
+def open_page(
+    page: str,
+    open_url: Callable[[str], Any] = webbrowser.open,
+    url: Callable[..., str] = gateway_page,
+) -> threading.Thread:
+    """Open the web app's *page* in the browser, from the gateway, which
+    starts first when none runs: the pages and pairing are the gateway's. In
+    the background, so a window that asks never waits on a gateway starting;
+    a failure is logged."""
+
+    def run() -> None:
+        try:
+            open_url(url(page))
+        except OpenFailed as failed:
+            logger.warning("Could not open the %s page: %s", page, failed)
+
+    thread = threading.Thread(target=run, name=f"open-{page}-page", daemon=True)
+    thread.start()
+    return thread
 
 
 def open_gateway_page() -> None:

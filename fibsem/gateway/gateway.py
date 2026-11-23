@@ -27,7 +27,13 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import fibsem
 from fibsem.gateway.health import HealthWatch, ServersHealth
-from fibsem.server.discovery import DISCOVERY_DIR, read_discovery_file
+from fibsem.server.discovery import (
+    DISCOVERY_DIR,
+    GATEWAY_FILE,
+    GATEWAY_PORT,
+    read_discovery_file,
+    read_gateway_file,
+)
 from fibsem.tools.apps import App, apps
 from fibsem.update_check import Newer, check_newer
 from fibsem.util.process import kill_pid, pid_alive
@@ -44,6 +50,7 @@ __all__ = [
     "GatewayRefused",
     "GatewayState",
     "read_gateway_file",
+    "write_gateway_file",
 ]
 
 OFF = "off"
@@ -53,8 +60,6 @@ MODES = (OFF, RUNNING)
 STARTING = "starting"
 STOPPING = "stopping"
 
-GATEWAY_PORT = 8010
-GATEWAY_FILE = DISCOVERY_DIR / "gateway.json"
 # Set on a window the gateway started, so its launch doesn't ask the gateway.
 CHILD_ENV = "FIBSEM_GATEWAY"
 STOP_WAIT_S = 60.0
@@ -195,16 +200,23 @@ def close_file(pid: int, home: Path = DISCOVERY_DIR) -> Path:
     return home / f"gateway-close-{pid}"
 
 
-def read_gateway_file(path: Optional[Path] = None) -> Optional[dict]:
-    """The running gateway's ``{"url", "pid"}``, or None when none runs."""
-    try:
-        with open(path or GATEWAY_FILE) as f:
-            data = json.load(f)
-    except (OSError, ValueError):
-        return None
-    if not isinstance(data, dict) or "url" not in data:
-        return None
-    return data if pid_alive(data.get("pid")) else None
+def write_gateway_file(
+    url: str, connect_token: Optional[str], path: Optional[Path] = None
+) -> Path:
+    """``{"url", "pid", "connect_token"}``, readable by this PC's user only:
+    the connect token lets a program here ask the operator to let it in."""
+    path = Path(path or GATEWAY_FILE)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"url": url, "pid": os.getpid()}
+    if connect_token is not None:
+        payload["connect_token"] = connect_token
+    # Written whole, then moved into place: a reader never sees it half written.
+    partial = path.with_name(path.name + ".partial")
+    with open(partial, "w") as f:
+        json.dump(payload, f, indent=2)
+    os.chmod(partial, 0o600)
+    os.replace(partial, path)
+    return path
 
 
 def saved_configurations() -> List[dict]:

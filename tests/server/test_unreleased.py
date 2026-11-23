@@ -1,6 +1,6 @@
 """With the agent not released (fibsem.unreleased off), an App Server serves no
-agent: the level is Off and stays there, nothing pairs or asks to connect as an
-agent, and a client is the operator. The agent and gateway commands refuse."""
+agent: the level is Off and stays there, nothing pairs or asks to connect, and
+a client is the operator. The agent and gateway commands refuse."""
 
 import httpx
 import pytest
@@ -101,12 +101,11 @@ def test_the_server_serves_no_agent(host):
     assert level.status_code == 409
     assert host.auth.level is AgentLevel.OFF
 
-    pair = _call(host, "POST", "/pairing", operator, {"role": "agent"})
-    assert pair.status_code == 422
-    assert _call(host, "POST", "/pairing", operator, {"role": "operator"}).is_success
-
-    ask = _call(host, "POST", "/connect", host.auth.connect_token, {})
-    assert ask.status_code == 404
+    # Pairing and asking to connect are the gateway's, never the App Server's.
+    pair = _call(host, "POST", "/pairing", operator, {"role": "operator"})
+    assert pair.status_code == 404
+    assert host.auth.connect_token is None
+    assert _call(host, "POST", "/connect", operator, {}).status_code == 404
 
 
 def test_a_client_is_the_operator(off, monkeypatch):

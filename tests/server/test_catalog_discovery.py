@@ -35,6 +35,7 @@ def app():
         microscope,
         app_context=AutoLamellaAppContext(AppSession()),
         auth=AuthConfig(token="t"),
+        pairs=True,  # as the microscope server, so its pairing routes are listed too
     )
 
 

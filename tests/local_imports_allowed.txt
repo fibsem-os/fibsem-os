@@ -150,6 +150,7 @@ fibsem/ui/FibsemImageSettingsWidget.py 1
 fibsem/ui/FibsemMovementWidget.py 1
 fibsem/ui/FibsemSystemSetupWidget.py 1
 fibsem/ui/agent/activity.py 1
+fibsem/ui/agent/app_server_dialog.py 2
 fibsem/ui/agent/chip_host.py 5
 fibsem/ui/app_window.py 1
 fibsem/ui/correlation/widgets/correlation_tab_widget.py 11

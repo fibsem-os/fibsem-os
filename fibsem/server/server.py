@@ -89,7 +89,6 @@ from fibsem.server.responses import (
     Status,
     answer,
 )
-from fibsem.server.web_app import web_app_router
 from fibsem.structures.settings import BeamType, MicroscopeState
 from fibsem.workflows.actions import ACTION, action_record
 
@@ -556,6 +555,7 @@ def build_server(
     operator=None,
     session=None,
     instruments: Sequence[Instrument] = (),
+    pairs: bool = False,
 ) -> FastAPI:
     """Build the server app around a connected microscope, or around
     ``session`` (an ``AppSession``), whose microscope every route reads when it
@@ -582,6 +582,12 @@ def build_server(
 
     ``operator`` is the session's ``AgentControl``: passing one mounts the
     operator's routes (`fibsem.server.agent.operator`), behind the operator token.
+
+    ``pairs`` serves pairing's own routes (`fibsem.server.pairing_routes`): the
+    microscope server's, until the gateway pairs for it. The App Server pairs
+    nothing and serves no pages: the gateway pairs every computer and agent into
+    the ``paired.json`` the App Server checks tokens against, and serves the web
+    app on its own port (`fibsem.gateway`).
     """
     if auth is None:
         auth = AuthConfig.generate()
@@ -633,16 +639,6 @@ def build_server(
     def health():
         # Unauthenticated liveness probe; everything informative lives in /capabilities.
         return {"status": "ok"}
-
-    @app.get("/chat")
-    def chat():
-        # The chat is the web app's Agent page; a browser keeps the URL
-        # fragment (the token) across the redirect.
-        from fastapi.responses import RedirectResponse
-
-        return RedirectResponse("/ui/agent")
-
-    app.include_router(web_app_router())
 
     @base.get("/capabilities")
     def capabilities(request: Request):
@@ -829,7 +825,8 @@ def build_server(
         return answer(Status())
 
     app.include_router(base)
-    app.include_router(build_pairing_router(auth))
+    if pairs:
+        app.include_router(build_pairing_router(auth))
     if session is not None:
         # Before the /microscope routes: connecting is the operator's whether
         # or not the microscope is served.

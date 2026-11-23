@@ -18,6 +18,7 @@ import hashlib
 import json
 import logging
 import os
+import secrets
 import shutil
 import socket
 import subprocess
@@ -236,11 +237,11 @@ def link_inputs(case: Case, experiment: Path) -> List[str]:
 
 
 def prepare_home(home: Path, knowledge: Optional[Path]) -> None:
-    """A state root that lets a local agent connect without a click and
-    starts from a copy of *knowledge*."""
+    """A state root that serves the session and starts from a copy of
+    *knowledge*."""
     prefs = home / "config" / "user-preferences.yaml"
     prefs.parent.mkdir(parents=True, exist_ok=True)
-    install = {"app_server": {"enabled": True, "allow_local_agents": True}}
+    install = {"app_server": {"enabled": True}}
     prefs.write_text(yaml.safe_dump({"install": install}))
     if knowledge is not None and knowledge.is_dir():
         shutil.copytree(knowledge, home / "knowledge")
@@ -303,7 +304,13 @@ def run_case(case: Case, repeat: int, config: RunConfig) -> Dict[str, Any]:
     experiments.mkdir(parents=True)
     knowledge = config.knowledge or paths.state_root() / "knowledge"
     prepare_home(home, knowledge)
-    env = {**os.environ, paths.STATE_ROOT_ENV: str(home)}
+    # The run's App Server runs alone, with no gateway to pair at: it and the
+    # agent share a token from the environment.
+    env = {
+        **os.environ,
+        paths.STATE_ROOT_ENV: str(home),
+        discovery.SERVER_TOKEN_ENV: secrets.token_urlsafe(32),
+    }
 
     started = time.monotonic()
     result: Dict[str, Any] = {
