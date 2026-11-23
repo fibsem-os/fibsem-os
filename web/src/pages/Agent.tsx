@@ -51,6 +51,8 @@ const WORKING_S = 120;
 // While it works, the app's events also read the transcript, at most this often;
 // fibsem-agent's own agent_transcript event reads it at once.
 const TRANSCRIPT_GAP_MS = 3000;
+// Rows the chat reads at first, and each Show earlier adds (recent.SIZE).
+const CHAT_PAGE = 50;
 
 const working = (agent: AgentState | undefined) => agent?.last_heard_s != null && agent.last_heard_s < WORKING_S;
 
@@ -778,9 +780,13 @@ export function AgentPage() {
     refetchInterval: (query) => (working(query.state.data) ? WORKING_EVERY_MS : IDLE_EVERY_MS),
   });
   const isWorking = working(agent.data);
+  // The chat's rows, a page at a time: Show earlier reads one more page back.
+  const [pages, setPages] = useState(1);
   const recent = useQuery({
-    queryKey: ["app/agent/recent"],
-    queryFn: () => api<{ rows: RecentRow[] }>("/app/agent/recent"),
+    queryKey: ["app/agent/recent", pages],
+    queryFn: () => api<{ rows: RecentRow[]; more: boolean }>(`/app/agent/recent?rows=${pages * CHAT_PAGE}`),
+    // Keep the rows shown while the longer read answers, so the chat doesn't empty.
+    placeholderData: keepPreviousData,
   });
   // Under "app/agent", so news about the agent reads it again.
   const reported = useQuery({
@@ -868,8 +874,21 @@ export function AgentPage() {
     const el = list.current;
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   };
+  // Show earlier keeps the reader where they were: the rows it adds go above.
+  const fromBottom = useRef<number | null>(null);
+  const showEarlier = () => {
+    const el = list.current;
+    if (el) fromBottom.current = el.scrollHeight - el.scrollTop;
+    pinned.current = false;
+    setPages((n) => n + 1);
+  };
   useLayoutEffect(() => {
-    if (pinned.current && list.current) list.current.scrollTop = list.current.scrollHeight;
+    const el = list.current;
+    if (!el) return;
+    if (fromBottom.current != null && !recent.isPlaceholderData) {
+      el.scrollTop = el.scrollHeight - fromBottom.current;
+      fromBottom.current = null;
+    } else if (pinned.current) el.scrollTop = el.scrollHeight;
   });
   // Pictures land after the rows are drawn, and a card or the composer growing
   // below shrinks the record: keep the newest in view.
@@ -1099,6 +1118,18 @@ export function AgentPage() {
           >
             <div>
               {a.session && <div className="py-1.5 pl-2.5 text-[13px] text-muted-foreground">{a.session}</div>}
+              {recent.data?.more && (
+                <div className="flex justify-center py-1.5">
+                  <button
+                    type="button"
+                    className="rounded-md border px-2.5 py-1 text-[13px] text-muted-foreground hover:bg-muted disabled:opacity-60"
+                    disabled={recent.isPlaceholderData}
+                    onClick={showEarlier}
+                  >
+                    {recent.isPlaceholderData ? "Reading…" : "Show earlier"}
+                  </button>
+                </div>
+              )}
               {all.length || lines.length ? (
                 <Record
                   rows={rows}
