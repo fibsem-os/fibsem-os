@@ -331,11 +331,27 @@ def test_each_wake_ends_with_where_the_plan_is(session):
     assert wait_for(lambda: len(agent.prompts) >= 2, timeout=20), (
         "timed out waiting for the message's turn"
     )
-    running.stop()
     assert agent.prompts[1].endswith(
         f"{handoff_mod.WHERE_HEADING}:\n"
         '- Plan: 1 of 3 steps done; now "Rough mill 01-02", then "Polish 01-02".'
     )
+    # Nothing changed: not said again.
+    AgentControl(session).message("And now?")
+    assert wait_for(lambda: len(agent.prompts) >= 3, timeout=20), (
+        "timed out waiting for the second message's turn"
+    )
+    assert handoff_mod.WHERE_HEADING not in agent.prompts[2]
+    # A step checked off: said again.
+    with _http(session) as http:
+        http.post(
+            "/app/agent/plan/step", json={"step": "Rough mill 01-02", "done": True}
+        ).raise_for_status()
+    AgentControl(session).message("Done yet?")
+    assert wait_for(lambda: len(agent.prompts) >= 4, timeout=20), (
+        "timed out waiting for the third message's turn"
+    )
+    running.stop()
+    assert agent.prompts[3].endswith('- Plan: 2 of 3 steps done; now "Polish 01-02".')
 
 
 def test_a_message_is_read_as_the_turn_carrying_it_starts(session):
