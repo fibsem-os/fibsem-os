@@ -814,6 +814,10 @@ class Reminders:
         given = (state or {}).get("playbook")
         if not given:
             return None
+        # A session that ended before it kept its playbook's state recorded only
+        # the name it started with.
+        if isinstance(given, str):
+            given = {"name": given}
         try:
             playbook = load(given["name"], checkout)
         except PlaybookError as error:
