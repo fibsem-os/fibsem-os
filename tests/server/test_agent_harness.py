@@ -333,7 +333,7 @@ def test_each_wake_ends_with_where_the_plan_is(session):
     )
     running.stop()
     assert agent.prompts[1].endswith(
-        f"{handoff_mod.NOW_HEADING}:\n"
+        f"{handoff_mod.WHERE_HEADING}:\n"
         '- Plan: 1 of 3 steps done; now "Rough mill 01-02", then "Polish 01-02".'
     )
 

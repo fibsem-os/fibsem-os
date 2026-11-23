@@ -82,13 +82,13 @@ WAKE = "WAKE a fresh context: start from the handoff note above."
 FACTS_HEADING = "Where things stood (read by the harness as the context ended)"
 # How long each read of the App Server may take (s).
 FACTS_TIMEOUT_S = 10.0
-# The block the harness ends every wake with (`now`): the plan and what
+# The block the harness ends every wake with (`where_you_are`): the plan and what
 # waits on the operator, read from the App Server as the wake is sent.
-NOW_HEADING = "Now (read by the harness for this wake)"
+WHERE_HEADING = "Where you are (read by the harness for this wake)"
 # How long each of its reads may take (s): a wake must not wait long for it.
-NOW_TIMEOUT_S = 3.0
+WHERE_TIMEOUT_S = 3.0
 # The review items waiting on the operator it names, at most.
-NOW_MAX_WAITS = 5
+WHERE_MAX_WAITS = 5
 # The wake-up that starts a fresh context a resume began (`Handoff.recovered`).
 RECOVERED_WAKE = "WAKE a fresh context: rebuild from the record, as above."
 # Why a resume starts a fresh context instead of reloading the conversation.
@@ -374,7 +374,7 @@ def _step(step: Dict[str, Any]) -> str:
     return f'"{group}: {text}"' if group else f'"{text}"'
 
 
-def now(client) -> str:
+def where_you_are(client) -> str:
     """The block the harness ends every wake with: the plan's steps done,
     the one it is on and the next (`/app/agent/plan`), the workflow while it
     runs (`/app/workflow/status`), and what waits on the operator: review
@@ -386,7 +386,7 @@ def now(client) -> str:
     if client is None:
         return ""
     lines: List[str] = []
-    plan, why = _read(client, "/app/agent/plan", timeout=NOW_TIMEOUT_S)
+    plan, why = _read(client, "/app/agent/plan", timeout=WHERE_TIMEOUT_S)
     if plan is None and not why.startswith("HTTP") and why != "not JSON":
         # No answer at all: the other reads would only wait as long again.
         return ""
@@ -401,7 +401,7 @@ def now(client) -> str:
         lines.append(said + ".")
     elif isinstance(plan, dict) and plan.get("markdown"):
         lines.append("Plan: no steps to check off yet.")
-    status, _ = _read(client, "/app/workflow/status", timeout=NOW_TIMEOUT_S)
+    status, _ = _read(client, "/app/workflow/status", timeout=WHERE_TIMEOUT_S)
     asking = []
     if isinstance(status, dict):
         flow = status.get("workflow") or {}
@@ -410,17 +410,17 @@ def now(client) -> str:
         asking = [f"proposal {a.get('proposal_id')}" for a in flow.get("asking") or []]
     waits = []
     review, _ = _read(
-        client, "/app/agent/review", {"show": "waiting"}, timeout=NOW_TIMEOUT_S
+        client, "/app/agent/review", {"show": "waiting"}, timeout=WHERE_TIMEOUT_S
     )
     if isinstance(review, dict):
         items = review.get("items") or []
         waits += [
             f'review {item.get("id")} "{_title(item)}"'
-            for item in items[:NOW_MAX_WAITS]
+            for item in items[:WHERE_MAX_WAITS]
         ]
-        if len(items) > NOW_MAX_WAITS:
-            waits.append(f"{len(items) - NOW_MAX_WAITS} more review items")
-    requests, _ = _read(client, "/app/agent/requests", timeout=NOW_TIMEOUT_S)
+        if len(items) > WHERE_MAX_WAITS:
+            waits.append(f"{len(items) - WHERE_MAX_WAITS} more review items")
+    requests, _ = _read(client, "/app/agent/requests", timeout=WHERE_TIMEOUT_S)
     if isinstance(requests, dict):
         waits += [
             f"request {r.get('request_id')}"
@@ -432,7 +432,7 @@ def now(client) -> str:
         lines.append("Waiting on the operator: " + ", ".join(waits) + ".")
     if not lines:
         return ""
-    return f"{NOW_HEADING}:\n" + "\n".join(f"- {line}" for line in lines)
+    return f"{WHERE_HEADING}:\n" + "\n".join(f"- {line}" for line in lines)
 
 
 class Marks:

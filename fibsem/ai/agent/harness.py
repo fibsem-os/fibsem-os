@@ -1794,13 +1794,13 @@ class Harness:
         )
         self._put(self._watcher, watch_mod.Wake(ALARM, handoff_mod.WAKE))
 
-    def _now(self) -> str:
-        """The block that ends every wake (`handoff.now`); a failure costs
+    def _where_you_are(self) -> str:
+        """The block that ends every wake (`handoff.where_you_are`); a failure costs
         the wake only that block."""
         try:
-            return handoff_mod.now(self._client)
+            return handoff_mod.where_you_are(self._client)
         except Exception:  # noqa: BLE001 - the wake goes on without it
-            log.debug("Reading the wake's Now block failed.", exc_info=True)
+            log.debug("Reading the wake's Where-you-are block failed.", exc_info=True)
             return ""
 
     def _handoff_facts(self) -> str:
@@ -2244,7 +2244,9 @@ class Harness:
                 if self._handoff is not None:
                     prompt = self._handoff.into(prompt)
                 # Last, where the agent attends most: where it is in its plan.
-                said = await asyncio.get_running_loop().run_in_executor(None, self._now)
+                said = await asyncio.get_running_loop().run_in_executor(
+                    None, self._where_you_are
+                )
                 if said:
                     prompt = f"{prompt}\n\n{said}"
                 return prompt

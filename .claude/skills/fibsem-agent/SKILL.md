@@ -270,7 +270,7 @@ failed run, task, mill or command, and a milling monitor's trigger. The next tur
 then may still have finished: read where things stand before you act, and
 never repeat a relative move without checking.
 
-Each turn ends with a short `Now` block the harness reads as it wakes you:
+Each turn ends with a short "Where you are" block the harness reads as it wakes you:
 your plan's steps done, the step you are on and the next, the workflow
 while it runs, and what waits on the operator (review items, requests,
 proposals). It is read from the App Server, not written by you: keep the

@@ -702,8 +702,8 @@ def test_every_wake_ends_with_where_the_plan_is_and_what_waits():
             ),
         }
     )
-    assert handoff_mod.now(server).splitlines() == [
-        f"{handoff_mod.NOW_HEADING}:",
+    assert handoff_mod.where_you_are(server).splitlines() == [
+        f"{handoff_mod.WHERE_HEADING}:",
         '- Plan: 2 of 5 steps done; now "Lamellae: Rough mill 01-04", then '
         '"Polish 01-04".',
         "- Workflow: running, task Rough Milling on Lamella-02 (2 of 4).",
@@ -713,7 +713,7 @@ def test_every_wake_ends_with_where_the_plan_is_and_what_waits():
     assert ("/app/agent/review", {"show": "waiting"}) in server.asked
 
 
-def test_the_now_block_says_only_what_it_could_read():
+def test_the_where_you_are_block_says_only_what_it_could_read():
     # Nothing to say: no block at all.
     quiet = _Server(
         {
@@ -721,13 +721,13 @@ def test_the_now_block_says_only_what_it_could_read():
             "/app/workflow/status": _Answer(200, {"workflow": {"running": False}}),
         }
     )
-    assert handoff_mod.now(quiet) == ""
+    assert handoff_mod.where_you_are(quiet) == ""
     # A plan with no boxes yet, and reads that fail are left out.
     plan_only = _Server(
         {"/app/agent/plan": _Answer(200, {"markdown": "## Goal\nx", "steps": []})}
     )
-    assert handoff_mod.now(plan_only).splitlines() == [
-        f"{handoff_mod.NOW_HEADING}:",
+    assert handoff_mod.where_you_are(plan_only).splitlines() == [
+        f"{handoff_mod.WHERE_HEADING}:",
         "- Plan: no steps to check off yet.",
     ]
     # Every step done.
@@ -738,9 +738,9 @@ def test_the_now_block_says_only_what_it_could_read():
             )
         }
     )
-    assert "- Plan: 1 of 1 steps done." in handoff_mod.now(done).splitlines()
+    assert "- Plan: 1 of 1 steps done." in handoff_mod.where_you_are(done).splitlines()
     # An App Server that doesn't answer is asked once, not four times.
     gone = _Server({"/app/agent/plan": ConnectionError("gone")})
-    assert handoff_mod.now(gone) == ""
+    assert handoff_mod.where_you_are(gone) == ""
     assert len(gone.asked) == 1
-    assert handoff_mod.now(None) == ""
+    assert handoff_mod.where_you_are(None) == ""
