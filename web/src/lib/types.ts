@@ -213,9 +213,18 @@ export interface ReportedSession {
   spent_usd?: number;
   /** What its model calls used this run, in tokens. */
   tokens?: { input: number; output: number; cache_read: number; cache_write: number };
-  /** How full its context is, in tokens: compacted at `compact_at`; `parts`
-   * as the CLI's /context names them, when the harness reports them. */
-  context?: { used: number; window?: number; compact_at?: number; parts?: { name: string; tokens: number }[] };
+  /** How full its context is, in tokens: a fresh context suggested at
+   * `suggest_at` and due at `due_at` (the playbook's context_suggest and
+   * context_ceiling), compacted at `compact_at`; `parts` as the CLI's /context
+   * names them, when the harness reports them. */
+  context?: {
+    used: number;
+    window?: number;
+    suggest_at?: number;
+    due_at?: number;
+    compact_at?: number;
+    parts?: { name: string; tokens: number }[];
+  };
   /** How many contexts the session has had: 1, one more per fresh context. */
   contexts?: number;
   /** When the operator last asked for a fresh context, and in which context. */
