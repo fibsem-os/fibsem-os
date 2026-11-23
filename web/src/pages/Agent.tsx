@@ -600,8 +600,9 @@ const LIVE_FOR_MS = 60_000;
 
 /** The transcript's lines sorted for showing: each step's answer and pictures
  * by the step, each subagent run's lines by its Agent call, and the agent's own
- * lines (*top*). *heard*: the agent was heard from lately (`Record`). */
-function indexLines(lines: TranscriptLine[], heard: boolean) {
+ * lines (*top*). *heard*: the agent was heard from lately (`Record`);
+ * *live*: the session it reports, whose steps alone may still run. */
+function indexLines(lines: TranscriptLine[], heard: boolean, live?: string | null) {
   const answered: Answers = new Map();
   const lastAnswered = new Map<string, number>();
   const pictures: Pictures = new Map();
@@ -620,8 +621,13 @@ function indexLines(lines: TranscriptLine[], heard: boolean) {
   }
   const saysDone = lines.some((l) => l.kind === "done");
   const lastStep = [...lines].reverse().find((l) => l.kind === "step");
+  // Only the live session runs (else the newest): an older one's open steps,
+  // and a step its run ended before answering (`ended`), stopped with it.
+  const newest = live ?? (lines.length ? lines[lines.length - 1].session_id : null);
   const running = (step: TranscriptLine) =>
     heard &&
+    !step.ended &&
+    step.session_id === newest &&
     (step.subagent != null
       ? !answered.has(stepKey(step.session_id, step.seq))
       : saysDone
@@ -649,6 +655,7 @@ function Record({
   lines: all,
   show,
   heard,
+  live,
   now,
   calls,
   onOpen,
@@ -657,6 +664,7 @@ function Record({
   lines: TranscriptLine[];
   show: Show;
   heard: boolean;
+  live?: string | null;
   now?: string | null;
   calls: boolean;
   onOpen?: (call: TranscriptLine) => void;
@@ -664,7 +672,7 @@ function Record({
   const out: JSX.Element[] = [];
   let run: RecentRow[] = [];
   let working: TranscriptLine[] = [];
-  const indexed = indexLines(all, heard);
+  const indexed = indexLines(all, heard, live);
   const { answered, pictures, runs, running } = indexed;
   const lines = indexed.top;
   // Keyed by what a row says, not where it sits: the oldest rows drop off the
@@ -946,10 +954,11 @@ export function AgentPage() {
     isWorking &&
     !a.stopped &&
     lastStep != null &&
+    !lastStep.ended &&
     !entries.some((l) => answers(l) && l.session_id === lastStep.session_id && l.step === lastStep.seq);
   const session = reported.data?.session;
   const heard = isWorking && !a.stopped;
-  const idx = indexLines(entries, heard);
+  const idx = indexLines(entries, heard, session?.session_id);
   const openRun = (call: TranscriptLine) => {
     setShownRun(stepKey(call.session_id, call.seq));
     setFocus("subagents");
@@ -1177,6 +1186,7 @@ export function AgentPage() {
                   lines={lines}
                   show={show}
                   heard={heard}
+                  live={reported.data?.session?.session_id}
                   now={a.now}
                   calls={calls}
                   onOpen={openRun}

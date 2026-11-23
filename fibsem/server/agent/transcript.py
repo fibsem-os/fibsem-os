@@ -17,6 +17,12 @@ A subagent's lines carry ``run``, the ``seq`` of the Agent call that started
 it; that call's line carries ``subagent``, the subagent's name, and its ``done``
 keeps the subagent's answer, with ``verdict`` (agree or concern) and
 ``attention`` (true when someone should look) when it gave them.
+
+A session resumed in a new ``fibsem-agent`` numbers its lines from 1 again, in
+the same file. Read back, each later run's numbers follow on from the run
+before (`_runs`), so a line names one step, and a step the run ended before
+answering (stopped, crashed or killed) carries ``ended``: the page shows it
+stopped, not running for ever.
 """
 
 import base64
@@ -154,6 +160,38 @@ def _keep_picture(folder: Path, session_id: str, entry: Dict[str, Any]) -> None:
     entry["path"] = f"{PICTURES}/{name}"
 
 
+# The line numbers a line names: its own, its step's, its subagent run's.
+_NUMBERS = ("seq", "step", "run")
+
+
+def _runs(entries: List[Dict[str, Any]]) -> None:
+    """One session's *entries*, in file order, numbered apart by run: a line
+    numbered no higher than one before it starts a new run, whose numbers then
+    follow on from the run before. A step a run ended without answering gets
+    ``ended``; the last run's steps may still be running."""
+    offset, top, steps, answered = 0, 0, [], set()
+
+    def close() -> None:
+        for step in steps:
+            if step["seq"] not in answered:
+                step["ended"] = True
+
+    for entry in entries:
+        seq = entry.get("seq")
+        if isinstance(seq, int) and seq + offset <= top:
+            close()
+            offset, steps, answered = top, [], set()
+        for key in _NUMBERS:
+            if isinstance(entry.get(key), int):
+                entry[key] += offset
+        if isinstance(seq, int):
+            top = max(top, entry["seq"])
+        if entry["kind"] == "step" and isinstance(seq, int):
+            steps.append(entry)
+        elif entry["kind"] in ("done", "failed") and isinstance(entry.get("step"), int):
+            answered.add(entry["step"])
+
+
 def read(folder: Path, since: Optional[str] = None) -> List[Dict[str, Any]]:
     """The transcript entries in an agent/ *folder*, every session's, oldest
     first; from *since* (an ISO time) on when given. The newest `READ_LIMIT`."""
@@ -162,6 +200,7 @@ def read(folder: Path, since: Optional[str] = None) -> List[Dict[str, Any]]:
     entries: List[Dict[str, Any]] = []
     for path in sorted(folder.glob("transcript-*.jsonl")):
         session = path.stem[len("transcript-") :]
+        first = len(entries)
         with open(path, encoding="utf-8") as f:
             for line in f:
                 try:
@@ -170,6 +209,7 @@ def read(folder: Path, since: Optional[str] = None) -> List[Dict[str, Any]]:
                 except (ValueError, KeyError, TypeError):
                     continue
                 entries.append({**entry, "session_id": session, "_at": at})
+        _runs(entries[first:])
     if since:
         try:
             start = datetime.fromisoformat(since)

@@ -309,3 +309,31 @@ def test_a_subagent_s_lines_keep_their_run_and_its_call_names_the_subagent(serve
         ).status_code
         == 422
     )
+
+
+def test_a_resumed_session_s_lines_follow_on_and_a_cut_step_has_ended(server):
+    """A resumed session numbers its lines from 1 again: read back, they follow
+    on from the run before, and that run's unanswered steps have ended (the page
+    would otherwise show an Auditor run from last week as running)."""
+    client, _, _ = server
+    call = {"seq": 1, "kind": "step", "text": "Audit", "subagent": "auditor"}
+    said = {"seq": 2, "kind": "said", "text": "Reading.", "run": 1}
+    read = {"seq": 3, "kind": "step", "text": "Read log", "run": 1}
+    _post(client, "s1", call, said, read)
+    # Resumed: the new run's own step 1, answered, and its step 2 still running.
+    again = {"seq": 1, "kind": "step", "text": "Read plan"}
+    done = {"seq": 2, "kind": "done", "text": "", "step": 1}
+    now = {"seq": 3, "kind": "step", "text": "Take image"}
+    _post(client, "s1", again, done, now)
+    lines = client.get("/app/agent/transcript").json()["entries"]
+    assert [line["seq"] for line in lines] == [1, 2, 3, 4, 5, 6]
+    assert lines[1]["run"] == 1 and lines[2]["run"] == 1
+    assert lines[4]["step"] == 4
+    assert [bool(line.get("ended")) for line in lines] == [
+        True,
+        False,
+        True,
+        False,
+        False,
+        False,
+    ]

@@ -178,6 +178,8 @@ TRANSCRIPT_KEEP = 2000
 # (`fibsem.server.agent.transcript.MAX_TEXT`): a subagent's last words, its
 # answer, run longer.
 TRANSCRIPT_TEXT = 2000
+# A step's failed line when its run ended before it answered.
+STEP_ENDED = "Ended without an answer: the run stopped."
 # A lab tool's pictures on the transcript (`_show_pictures`): at most this many
 # from one result, this many waiting to be sent, and this big (base64, under
 # the server's 5 MB). A send carries one picture at most.
@@ -1420,6 +1422,10 @@ class Harness:
             self._deadlines.cancel()
             # Before the watcher stops: stopping it closes the client.
             await self._keep_unstarted_handoff()
+            # Sent with the last report: no step of this run still runs.
+            end_steps = getattr(self._agent, "end_open_steps", None)
+            if end_steps is not None:
+                end_steps(STEP_ENDED)
             await self._report(ended=True)
             if self._watcher is not None:
                 self._watcher.stop()
@@ -2401,6 +2407,15 @@ class SdkAgent:
             self.on_line()
         return self._seq
 
+    def end_open_steps(self, why: str) -> None:
+        """Say each step still open has ended unanswered (*why*): the run is
+        over, so the web page shows it stopped, not running for ever."""
+        steps, self._steps = self._steps, {}
+        now = time.monotonic()
+        for seq, began, _name, run in steps.values():
+            extra = {"run": run} if run is not None else {}
+            self.line("failed", why, step=seq, took_s=round(now - began, 1), **extra)
+
     async def start(self) -> None:
         self._client = await self._connect(self._options)
 
@@ -2442,7 +2457,8 @@ class SdkAgent:
         self.introduced = False
         self.compacted = False
         self.skills_read = []
-        self._steps = {}
+        # The old conversation's steps never answer now.
+        self.end_open_steps(STEP_ENDED)
         self._compacting = None
         self._cost_usd = None
         self.calls.new_context()
@@ -2814,7 +2830,12 @@ def _show(message, agent: SdkAgent) -> None:
                     extra["subagent"] = _clip(block.input.get("subagent_type", ""), 60)
                 seq = _line(agent, "step", text, verb=verb, **extra)
                 if seq is not None:
-                    agent._steps[block.id] = (seq, time.monotonic(), block.name)
+                    agent._steps[block.id] = (
+                        seq,
+                        time.monotonic(),
+                        block.name,
+                        run.get("run"),
+                    )
     elif isinstance(message, UserMessage) and isinstance(message.content, list):
         run = _run_of(agent, message)
         # A subagent's results are its own, not the agent's.
