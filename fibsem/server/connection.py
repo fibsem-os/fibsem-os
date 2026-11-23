@@ -13,6 +13,7 @@ operator's only, never the agent's.
 
 from __future__ import annotations
 
+import logging
 import threading
 from types import MappingProxyType
 from typing import Any, Dict, List, Mapping, Optional, Sequence
@@ -20,17 +21,23 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence
 from fastapi import APIRouter, Depends, HTTPException
 
 from fibsem import config
+from fibsem.devices.heard import heard_of
 from fibsem.devices.runs import RUNNING
 from fibsem.instrument import CONNECTED_MESSAGE, Instrument, needs_microscope
 from fibsem.server.auth import require_operator
 from fibsem.server.leases import Leases
 from fibsem.server.responses import (
+    CallRunning,
     ConfigurationOption,
     ConnectedConfiguration,
     ConnectionView,
+    InstrumentHealth,
+    LastHeard,
     RunAnswer,
     answer,
 )
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "NOT_CONNECTED_MESSAGE",
@@ -198,6 +205,57 @@ def connection_view(session: Any) -> ConnectionView:
     )
 
 
+def last_heard(controllable: Any) -> Optional[LastHeard]:
+    """*controllable*'s `fibsem.devices.heard` record, or None when it can't
+    be read."""
+    try:
+        heard = heard_of(controllable)
+        error = heard.last_error
+        return LastHeard(
+            last_ok=heard.last_ok,
+            last_error=error.message if error else None,
+            last_error_call=error.call if error else None,
+            last_error_at=error.at if error else None,
+            running=[CallRunning(c.call, c.since, c.long) for c in heard.running()],
+        )
+    except Exception:  # noqa: BLE001 - health only reports
+        logger.debug("could not read when a device was heard from", exc_info=True)
+        return None
+
+
+def instrument_health(session: Any) -> InstrumentHealth:
+    """The connection, the Safety Halt and when each device and service was
+    last heard from, for ``/microscope/health``: what the session already
+    holds, with no call to the hardware, so asking often never takes the
+    microscope's locks or its imaging channel."""
+    view = connection_view(session)
+    instrument = session.instrument
+    devices: Mapping[str, Any] = {}
+    services: Mapping[str, Any] = {}
+    if instrument is not None:
+        devices = getattr(instrument, "devices", None) or {}
+        services = getattr(instrument, "services", None) or {}
+    halted = None
+    for device in devices.values():
+        halt = getattr(device, "safety_halt", None)
+        if halt is not None and halt.reason:
+            halted = halt.reason
+            break
+
+    def heard(parts: Mapping[str, Any]) -> Dict[str, LastHeard]:
+        found = {name: last_heard(part) for name, part in parts.items()}
+        return {name: h for name, h in found.items() if h is not None}
+
+    return InstrumentHealth(
+        connected=view.connected,
+        connecting=view.connecting,
+        error=view.error,
+        halted=halted,
+        devices=heard(devices),
+        services=heard(services),
+    )
+
+
 def _refused(status_code: int, error_type: str, message: str) -> HTTPException:
     return HTTPException(
         status_code=status_code,
@@ -206,10 +264,17 @@ def _refused(status_code: int, error_type: str, message: str) -> HTTPException:
 
 
 def build_connection_router(session: Any) -> APIRouter:
-    """``/microscope/connection``, ``/microscope/connect`` and
-    ``/microscope/disconnect``, behind the operator token."""
+    """``/microscope/connection``, ``/microscope/connect``,
+    ``/microscope/disconnect`` and ``/microscope/health``, behind the operator
+    token."""
     router = APIRouter(prefix="/microscope", dependencies=[Depends(require_operator())])
     starting = threading.Lock()
+
+    @router.get("/health", response_model=InstrumentHealth)
+    def get_health():
+        """Whether the microscope is connected or halted, with no call to the
+        hardware (the gateway reads it for its health)."""
+        return answer(instrument_health(session))
 
     @router.get("/connection", response_model=ConnectionView)
     def get_connection():

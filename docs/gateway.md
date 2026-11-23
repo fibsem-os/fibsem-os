@@ -79,6 +79,24 @@ on the left has four pages:
   - **Gateway:** the version, **Restart** and **Stop**. Stopping the gateway from the page
     stops the app and any agent run. Start it again at the computer.
 
+### Health
+
+The gateway asks the App Server how it is every 5 seconds (its `/health`, timed), and how
+its microscope is every 15 seconds and as soon as the app comes up or goes (its
+`/microscope/health`: the connection, a Safety Halt, and when each device and service was
+last heard from). Neither reaches the hardware: both are what the App Server already holds,
+so asking never takes the microscope's locks or switches its imaging channel. "Last heard
+from" is kept from the calls a run already makes: when one last came back, the last that
+failed in the driver (a refusal such as a value out of range doesn't count), and the calls
+running now. A call running over 2 minutes is slow and over 10 minutes not answering (a long
+command, such as a mill, never is); a driver error in the last 30 minutes with no call back
+since is a fault. Noting a call never raises into it or holds it up. Each answers in one shape, at `GET /gateway/health` and in `GET /gateway`'s
+`health`: a status (`ok`, `slow`, `not_answering`, `stopped`, `starting`, and for the
+microscope also `not_connected`, `connecting`, `halted`, `fault` or `unknown` while the
+app doesn't answer), why in a line, how long the answer took, and since when. A hub reads
+the same. A piece that isn't well turns its dot amber on Overview, with the reason and for
+how long under its row. The gateway only reports: it restarts nothing.
+
 The bottom of the list says when there is newer code: "fibsemOS 0.6.3 available" when a
 newer release is on PyPI, or "Update available" for a source checkout behind GitHub's
 `main` (hover it for how many changes). The gateway asks when it starts and once a day after. Offline, or with a commit that

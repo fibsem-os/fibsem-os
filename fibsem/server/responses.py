@@ -354,6 +354,43 @@ class Health:
     devices: Dict[str, DeviceHealth]
 
 
+@dataclass
+class CallRunning:
+    """A call on a device running now (`fibsem.devices.heard`)."""
+
+    call: str
+    since: float
+    # A long command (a mill), which may run for minutes.
+    long: bool = False
+
+
+@dataclass
+class LastHeard:
+    """When a device was last heard from, from the calls a run made to it: the
+    last that came back, the last that failed in the driver or the hardware
+    (refusals don't count), and those running now."""
+
+    last_ok: Optional[float] = None
+    last_error: Optional[str] = None
+    last_error_call: Optional[str] = None
+    last_error_at: Optional[float] = None
+    running: List[CallRunning] = field(default_factory=list)
+
+
+@dataclass
+class InstrumentHealth:
+    """The App Server's ``/microscope/health``: the connection, the Safety
+    Halt's reason while one is set, and when each device and service was last
+    heard from. Read from what the server holds, never from the hardware."""
+
+    connected: bool
+    connecting: Optional[str] = None
+    error: Optional[str] = None
+    halted: Optional[str] = None
+    devices: Dict[str, LastHeard] = field(default_factory=dict)
+    services: Dict[str, LastHeard] = field(default_factory=dict)
+
+
 # --- The app's experiment and workflow (/app) ---
 #
 # A read with nothing to read is refused (`Refusal`): 409 ``no_experiment`` with

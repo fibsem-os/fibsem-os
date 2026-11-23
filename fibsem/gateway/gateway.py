@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import fibsem
+from fibsem.gateway.health import HealthWatch, ServersHealth
 from fibsem.server.discovery import DISCOVERY_DIR, read_discovery_file
 from fibsem.tools.apps import App, apps
 from fibsem.update_check import Newer, check_newer
@@ -154,6 +155,8 @@ class GatewayState:
     """A newer release, or commits on main, than the code this gateway runs."""
     app_url: Optional[str] = None
     """The running App Server's address, for the link to the app's pages."""
+    health: Optional[ServersHealth] = None
+    """How the App Server and its microscope are (`fibsem.gateway.health`)."""
 
 
 @dataclass
@@ -352,6 +355,7 @@ class Gateway:
         python: Optional[str] = None,
         stop_wait_s: float = STOP_WAIT_S,
         newer: Callable[[], Optional[Newer]] = check_newer,
+        health: Optional[HealthWatch] = None,
     ):
         self._connection = list(connection or [])
         self._home = Path(home) if home is not None else DISCOVERY_DIR
@@ -379,6 +383,8 @@ class Gateway:
         self._log: Optional[Path] = None
         self._state = GatewayState(mode=OFF, version=fibsem.__version__)
         self._watcher: Optional[threading.Thread] = None
+        # Asked on its own thread from `start`; the state carries its last.
+        self.health = health or HealthWatch(self.mode, discovery)
         self._closed = threading.Event()
         # Run before the app stops, once the stop is sure (the agent's end).
         self.before_stop: List[Callable[[], None]] = []
@@ -432,6 +438,7 @@ class Gateway:
         state.newer = self._newer
         found = self._discovery()
         state.app_url = found["url"] if found else None
+        state.health = self.health.state()
         return state
 
     def refresh_facts(self) -> dict:
@@ -967,8 +974,10 @@ class Gateway:
         self._watcher.start()
         threading.Thread(target=facts, name="gateway-facts", daemon=True).start()
         threading.Thread(target=newer, name="gateway-newer", daemon=True).start()
+        self.health.start()
 
     def close(self) -> None:
         """Stop watching. The app keeps running; a new gateway takes it back."""
         self._closed.set()
         self._facts_due.set()
+        self.health.close()
