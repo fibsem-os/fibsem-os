@@ -83,9 +83,14 @@ on the left has four pages:
 
 The gateway asks the App Server how it is every 5 seconds (its `/health`, timed), and how
 its microscope is every 15 seconds and as soon as the app comes up or goes (its
-`/microscope/health`: the connection and a Safety Halt). Neither reaches the hardware: both
-are what the App Server already holds, so asking never takes the microscope's locks or
-switches its imaging channel. Each answers in one shape, at `GET /gateway/health` and in `GET /gateway`'s
+`/microscope/health`: the connection, a Safety Halt, and when each device and service was
+last heard from). Neither reaches the hardware: both are what the App Server already holds,
+so asking never takes the microscope's locks or switches its imaging channel. "Last heard
+from" is kept from the calls a run already makes: when one last came back, the last that
+failed in the driver (a refusal such as a value out of range doesn't count), and the calls
+running now. A call running over 2 minutes is slow and over 10 minutes not answering (a long
+command, such as a mill, never is); a driver error in the last 30 minutes with no call back
+since is a fault. Noting a call never raises into it or holds it up. Each answers in one shape, at `GET /gateway/health` and in `GET /gateway`'s
 `health`: a status (`ok`, `slow`, `not_answering`, `stopped`, `starting`, and for the
 microscope also `not_connected`, `connecting`, `halted`, `fault` or `unknown` while the
 app doesn't answer), why in a line, how long the answer took, and since when. A hub reads

@@ -16,8 +16,8 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from dataclasses import dataclass, replace
-from typing import Any, Callable, Dict, Optional, Tuple
+from dataclasses import dataclass, field, replace
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from fibsem.server.discovery import read_discovery_file
 from fibsem.server.operator_token import read_operator_token
@@ -61,6 +61,13 @@ APP_SLOW_S = 1.0
 MICROSCOPE_SLOW_S = 1.0
 APP_TIMEOUT_S = 5.0
 MICROSCOPE_TIMEOUT_S = 5.0
+# A call on a device (not a long command, which may run for minutes) running
+# longer than these: slow, then not answering. A call waiting on a lock another
+# holds counts too, hence the long second limit.
+CALL_SLOW_S = 120.0
+CALL_HUNG_S = 600.0
+# A driver error with no success after it, this recent: a fault.
+ERROR_RECENT_S = 30 * 60.0
 
 
 @dataclass
@@ -80,6 +87,9 @@ class Health:
 class ServersHealth:
     app: Health
     microscope: Health
+    heard: Dict[str, Any] = field(default_factory=dict)
+    """When each device and service was last heard from, as the App Server
+    answered it (``devices`` and ``services``), for a page that lists them."""
 
 
 class Unreachable(Exception):
@@ -112,7 +122,51 @@ def _gone(error: str, timeout: float) -> str:
     return f"No answer: {error}"
 
 
-def microscope_health(answer: Dict[str, Any]) -> Tuple[str, Optional[str]]:
+def _ago(seconds: float) -> str:
+    if seconds < 90:
+        return f"{seconds:.0f} s"
+    return f"{seconds / 60:.0f} min"
+
+
+def _calls(answer: Dict[str, Any], now: float) -> Tuple[str, Optional[str]]:
+    """What the devices' and services' own calls say: a call running too long,
+    else a recent driver error with no success since; OK otherwise."""
+    parts: List[Tuple[str, Dict[str, Any]]] = [
+        (name, heard)
+        for group in ("devices", "services")
+        for name, heard in sorted((answer.get(group) or {}).items())
+        if isinstance(heard, dict)
+    ]
+    longest: Optional[Tuple[float, str]] = None
+    for name, heard in parts:
+        for call in heard.get("running") or []:
+            if call.get("long"):
+                continue
+            age = now - float(call.get("since") or now)
+            if longest is None or age > longest[0]:
+                longest = (age, f"{name}.{call.get('call')}")
+    if longest is not None and longest[0] > CALL_HUNG_S:
+        return NOT_ANSWERING, f"{longest[1]} has run for {_ago(longest[0])}."
+    for name, heard in parts:
+        at = heard.get("last_error_at")
+        ok = heard.get("last_ok")
+        if at is None or now - float(at) > ERROR_RECENT_S:
+            continue
+        if ok is not None and float(ok) > float(at):
+            continue
+        call = heard.get("last_error_call") or "a call"
+        return FAULT, (
+            f"{name}.{call} failed {_ago(now - float(at))} ago: "
+            f"{heard.get('last_error')}"
+        )
+    if longest is not None and longest[0] > CALL_SLOW_S:
+        return SLOW, f"{longest[1]} has run for {_ago(longest[0])}."
+    return OK, None
+
+
+def microscope_health(
+    answer: Dict[str, Any], now: Optional[float] = None
+) -> Tuple[str, Optional[str]]:
     """The microscope's status and why, from ``/microscope/health``."""
     if answer.get("halted"):
         return HALTED, f"Safety Halt: {answer['halted']}"
@@ -123,7 +177,7 @@ def microscope_health(answer: Dict[str, Any]) -> Tuple[str, Optional[str]]:
         if error:
             return FAULT, f"The last connect failed: {error}"
         return NOT_CONNECTED, None
-    return OK, None
+    return _calls(answer, time.time() if now is None else now)
 
 
 class HealthWatch:
@@ -149,6 +203,7 @@ class HealthWatch:
         self._lock = threading.Lock()
         self._app = Health(status=STOPPED)
         self._microscope = Health(status=STOPPED)
+        self._heard: Dict[str, Any] = {}
         self._closed = threading.Event()
 
     # -- reading -----------------------------------------------------------
@@ -158,6 +213,7 @@ class HealthWatch:
             return ServersHealth(
                 app=replace(self._app),
                 microscope=replace(self._microscope),
+                heard=dict(self._heard),
             )
 
     # -- asking ------------------------------------------------------------
@@ -237,6 +293,8 @@ class HealthWatch:
         Safety Halt."""
         app = self.state().app.status
         if app in (STOPPED, STARTING):
+            with self._lock:
+                self._heard = {}
             self._set("_microscope", STOPPED, "The app isn't running.")
             return
         url = self._url()
@@ -260,7 +318,14 @@ class HealthWatch:
                 took,
             )
             return
-        found, detail = microscope_health(answer)
+        try:
+            found, detail = microscope_health(answer, self._clock())
+        except (TypeError, ValueError, AttributeError) as error:
+            found, detail = UNKNOWN, f"Couldn't read /microscope/health: {error}"
+        with self._lock:
+            self._heard = {
+                group: answer.get(group) or {} for group in ("devices", "services")
+            }
         if found == OK and took > MICROSCOPE_SLOW_S:
             found, detail = SLOW, f"/microscope/health took {took:.1f} s."
         self._set("_microscope", found, detail, took)

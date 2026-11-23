@@ -146,3 +146,44 @@ def test_the_gateway_state_carries_the_health(tmp_path):
     )
     w.check_app()
     assert gateway.state().health.app.status == h.STOPPED
+
+
+def _stage(**heard):
+    return {"connected": True, "devices": {"stage": heard}}
+
+
+def test_a_call_running_long_is_slow_then_not_answering_but_a_mill_is_not():
+    now = 10_000.0
+    move = {"call": "move_absolute", "since": now - 200}
+    assert h.microscope_health(_stage(running=[move]), now)[0] == h.SLOW
+    move["since"] = now - 700
+    status, detail = h.microscope_health(_stage(running=[move]), now)
+    assert status == h.NOT_ANSWERING and "stage.move_absolute" in detail
+    mill = {"call": "run", "since": now - 3600, "long": True}
+    answer = {"connected": True, "services": {"milling": {"running": [mill]}}}
+    assert h.microscope_health(answer, now)[0] == h.OK
+
+
+def test_a_recent_driver_error_is_a_fault_until_a_call_comes_back():
+    now = 10_000.0
+    failed = dict(
+        last_error="RuntimeError: lost",
+        last_error_call="move_absolute",
+        last_error_at=now - 60,
+    )
+    status, detail = h.microscope_health(_stage(**failed), now)
+    assert status == h.FAULT and "stage.move_absolute failed" in detail
+    assert h.microscope_health(_stage(**failed, last_ok=now - 10), now)[0] == h.OK
+    old = {**failed, "last_error_at": now - 3 * 3600}
+    assert h.microscope_health(_stage(**old), now)[0] == h.OK
+
+
+def test_the_watch_keeps_what_each_device_said():
+    w, app, _, _, _ = watch()
+    w.check_app()
+    app.answers["/microscope/health"] = (200, _stage(last_ok=1.0))
+    w.check_microscope()
+    assert w.state().heard["devices"]["stage"]["last_ok"] == 1.0
+    app.answers["/microscope/health"] = (200, {"connected": True, "devices": 5})
+    w.check_microscope()
+    assert w.state().microscope.status == h.UNKNOWN

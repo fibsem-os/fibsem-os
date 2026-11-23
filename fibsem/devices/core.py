@@ -50,6 +50,7 @@ from typing import (
 
 from psygnal import Signal
 
+from fibsem.devices.heard import heard_call
 from fibsem.devices.runs import Runs
 from fibsem.structures.params import (
     DisplayHint,
@@ -384,7 +385,9 @@ class BoundParameter:
         It updates the cache.
         """
         with self.device._claim(self):
-            value = self._read()
+            # once the claim is held: waiting for it says nothing of the hardware
+            with heard_call(self.device, f"read {self.name}"):
+                value = self._read()
         self._remember(value)
         return value
 
@@ -507,10 +510,11 @@ class BoundParameter:
         Safety Halt, unless a safety command is writing it."""
         self.device.safety_halt.check(f"{self.device.name}.{self.name}")
         with self.device._claim_write(self):
-            self._write(value)
-            if read_back:
-                # what the hardware applied, which a driver may have adjusted again
-                value = self._read()
+            with heard_call(self.device, f"set {self.name}"):
+                self._write(value)
+                if read_back:
+                    # what the hardware applied, which a driver may have adjusted
+                    value = self._read()
         logger.debug(
             {
                 "msg": "set",
@@ -617,7 +621,7 @@ def command(
     """
 
     def mark(method: Callable) -> Callable:
-        method = _halt_guarded(_plain_arguments(method))
+        method = _halt_guarded(_plain_arguments(method), long=long)
         if long:
             method = _tracked(method)
             method.__device_long__ = True  # type: ignore[attr-defined]
@@ -644,23 +648,29 @@ def is_safety_command(controllable: Any, name: str) -> bool:
     )
 
 
-def _halt_guarded(method: Callable) -> Callable:
+def _halt_guarded(method: Callable, long: bool = False) -> Callable:
     """*method*, refused during a Safety Halt unless it is a safety command; a safety
-    command runs with the halt lifted for what it does."""
+    command runs with the halt lifted for what it does. Each call is noted as the
+    device's last heard from (`fibsem.devices.heard`); *long* marks a command that
+    may run for minutes."""
+
+    def run(self: Any, *args: Any, **kwargs: Any) -> Any:
+        with heard_call(self, method.__name__, long=long):
+            return method(self, *args, **kwargs)
 
     @functools.wraps(method)
     def guarded(self: Any, *args: Any, **kwargs: Any) -> Any:
         halt = getattr(getattr(self, "resources", None), "safety_halt", None)
         if halt is None or _IN_SAFETY_COMMAND.get():
-            return method(self, *args, **kwargs)
+            return run(self, *args, **kwargs)
         if is_safety_command(self, method.__name__):
             token = _IN_SAFETY_COMMAND.set(True)
             try:
-                return method(self, *args, **kwargs)
+                return run(self, *args, **kwargs)
             finally:
                 _IN_SAFETY_COMMAND.reset(token)
         halt.check(f"{getattr(self, 'name', type(self).__name__)}.{method.__name__}")
-        return method(self, *args, **kwargs)
+        return run(self, *args, **kwargs)
 
     return guarded
 

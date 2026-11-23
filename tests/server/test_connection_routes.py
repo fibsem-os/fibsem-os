@@ -124,6 +124,8 @@ def test_health_says_the_connection_and_the_halt_without_the_hardware(server):
         "connecting": None,
         "error": None,
         "halted": None,
+        "devices": {},
+        "services": {},
     }
     server.post("/microscope/connect", headers=_as(OPERATOR), json={})
     _connected(server)
@@ -135,6 +137,12 @@ def test_health_says_the_connection_and_the_halt_without_the_hardware(server):
     with server.session.microscope.resources.claim("imaging_channel"):
         health = server.get("/microscope/health", headers=_as(OPERATOR)).json()
     assert health["connected"] is True and health["halted"] is None
+    # When each device was last heard from, from the calls made: none yet here.
+    assert "stage" in health["devices"]
+    server.session.microscope.get_stage_position()
+    health = server.get("/microscope/health", headers=_as(OPERATOR)).json()
+    stage = health["devices"]["stage"]
+    assert stage["last_ok"] is not None and stage["running"] == []
 
     halt = next(iter(server.session.microscope.devices.values())).safety_halt
     halt.set("door open")

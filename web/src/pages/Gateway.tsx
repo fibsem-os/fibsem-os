@@ -43,6 +43,8 @@ interface Health {
 interface ServersHealth {
   app: Health;
   microscope: Health;
+  /** When each device and service was last heard from, as the App Server said. */
+  heard?: Record<string, Record<string, unknown>>;
 }
 
 /** The statuses that need the operator's eye. */
