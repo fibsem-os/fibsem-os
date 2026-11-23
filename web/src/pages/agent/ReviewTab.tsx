@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Filter } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Popup } from "@/components/ui/popup";
 import { ImageViewer } from "@/components/images";
@@ -240,10 +240,14 @@ function Viewer({ item, onClose }: { item: ReviewItem; onClose: () => void }) {
 
 /** The Review tab: the agent's finished work, newest first, pictures on top; an
  * item opens in the image viewer, where the operator answers it. */
-export function ReviewTab() {
+export function ReviewTab({ open }: { open?: { id: string } | null }) {
   const review = useReview();
   const [show, setShow] = useState<Show>("all");
   const [openId, setOpenId] = useState<string | null>(null);
+  // An item picked elsewhere (the quick search) opens here; a new object each time, so picking it again reopens it.
+  useEffect(() => {
+    if (open) setOpenId(open.id);
+  }, [open]);
   const items = [...(review.data?.items ?? [])].reverse();
   const shown = show === "all" ? items : items.filter((i) => i.state === show);
   const opened = items.find((i) => i.id === openId);
