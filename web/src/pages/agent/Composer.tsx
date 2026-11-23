@@ -269,13 +269,18 @@ function AttachLong({
 }
 
 // The composer's commands, listed while the draft is "/" and the start of a name.
-const COMMANDS = [
+export const COMMANDS = [
   { name: "/now", say: "Interrupt the agent's turn so it reads this at once" },
   { name: "/btw", say: "Ask a quick side question; the agent carries on" },
   { name: "/status", say: "Ask where things stand, as a side question" },
   { name: "/note", say: "Keep a note on the record; it doesn't wake the agent" },
   { name: "/level", say: "Set the level: off, watch, assist or drive" },
 ];
+/** Starts the composer with *text* and puts the focus in it, as the quick search does. */
+export function compose(text: string) {
+  dispatchEvent(new CustomEvent<string>(COMPOSE, { detail: text }));
+}
+const COMPOSE = "fibsem:compose";
 // The command the page does itself rather than send.
 const LEVEL = /^\s*\/level(?:\s+(\S*))?\s*$/i;
 
@@ -342,6 +347,16 @@ export function Composer({ agent, attach, onSent }: { agent: AgentState; attach:
     setDraft(`${name} `);
     document.getElementById("msg")?.focus();
   };
+  useEffect(() => {
+    const start = (e: Event) => {
+      setDraft((e as CustomEvent<string>).detail);
+      setSaid(null);
+      setError(null);
+      document.getElementById("msg")?.focus();
+    };
+    addEventListener(COMPOSE, start);
+    return () => removeEventListener(COMPOSE, start);
+  }, [setError]);
   return (
     <div className="relative flex flex-col rounded-md border border-input bg-card">
       {commands.length > 0 && (

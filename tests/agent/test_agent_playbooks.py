@@ -123,6 +123,12 @@ def test_an_optional_skills_reminders_are_on_only_while_it_is_loaded(lab, checko
     assert resumed.state() == reminders.state()
     assert "no-such" in resumed.restore({"playbook": {"name": "no-such"}}, checkout)
 
+    named = playbooks.Reminders()
+    assert named.restore({"playbook": "autolamella"}, checkout) is None, (
+        "a record with the name alone"
+    )
+    assert named.state()["playbook"]["name"] == "autolamella"
+
 
 def test_setup_and_polishing_reminders_fire_on_their_own_tasks():
     setup = reminder_mod.HOOK_OPTIONS["setup_placement"]
