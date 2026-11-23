@@ -20,24 +20,31 @@ an approved request or a long command does on the way (the stage moves of an
 overview, a task's images) is that request's or that command's row, not rows of
 its own.
 
-No Qt: the window feeds it records and draws `rows`.
+No Qt: the window feeds it records and draws `rows`. The page reads them
+with `read_rows`, which reaches back past the live buffer into the record's
+file: after an app restart, which empties the buffer, and for Show earlier.
 """
 
 from __future__ import annotations
 
 from collections import OrderedDict
 from dataclasses import dataclass, replace
-from typing import Any, Dict, List, Optional, Set
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from fibsem.acting import AGENT, OPERATOR
 from fibsem.ai.agent import aside
 from fibsem.ai.agent.catalog.describe import describe_action, describe_done
 from fibsem.util import wording
 from fibsem.workflows.actions import is_message
+from fibsem.workflows.events.kinds import LIVE_KINDS
+from fibsem.workflows.events.recording import read_events_before
 from fibsem.workflows.proposals import kind_label
 
-# Rows kept: the card scrolls through them all.
+# Rows kept: the card scrolls through them all. The page asks for more, a
+# page at a time, up to `MAX_SIZE`.
 SIZE = 50
+MAX_SIZE = 2000
 
 # How a row ended, as the card colours it.
 WAITING, RUNNING, OK, ERROR, MUTED = "waiting", "running", "ok", "error", "muted"
@@ -119,6 +126,13 @@ class RecentRow:
     @property
     def conversation(self) -> bool:
         return self.kind != ACTION
+
+
+def _stream_of(record: Dict[str, Any]) -> str:
+    """The stream a record was written in (its id up to the seq): a new one
+    each time the app starts."""
+    stream, _, seq = str(record.get("id") or "").rpartition("-")
+    return stream if seq.isdigit() else ""
 
 
 def _when(record: Dict[str, Any]) -> str:
@@ -210,6 +224,8 @@ class RecentActions:
         self._unread: Dict[str, Any] = {}
         # The ids of the operator's side questions, for the answers to them.
         self._asides: Set[str] = set()
+        # The stream the last record came from: a new one is the app restarted.
+        self._stream = ""
 
     @property
     def rows(self) -> List[RecentRow]:
@@ -224,6 +240,7 @@ class RecentActions:
         self._evidence.clear()
         self._unread.clear()
         self._asides.clear()
+        self._stream = ""
 
     def add(self, record: Dict[str, Any]) -> bool:
         """Take one record of the session's; True when the rows changed."""
@@ -234,11 +251,25 @@ class RecentActions:
         handler = getattr(self, f"_on_{kind}", None)
         if handler is None:
             return False
+        stream = _stream_of(record)
+        if stream and self._stream and stream != self._stream:
+            self._restarted()
+        self._stream = stream or self._stream
         self._citing = self._evidence.get(str(payload.get("evidence")))
         try:
             return bool(handler(record, payload, record.get("actor") == AGENT))
         finally:
             self._citing = None
+
+    def _restarted(self) -> None:
+        """The app started again: what was running then ended with it, and no
+        request it was applying is applying now."""
+        for key, row in list(self._rows.items()):
+            if row.tone == RUNNING:
+                self._rows[key] = replace(row, outcome="app restarted", tone=MUTED)
+        self._applying.clear()
+        self._sizes.clear()
+        self._failures.clear()
 
     # --- rows ------------------------------------------------------------------
 
@@ -572,3 +603,96 @@ class RecentActions:
             p.get("level"),
             why,
         )
+
+
+# The kinds that can make a row (or, like evidence, feed one), and the ones a
+# read of the file leaves unparsed.
+ROW_KINDS = frozenset(
+    name[len("_on_") :] for name in dir(RecentActions) if name.startswith("_on_")
+)
+_UNREAD_KINDS = LIVE_KINDS - ROW_KINDS
+# How many records a read of the file takes first, for each row asked, and
+# the most it takes in all.
+_RECORDS_PER_ROW = 4
+_RECORDS_MAX = 200_000
+
+
+def _rows_of(
+    records: Iterable[Dict[str, Any]], size: int, stream: Optional[str] = None
+) -> List[RecentRow]:
+    rows = RecentActions(size)
+    for record in records:
+        rows.add(record)
+    # The last record from an earlier start of the app's: what was running
+    # then ended with it, though nothing of this stream's says so yet.
+    if stream and rows._stream and rows._stream != stream:
+        rows._restarted()
+    return rows.rows
+
+
+class EarlierRecords:
+    """The records before the live buffer, read from the record's file, and
+    kept: the page reads the rows again on every event, and what is written
+    before the buffer doesn't change."""
+
+    def __init__(self) -> None:
+        # The last read's key and what it found, as one: readers share it.
+        self._last: Tuple[Any, Tuple[List[Dict[str, Any]], int]] = (None, ([], 0))
+
+    def read(
+        self, path: Path, held: Sequence[Dict[str, Any]], limit: int
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """Up to *limit* records that can make a row, written before *held*
+        (the buffer, oldest first), oldest first; and where in the file the
+        read stopped, 0 for its start."""
+        oldest = held[0].get("timestamp") if held else None
+        # With nothing held, nothing of this stream's is being written: the
+        # file's end is where the read starts, and it moves only if it grows.
+        key = (str(path), oldest, limit, None if held else path.stat().st_size)
+        last_key, found = self._last
+        if key == last_key:
+            return found
+        ids = {record.get("id") for record in held}
+
+        def keep(record: Dict[str, Any]) -> bool:
+            if record.get("kind") not in ROW_KINDS or record.get("id") in ids:
+                return False
+            stamp = record.get("timestamp")
+            return (
+                oldest is None
+                or not isinstance(stamp, (int, float))
+                or (stamp <= oldest)
+            )
+
+        found = read_events_before(
+            path, limit=limit, skip_kinds=_UNREAD_KINDS, keep=keep
+        )
+        self._last = (key, found)
+        return found
+
+
+def read_rows(
+    held: Sequence[Dict[str, Any]],
+    path: Optional[Path],
+    size: int = SIZE,
+    earlier: Optional[EarlierRecords] = None,
+    stream: Optional[str] = None,
+) -> Tuple[List[RecentRow], bool]:
+    """The last *size* rows, oldest first, and whether there are earlier ones:
+    from *held* (the live buffer, oldest first) and, when it hasn't that
+    many, from the record's file at *path* before it. The file is read
+    backwards and only as far as the rows asked for need. *stream* is the
+    buffer's: rows from another were written before the app last started."""
+    size = max(1, min(int(size), MAX_SIZE))
+    held = list(held)
+    rows = _rows_of(held, size + 1, stream)
+    if len(rows) > size or path is None or not Path(path).is_file():
+        return rows[-size:], len(rows) > size
+    earlier = earlier or EarlierRecords()
+    limit = _RECORDS_PER_ROW * (size + 1)
+    while True:
+        older, start = earlier.read(Path(path), held, limit)
+        rows = _rows_of(older + held, size + 1, stream)
+        if len(rows) > size or start == 0 or limit >= _RECORDS_MAX:
+            return rows[-size:], len(rows) > size or start > 0
+        limit = min(limit * 4, _RECORDS_MAX)

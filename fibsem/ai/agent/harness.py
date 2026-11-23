@@ -1991,6 +1991,12 @@ class Harness:
             if used:
                 # The window and where it compacts, as the CLI last said.
                 context = {**(context or {}), "used": used}
+        ceiling = self._ceiling
+        if context and ceiling is not None:
+            # Where the agent is told a fresh context is worth it, then due:
+            # the page colours its context bar from them.
+            marks = {"suggest_at": ceiling.suggest, "due_at": ceiling.ceiling}
+            context = {**context, **{k: v for k, v in marks.items() if v}}
         return {"tokens": tokens, "context": context}
 
     async def _report_every(self) -> None:

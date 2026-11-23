@@ -61,6 +61,8 @@ STOP_WAIT_S = 60.0
 POLL_S = 1.0
 NEWER_EVERY_S = 24 * 3600.0
 HISTORY_SHOWN = 50
+# The most starts and stops one read of the history gives.
+HISTORY_MAX = 5000
 # How often the facts read from disk (recent experiments, the experiments
 # folder, configurations, apps) are read again in the background: the page
 # gets the last values read and never waits on a slow or missing drive.
@@ -183,6 +185,8 @@ class Switch:
 @dataclass
 class History:
     switches: List[Switch] = field(default_factory=list)
+    # Whether the file holds older starts and stops than these.
+    more: bool = False
 
 
 def close_file(pid: int, home: Path = DISCOVERY_DIR) -> Path:
@@ -465,17 +469,20 @@ class Gateway:
             logger.debug("Update check failed", exc_info=True)
 
     def history(self, limit: int = HISTORY_SHOWN) -> History:
+        """The newest *limit* starts and stops, newest first."""
+        limit = max(1, min(int(limit), HISTORY_MAX))
         try:
-            lines = _tail(self.history_file, limit)
+            lines = _tail(self.history_file, limit + 1)
         except OSError:
             return History()
+        more = len(lines) > limit
         switches = []
         for line in reversed(lines[-limit:]):
             try:
                 switches.append(Switch(**json.loads(line)))
             except (ValueError, TypeError):
                 continue
-        return History(switches=switches)
+        return History(switches=switches, more=more)
 
     def _other_host(self) -> Optional[OtherHost]:
         found = self._discovery()

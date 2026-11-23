@@ -197,7 +197,13 @@ def test_the_reminders_are_kept(server):
 def test_the_tokens_and_the_context_are_kept(server):
     auth, client, _ = server
     tokens = {"input": 1, "output": 2, "cache_read": 3, "cache_write": 4}
-    context = {"used": 412000, "window": 1000000, "compact_at": 970000}
+    context = {
+        "used": 412000,
+        "window": 1000000,
+        "suggest_at": 300000,
+        "due_at": 500000,
+        "compact_at": 970000,
+    }
     client.post("/app/agent/session", json={"tokens": tokens, "context": context})
     session = client.get("/app/agent/session").json()["session"]
     assert (session["tokens"], session["context"]) == (tokens, context)

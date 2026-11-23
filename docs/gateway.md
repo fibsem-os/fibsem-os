@@ -64,7 +64,8 @@ on the left has four pages:
   **Open the app** and **Stop** (Stop asks first in a dialog; with its window, it closes the window).
   Under them, the **Agent** card (below).
 - **History.** Every start and stop of the app, with who made it and from where, and the
-  latest agent sessions, newest first. **All**, **App** and **Agent** filter it. A session
+  agent sessions, newest first. **All**, **App** and **Agent** filter it, and **Show older**
+  reads further back, so every session on this PC can be opened and resumed. A session
   opens to show its playbook, spend, how it ended and what it last said, and **Resume**.
 - **Pairing.** The paired computers, and a code to pair another.
 - **Settings.**

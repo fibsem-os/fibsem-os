@@ -44,13 +44,17 @@ from fibsem.util import timestamps
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["AGENT_NAME", "API_KEY", "GatewayAgent", "AgentState"]
+__all__ = ["AGENT_NAME", "API_KEY", "GatewayAgent", "AgentState", "SessionsPage"]
 
 API_KEY = "ANTHROPIC_API_KEY"
 KEY_KEPT_S = 30.0
 # The agent's pairing, as the App Server's list of paired computers shows it.
 AGENT_NAME = "fibsem-agent (gateway)"
 SESSIONS_SHOWN = 5
+# History pages through every session: this many at a time, at most this many
+# in one read.
+SESSIONS_PAGE = 20
+SESSIONS_MAX = 1000
 
 
 @dataclass
@@ -64,6 +68,15 @@ class AgentState:
     sessions: List[Dict[str, Any]] = field(default_factory=list)
     api_key: bool = False
     microscope: str = ""
+
+
+@dataclass
+class SessionsPage:
+    """The newest sessions run on this PC, newest first, and whether there
+    are older ones."""
+
+    sessions: List[Dict[str, Any]] = field(default_factory=list)
+    more: bool = False
 
 
 def read_playbooks() -> List[dict]:
@@ -273,6 +286,14 @@ class GatewayAgent:
             api_key=self._has_key(),
             microscope=self.microscope,
         )
+
+    def sessions(self, limit: int = SESSIONS_PAGE) -> SessionsPage:
+        """The newest *limit* sessions, the running one too, for History to
+        page through them all."""
+        limit = max(1, min(int(limit), SESSIONS_MAX))
+        records = self._manager.sessions(limit + 1)
+        rows = [_row(record, self._platform) for record in records[:limit]]
+        return SessionsPage(sessions=rows, more=len(records) > limit)
 
     def _connected(self) -> Optional[Dict[str, Any]]:
         """The agent paired with the app that the gateway didn't start, as

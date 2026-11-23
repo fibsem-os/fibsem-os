@@ -337,7 +337,9 @@ export interface components {
         /** @description How full its context is, in tokens, and of what. */
         ContextUse: {
             compact_at: number | null;
+            due_at: number | null;
             parts: components["schemas"]["ContextPart"][] | null;
+            suggest_at: number | null;
             used: number | null;
             window: number | null;
         };
@@ -2006,6 +2008,8 @@ export interface components {
             why: string;
         };
         RecentRows: {
+            /** @default false */
+            more: boolean;
             rows: components["schemas"]["RecentRow"][];
         };
         /** @description A note, a message or evidence put on the record; for a message, its
@@ -2598,6 +2602,16 @@ export interface components {
             server_version: string | null;
             /** @default Unknown */
             software_version: string;
+        };
+        /** @description The newest notes of each tag asked for, from the whole record
+         *     (`fibsem.server.agent.notes`): each ``{tag, id, timestamp, text}``, with
+         *     ``item_name`` and ``evidence`` when it named them; by tag as asked,
+         *     newest first. ``missing``: the tags with no note on the record. */
+        TaggedNotes: {
+            missing: string[];
+            notes: {
+                [key: string]: unknown;
+            }[];
         };
         /** @description A task's config document, at the protocol's level or an item's, with the
          *     version a patch echoes. */
