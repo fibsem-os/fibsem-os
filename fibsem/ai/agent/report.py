@@ -64,6 +64,9 @@ class ContextUse:
     used: Optional[Count] = None
     window: Optional[Count] = None
     compact_at: Optional[Count] = None
+    # The session's context_suggest and context_ceiling (`handoff.Ceiling`).
+    suggest_at: Optional[Count] = None
+    due_at: Optional[Count] = None
     parts: Optional[Annotated[List[ContextPart], Field(max_length=MAX_PARTS)]] = None
 
 

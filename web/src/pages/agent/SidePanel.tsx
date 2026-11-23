@@ -12,9 +12,17 @@ import { PlaybookDialog, PlaybookLine } from "./PlaybookView";
 const SOON_MIN = 30;
 
 const WARN = "text-[var(--fibsem-warn-color)]";
-/** Context sizes, in tokens, from which the panel shows it orange, then red. */
-const CONTEXT_WARN = 400_000;
-const CONTEXT_HIGH = 800_000;
+/** Context sizes, in tokens, from which the panel shows it orange, then red,
+ * for a session that doesn't report its own: the base playbook's
+ * context_suggest and context_ceiling. */
+const CONTEXT_WARN = 300_000;
+const CONTEXT_HIGH = 500_000;
+
+/** Where the context turns orange (a fresh context is suggested) and red (one
+ * is due): the session's own playbook values when it reports them. */
+function contextMarks(context?: ReportedSession["context"]): [number, number] {
+  return [context?.suggest_at || CONTEXT_WARN, context?.due_at || CONTEXT_HIGH];
+}
 
 const dollars = (value: number) => (Number.isInteger(value) ? `$${value}` : `$${value.toFixed(2)}`);
 
@@ -313,7 +321,8 @@ function ContextDialog({
           <p className="m-0 text-muted-foreground">
             The context is everything the agent reads again at every step: its instructions, tools and skills, and
             the conversation so far. A larger context costs more per step and the agent works less well in it. The
-            panel shows it orange from {count(CONTEXT_WARN)} and red from {count(CONTEXT_HIGH)}.
+            panel shows it orange from {count(contextMarks(context)[0])}, where the agent is told a fresh context is
+            worth it, and red from {count(contextMarks(context)[1])}, where one is due.
             {context.compact_at
               ? ` At ${count(context.compact_at)} it is compacted: the conversation is summarised, which can lose detail.`
               : ""}
@@ -410,11 +419,12 @@ export function SidePanel({
     checklist,
   } = session;
   // The bar spans the window (else the compaction point); the context is
-  // orange from CONTEXT_WARN and red from CONTEXT_HIGH tokens.
+  // orange where a fresh context is suggested and red where one is due.
   const contextFull = context?.window || context?.compact_at;
   const contextShare = contextFull ? context!.used / contextFull : 0;
+  const [contextWarn, contextHigh] = contextMarks(context);
   const contextLevel =
-    !context || ended ? null : context.used >= CONTEXT_HIGH ? "high" : context.used >= CONTEXT_WARN ? "warn" : null;
+    !context || ended ? null : context.used >= contextHigh ? "high" : context.used >= contextWarn ? "warn" : null;
   const contextText = contextLevel === "high" ? "text-destructive" : contextLevel === "warn" ? WARN : "";
   return (
     <div className="flex flex-col gap-3.5 text-[13px] leading-[1.45]">
@@ -523,7 +533,7 @@ export function SidePanel({
                 style={{ width: `${Math.min(100, 100 * contextShare)}%` }}
               />
               {/* Ticks where the context turns orange, then red. */}
-              {[CONTEXT_WARN, CONTEXT_HIGH].map(
+              {[contextWarn, contextHigh].map(
                 (mark, i) =>
                   mark < contextFull && (
                     <div

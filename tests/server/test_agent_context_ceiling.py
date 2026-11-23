@@ -66,3 +66,25 @@ def test_the_harness_adds_it_to_a_wake_at_a_natural_point():
     harness = Harness(ScriptedAgent(), lambda: None, ceiling=ceiling)
     harness._context = {"used": 520_000}
     assert harness._ceiling_line([ended]) is None
+
+
+def test_the_report_names_where_a_fresh_context_is_suggested_and_due():
+    """The Agent page colours its context bar from these."""
+    harness = Harness(
+        ScriptedAgent(),
+        lambda: None,
+        ceiling=handoff_mod.Ceiling(300_000, 500_000, 700_000),
+    )
+    harness._context = {"used": 120_000, "window": 1_000_000}
+    assert harness._usage_now()["context"] == {
+        "used": 120_000,
+        "window": 1_000_000,
+        "suggest_at": 300_000,
+        "due_at": 500_000,
+    }
+    # No size yet, or no ceiling: nothing to add.
+    harness._context = None
+    assert harness._usage_now()["context"] is None
+    harness = Harness(ScriptedAgent(), lambda: None, ceiling=handoff_mod.Ceiling())
+    harness._context = {"used": 120_000}
+    assert harness._usage_now()["context"] == {"used": 120_000}
