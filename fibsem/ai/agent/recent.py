@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 from fibsem.acting import AGENT, OPERATOR
+from fibsem.ai.agent import aside
 from fibsem.ai.agent.catalog.describe import describe_action, describe_done
 from fibsem.util import wording
 from fibsem.workflows.actions import is_message
@@ -522,6 +523,12 @@ class RecentActions:
             return self._on_agent_note(record, p, agent)
         if record.get("actor") == OPERATOR and is_message(record):
             return self._on_operator_message(record, p, agent)
+        if record.get("actor") == OPERATOR and p.get(aside.FOR_RECORD):
+            # The operator's /note, shown as they wrote it; nothing waits on it.
+            key = ("note", record.get("seq"))
+            text = f"/note {p.get('text', '')}"
+            self._put(key, record, text, "", MUTED, level="", kind=YOU)
+            return True
         return False
 
     def _on_agent_note(self, record, p, agent):

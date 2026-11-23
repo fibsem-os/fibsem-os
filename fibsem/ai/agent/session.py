@@ -475,18 +475,38 @@ class AgentControl:
         goes on the record first and the message cites it. A message starting
         ``/btw`` is a side question, marked ``aside`` on the record: fibsem-agent
         answers it outside the agent's conversation (`fibsem.ai.agent.aside`).
+        Any other message waits for the agent's turn to end, but one starting
+        ``/now`` is marked ``interrupt`` and cuts the turn short. One starting
+        ``/note`` is a note for the record, not a message: the agent hears it
+        with its next turn and answers nothing.
         Returns the id, or None when nothing is recording, so the agent can't
         hear it."""
         recorder = self._session.recorder
         if recorder is None:
             return None
         message_id = uuid.uuid4().hex[:8]
+        # ``/note``: for the record, not to the agent, so nothing waits on it.
+        note = aside.note_of(text) if evidence is None else None
+        if note is not None:
+            logger.info("Operator note for the record (%s): %s", message_id, note)
+            recorder.buffer.append(
+                NOTE,
+                note_record(note, **{aside.FOR_RECORD: True}),
+                actor=OPERATOR,
+            )
+            return message_id
         # A side question (``/btw``) is answered beside the agent's work, from
         # its conversation; one with marks is a message, the marks being for it.
         side = evidence is None and aside.question_of(text) is not None
+        # ``/now``: the agent's turn is cut short for it.
+        interrupt = not side and aside.interruption_of(text) is not None
         logger.info(
             "Operator %s to the agent (%s): %s",
-            "side question" if side else "message",
+            "side question"
+            if side
+            else "interrupting message"
+            if interrupt
+            else "message",
             message_id,
             text,
         )
@@ -502,10 +522,28 @@ class AgentControl:
                 id=message_id,
                 evidence=evidence_id,
                 **({aside.MARK: True} if side else {}),
+                **({aside.INTERRUPT: True} if interrupt else {}),
             ),
             actor=OPERATOR,
         )
         return message_id
+
+    def interrupt(self, message_id: str) -> bool:
+        """Cut the agent's turn short so it reads the operator's message
+        *message_id* now, as one sent with ``/now`` would be: the *Interrupt
+        now* of a message still waiting for the turn to end. It stops the
+        turn, not the run, and the level is untouched. False when nothing is
+        recording, so the agent can't hear it."""
+        recorder = self._session.recorder
+        if recorder is None:
+            return False
+        logger.info("Operator interrupted the agent for message %s", message_id)
+        recorder.buffer.append(
+            ACTION,
+            action_record("Interrupt the agent", interrupts=message_id),
+            actor=OPERATOR,
+        )
+        return True
 
     # --- the pictures of what it asks ------------------------------------------
 
