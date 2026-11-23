@@ -194,6 +194,11 @@ Agent card shows the last one with **Resume**.
 Running `fibsem-agent` by hand still works as before. The gateway doesn't need to be running
 for it.
 
+While the gateway runs, an agent never goes to the App Server directly: an App Server address
+(an old `FIBSEM_SERVER_URL`, an MCP setting, a token kept for port 8001) is sent to the gateway
+instead, so the one-agent slot, the Allow card and History apply to every agent. Without a
+gateway, a client still finds an App Server running alone (tests, scripts).
+
 An agent with no App Server (no instrument, or an instrument served by something else) runs
 against `fibsem-agent-host`. It sits behind the gateway the same way: it serves no pages and
 pairs nothing, checks tokens against the gateway's `paired.json`, and the gateway passes calls

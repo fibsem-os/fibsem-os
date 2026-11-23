@@ -134,6 +134,19 @@ def server_env() -> Tuple[Optional[str], Optional[str]]:
     )
 
 
+def _is_app_server(url: str) -> bool:
+    """Whether *url* is the App Server running on this PC."""
+    found = read_discovery_file()
+    if found is None:
+        return False
+    a, b = urlsplit(url), urlsplit(found["url"])
+    local = {"localhost", "127.0.0.1", "::1"}
+    same_host = a.hostname == b.hostname or (
+        a.hostname in local and b.hostname in local
+    )
+    return same_host and a.port == b.port
+
+
 def resolve(
     url: Optional[str] = None, token: Optional[str] = None
 ) -> Optional[Tuple[str, str]]:
@@ -152,6 +165,12 @@ def resolve(
     env_url, env_token = server_env()
     url = url or env_url
     token = token or env_token
+    gateway = read_gateway_file()
+    if url and gateway is not None and _is_app_server(url):
+        # While this PC's gateway runs it is the one way in: an address of the
+        # App Server behind it (an old setting, a kept 8001) goes through it.
+        url = gateway["url"]
+        token = token or agent_token(url) or gateway.get("connect_token")
     if url and not token:
         token = agent_token(url)
     if url and token:
@@ -159,7 +178,7 @@ def resolve(
     # This PC's gateway, the one way in: the agent token it was allowed there,
     # else the gateway's connect token, which asks to be allowed. Else an App
     # Server running alone (tests, scripts), whose token the environment names.
-    for found in (read_gateway_file(), read_discovery_file()):
+    for found in (gateway, read_discovery_file()):
         if found is not None:
             url = url or found["url"]
             token = token or agent_token(url) or found.get("connect_token")
