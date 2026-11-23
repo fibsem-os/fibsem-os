@@ -480,6 +480,12 @@ class FakeAgent:
 
         return AgentState(microscope="arctis-pc")
 
+    def in_use(self):
+        return None
+
+    def own_running(self):
+        return None
+
     def playbooks(self):
         return [{"name": "default"}]
 

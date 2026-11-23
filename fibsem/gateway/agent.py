@@ -320,6 +320,31 @@ class GatewayAgent:
             "quiet": quiet_note(seconds),
         }
 
+    def own_running(self) -> Optional[str]:
+        """The agent the gateway started, as the card names it while it runs
+        ("the agent started from the gateway at 17:30"), or None."""
+        agent = self._manager.agent(self.microscope)
+        if agent is None or agent.state == "ended":
+            return None
+        about = read_json(agent.folder / MANAGED).get("about") or {}
+        started = about.get("started")
+        at = f" at {started[11:16]}" if isinstance(started, str) else ""
+        return f"the agent started from the gateway{at}"
+
+    def in_use(self) -> Optional[str]:
+        """The agent holding this instrument's one slot and in use: the one
+        the gateway started while it runs, else one paired another way that
+        the app heard from in the last `AGENT_LISTENING_S`. None when the slot
+        is free or its agent has gone quiet."""
+        own = self.own_running()
+        if own is not None:
+            return own
+        connected = self._connected()
+        seconds = connected and connected.get("last_heard_s")
+        if seconds is not None and seconds < AGENT_LISTENING_S:
+            return connected["name"]
+        return None
+
     def playbooks(self) -> List[dict]:
         return self._read_playbooks()
 
