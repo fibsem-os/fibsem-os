@@ -1997,6 +1997,8 @@ export interface components {
             why: string;
         };
         RecentRows: {
+            /** @default false */
+            more: boolean;
             rows: components["schemas"]["RecentRow"][];
         };
         /** @description A note, a message or evidence put on the record; for a message, its
