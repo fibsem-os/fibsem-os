@@ -281,8 +281,13 @@ export interface ReviewList {
     to_check: number;
     rejected: number;
     all: number;
-    /** Per kind scored: passed (Accept), failed (Reject), still open. */
-    scores?: Record<string, { passed: number; failed: number; open: number }>;
+    /** Per kind scored, one score per grid or lamella: its first answer passes
+     * (Accept) or fails (Reject); later answers for it are after_help. A lamella
+     * the run took through the step with no item is missing, and a fail. */
+    scores?: Record<
+      string,
+      { passed: number; failed: number; open: number; after_help?: number; missing?: string[] }
+    >;
   };
 }
 

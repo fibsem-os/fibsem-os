@@ -602,4 +602,7 @@ fail marks what was right: the target, or the good squares you missed.
 A lamella that fails before a scored step gets no item for it; one that
 reaches the step and has none counts as a fail of its own. Add the item
 even when you think the result is bad: a fail you name is still a fail,
-but one you leave out counts twice.
+but one you leave out counts twice. Name the lamella in `about` as the
+experiment names it (`about: "Lamella 01"`): that is how a polished lamella
+with no item is found. A redo after a Reject gets a new item; the first
+answer stays the lamella's score.

@@ -36,14 +36,37 @@ const MARK_ON_FAIL: Record<NonNullable<ReviewItem["score"]>, string> = {
 const KINDS: NonNullable<ReviewItem["score"]>[] = ["sites", "target", "polishing"];
 const RESULT: Record<string, string> = { Accept: "Pass", Reject: "Fail" };
 
-/** The run's scored items: a tally per kind, then each item; one opens in the viewer. */
-function Scores({ items, onOpen, onClose }: { items: ReviewItem[]; onOpen: (id: string) => void; onClose: () => void }) {
+// A grid's or lamella's name as the server compares it ("Lamella 01" is "lamella-01").
+const same = (name?: string) => (name ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
+/** The run's scored items: the server's tally per kind (one score per grid or
+ * lamella, its first answer), then each item; one opens in the viewer. */
+function Scores({
+  items,
+  counts,
+  onOpen,
+  onClose,
+}: {
+  items: ReviewItem[];
+  counts: NonNullable<ReviewList["counts"]["scores"]>;
+  onOpen: (id: string) => void;
+  onClose: () => void;
+}) {
   const scored = items.filter((i) => i.score && !(i.closed && !i.answer));
-  const tally = KINDS.map((kind) => {
-    const of = scored.filter((i) => i.score === kind);
-    const n = (choice: string) => of.filter((i) => i.answer?.choice === choice).length;
-    return { kind, passed: n("Accept"), failed: n("Reject"), open: of.filter((i) => !i.answer).length };
-  }).filter((t) => t.passed + t.failed + t.open > 0);
+  // A later answer for the same lamella (a redo after a Reject) isn't its score.
+  const first = new Set<string>();
+  const redo = new Set<string>();
+  for (const i of [...scored].reverse()) {
+    if (!i.answer) continue;
+    const key = `${i.score}:${same(i.about)}`;
+    if (first.has(key)) redo.add(i.id);
+    else first.add(key);
+  }
+  const none = { passed: 0, failed: 0, open: 0 };
+  const tally = KINDS.map((kind) => ({ kind, ...(counts[kind] ?? none) })).filter(
+    (t) => t.passed + t.failed + t.open > 0,
+  );
+  const missing = KINDS.flatMap((kind) => (counts[kind]?.missing ?? []).map((about) => ({ kind, about })));
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent title="Scores" className="w-[min(560px,calc(100vw-32px))]">
@@ -81,10 +104,19 @@ function Scores({ items, onOpen, onClose }: { items: ReviewItem[]; onOpen: (id: 
                   {i.title}
                   {i.answer?.note && <span className="block text-[12px] text-muted-foreground">“{i.answer.note}”</span>}
                 </span>
-                <span className={cn("shrink-0", !i.answer && "text-muted-foreground")}>
+                <span className={cn("shrink-0", (!i.answer || redo.has(i.id)) && "text-muted-foreground")}>
                   {i.answer ? (RESULT[i.answer.choice] ?? i.answer.choice) : "To score"}
+                  {redo.has(i.id) && " after help"}
                 </span>
               </button>
+            ))}
+            {missing.map((m) => (
+              <div key={`${m.kind}:${m.about}`} className="flex items-baseline gap-3 border-t border-border py-2">
+                <span className="w-24 shrink-0 text-muted-foreground">{m.about}</span>
+                <span className="w-20 shrink-0 text-muted-foreground">{m.kind}</span>
+                <span className="min-w-0 flex-1 text-muted-foreground">No item filed</span>
+                <span className="shrink-0">Fail</span>
+              </div>
             ))}
           </div>
         </div>
@@ -329,7 +361,8 @@ export function ReviewTab({ open }: { open?: { id: string } | null }) {
   const items = [...(review.data?.items ?? [])].reverse();
   const shown = items.filter((i) => shows(i, show));
   const [scores, setScores] = useState(false);
-  const anyScored = items.some((i) => i.score);
+  const missing = Object.values(review.data?.counts.scores ?? {}).some((t) => t.missing?.length);
+  const anyScored = missing || items.some((i) => i.score);
   const opened = items.find((i) => i.id === openId);
   const count = review.data?.counts.all ?? 0;
   return (
@@ -398,7 +431,7 @@ export function ReviewTab({ open }: { open?: { id: string } | null }) {
       ))}
       {opened && <Viewer item={opened} onClose={() => setOpenId(null)} />}
       {scores && !opened && (
-        <Scores items={items} onOpen={(id) => setOpenId(id)} onClose={() => setScores(false)} />
+        <Scores items={items} counts={review.data?.counts.scores ?? {}} onOpen={(id) => setOpenId(id)} onClose={() => setScores(false)} />
       )}
     </div>
   );

@@ -2101,7 +2101,28 @@ class Harness:
 
         def post():
             try:
-                if send(entries) != 422 or len(entries) == 1:
+                status = send(entries)
+                if status < 400:
+                    return True
+                if status != 422:
+                    if status in (409, 429) or status >= 500:
+                        # It may take them later: kept for the next send.
+                        log.debug(
+                            "The App Server can't take the transcript yet (%d).", status
+                        )
+                        return False
+                    log.warning(
+                        "The App Server refused the transcript (%d): %d line(s) dropped.",
+                        status,
+                        len(entries),
+                    )
+                    return True
+                if len(entries) == 1:
+                    log.warning(
+                        "The App Server refused a transcript line: %s %.80r",
+                        entries[0].get("kind"),
+                        entries[0].get("text"),
+                    )
                     return True
                 # The server refuses a whole send for one line it can't take:
                 # the rest go one at a time, so a step's end isn't lost with it

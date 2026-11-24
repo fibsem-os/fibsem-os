@@ -20,6 +20,8 @@ one line per item added, answered or closed, read back in order.
 
 import json
 import logging
+import re
+import threading
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -133,6 +135,9 @@ class ReviewStore:
         self._files = files or AgentFiles(experiment_path)
         self.session_id: Optional[str] = None
         self.items: List[Dict[str, Any]] = []
+        # The agent adds and the operator answers on different threads: one
+        # change at a time, each on disk before it is held.
+        self.lock = threading.RLock()
 
     def _file(self, session_id: str) -> Optional[Path]:
         folder = self._files.folder(session_id)
@@ -140,6 +145,10 @@ class ReviewStore:
 
     def current(self, session_id: Optional[str]) -> List[Dict[str, Any]]:
         """The list of *session_id*: what is held, else read from its file."""
+        with self.lock:
+            return self._current(session_id)
+
+    def _current(self, session_id: Optional[str]) -> List[Dict[str, Any]]:
         if session_id != self.session_id:
             self.session_id, self.items = session_id, []
             path = self._file(session_id) if session_id else None
@@ -164,51 +173,68 @@ class ReviewStore:
             item["answer"] = change.get("answer")
         elif op == "close":
             item["closed"] = change.get("closed")
+        elif op == "told" and item.get("answer"):
+            item["answer"]["message_id"] = change.get("message_id")
 
     def _write(self, change: Dict[str, Any]) -> None:
-        self._apply(change)
+        """*change* on disk, then held; refused (503 not_saved) when it can't
+        be written, so nothing is held that the file doesn't have."""
         path = self._file(self.session_id) if self.session_id else None
-        if path is None:
-            return
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with open(path, "a", encoding="utf-8") as out:
-                out.write(json.dumps(change) + "\n")
-        except OSError:
-            logger.warning("could not write the review %s", path, exc_info=True)
+        if path is not None:
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                with open(path, "a", encoding="utf-8") as out:
+                    out.write(json.dumps(change) + "\n")
+            except OSError as error:
+                logger.warning("could not write the review %s", path, exc_info=True)
+                raise refusal_error(
+                    503,
+                    "not_saved",
+                    f"The review list could not be saved ({error}): nothing was changed.",
+                )
+        self._apply(change)
 
     def find(self, item_id: Any) -> Optional[Dict[str, Any]]:
         return next((i for i in self.items if i["id"] == item_id), None)
 
     def add(self, session_id: str, item: Dict[str, Any]) -> Dict[str, Any]:
-        self.current(session_id)
-        item = {"id": f"r{len(self.items) + 1}", "at": now(), **item}
-        self._write({"op": "add", **item})
-        return self.find(item["id"])
+        with self.lock:
+            self._current(session_id)
+            item = {"id": f"r{len(self.items) + 1}", "at": now(), **item}
+            self._write({"op": "add", **item})
+            return self.find(item["id"])
 
     def answer(
         self, session_id: str, item_id: str, answer: Dict[str, Any]
     ) -> Dict[str, Any]:
-        self.current(session_id)
-        self._write({"op": "answer", "id": item_id, "answer": answer})
-        return self.find(item_id)
+        with self.lock:
+            open_item(self, session_id, item_id)
+            self._write({"op": "answer", "id": item_id, "answer": answer})
+            return self.find(item_id)
+
+    def told(self, session_id: str, item_id: str, message_id: str) -> None:
+        """The message that told the agent of the answer to *item_id*."""
+        with self.lock:
+            self._current(session_id)
+            self._write({"op": "told", "id": item_id, "message_id": message_id})
 
     def close(self, session_id: str, item_id: str, reason: str) -> Dict[str, Any]:
-        self.current(session_id)
-        closed = {"reason": reason, "at": now()}
-        self._write({"op": "close", "id": item_id, "closed": closed})
-        return self.find(item_id)
+        with self.lock:
+            open_item(self, session_id, item_id)
+            closed = {"reason": reason, "at": now()}
+            self._write({"op": "close", "id": item_id, "closed": closed})
+            return self.find(item_id)
 
     def view(self, item: Dict[str, Any]) -> Dict[str, Any]:
         return {**item, "state": state(item)}
 
-    def counts(self) -> Dict[str, Any]:
+    def counts(self, reached: Optional[Dict[str, List[str]]] = None) -> Dict[str, Any]:
         found: Dict[str, Any] = {
             "waiting": 0,
             "to_check": 0,
             "rejected": 0,
             "all": len(self.items),
-            "scores": scores(self.items),
+            "scores": scores(self.items, reached),
         }
         for item in self.items:
             said = state(item)
@@ -220,22 +246,68 @@ class ReviewStore:
         return found
 
 
-def scores(items: List[Dict[str, Any]]) -> Dict[str, Dict[str, int]]:
-    """Per kind scored, the items passed (Accept), failed (Reject) and still
-    open; a closed item without an answer is left out."""
-    found: Dict[str, Dict[str, int]] = {}
+# The tasks after which a lamella's polishing is scored: polishing, with or
+# without the FM between passes.
+POLISHING_TASKS = ("MILL_POLISHING", "MILL_COINCIDENT")
+
+
+def reached_in(positions) -> Dict[str, List[str]]:
+    """Per kind scored, the lamellae of *positions* the run took through that
+    step: polishing, finished or failed. Sites and targets aren't read from
+    the record, so only an item filed for them counts."""
+    polished = []
+    for position in positions:
+        for run in getattr(position, "task_history", None) or []:
+            status = getattr(getattr(run, "status", None), "name", "")
+            if run.task_type in POLISHING_TASKS and status in ("Completed", "Failed"):
+                polished.append(position.name)
+                break
+    return {"polishing": polished}
+
+
+def same(name: str) -> str:
+    """A grid's or lamella's name as compared: letters and digits, lower case
+    ("Lamella 01" and "lamella-01" are one)."""
+    return re.sub(r"[^a-z0-9]", "", (name or "").lower())
+
+
+def scores(
+    items: List[Dict[str, Any]], reached: Optional[Dict[str, List[str]]] = None
+) -> Dict[str, Dict[str, Any]]:
+    """Per kind scored: passed, failed and still open, one score per grid or
+    lamella. Its first answered item is the score; a later item for the same
+    one (a redo after a Reject) is counted as after_help, not again. A name in
+    *reached* (per kind, the grids or lamellae the run took through that step)
+    with no item is missing, and counts as a fail. A closed item without an
+    answer is left out."""
+    groups: Dict[tuple, List[Dict[str, Any]]] = {}
     for item in items:
-        kind = item.get("score")
-        if not kind:
-            continue
-        tally = found.setdefault(kind, {"passed": 0, "failed": 0, "open": 0})
-        choice = (item.get("answer") or {}).get("choice")
-        if choice == "Accept":
-            tally["passed"] += 1
-        elif choice == "Reject":
-            tally["failed"] += 1
-        elif not item.get("closed"):
-            tally["open"] += 1
+        if item.get("score") and not (item.get("closed") and not item.get("answer")):
+            groups.setdefault((item["score"], same(item.get("about", ""))), []).append(
+                item
+            )
+    found: Dict[str, Dict[str, Any]] = {}
+
+    def tally(kind: str) -> Dict[str, Any]:
+        return found.setdefault(
+            kind, {"passed": 0, "failed": 0, "open": 0, "after_help": 0, "missing": []}
+        )
+
+    for (kind, _), group in groups.items():
+        answered = [i for i in group if i.get("answer")]
+        counts = tally(kind)
+        if answered:
+            choice = answered[0]["answer"].get("choice")
+            counts["passed" if choice == "Accept" else "failed"] += 1
+            counts["after_help"] += len(answered) - 1
+        else:
+            counts["open"] += 1
+    for kind, names in (reached or {}).items():
+        for name in names:
+            if (kind, same(name)) not in groups:
+                counts = tally(kind)
+                counts["missing"].append(name)
+                counts["failed"] += 1
     return found
 
 
@@ -268,6 +340,7 @@ def open_item(store: ReviewStore, session_id: Optional[str], item_id: str):
 def build_agent_review_router(
     experiment_path: Callable[[], Optional[str]],
     emit: Optional[Callable[..., None]] = None,
+    reached: Optional[Callable[[], Dict[str, List[str]]]] = None,
 ) -> APIRouter:
     """``/app/agent/review``: the agent adds and closes items, both read
     them; the operator's answer is on the operator's router."""
@@ -298,6 +371,15 @@ def build_agent_review_router(
             )
         return found
 
+    def _reached() -> Dict[str, List[str]]:
+        if reached is None:
+            return {}
+        try:
+            return reached()
+        except Exception:  # noqa: BLE001 - the counts never cost the list
+            logger.debug("could not read which lamellae were scored", exc_info=True)
+            return {}
+
     @router.get("/review")
     def get_review(request: Request, show: str = "all", about: str = ""):
         session = request.app.state.auth.agent_session or {}
@@ -311,7 +393,7 @@ def build_agent_review_router(
         return {
             "session_id": store.session_id,
             "items": shown,
-            "counts": store.counts(),
+            "counts": store.counts(_reached()),
         }
 
     @router.post("/review")
