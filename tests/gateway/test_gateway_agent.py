@@ -845,3 +845,18 @@ def test_an_allowed_agent_takes_the_slot(made, tmp_path):
     assert slot["holder"] == "claude-code on this PC"
     assert slot["came_in"] == "allow" and slot["state"] == "running"
     assert slot["why"].startswith("allowed by operator, replacing the agent")
+
+
+def test_resume_is_offered_with_the_budget_it_last_ran_with():
+    from fibsem.gateway.agent import _row
+
+    def row(about, kept=None):
+        record = {"session_id": "s1", "manager": {"about": about}}
+        if kept is not None:
+            record["budget"] = kept
+        return _row(record)["last_budget_usd"]
+
+    assert row({"budget_usd": 5}) == 5.0
+    # One the operator changed while it ran wins over the start budget.
+    assert row({"budget_usd": 5}, {"usd": 8, "spent_before_usd": 0.5}) == 8.0
+    assert row({}) is None

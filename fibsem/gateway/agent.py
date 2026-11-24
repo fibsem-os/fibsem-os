@@ -31,6 +31,7 @@ from fibsem.ai.agent.manager import (
     MANAGED,
     RECORD,
     RUN,
+    RUN_BUDGET,
     WORK,
     AgentRunning,
     AgentSessionManager,
@@ -198,6 +199,17 @@ def _last_level(about: dict) -> Optional[str]:
     return None
 
 
+def _last_budget(record: dict, about: dict) -> Optional[float]:
+    kept = record.get(RUN_BUDGET)
+    usd = kept.get("usd") if isinstance(kept, dict) else None
+    if usd is None:
+        usd = about.get("budget_usd")
+    try:
+        return None if usd is None else float(usd)
+    except (TypeError, ValueError):
+        return None
+
+
 def _row(record: dict, platform: str = sys.platform) -> Dict[str, Any]:
     """One session as the page lists it."""
     managed = record.get("manager") or {}
@@ -220,6 +232,9 @@ def _row(record: dict, platform: str = sys.platform) -> Dict[str, Any]:
         # The level the operator last set while it ran (Stop agent as Watch),
         # else its start level: Resume's first choice.
         "last_level": _last_level(managed.get("about") or {}),
+        # The budget it last ran with (one the operator changed included),
+        # else its start budget: Resume's first choice.
+        "last_budget_usd": _last_budget(record, managed.get("about") or {}),
         "cannot_resume": _why_not(record, platform, _folder_there),
         # what the agent last printed, when it ended before its log said why
         "output": managed.get("output"),

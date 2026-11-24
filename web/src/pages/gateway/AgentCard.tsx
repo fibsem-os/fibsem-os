@@ -24,6 +24,8 @@ export interface Session {
   gateway?: boolean;
   // The level last set while it ran (Stop agent as Watch), else its start level.
   last_level?: string | null;
+  // The budget it last ran with, else its start budget.
+  last_budget_usd?: number | null;
 }
 
 export interface Running extends Session {
@@ -724,8 +726,10 @@ export function ResumeForm({
 }) {
   const client = useQueryClient();
   const [level, setLevel] = useState(session.last_level ?? "watch");
-  // Typed here, or else the playbook's own budget.
-  const [budget, setBudget] = useState<string | null>(null);
+  // Typed here, or else the session's last budget, or the playbook's own.
+  const [budget, setBudget] = useState<string | null>(
+    session.last_budget_usd != null ? String(session.last_budget_usd) : null,
+  );
   const config = useQuery({
     queryKey: ["gateway/agent/playbooks", session.playbook],
     queryFn: () =>
