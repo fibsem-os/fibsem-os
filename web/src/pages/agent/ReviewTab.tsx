@@ -313,7 +313,8 @@ function Answer({
               <Button
                 key={o}
                 aria-pressed={choice === o}
-                className={cn("px-3", choice === o && "border-primary")}
+                variant={choice === o ? "primary" : "default"}
+                className="px-3"
                 onClick={() => setChoice(choice === o ? null : o)}
               >
                 {o}
