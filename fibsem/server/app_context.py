@@ -20,7 +20,7 @@ from fibsem.codec import decode, encode
 from fibsem.config import get_recent_experiments
 from fibsem.instrument import needs_microscope
 from fibsem.server import log_tail
-from fibsem.server.agent.files import record_files
+from fibsem.server.agent.files import record_files, session_record_file
 from fibsem.server.agent.notes import latest_notes
 from fibsem.server.files import FileRefusal
 from fibsem.server.image_payloads import image_info, image_payload
@@ -1117,7 +1117,10 @@ class AppContext:
         recorded to its own folder."""
         setter = getattr(self._session, "set_agent_session", None)
         if setter is not None:
-            setter(session_id)
+            setter(
+                session_id,
+                (lambda: session_record_file(session_id)) if session_id else None,
+            )
 
     def record_event(
         self, kind: str, payload: Dict[str, Any], actor: Optional[str] = None

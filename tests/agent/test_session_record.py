@@ -68,7 +68,7 @@ def test_each_record_goes_to_one_file(microscope, tmp_path):
     experiment.mkdir()
     recorder = EventRecorder(microscope, experiment_path=experiment)
     _say(recorder, "before any session")
-    recorder.set_agent_session("s1")
+    recorder.set_agent_session("s1", lambda: agent_files.session_record_file("s1"))
     _say(recorder, "hello")
     recorder.buffer.append(NOTE, note_record("[run_state] two left"), actor=AGENT)
     recorder.buffer.append(
@@ -94,7 +94,7 @@ def test_each_record_goes_to_one_file(microscope, tmp_path):
 
 def test_a_message_with_no_experiment_open_is_kept(microscope):
     recorder = EventRecorder(microscope)
-    recorder.set_agent_session("s1")
+    recorder.set_agent_session("s1", lambda: agent_files.session_record_file("s1"))
     _say(recorder, "nothing is open")
     recorder.close()
     session = agent_files.session_folder("s1") / EVENTS_FILENAME
@@ -106,7 +106,7 @@ def test_switching_experiments_keeps_one_conversation(microscope, tmp_path):
     a.mkdir()
     b.mkdir()
     recorder = EventRecorder(microscope, experiment_path=a)
-    recorder.set_agent_session("s1")
+    recorder.set_agent_session("s1", lambda: agent_files.session_record_file("s1"))
     _say(recorder, "on a")
     recorder.set_experiment(b)
     _say(recorder, "on b")
@@ -179,7 +179,7 @@ def test_with_no_experiment_open_the_session_keeps_everything(microscope, tmp_pa
     plain = tmp_path / "plain"
     plain.mkdir()
     recorder = EventRecorder(microscope, experiment_path=plain, plain=True)
-    recorder.set_agent_session("s1")
+    recorder.set_agent_session("s1", lambda: agent_files.session_record_file("s1"))
     recorder.buffer.append(NOTE, note_record("[intake] one grid"), actor=AGENT)
     experiment = tmp_path / "exp"
     experiment.mkdir()
@@ -229,7 +229,7 @@ def test_a_reconnected_instrument_keeps_the_running_session(microscope, tmp_path
     from fibsem.workflows.session import AppSession
 
     session = AppSession()
-    session.set_agent_session("s1")
+    session.set_agent_session("s1", lambda: agent_files.session_record_file("s1"))
     session.microscope = microscope
     session.start_recording()
     _say(session.recorder, "after connecting")

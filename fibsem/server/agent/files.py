@@ -54,6 +54,13 @@ def session_folder(session_id: str) -> Path:
     return manager.session_folder(session_id, sessions_root()) / FOLDER
 
 
+def session_record_file(session_id: str) -> Path:
+    """Where session *session_id*'s own record is written, its folder made."""
+    folder = session_folder(session_id)
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder / EVENTS
+
+
 def record_files(session_id: Optional[str], experiment: Optional[str]) -> List[Path]:
     """The files the chat and notes are read from: the session's own record
     (with no session running, the newest one's that worked on *experiment*),

@@ -177,8 +177,9 @@ def build_agent_session_router(
     def report_session(request: Request, body: Dict[str, Any]):
         auth: AuthConfig = request.app.state.auth
         session, kinds = report(auth, body)
-        if running is not None:
-            running(None if session.get("ended") else session.get("session_id"))
+        ended = bool(session.get("ended"))
+        if running is not None and not ended:
+            running(session.get("session_id"))
         for key, value in where(request).items():
             if value is None:
                 session.pop(key, None)
@@ -191,6 +192,9 @@ def build_agent_session_router(
                 emit(kind, dict(session))
             except Exception:  # noqa: BLE001 - the record never costs the report
                 logger.debug("could not record %s", kind, exc_info=True)
+        # After its end is on its record.
+        if running is not None and ended:
+            running(None)
         return {"session": with_plan(request, session)}
 
     @router.put(

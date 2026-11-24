@@ -72,15 +72,6 @@ _RECORDERS: "weakref.WeakValueDictionary[int, EventRecorder]" = (
 )
 
 
-def session_events_file(session_id: str) -> Path:
-    """Where agent session *session_id*'s own records go, in its folder."""
-    from fibsem.server.agent.files import session_folder
-
-    folder = session_folder(session_id)
-    folder.mkdir(parents=True, exist_ok=True)
-    return folder / EVENTS_FILENAME
-
-
 def recorder_for(microscope: Any) -> Optional["EventRecorder"]:
     """The open recorder for *microscope*, if something keeps one: the app does,
     from the moment a microscope connects."""
@@ -590,16 +581,23 @@ class EventRecorder:
         else:
             self.writer.write(record)
 
-    def set_agent_session(self, session_id: Optional[str]) -> None:
-        """The agent session running now, whose own record its conversation
-        goes to; None when none runs."""
+    def set_agent_session(
+        self,
+        session_id: Optional[str],
+        record_file: Optional[Callable[[], Optional[Path]]] = None,
+    ) -> None:
+        """The agent session running now, None when none runs, and where its
+        own record goes (*record_file*, asked on the writer's thread)."""
         if session_id == self.agent_session_id:
             return
-        self.agent_session_id = session_id
-        if session_id is None:
+        # The file before the id and the id before no file, so no record is
+        # routed to the session's writer while it points elsewhere.
+        if session_id is None or record_file is None:
+            self.agent_session_id = None
             self.session_writer.set_path(None)
         else:
-            self.session_writer.set_path_from(lambda: session_events_file(session_id))
+            self.session_writer.set_path_from(record_file)
+            self.agent_session_id = session_id
 
     def close(self) -> None:
         """Detach every tap, write what is queued, and stop the writers."""
