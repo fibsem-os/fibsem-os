@@ -51,6 +51,28 @@ function happened(s: Switch, name: string): string {
 const lastPart = (folder: string) =>
   folder.split(/[\\/]/).filter(Boolean).pop();
 
+/** A session's status in words: what the shared list says, else its end. */
+function said(s: Session): string {
+  switch (s.status) {
+    case "waiting":
+      return "waiting for its app";
+    case "left":
+      return "left unfinished when the gateway closed";
+    case "crashed":
+      return "stopped without saying why";
+    case "running":
+      return "running";
+    case "ended":
+      return s.status_reason ?? s.ended ?? "ended";
+    default:
+      return s.ended ?? "running";
+  }
+}
+
+/** Whether a session has stopped for good: Resume may carry it on. */
+const stopped = (s: Session) =>
+  s.status ? ["ended", "left", "crashed"].includes(s.status) : s.ended != null;
+
 const ROW =
   "grid grid-cols-1 gap-0.5 border-t border-border py-2 text-[13px] sm:grid-cols-[170px_52px_minmax(0,1fr)_auto] sm:gap-3";
 
@@ -111,7 +133,7 @@ function AgentRow({
 }) {
   const [open, setOpen] = useState(false);
   const [resuming, setResuming] = useState(false);
-  const status = running ? "running" : (session.ended ?? "running");
+  const status = running ? "running" : said(session);
   const rows: [string, ReactNode][] = [
     [
       "Playbook",
@@ -129,6 +151,18 @@ function AgentRow({
     ["Spent", session.spent_usd != null ? dollars(session.spent_usd) : "–"],
     ["Ended", running ? "Still running" : (session.ended ?? "–")],
   ];
+  if (session.experiment)
+    rows.push([
+      "Experiment",
+      <span title={session.experiment.path}>
+        {session.experiment.name ?? lastPart(session.experiment.path)}
+        {session.experiment.on_this_pc === false && (
+          <span className="text-muted-foreground"> · not on this PC</span>
+        )}
+      </span>,
+    ]);
+  if (session.last_active)
+    rows.push(["Last active", fmt.when(session.last_active)]);
   if (session.output)
     rows.push([
       "Last said",
@@ -157,10 +191,16 @@ function AgentRow({
           <span className="min-w-0 break-words">
             {session.playbook ?? "no playbook"}
             {session.goal && ` · ${session.goal}`}
+            {session.experiment && (
+              <span className="text-muted-foreground" title={session.experiment.path}>
+                {" "}
+                · {session.experiment.name ?? lastPart(session.experiment.path)}
+              </span>
+            )}
             <span
               className={cn(
                 "text-muted-foreground",
-                status === "restarts used up" &&
+                (status === "restarts used up" || session.status === "crashed") &&
                   "text-[var(--fibsem-semantic-warning-color)]",
               )}
             >
@@ -309,7 +349,7 @@ export function History({
             running={e.running}
             canResume={
               !e.running &&
-              e.session.ended != null &&
+              stopped(e.session) &&
               !!e.session.session_id &&
               !e.session.cannot_resume &&
               !state?.running

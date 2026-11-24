@@ -604,18 +604,6 @@ class AgentSessionManager:
                 ):
                     self._resume(agent)
 
-    def sessions(self, limit: int = 20) -> List[dict]:
-        """The newest sessions, run here or not: each folder's record, with
-        the manager's part when it has one."""
-        rows = []
-        for folder in folders(self._root)[:limit]:
-            row = read_json(folder / RECORD)
-            managed = read_json(folder / MANAGED)
-            if managed:
-                row["manager"] = managed
-            rows.append(row)
-        return rows
-
     def _spawn(
         self, args: List[str], env: Optional[Dict[str, str]], folder: Path
     ) -> subprocess.Popen:

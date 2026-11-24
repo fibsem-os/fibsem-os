@@ -60,7 +60,34 @@ def test_a_managed_session_whose_app_went_waits():
 
 def test_status_of_a_run_that_ended():
     run = {"ended": "t", "exit_code": manager.STOPPED, "reason": "stopped"}
-    assert _status([run], {"about": {}}) == ("ended", "stopped")
+    assert _status([run]) == ("ended", "stopped")
+    ended = {"about": {}, "ended": "ended by the operator"}
+    assert _status([run], ended) == ("ended", "ended by the operator")
+
+
+def test_a_parked_agent_waits():
+    # The app was stopped: its run stopped, and its manager hasn't ended it.
+    run = {"ended": "t", "exit_code": manager.STOPPED, "reason": "stopped"}
+    assert _status([run], {"about": {}}) == ("waiting", "stopped")
+
+
+def test_a_start_waiting_for_its_app():
+    status = records.session_status({}, {"about": {}}, lambda run: False)
+    assert status[0] == "waiting"
+
+
+def test_a_run_that_cannot_resume_has_ended():
+    run = {"ended": "t", "exit_code": manager.GONE, "resumable": False}
+    assert _status([run], {"about": {}})[0] == "ended"
+
+
+def test_a_reused_pid_is_not_the_run(monkeypatch):
+    seen = []
+    monkeypatch.setattr(
+        records, "same_process", lambda pid, started: seen.append((pid, started))
+    )
+    records._alive({"pid": 7, "pid_started": 12.5})
+    assert seen == [(7, 12.5)]
 
 
 def test_sessions_newest_first_with_their_experiment(tmp_path):
@@ -73,11 +100,12 @@ def test_sessions_newest_first_with_their_experiment(tmp_path):
             "playbook": {"name": "autolamella", "hash": "h"},
             "model": "m",
             "runs": [
+                # each run writes the session's running total
                 {"pid": 1, "started": "s1", "ended": "e1", "spent_usd": 1.5},
-                {"pid": 2, "started": "s2", "ended": "e2", "spent_usd": 2.25},
+                {"pid": 2, "started": "s2", "ended": "e2", "spent_usd": 3.75},
             ],
         },
-        managed={"about": {"level_now": "drive"}},
+        managed={"about": {"level_now": "drive"}, "ended": "stopped"},
         link={"session_id": "a", "path": "/x/exp", "name": "exp", "id": "e-1"},
     )
     _session(root, "2026-11-21-090000-b", {"session_id": "b", "runs": [{"pid": 3}]})
@@ -89,7 +117,7 @@ def test_sessions_newest_first_with_their_experiment(tmp_path):
     assert b.status == "running" and b.experiment is None and not b.by_gateway
     assert a.status == "ended" and a.ended_at == "e2" and a.started_at == "s1"
     assert a.playbook == "autolamella" and a.level == "drive"
-    assert a.spent_usd == 3.75 and a.by_gateway
+    assert a.spent_usd == 3.75 and a.by_gateway and a.last_active_at
     assert a.experiment == records.ExperimentLink("/x/exp", "exp", "e-1")
     assert len(records.list_sessions(limit=1, root=root)) == 1
 
@@ -98,6 +126,23 @@ def test_a_folder_without_a_record_is_not_a_session(tmp_path):
     root = tmp_path / "sessions"
     (root / "2026-11-21-090000-x").mkdir(parents=True)
     assert records.list_sessions(root=root) == []
+
+
+def test_a_start_waiting_for_its_app_is_listed(tmp_path):
+    root = tmp_path / "sessions"
+    folder = root / "2026-11-21-090000-0f-1e"
+    folder.mkdir(parents=True)
+    (folder / manager.MANAGED).write_text(json.dumps({"about": {"level": "watch"}}))
+    [row] = records.list_sessions(root=root)
+    assert (row.session_id, row.status, row.level) == ("0f-1e", "waiting", "watch")
+
+
+def test_the_limit_counts_sessions_only(tmp_path):
+    root = tmp_path / "sessions"
+    _session(root, "2026-11-20-090000-a", {"session_id": "a", "runs": [{"pid": 1}]})
+    _session(root, "2026-11-21-090000-x", {"runs": []})
+    rows = records.list_sessions(limit=1, root=root, alive=lambda run: True)
+    assert [row.session_id for row in rows] == ["a"]
 
 
 def test_experiments_recent_and_worked_on(tmp_path):
@@ -120,9 +165,47 @@ def test_experiments_recent_and_worked_on(tmp_path):
         sessions, recent=lambda: [str(recent), str(worked), gone]
     )
 
-    assert [row.name for row in rows] == ["Worked on", "Recent one"]
+    assert [row.name for row in rows] == ["Worked on", "Recent one", "gone"]
     assert rows[0].id == "w-1" and rows[0].session_ids == ["a", "b"]
     assert rows[1].session_ids == [] and rows[1].updated_at.startswith("1970-01-")
+    # linked but no longer on disk: known by its link
+    assert not rows[2].on_this_pc and rows[2].session_ids == ["c"]
+
+
+def test_an_experiment_is_one_row_by_its_id(tmp_path):
+    here = _experiment(tmp_path / "moved", "Moved", "m-1")
+    sessions = [
+        records.SessionRow(
+            "a",
+            "f",
+            "ended",
+            experiment=records.ExperimentLink("/old/place", "Moved", "m-1"),
+        ),
+        records.SessionRow(
+            "b",
+            "f",
+            "ended",
+            experiment=records.ExperimentLink(str(here), "Moved", "m-1"),
+        ),
+    ]
+    rows = records.list_experiments(sessions, recent=lambda: [])
+    assert [(row.path, row.on_this_pc) for row in rows] == [(str(here), True)]
+    assert rows[0].session_ids == ["a", "b"]
+
+
+def test_a_linked_experiment_not_on_this_pc_is_kept(tmp_path):
+    on_hub = records.ExperimentLink("/microscope-pc/exp", "Far", "far-1")
+    here = _experiment(tmp_path / "here", "Here", "h-1")
+    sessions = [
+        records.SessionRow("a", "f", "ended", experiment=on_hub),
+        records.SessionRow("b", "f", "ended", experiment=on_hub),
+    ]
+    rows = records.list_experiments(sessions, recent=lambda: [str(here)])
+    assert [(row.name, row.on_this_pc) for row in rows] == [
+        ("Here", True),
+        ("Far", False),
+    ]
+    assert rows[1].id == "far-1" and rows[1].session_ids == ["a", "b"]
 
 
 def test_an_unreadable_experiment_is_listed_by_its_folder(tmp_path):

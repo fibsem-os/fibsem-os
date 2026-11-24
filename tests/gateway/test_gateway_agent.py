@@ -959,6 +959,31 @@ def test_start_refuses_a_goal_too_long_to_report(made):
     assert app.levels == []
 
 
+def test_history_says_each_sessions_status_and_experiment(made, tmp_path):
+    ended = _by_hand(tmp_path)
+    (ended / "agent").mkdir()
+    (ended / "agent" / "experiment.json").write_text(
+        json.dumps(
+            {"session_id": "by-hand", "path": "/x/exp", "name": "exp", "id": "e-1"}
+        )
+    )
+    # The gateway's agent, parked when its app was stopped: not ended.
+    parked = SessionFolder.open(
+        "parked", {"playbook": "default", "mode": "none"}, tmp_path / "sessions"
+    )
+    parked.end(0, "stopped")
+    (parked.folder / MANAGED).write_text(json.dumps({"about": {"level": "assist"}}))
+    agent, _, _ = made()
+    rows = {row["session_id"]: row for row in agent.sessions().sessions}
+    assert rows["by-hand"]["status"] == "ended"
+    assert rows["by-hand"]["experiment"] == {
+        "path": "/x/exp",
+        "name": "exp",
+        "id": "e-1",
+    }
+    assert rows["parked"]["status"] == "waiting"
+
+
 def test_an_allowed_agent_leaves_the_slot_when_unpaired_or_quiet(made, tmp_path):
     agent, _, app = made()
     tokens = PairedTokens(tmp_path / "paired.json")

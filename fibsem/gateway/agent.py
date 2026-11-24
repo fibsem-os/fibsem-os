@@ -21,10 +21,11 @@ import sys
 import threading
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from fibsem import records
 from fibsem.ai.agent.levels import AGENT_LISTENING_S, AgentLevel
 from fibsem.ai.agent.manager import (
     END_WAIT_S,
@@ -150,8 +151,7 @@ def quiet_note(seconds: Optional[float]) -> Optional[str]:
 
 
 def _spent(record: dict) -> Optional[float]:
-    spent = [run["spent_usd"] for run in record.get("runs", []) if "spent_usd" in run]
-    return round(sum(spent), 2) if spent else None
+    return records.session_spent(record.get("runs") or [])
 
 
 # Whether each working folder was there, and when that was read: the page
@@ -267,6 +267,7 @@ class GatewayAgent:
         slot_file: Optional[Path] = None,
     ) -> None:
         self._gateway = gateway
+        self._root = root
         self.slot = slot_mod.SlotRecord(
             slot_file or (root or sessions_dir()).parent / "slot.json"
         )
@@ -341,8 +342,7 @@ class GatewayAgent:
     def state(self) -> AgentState:
         agent = self._manager.agent(self.microscope)
         running = None
-        records = self._manager.sessions(SESSIONS_SHOWN + 1)
-        rows = [_row(record, self._platform) for record in records]
+        rows = self._rows(SESSIONS_SHOWN + 1)
         if agent is not None and agent.state != "ended":
             # Read here: the agent may not have written its record yet.
             managed = read_json(agent.folder / MANAGED)
@@ -368,9 +368,31 @@ class GatewayAgent:
         """The newest *limit* sessions, the running one too, for History to
         page through them all."""
         limit = max(1, min(int(limit), SESSIONS_MAX))
-        records = self._manager.sessions(limit + 1)
-        rows = [_row(record, self._platform) for record in records[:limit]]
-        return SessionsPage(sessions=rows, more=len(records) > limit)
+        rows = self._rows(limit + 1)
+        return SessionsPage(sessions=rows[:limit], more=len(rows) > limit)
+
+    def _rows(self, limit: int) -> List[Dict[str, Any]]:
+        """The newest *limit* sessions as the page lists them, each with its
+        status and experiment from the shared list (`fibsem.records`)."""
+        rows = []
+        for found in records.list_sessions(limit, root=self._root):
+            folder = Path(found.folder)
+            record = {"session_id": found.session_id, **read_json(folder / RECORD)}
+            managed = read_json(folder / MANAGED)
+            if managed:
+                record["manager"] = managed
+            rows.append(
+                {
+                    **_row(record, self._platform),
+                    "status": found.status,
+                    "status_reason": found.reason,
+                    "last_active": found.last_active_at,
+                    "experiment": (
+                        asdict(found.experiment) if found.experiment else None
+                    ),
+                }
+            )
+        return rows
 
     def _connected(self) -> Optional[Dict[str, Any]]:
         """The agent paired with the app that the gateway didn't start, as
