@@ -35,7 +35,11 @@ from fibsem.gateway.gateway import (
     write_gateway_file,
 )
 from fibsem.gateway.host import HostMicroscope
-from fibsem.server.discovery import HOST_DISCOVERY_FILE, read_discovery_file
+from fibsem.server.discovery import (
+    HOST_DISCOVERY_FILE,
+    gateway_port,
+    read_discovery_file,
+)
 from fibsem.server.operator_token import read_operator_token
 from fibsem.unreleased import refuse
 
@@ -73,7 +77,13 @@ def _parser() -> argparse.ArgumentParser:
     )
     commands = parser.add_subparsers(dest="command")
     run = commands.add_parser("run", help="Run the gateway (the default).")
-    run.add_argument("--port", type=int, default=GATEWAY_PORT)
+    run.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="the port to listen on (default: install.gateway.port in the "
+        f"preferences, else {GATEWAY_PORT})",
+    )
     run.add_argument(
         "--no-window", action="store_true", help="Run without the gateway's window."
     )
@@ -131,6 +141,21 @@ def _app_url() -> Optional[str]:
     return found.get("url") if found else None
 
 
+# How long the gateway waits for its port before giving up.
+LISTEN_WAIT_S = 15.0
+
+
+def _listening(server, thread: threading.Thread, wait_s: float = LISTEN_WAIT_S) -> bool:
+    """Whether *server* is listening: False when its thread ended first (its
+    port is taken) or it didn't start within *wait_s*."""
+    deadline = time.monotonic() + wait_s
+    while not server.started:
+        if not thread.is_alive() or time.monotonic() > deadline:
+            return False
+        time.sleep(0.02)
+    return True
+
+
 def run(port: int, window: bool, connection: List[str], minimised: bool = False) -> int:
     import uvicorn
 
@@ -183,8 +208,24 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
         )
     )
     server.install_signal_handlers = lambda: None
-    thread = threading.Thread(target=server.run, name="gateway-http", daemon=True)
+
+    def serve() -> None:
+        try:
+            server.run()
+        except SystemExit:
+            # uvicorn exits when it can't bind; _listening tells the operator.
+            logger.debug("the gateway's server ended", exc_info=True)
+
+    thread = threading.Thread(target=serve, name="gateway-http", daemon=True)
     thread.start()
+    if not _listening(server, thread):
+        # Never a gateway.json for an address another program answers on.
+        print(
+            f"The gateway could not listen on port {port}: another program uses "
+            "it. Stop that program, or start the gateway with --port <another>."
+        )
+        gateway.close()
+        return 1
     write_gateway_file(f"http://127.0.0.1:{port}", auth.connect_token)
     gateway.start()
     print(f"Gateway at http://127.0.0.1:{port}/ui/gateway")
@@ -211,6 +252,8 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
     finally:
         # A restart leaves the app running for the next gateway to take back.
         if not again.is_set():
+            # Closed on purpose: an agent left unfinished waits for Resume.
+            agent.left()
             quit_gateway(gateway)
         gateway.close()
         server.should_exit = True
@@ -219,7 +262,7 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
         thread.join(10)
     if again.is_set():
         flags = [] if window else ["--no-window"]
-        if port != GATEWAY_PORT:
+        if port != gateway_port():
             flags += ["--port", str(port)]
         start_gateway([*flags, *connection])
     return 0
@@ -411,7 +454,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         argv = ["run", *argv]
     args, extra = _parser().parse_known_args(argv)
     if args.command == "run":
-        return run(args.port, not args.no_window, _connection(extra), args.minimised)
+        port = args.port if args.port is not None else gateway_port()
+        return run(port, not args.no_window, _connection(extra), args.minimised)
     if extra:
         _parser().error(f"unrecognized arguments: {' '.join(extra)}")
     if args.command == "install":

@@ -70,7 +70,7 @@ from fibsem.server.devices import (
     stream_events,
     stream_live,
 )
-from fibsem.server.discovery import API_VERSION, fibsem_folder
+from fibsem.server.discovery import API_VERSION, fibsem_folder, health_answer
 from fibsem.server.kept_reads import KeptReads, read_wait, with_age
 from fibsem.server.knowledge_routes import build_knowledge_router
 from fibsem.server.leases import LEASE_HEADER
@@ -637,8 +637,9 @@ def build_server(
 
     @app.get("/health")
     def health():
-        # Unauthenticated liveness probe; everything informative lives in /capabilities.
-        return {"status": "ok"}
+        # Open to anyone, the same shape as every fibsem program's; everything
+        # else about this server lives in /capabilities.
+        return health_answer("fibsem-app-server", API_VERSION)
 
     @base.get("/capabilities")
     def capabilities(request: Request):

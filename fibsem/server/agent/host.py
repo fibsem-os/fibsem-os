@@ -85,7 +85,7 @@ from fibsem.server.auth import (
 from fibsem.server.bodies import (
     refuse_invalid_requests,
 )
-from fibsem.server.discovery import API_VERSION, fibsem_folder
+from fibsem.server.discovery import API_VERSION, fibsem_folder, health_answer
 from fibsem.server.operator_token import load_operator_token
 from fibsem.server.pairing import PAIRED_FILE, ROLES, PairedTokens, Pairing
 from fibsem.server.responses import Refusal
@@ -485,7 +485,7 @@ def build_agent_host(
 
     @app.get("/health")
     def health():
-        return {"status": "ok"}
+        return health_answer("fibsem-agent-host", API_VERSION)
 
     base = APIRouter(dependencies=[Depends(require_monitoring())])
 

@@ -31,12 +31,16 @@ from fibsem.ai.agent.manager import (
     MANAGED,
     RECORD,
     RUN,
+    RUN_BUDGET,
     WORK,
     AgentRunning,
     AgentSessionManager,
     read_json,
+    sessions_dir,
 )
+from fibsem.gateway import slot as slot_mod
 from fibsem.gateway.gateway import RUNNING, Gateway, GatewayRefused
+from fibsem.gateway.health import STARTING
 from fibsem.gateway.host import call_host
 from fibsem.keystore import stored_secret
 from fibsem.server.discovery import read_discovery_file
@@ -56,6 +60,10 @@ SESSIONS_SHOWN = 5
 # in one read.
 SESSIONS_PAGE = 20
 SESSIONS_MAX = 1000
+# While the agent runs, the App Server's level is noted this often, so a
+# resume comes back at the level the operator last set.
+LEVEL_READ_S = 5.0
+LEVELS = {level.value for level in AgentLevel}
 
 
 @dataclass
@@ -69,6 +77,8 @@ class AgentState:
     sessions: List[Dict[str, Any]] = field(default_factory=list)
     api_key: bool = False
     microscope: str = ""
+    # Who holds the instrument's one agent slot (`fibsem.gateway.slot`).
+    slot: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -182,6 +192,24 @@ def _playbook(record: dict) -> Tuple[Optional[str], Optional[str]]:
     return playbook, record.get("playbook_hash")
 
 
+def _last_level(about: dict) -> Optional[str]:
+    for key in ("level_now", "level"):
+        if about.get(key) in LEVELS:
+            return about[key]
+    return None
+
+
+def _last_budget(record: dict, about: dict) -> Optional[float]:
+    kept = record.get(RUN_BUDGET)
+    usd = kept.get("usd") if isinstance(kept, dict) else None
+    if usd is None:
+        usd = about.get("budget_usd")
+    try:
+        return None if usd is None else float(usd)
+    except (TypeError, ValueError):
+        return None
+
+
 def _row(record: dict, platform: str = sys.platform) -> Dict[str, Any]:
     """One session as the page lists it."""
     managed = record.get("manager") or {}
@@ -201,6 +229,12 @@ def _row(record: dict, platform: str = sys.platform) -> Dict[str, Any]:
         "ended": ended,
         "gateway": bool(managed),
         "resumed": bool((managed.get("about") or {}).get("resumed")),
+        # The level the operator last set while it ran (Stop agent as Watch),
+        # else its start level: Resume's first choice.
+        "last_level": _last_level(managed.get("about") or {}),
+        # The budget it last ran with (one the operator changed included),
+        # else its start budget: Resume's first choice.
+        "last_budget_usd": _last_budget(record, managed.get("about") or {}),
         "cannot_resume": _why_not(record, platform, _folder_there),
         # what the agent last printed, when it ended before its log said why
         "output": managed.get("output"),
@@ -229,8 +263,12 @@ class GatewayAgent:
         platform: str = sys.platform,
         microscope: Optional[str] = None,
         own_url: Optional[str] = None,
+        slot_file: Optional[Path] = None,
     ) -> None:
         self._gateway = gateway
+        self.slot = slot_mod.SlotRecord(
+            slot_file or (root or sessions_dir()).parent / "slot.json"
+        )
         # The gateway's own address: the agent reaches the App Server through
         # it (`fibsem.gateway.passthrough`), else directly.
         self._own_url = own_url
@@ -258,6 +296,12 @@ class GatewayAgent:
         )
         gateway.before_stop.append(self._for_switch)
         gateway.watchers.append(self._manager.poll)
+        gateway.watchers.append(self._follow_level)
+        gateway.watchers.append(self._after_end)
+        gateway.watchers.append(self._follow_slot)
+        self._level_read = float("-inf")
+        # The session this gateway saw running, until its end sets Watch.
+        self._ran: Optional[str] = None
 
     # -- reading -----------------------------------------------------------
 
@@ -290,6 +334,7 @@ class GatewayAgent:
             sessions=rows[:SESSIONS_SHOWN],
             api_key=self._has_key(),
             microscope=self.microscope,
+            slot=self.slot.read(),
         )
 
     def sessions(self, limit: int = SESSIONS_PAGE) -> SessionsPage:
@@ -384,9 +429,10 @@ class GatewayAgent:
                 "who": who,
                 "via": via,
                 "budget_usd": budget_usd,
+                "app_pid": self._app_pid(),
             }
             try:
-                self._manager.start(
+                started = self._manager.start(
                     self.microscope,
                     str(uuid.uuid4()),
                     args,
@@ -397,6 +443,13 @@ class GatewayAgent:
             except (AgentRunning, OSError) as error:
                 self._undo(url)
                 raise GatewayRefused(409, "agent_not_started", str(error)) from None
+            self.slot.take(
+                AGENT_NAME,
+                slot_mod.START,
+                f"started by {who} ({via})",
+                session_id=started.session_id,
+                level=level,
+            )
             logger.info(
                 "Gateway started the agent (%s, %s) for %s", playbook, level, who
             )
@@ -462,6 +515,7 @@ class GatewayAgent:
                 "via": via,
                 "budget_usd": budget_usd,
                 "resumed": True,
+                "app_pid": self._app_pid(),
             }
             try:
                 self._manager.resume(
@@ -470,10 +524,25 @@ class GatewayAgent:
             except (AgentRunning, OSError) as error:
                 self._undo(url)
                 raise GatewayRefused(409, "agent_not_started", str(error)) from None
+            self.slot.take(
+                AGENT_NAME,
+                slot_mod.RESUME,
+                f"resumed by {who} ({via})",
+                session_id=session_id,
+                level=level,
+            )
             logger.info(
                 "Gateway resumed session %s (%s) for %s", session_id, level, who
             )
             return self.state()
+
+    def _app_starting(self) -> bool:
+        """Whether the gateway's health watch says the app is starting."""
+        watch = getattr(self._gateway, "health", None)
+        try:
+            return watch is not None and watch.state().app.status == STARTING
+        except Exception:  # noqa: BLE001 - a read never refuses a start
+            return False
 
     def _ready(
         self,
@@ -494,6 +563,12 @@ class GatewayAgent:
                 409, "no_app", "Run the app first: the agent acts through it."
             )
         url = self._url()
+        if self._app_starting():
+            raise GatewayRefused(
+                409,
+                "app_starting",
+                "The app is still starting: try again when its health shows ok.",
+            )
         if url is None:
             raise GatewayRefused(
                 409, "no_app", "The app's server isn't up yet: try again shortly."
@@ -541,6 +616,8 @@ class GatewayAgent:
         if ended is not None:
             self._unpair()
             logger.info("Gateway ended the agent for %s", who)
+            self._follow_slot()
+            self._after_end()
         if stop_app:
             self._gateway.stop(who, via, force, window=window)
         return self.state()
@@ -554,11 +631,95 @@ class GatewayAgent:
             self._manager.end(self.microscope)
             self._unpair()
 
-    def _again(self, about: dict) -> None:
-        """Before a resume: the restarted App Server is at Watch again."""
+    def left(self) -> None:
+        """The gateway is quitting on purpose: an agent it leaves running
+        waits for the operator's Resume, not the next gateway start."""
+        self._manager.left()
+
+    def _app_pid(self) -> Optional[int]:
+        found = self._discovery()
+        return found.get("pid") if found else None
+
+    def allowed(self, name: str, who: str, replacing: Optional[str]) -> None:
+        """An agent allowed on the gateway's page now holds the slot."""
+        why = f"allowed by {who}" + (f", replacing {replacing}" if replacing else "")
+        self.slot.take(name, slot_mod.ALLOW, why)
+
+    def _follow_slot(self) -> None:
+        """The gateway's own agent's state, as the slot record says it."""
+        agent = self._manager.agent(self.microscope)
+        if agent is None:
+            return
+        if agent.state == "ended":
+            changes = {"state": slot_mod.ENDED, "why": agent.ended or "ended"}
+        elif agent.state == "waiting":
+            changes = {"state": slot_mod.WAITING, "why": "waiting for the app"}
+        else:
+            changes = {"state": slot_mod.RUNNING}
+        self.slot.change(session_id=agent.session_id, **changes)
+
+    def _after_end(self) -> None:
+        """Once an agent this gateway saw running has ended (End, replaced
+        by an Allow, a resume that failed, restarts used up), the App
+        Server goes back to Watch. Only the App Server: the session's record
+        keeps the level the operator last set, for its Resume."""
+        agent = self._manager.agent(self.microscope)
+        if agent is not None and agent.state != "ended":
+            self._ran = agent.session_id
+            return
+        if self._ran is None or (agent is not None and agent.session_id != self._ran):
+            self._ran = None
+            return
+        self._ran = None
         url = self._url()
-        level = about.get("level")
-        if url is None or not level or level == AgentLevel.WATCH.value:
+        if url is None:
+            return  # a restarted app is at Watch already
+        try:
+            self._level(url, AgentLevel.WATCH.value)
+        except GatewayRefused as refusal:
+            logger.warning("The level wasn't set back to Watch: %s", refusal)
+
+    def _follow_level(self) -> None:
+        """While the agent runs, note the App Server's level (every
+        `LEVEL_READ_S`) in its session's record: what the operator last set,
+        Stop agent as Watch. A resume comes back at it."""
+        agent = self._manager.agent(self.microscope)
+        if agent is None or agent.state != "running":
+            return
+        if time.monotonic() - self._level_read < LEVEL_READ_S:
+            return
+        self._level_read = time.monotonic()
+        url = self._url()
+        if url is None:
+            return
+        pid = self._app_pid()
+        about = read_json(agent.folder / MANAGED).get("about") or {}
+        if about.get("app_pid") is not None and pid != about["app_pid"]:
+            # The app restarted under a running agent (it waited for it): the
+            # new app is at Watch, so the level last set is set back first.
+            self._again(about)
+            self._manager.note(self.microscope, app_pid=pid)
+            return
+        try:
+            level = call_host(url, "GET", "/capabilities").get("level")
+        except (GatewayRefused, AttributeError):
+            return
+        if level in LEVELS:
+            self._manager.note(self.microscope, level_now=level, app_pid=pid)
+            self.slot.change(session_id=agent.session_id, level=level)
+
+    def _again(self, about: dict) -> None:
+        """Before a resume by itself. An App Server that kept running holds
+        the level the operator last set (a lowering, a Stop agent): it
+        stands. A restarted one is at Watch again: the level the operator
+        last set while the agent ran is set back, else the Start level."""
+        url = self._url()
+        if url is None:
+            return
+        if about.get("app_pid") is not None and about["app_pid"] == self._app_pid():
+            return
+        level = _last_level(about)
+        if not level or level in (AgentLevel.WATCH.value, AgentLevel.OFF.value):
             return
         try:
             self._level(url, level)

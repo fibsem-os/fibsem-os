@@ -60,6 +60,9 @@ MICROSCOPE_EVERY_S = 15.0
 APP_SLOW_S = 1.0
 MICROSCOPE_SLOW_S = 1.0
 APP_TIMEOUT_S = 5.0
+# An app the gateway started that hasn't answered yet, this soon after its
+# start: starting, not stopped or hung. A cold start on Windows takes a while.
+STARTING_MAX_S = 180.0
 MICROSCOPE_TIMEOUT_S = 5.0
 # A call on a device (not a long command, which may run for minutes) running
 # longer than these: slow, then not answering. A call waiting on a lock another
@@ -204,6 +207,8 @@ class HealthWatch:
         self._app = Health(status=STOPPED)
         self._microscope = Health(status=STOPPED)
         self._heard: Dict[str, Any] = {}
+        # The gateway's run (pid, since) whose App Server has answered.
+        self._answered: Optional[Tuple[Any, Any]] = None
         self._closed = threading.Event()
 
     # -- reading -----------------------------------------------------------
@@ -262,11 +267,36 @@ class HealthWatch:
         except Exception:  # noqa: BLE001 - the watch never fails on a read
             return None
 
+    def _run_key(self) -> Optional[Tuple[Any, Any]]:
+        """The app the gateway runs now, as (pid, since); None when off."""
+        try:
+            mode = self._mode()
+        except Exception:  # noqa: BLE001 - the watch never fails on a read
+            return None
+        # "running" is the gateway's RUNNING (gateway.py imports this module).
+        if getattr(mode, "mode", None) != "running" or not getattr(mode, "since", None):
+            return None
+        return getattr(mode, "pid", None), mode.since
+
+    def _first_start(self) -> bool:
+        """Whether the gateway started its app lately and that app hasn't
+        answered yet: starting, between the launch and the first answer."""
+        run = self._run_key()
+        if run is None:
+            return False
+        with self._lock:
+            if self._answered == run:
+                return False
+        try:
+            return self._clock() - float(run[1]) < STARTING_MAX_S
+        except (TypeError, ValueError):
+            return False
+
     def check_app(self) -> None:
         """The App Server's ``/health``, timed."""
         url = self._url()
         if url is None:
-            if self._switch() == STARTING:
+            if self._switch() == STARTING or self._first_start():
                 self._set("_app", STARTING, "The app is starting.")
             else:
                 self._set("_app", STOPPED)
@@ -277,10 +307,16 @@ class HealthWatch:
         except Unreachable as error:
             if self._switch() is not None:
                 self._set("_app", STARTING, "The app is starting or stopping.")
+            elif self._first_start():
+                self._set("_app", STARTING, "The app is starting.")
             else:
                 self._set("_app", NOT_ANSWERING, _gone(str(error), APP_TIMEOUT_S))
             return
         took = self._timer() - started
+        run = self._run_key()
+        if run is not None:
+            with self._lock:
+                self._answered = run
         if status >= 400:
             self._set("_app", NOT_ANSWERING, f"/health answered {status}.", took)
         elif took > APP_SLOW_S:

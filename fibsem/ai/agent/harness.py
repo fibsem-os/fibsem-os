@@ -1198,6 +1198,7 @@ class Harness:
         goal: Optional[str] = None,
         budget_usd: Optional[float] = None,
         spent_before_usd: Optional[float] = None,
+        keep_budget: Optional[Callable[..., None]] = None,
         about: Optional[dict] = None,
         alarm: Optional[Alarm] = None,
         playbook: Optional[PlaybookControl] = None,
@@ -1288,6 +1289,8 @@ class Harness:
         # What it can do (code mode, effort, skills), sent with the first report.
         self._about = dict(about or {})
         self._budget_usd = budget_usd
+        # Writes a budget the operator sets to the session's record.
+        self._keep_budget = keep_budget or (lambda **budget: None)
         # The CLI's running total when this run started: 0 for a new session;
         # None for a resume whose record doesn't say, and then this run's
         # first turn is not counted (`_count_spend`).
@@ -1994,6 +1997,10 @@ class Harness:
                     self._budget_usd or 0,
                 )
                 self._budget_usd = float(budget)
+                try:
+                    self._keep_budget(usd=self._budget_usd)
+                except OSError:
+                    log.warning("The new budget wasn't kept.", exc_info=True)
 
     async def _reread_budget(self) -> None:
         """Ask the App Server for the session's budget, in case the operator
@@ -3375,6 +3382,13 @@ def _parser() -> argparse.ArgumentParser:
         "folder given, the last one that worked in its own)",
     )
     parser.add_argument(
+        "--carry-on",
+        action="store_true",
+        # A manager's resume after a crash or an app restart: the run goes
+        # on, on the budget it had (the session's record), not a fresh one.
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
         "--session-id",
         default=None,
         type=_session_id,
@@ -3468,6 +3482,7 @@ class Setup:
 def _setup(args, checkout: Path) -> Setup:
     """Read the playbook and settle the session's folders; fills what *args*
     left out from the playbook. Raises `SetupRefused`."""
+    _from_record(args)
     try:
         playbook = playbooks.load(args.playbook or playbooks.DEFAULT, checkout, EFFORTS)
     except playbooks.PlaybookError as error:
@@ -3681,13 +3696,16 @@ def _main(argv, opened: List["sessions.SessionFolder"]) -> int:
             extras, mcp_names(playbook, extras, getattr(args, "host", None) is not None)
         )
     )
+    # The skills and specialists the session started with, kept in its own
+    # folder: a resume runs on them, not on today's files.
+    pinned = session.folder / PINNED
     if work is not None:
-        code_mode.prepare(work, checkout, loaded.skills, loaded.agents)
+        code_mode.prepare(work, checkout, loaded.skills, loaded.agents, pinned)
         subagents.add_tools(work, loaded.agents, extra_tools)
         for line in code_mode.details():
             log.debug(line)
     elif run != checkout:
-        sources.assemble(run, checkout, loaded.skills, loaded.agents)
+        sources.assemble(run, checkout, loaded.skills, loaded.agents, pinned)
         subagents.add_tools(run, loaded.agents, extra_tools)
 
     alarm = Alarm(playbook.session.wake_max_min)
@@ -3766,6 +3784,8 @@ def _main(argv, opened: List["sessions.SessionFolder"]) -> int:
     wake_on.say = control.say
     if named:
         control.say(f"Playbook set: {playbook.name}, {control.reminders.chosen_by}")
+    budget = _budget(args, record)
+    session.keep_budget(**budget)
     harness = Harness(
         agent,
         # Its record and wake-ups: the agent host's, else the App Server's.
@@ -3778,8 +3798,9 @@ def _main(argv, opened: List["sessions.SessionFolder"]) -> int:
         resumed=args.resume is not None,
         server_wait_s=args.server_wait,
         goal=args.goal,
-        budget_usd=args.max_budget_usd,
-        spent_before_usd=_spent_before(record),
+        budget_usd=budget["usd"],
+        spent_before_usd=budget["spent_before_usd"],
+        keep_budget=session.keep_budget,
         playbook=control,
         words=words,
         deadline_warn_s=playbook.session.deadline_warn_min * 60,
@@ -3849,6 +3870,17 @@ def _too_large_to_resume(
     return handoff_mod.TOO_LARGE.format(
         used=usage.short(used), limit=usage.short(limit)
     )
+
+
+def _budget(args, record: dict) -> dict:
+    """This run's budget, as the record keeps it (`sessions.RUN_BUDGET`): the
+    run it carries on's (``--carry-on``), else the one given now, counted
+    from what the session has spent so far."""
+    kept = record.get(sessions.RUN_BUDGET) or {}
+    if getattr(args, "carry_on", False) and "usd" in kept:
+        return {"usd": kept["usd"], "spent_before_usd": kept.get("spent_before_usd")}
+    spent = _spent_before(record) if args.resume else 0.0
+    return {"usd": args.max_budget_usd, "spent_before_usd": spent}
 
 
 def _spent_before(record: dict) -> Optional[float]:
@@ -3921,6 +3953,51 @@ REQUIRED = (
     "digest_min",
     "digest_lines",
 )
+
+
+# In a session's folder: the skills and specialists it started with.
+PINNED = "pinned"
+
+# What a resume takes from the session's record, not from its command line.
+FROM_RECORD = ("goal", "model", "effort", "max_turns")
+
+
+def _from_record(args) -> None:
+    """A resume of a known session carries on as the session is: its playbook
+    as it keeps it (a change mid-session included) and what it started with
+    (`FROM_RECORD`), whatever the command line says, which is only where to
+    connect. A launch value that differs is logged and not used."""
+    if not args.resume or args.resume == LAST:
+        return
+    folder = sessions.find_folder(args.resume)
+    record = sessions.read_json(folder / sessions.RECORD) if folder else {}
+    if not record:
+        return
+    kept = record.get("playbook")
+    name = kept.get("name") if isinstance(kept, dict) else kept
+    if "playbook" in record:
+        if args.playbook and args.playbook != name:
+            log.warning(
+                "--playbook %s is not used: session %s carries on with %s.",
+                args.playbook,
+                args.resume,
+                name or "no playbook",
+            )
+        args.playbook = name
+    for key in FROM_RECORD:
+        value = record.get(key)
+        if value is None:
+            continue
+        given = getattr(args, key, None)
+        if given is not None and given != value:
+            log.warning(
+                "--%s %s is not used: session %s carries on with %s.",
+                key.replace("_", "-"),
+                given,
+                args.resume,
+                value,
+            )
+        setattr(args, key, value)
 
 
 def _resolve(args, given: playbooks.SessionSettings) -> None:

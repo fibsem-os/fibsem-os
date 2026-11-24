@@ -324,6 +324,18 @@ class AppServerPreferences:
 
 
 @dataclass
+class GatewayPreferences:
+    """The gateway (``fibsem-gateway``): this PC's one way in for agents,
+    browsers and other computers."""
+
+    # The port it listens on, localhost only. Its shortcut and scheduled task
+    # start it here; ``fibsem-gateway run --port`` overrides it for one run.
+    # Agents on this PC find it by gateway.json, whatever the port; a second
+    # computer's SSH forward names it.
+    port: int = 8010
+
+
+@dataclass
 class NotificationPreferences:
     """Messages to Slack for someone away from this instrument
     (``fibsem.alerts``): what needs an answer, the agent's messages, what
@@ -361,6 +373,7 @@ class InstallPreferences:
     # installs regardless of this setting (see fibsem.update_check.is_enabled).
     update_check_enabled: bool = False
     app_server: AppServerPreferences = field(default_factory=AppServerPreferences)
+    gateway: GatewayPreferences = field(default_factory=GatewayPreferences)
     notifications: NotificationPreferences = field(
         default_factory=NotificationPreferences
     )

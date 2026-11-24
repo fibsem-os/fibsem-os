@@ -13,6 +13,7 @@ import sys
 import threading
 import time
 import types
+import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -23,6 +24,7 @@ import pytest
 from fibsem.ai.agent import handoff as handoff_mod
 from fibsem.ai.agent import harness as harness_mod
 from fibsem.ai.agent import instruments, playbooks, subagents, usage, wake_policy
+from fibsem.ai.agent import manager as sessions
 from fibsem.ai.agent import watch as watch_mod
 from fibsem.ai.agent.catalog import CATALOG
 from fibsem.ai.agent.harness import Harness, TurnEnd, Wakes, kickoff
@@ -976,6 +978,7 @@ def test_a_session_running_already_is_not_run_again(tmp_path, monkeypatch, capsy
     import uuid
 
     from fibsem.ai.agent import manager
+    from fibsem.util.process import process_started
 
     monkeypatch.setattr(harness_mod.Path, "home", lambda: tmp_path)
     monkeypatch.delenv("FIBSEM_SERVER_TOKEN", raising=False)
@@ -985,6 +988,7 @@ def test_a_session_running_already_is_not_run_again(tmp_path, monkeypatch, capsy
     try:
         record = session.record()
         record["runs"][-1]["pid"] = other.pid
+        record["runs"][-1]["pid_started"] = process_started(other.pid)
         manager.write_json(session.folder / manager.RECORD, record)
         code = _main_kept_apart(
             ["--url", "http://127.0.0.1:9", "--server-wait", "0"]
@@ -2630,3 +2634,42 @@ def test_at_watch_routine_lines_wait_for_a_line_that_wakes_the_agent(session, ca
     assert wait_for(lambda: len(agent.prompts) >= 4, timeout=20), "no task turn"
     assert agent.prompts[3] == "The watcher printed:\nEVENT task_started 02-b Setup"
     assert running.stop() == 0
+
+
+def test_a_resume_carries_on_as_the_session_is_not_as_launched():
+    session_id = str(uuid.uuid4())
+    about = {"cwd": "/w", "playbook": "autolamella", "goal": "mill 01"}
+    session = sessions.SessionFolder.open(session_id, {**about, "max_turns": 40})
+    session.keep_playbook({"playbook": {"name": "autolamella-lead", "skills": []}})
+    session.end(1, "the app went away")
+
+    args = harness_mod._parser().parse_args(
+        ["--resume", session_id, "--playbook", "autolamella", "--max-turns", "9"]
+    )
+    harness_mod._from_record(args)
+    assert args.playbook == "autolamella-lead", "the playbook it changed to"
+    assert args.goal == "mill 01" and args.max_turns == 40
+
+    new = harness_mod._parser().parse_args(["--playbook", "autolamella"])
+    harness_mod._from_record(new)
+    assert new.playbook == "autolamella" and new.goal is None
+
+
+def test_an_automatic_resume_carries_the_runs_budget_on():
+    session_id = str(uuid.uuid4())
+    session = sessions.SessionFolder.open(session_id, {"cwd": "/w"})
+    session.keep_budget(usd=20.0, spent_before_usd=0.0)
+    session.keep_budget(usd=35.0)  # the operator set a new one
+    session.end(1, "the app went away", spent_usd=12.0)
+    record = sessions.read_json(session.folder / sessions.RECORD)
+    assert record[sessions.RUN_BUDGET] == {"usd": 35.0, "spent_before_usd": 0.0}
+
+    def args(*more):
+        return harness_mod._parser().parse_args(
+            ["--resume", session_id, "--max-budget-usd", "50", *more]
+        )
+
+    carried = harness_mod._budget(args("--carry-on"), record)
+    assert carried == {"usd": 35.0, "spent_before_usd": 0.0}
+    fresh = harness_mod._budget(args(), record)
+    assert fresh["usd"] == 50.0

@@ -70,6 +70,34 @@ def test_an_app_starting_is_starting_not_hung():
     assert w2.state().app.status == h.STARTING
 
 
+def test_an_app_the_gateway_just_started_is_starting_until_it_answers():
+    # Between the launch and the first answer: starting, not stopped or hung.
+    w, app, clock, found, state = watch(url=None)
+    state.pid, state.since = 4321, clock.now
+    w.check_app()
+    assert w.state().app.status == h.STARTING
+    found["url"] = URL
+    app.answers["/health"] = h.Unreachable("connection refused")
+    w.check_app()
+    assert w.state().app.status == h.STARTING
+    app.answers["/health"] = (200, {"status": "ok"})
+    w.check_app()
+    assert w.state().app.status == h.OK
+    # Once it has answered, silence is a hang again.
+    app.answers["/health"] = h.Unreachable("timed out")
+    w.check_app()
+    assert w.state().app.status == h.NOT_ANSWERING
+
+
+def test_an_app_that_never_answers_stops_being_starting():
+    w, app, clock, _, state = watch()
+    state.pid, state.since = 4321, clock.now
+    app.answers["/health"] = h.Unreachable("connection refused")
+    clock.now += h.STARTING_MAX_S + 1
+    w.check_app()
+    assert w.state().app.status == h.NOT_ANSWERING
+
+
 def test_the_app_is_ok_slow_or_not_answering_and_says_since_when():
     w, app, clock, _, _ = watch()
     w.check_app()

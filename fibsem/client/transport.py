@@ -33,6 +33,8 @@ from fibsem.devices.wire import (
     frames_from_bytes,
 )
 from fibsem.server.discovery import (
+    DISCOVERY_DIR,
+    DISCOVERY_FILE_ENV,
     SERVER_TOKEN_ENV,
     read_discovery_file,
     read_gateway_file,
@@ -45,6 +47,8 @@ from fibsem.server.images import (
 from fibsem.server.leases import LEASE_HEADER
 from fibsem.server.operator_token import read_operator_token
 from fibsem.structures.image import FibsemImage
+
+logger = logging.getLogger(__name__)
 
 TIMEOUT = httpx.Timeout(120.0, connect=5.0)  # moves and acquisitions are slow
 
@@ -87,6 +91,9 @@ def unreachable_why(url: str) -> str:
 # answering mid-call (`fibsem.gateway.passthrough`), kept in step by a test.
 GATEWAY_NO_APP = "no_app"
 GATEWAY_APP_LOST = "app_lost"
+# How long this call waits for its answer, in seconds, so the gateway's
+# pass-through waits as long (`fibsem.gateway.passthrough`).
+WAIT_HEADER = "X-Fibsem-Wait-S"
 
 
 class ServerUnreachable(ConnectionError):
@@ -134,6 +141,23 @@ def server_env() -> Tuple[Optional[str], Optional[str]]:
     )
 
 
+def _is_app_server(url: str) -> bool:
+    """Whether *url* is the App Server this PC's gateway is in front of: the
+    one ``app-server.json`` names. Never with another App Server's file named
+    (`DISCOVERY_FILE_ENV`: an eval run, a second host beside the gateway)."""
+    if os.environ.get(DISCOVERY_FILE_ENV):
+        return False
+    found = read_discovery_file(DISCOVERY_DIR / "app-server.json")
+    if found is None:
+        return False
+    a, b = urlsplit(url), urlsplit(found["url"])
+    local = {"localhost", "127.0.0.1", "::1"}
+    same_host = a.hostname == b.hostname or (
+        a.hostname in local and b.hostname in local
+    )
+    return same_host and a.port == b.port
+
+
 def resolve(
     url: Optional[str] = None, token: Optional[str] = None
 ) -> Optional[Tuple[str, str]]:
@@ -152,6 +176,15 @@ def resolve(
     env_url, env_token = server_env()
     url = url or env_url
     token = token or env_token
+    gateway = read_gateway_file()
+    if url and gateway is not None and _is_app_server(url):
+        # While this PC's gateway runs it is the one way in: an address of the
+        # App Server behind it (an old setting, a kept 8001) goes through it.
+        logger.info(
+            "%s is the App Server behind the gateway: using %s.", url, gateway["url"]
+        )
+        url = gateway["url"]
+        token = token or agent_token(url) or gateway.get("connect_token")
     if url and not token:
         token = agent_token(url)
     if url and token:
@@ -159,7 +192,7 @@ def resolve(
     # This PC's gateway, the one way in: the agent token it was allowed there,
     # else the gateway's connect token, which asks to be allowed. Else an App
     # Server running alone (tests, scripts), whose token the environment names.
-    for found in (read_gateway_file(), read_discovery_file()):
+    for found in (gateway, read_discovery_file()):
         if found is not None:
             url = url or found["url"]
             token = token or agent_token(url) or found.get("connect_token")
@@ -294,6 +327,12 @@ class Transport:
     def request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
         """The server's answer whatever its status, as httpx's ``request``
         answers it; `fetch` reads it as data."""
+        wait = _read_s(kwargs.get("timeout"))
+        if wait is not None:
+            kwargs = {
+                **kwargs,
+                "headers": {**(kwargs.get("headers") or {}), WAIT_HEADER: f"{wait:g}"},
+            }
         try:
             response = self._attempt(method, path, kwargs)
         except httpx.TimeoutException:
@@ -404,6 +443,15 @@ class Transport:
 
     def __exit__(self, *exc_info: Any) -> None:
         self.close()
+
+
+def _read_s(timeout: Any) -> Optional[float]:
+    """The seconds a call's own *timeout* waits for its answer; None for none."""
+    if isinstance(timeout, httpx.Timeout):
+        timeout = timeout.read
+    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
+        return None
+    return float(timeout) if timeout > 0 else None
 
 
 def answer_of(response: httpx.Response, what: str) -> Any:

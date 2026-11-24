@@ -119,3 +119,23 @@ def test_every_skill_is_named_by_a_playbook_or_is_for_developers(checkout):
         named |= set(playbooks.load(name, checkout).all_skills())
     found = {p.name for p in (checkout / ".claude" / "skills").iterdir() if p.is_dir()}
     assert found - named <= set(sources.DEVELOPER_SKILLS)
+
+
+def test_a_resume_runs_on_the_skills_the_session_started_with(tmp_path, monkeypatch):
+    """Skills are pinned at session start: a later edit (a git pull, a lab
+    change) doesn't reach a resumed session."""
+    from fibsem.ai.agent import sources
+
+    root = tmp_path / "checkout"
+    skill = root / ".claude" / "skills" / "polish"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("version 1")
+    monkeypatch.setattr(sources, "lab_folder", lambda kind: tmp_path / "lab" / kind)
+    run, pinned = tmp_path / "run", tmp_path / "session" / "pinned"
+    sources.assemble(run, root, ["polish"], pinned=pinned)
+    (skill / "SKILL.md").write_text("version 2")
+    (run / ".claude" / "settings.json").write_text("{}")  # left by the session
+    sources.assemble(run, root, ["polish"], pinned=pinned)
+    claude = run / ".claude"
+    assert (claude / "skills" / "polish" / "SKILL.md").read_text() == "version 1"
+    assert not (claude / "settings.json").exists(), "still rebuilt each start"

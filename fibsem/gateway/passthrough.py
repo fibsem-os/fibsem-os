@@ -24,12 +24,14 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Callable, Iterable, Optional
+from typing import Callable, Iterable, Optional, Tuple
 
 import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.background import BackgroundTask
+
+from fibsem.server import discovery
 
 logger = logging.getLogger(__name__)
 
@@ -54,14 +56,22 @@ HOP_BY_HOP = frozenset(
         "upgrade",
         "host",
         "content-length",
+        # The gateway's own, added below: never a caller's.
+        "x-fibsem-gateway",
     }
 )
 
-# The longest an App Server answer may take: a long command answers at once
-# with a run id, so a 120 s move or acquisition, or a parked long-poll (30 s),
-# is the most a call waits.
+# The longest an App Server answer may take when the call doesn't say: a long
+# command answers at once with a run id, so a 120 s move or acquisition, or a
+# parked long-poll (30 s), is the most such a call waits.
 READ_TIMEOUT_S = 300.0
 CONNECT_TIMEOUT_S = 5.0
+# A call that says how long it waits (`fibsem.client.transport.WAIT_HEADER`),
+# such as a long acquisition, is waited for that long and this much more, up
+# to `WAIT_MAX_S`.
+WAIT_HEADER = "x-fibsem-wait-s"
+WAIT_MARGIN_S = 30.0
+WAIT_MAX_S = 3 * 3600.0
 
 _STOP = re.compile(r"(^|_)(stop|halt|abort)(_|$)")
 
@@ -89,8 +99,42 @@ def _no_app(status: int, message: str) -> JSONResponse:
     )
 
 
+def _timeout(said: Optional[str]):
+    """The pass-through's timeout for a call that said it waits *said*
+    seconds: that and `WAIT_MARGIN_S`, at least `READ_TIMEOUT_S` and at most
+    `WAIT_MAX_S`; the usual for a call that said nothing readable."""
+    try:
+        wait = float(said) if said else None
+    except ValueError:
+        wait = None
+    if wait is None or not wait > 0:
+        return httpx.USE_CLIENT_DEFAULT
+    read = min(max(wait + WAIT_MARGIN_S, READ_TIMEOUT_S), WAIT_MAX_S)
+    return httpx.Timeout(read, connect=CONNECT_TIMEOUT_S)
+
+
 def _headers(items: Iterable) -> list:
     return [(k, v) for k, v in items if k.lower() not in HOP_BY_HOP]
+
+
+_kept_secret: Tuple[Optional[float], Optional[str]] = (None, None)
+
+
+def app_server_secret() -> Optional[str]:
+    """This PC's App Server's secret for the gateway, from its discovery file
+    (`fibsem.server.auth`); None while none runs or it has none. Read again
+    only when the file changes: it is asked on every call passed on."""
+    global _kept_secret
+    try:
+        changed = discovery.DISCOVERY_FILE.stat().st_mtime
+    except OSError:
+        changed = None
+    if changed is not None and _kept_secret[0] == changed:
+        return _kept_secret[1]
+    found = discovery.read_discovery_file()
+    secret = found.get("gateway_secret") if found else None
+    _kept_secret = (changed, secret)
+    return secret
 
 
 class PassThrough:
@@ -102,8 +146,12 @@ class PassThrough:
         upstream: Callable[[], Optional[str]],
         transport: Optional[httpx.AsyncBaseTransport] = None,
         is_connect: Callable[[Optional[str]], bool] = lambda token: False,
+        secret: Optional[Callable[[], Optional[str]]] = None,
     ) -> None:
         self._upstream = upstream
+        # The App Server's secret (its discovery file's): every call passed on
+        # carries it, so the App Server knows it came through the gateway.
+        self._secret = secret or app_server_secret
         # gateway.json's token only asks to connect: answered here, never sent on
         self._is_connect = is_connect
         timeout = httpx.Timeout(READ_TIMEOUT_S, connect=CONNECT_TIMEOUT_S)
@@ -149,14 +197,28 @@ class PassThrough:
         target = httpx.URL(f"{url.rstrip('/')}{path}").copy_with(
             query=request.url.query.encode("utf-8") or None
         )
+        # A stop keeps its short client; any other call may say how long it waits.
+        wait = (
+            httpx.USE_CLIENT_DEFAULT
+            if client is self._stops
+            else _timeout(request.headers.get(WAIT_HEADER))
+        )
+        headers = _headers(
+            (k.decode("latin-1"), v.decode("latin-1")) for k, v in request.headers.raw
+        )
+        try:
+            secret = self._secret()
+        except Exception:  # noqa: BLE001 - no secret: the App Server says so
+            logger.debug("could not read the App Server's secret", exc_info=True)
+            secret = None
+        if secret:
+            headers.append(("X-Fibsem-Gateway", secret))
         sent = client.build_request(
             request.method,
             target,
-            headers=_headers(
-                (k.decode("latin-1"), v.decode("latin-1"))
-                for k, v in request.headers.raw
-            ),
+            headers=headers,
             content=request.stream(),
+            timeout=wait,
         )
         try:
             answer = await client.send(sent, stream=True)
