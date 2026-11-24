@@ -619,14 +619,20 @@ class GatewayAgent:
         url = self._url()
         if url is None:
             return
+        pid = self._app_pid()
+        about = read_json(agent.folder / MANAGED).get("about") or {}
+        if about.get("app_pid") is not None and pid != about["app_pid"]:
+            # The app restarted under a running agent (it waited for it): the
+            # new app is at Watch, so the level last set is set back first.
+            self._again(about)
+            self._manager.note(self.microscope, app_pid=pid)
+            return
         try:
             level = call_host(url, "GET", "/capabilities").get("level")
         except (GatewayRefused, AttributeError):
             return
         if level in LEVELS:
-            self._manager.note(
-                self.microscope, level_now=level, app_pid=self._app_pid()
-            )
+            self._manager.note(self.microscope, level_now=level, app_pid=pid)
 
     def _again(self, about: dict) -> None:
         """Before a resume by itself. An App Server that kept running holds

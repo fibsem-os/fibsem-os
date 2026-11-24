@@ -378,6 +378,24 @@ def test_a_resume_after_an_app_restart_comes_back_at_the_level_last_set(
     assert app.levels == [(URL, "assist"), (URL, last)]
 
 
+def test_an_app_restarted_under_a_running_agent_gets_the_level_back(
+    made, tmp_path, monkeypatch
+):
+    agent, _, app = made()
+    monkeypatch.setattr(
+        "fibsem.gateway.agent.call_host", lambda url, method, path: {"level": "assist"}
+    )
+    agent.start("default", None, "drive", "operator", "page")
+    assert until(lambda: _record(tmp_path).get("runs"))
+    agent._follow_level()  # the operator lowered it to Assist
+    app.pid = 2  # the app restarted; the agent waited for it
+    agent._level_read = float("-inf")
+    agent._follow_level()
+    assert app.levels == [(URL, "drive"), (URL, "assist")]
+    about = read_json(folders(tmp_path / "sessions")[0] / MANAGED)["about"]
+    assert about["app_pid"] == 2 and about["level_now"] == "assist"
+
+
 def test_a_resume_after_a_stop_agent_and_an_app_restart_stays_at_watch(made):
     agent, _, app = made()
     app.pid = 2
