@@ -20,6 +20,7 @@ from fibsem.codec import decode, encode
 from fibsem.config import get_recent_experiments
 from fibsem.instrument import needs_microscope
 from fibsem.server import log_tail
+from fibsem.server.agent.files import record_files, session_record_file
 from fibsem.server.agent.notes import latest_notes
 from fibsem.server.files import FileRefusal
 from fibsem.server.image_payloads import image_info, image_payload
@@ -60,7 +61,7 @@ from fibsem.workflows.events import (
 from fibsem.workflows.events.recording import (
     EVENTS_FILENAME,
     LIVE_KINDS,
-    read_events_after,
+    read_events_after_in,
     read_events_before,
     read_new_events,
 )
@@ -677,16 +678,13 @@ class AppContext:
 
     def _events_after(self, after: str) -> Dict[str, Any]:
         """`events` after an id from an earlier stream."""
-        from pathlib import Path
-
         answer = self._event_buffer.events_since(0)
         held = answer["events"]
         first = (held[0].get("session"), held[0].get("seq")) if held else None
         earlier: List[Dict[str, Any]] = []
         resumed = False
-        experiment = self._experiment
-        path = Path(experiment.path) / EVENTS_FILENAME if experiment else None
-        if path is not None and path.is_file():
+        paths = self._record_files()
+        if paths:
 
             def keep(record: Dict[str, Any]) -> bool:
                 # What the buffer still holds, it answers itself.
@@ -695,10 +693,18 @@ class AppContext:
                 seq = record.get("seq")
                 return not isinstance(seq, int) or seq < first[1]
 
-            earlier, resumed = read_events_after(
-                path, after, skip_kinds=LIVE_KINDS, keep=keep
+            earlier, resumed = read_events_after_in(
+                paths, after, skip_kinds=LIVE_KINDS, keep=keep
             )
         return {**answer, "events": earlier + held, "resumed": resumed}
+
+    def _record_files(self) -> List[Path]:
+        """The files the agent's events are read from after a restart: the
+        agent session's own record (the conversation) and the experiment's."""
+        recorder = getattr(self._session, "recorder", None)
+        return record_files(
+            getattr(recorder, "agent_session_id", None), self.experiment_path
+        )
 
     def event_history(
         self, before: Optional[int] = None, limit: int = 500
@@ -1065,15 +1071,12 @@ class AppContext:
 
     def notes(self, tags: List[str], each: int = 1) -> Dict[str, Any]:
         """The newest *each* notes of each tag, from the live buffer and then
-        the open experiment's record (`fibsem.server.agent.notes`)."""
-        from pathlib import Path
-
+        the agent session's and the open experiment's records
+        (`fibsem.server.agent.notes`)."""
         held = []
         if self._event_buffer is not None:
             held = self._event_buffer.events_since(0).get("events") or []
-        experiment = self._experiment
-        path = Path(experiment.path) / EVENTS_FILENAME if experiment else None
-        return latest_notes(held, path, tags, each)
+        return latest_notes(held, self._record_files(), tags, each)
 
     def add_evidence(
         self, item_name: Optional[str], save: Callable[[], Dict[str, Any]]
@@ -1108,6 +1111,16 @@ class AppContext:
         """Why the app would refuse an action in an agent's request when it
         runs, checked at filing; None when it has no objection."""
         return None
+
+    def set_agent_session(self, session_id: Optional[str]) -> None:
+        """The agent session running now, None for none: its conversation is
+        recorded to its own folder."""
+        setter = getattr(self._session, "set_agent_session", None)
+        if setter is not None:
+            setter(
+                session_id,
+                (lambda: session_record_file(session_id)) if session_id else None,
+            )
 
     def record_event(
         self, kind: str, payload: Dict[str, Any], actor: Optional[str] = None

@@ -29,10 +29,20 @@ import threading
 import uuid
 import weakref
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Tuple
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    Iterator,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+)
 
 from fibsem.acting import TASK, ActorKind, current_actor
-from fibsem.workflows.actions import NOTE
+from fibsem.workflows.actions import NOTE, is_session_record
 from fibsem.workflows.events import (
     EventBuffer,
     attach_microscope_taps,
@@ -117,6 +127,11 @@ class EventFileWriter:
         """Write subsequent records to ``path`` (appending), or nowhere for None."""
         self._put((_PATH, Path(path) if path is not None else None))
 
+    def set_path_from(self, find: Callable[[], Optional[Path]]) -> None:
+        """As `set_path`, with the path *find* answers, asked on the writer's
+        thread: finding it may touch the disk."""
+        self._put((_PATH, find))
+
     def write(self, record: Dict[str, Any]) -> None:
         """Queue ``record``. Never blocks; drops it if the disk is far behind."""
         self._put((_RECORD, record))
@@ -157,7 +172,7 @@ class EventFileWriter:
             for kind, value in batch:
                 if kind == _PATH:
                     handle = _close(handle)
-                    path = value
+                    path = _found(value) if callable(value) else value
                 elif kind == _STOP:
                     _close(handle)
                     return
@@ -176,6 +191,15 @@ class EventFileWriter:
                     handle.flush()
                 except Exception:  # noqa: BLE001
                     handle = _close(handle)
+
+
+def _found(find: Callable[[], Optional[Path]]) -> Optional[Path]:
+    try:
+        found = find()
+    except Exception:  # noqa: BLE001 - recording must not matter
+        logger.exception("could not find where to record events")
+        return None
+    return Path(found) if found is not None else None
 
 
 def _close(handle) -> None:
@@ -343,6 +367,67 @@ def read_events_after(
     return found, True
 
 
+def read_events_after_in(
+    paths: Sequence[Path],
+    after: str,
+    limit: int = 2000,
+    skip_kinds: Iterable[str] = (),
+    keep: Optional[Callable[[Dict[str, Any]], bool]] = None,
+) -> Tuple[List[Dict[str, Any]], bool]:
+    """`read_events_after` over several files, merged by time: the records
+    after *after* in the file that holds it, and the records written after it
+    in the others. Not resumed when no file holds it."""
+    for at, path in enumerate(paths):
+        found, resumed = read_events_after(path, after, limit, skip_kinds, keep)
+        stamp = _time_of_id(path, after) if resumed or found else None
+        if stamp is None:
+            continue
+        others = [other for i, other in enumerate(paths) if i != at]
+        for other in others:
+
+            def newer(record: Dict[str, Any], stamp: float = stamp) -> bool:
+                t = record.get("timestamp")
+                if not isinstance(t, (int, float)) or t <= stamp:
+                    return False
+                return keep is None or keep(record)
+
+            records, _ = read_events_before(
+                other, limit=limit, skip_kinds=skip_kinds, keep=newer
+            )
+            found += records
+        ids = set()
+        merged = []
+        for record in sorted(found, key=_timestamp):
+            key = record.get("id")
+            if key is not None and key in ids:
+                continue
+            ids.add(key)
+            merged.append(record)
+        if len(merged) > limit:
+            return merged[-limit:], False
+        return merged, resumed
+    return [], False
+
+
+def _timestamp(record: Dict[str, Any]) -> float:
+    t = record.get("timestamp")
+    return float(t) if isinstance(t, (int, float)) else 0.0
+
+
+def _time_of_id(path: Path, event_id: str) -> Optional[float]:
+    """The time of the record whose id is *event_id* in *path*; None when it
+    is not there."""
+    with open(path, "rb") as f:
+        data = f.read()
+    at = data.find(b'"id": ' + json.dumps(event_id).encode())
+    if at < 0:
+        return None
+    start = data.rfind(b"\n", 0, at) + 1
+    end = data.find(b"\n", at)
+    record = _parse_line(data[start : end if end >= 0 else len(data)], [])
+    return _timestamp(record) if record is not None else None
+
+
 def _parse_line(line: bytes, skip_needles: List[bytes]) -> Optional[Dict[str, Any]]:
     if not line.strip() or any(
         needle + b"," in line or needle + b"}" in line for needle in skip_needles
@@ -429,6 +514,7 @@ class EventRecorder:
         experiment_path: Optional[Path] = None,
         default_actor: Optional[str] = None,
         experiment: Any = None,
+        plain: bool = False,
     ) -> None:
         self.session_id = uuid.uuid4().hex
         self._microscope = microscope
@@ -436,15 +522,18 @@ class EventRecorder:
         self.buffer = EventBuffer(stamp=self._stamp, stream=self.session_id)
         self._proposals: Optional[ProposalTap] = None
         self.writer = EventFileWriter()
-        self._disposers: List[Callable[[], None]] = [
-            self.buffer.subscribe(self.writer.write)
-        ]
+        # The agent session's own record (`is_session_record`), written to
+        # its folder while a session runs.
+        self.session_writer = EventFileWriter()
+        self.agent_session_id: Optional[str] = None
+        self._experiment_open = False
+        self._disposers: List[Callable[[], None]] = [self.buffer.subscribe(self._write)]
         try:
             self._disposers += attach_microscope_taps(self.buffer, microscope)
             # Registered for each run by the task manager that runs it,
             # so this object is handed over again every time.
             self.lifecycle_hook = make_lifecycle_hook(self.buffer)
-            self.set_experiment(experiment_path, experiment)
+            self.set_experiment(experiment_path, experiment, plain=plain)
         except BaseException:
             # A recorder that could not be made must not leave its writer
             # running: nothing holds it to close it.
@@ -459,10 +548,12 @@ class EventRecorder:
         return self._microscope
 
     def set_experiment(
-        self, experiment_path: Optional[Path], experiment: Any = None
+        self, experiment_path: Optional[Path], experiment: Any = None, plain=False
     ) -> None:
         """Record to this experiment's directory from now on (None: record nothing),
-        and the questions and decisions on *experiment*, when given."""
+        and the questions and decisions on *experiment*, when given. *plain*:
+        it is the app's plain record of a session with no experiment open."""
+        self._experiment_open = bool(experiment_path) and not plain
         self.writer.set_path(
             Path(experiment_path) / EVENTS_FILENAME if experiment_path else None
         )
@@ -479,8 +570,37 @@ class EventRecorder:
                     exc_info=True,
                 )
 
+    def _write(self, record: Dict[str, Any]) -> None:
+        """Hand *record* to one file: while an agent session runs, its own
+        for the conversation (`is_session_record`) and for everything when no
+        experiment is open; else the experiment's."""
+        if self.agent_session_id is not None and (
+            not self._experiment_open or is_session_record(record)
+        ):
+            self.session_writer.write(record)
+        else:
+            self.writer.write(record)
+
+    def set_agent_session(
+        self,
+        session_id: Optional[str],
+        record_file: Optional[Callable[[], Optional[Path]]] = None,
+    ) -> None:
+        """The agent session running now, None when none runs, and where its
+        own record goes (*record_file*, asked on the writer's thread)."""
+        if session_id == self.agent_session_id:
+            return
+        # The file before the id and the id before no file, so no record is
+        # routed to the session's writer while it points elsewhere.
+        if session_id is None or record_file is None:
+            self.agent_session_id = None
+            self.session_writer.set_path(None)
+        else:
+            self.session_writer.set_path_from(record_file)
+            self.agent_session_id = session_id
+
     def close(self) -> None:
-        """Detach every tap, write what is queued, and stop the writer."""
+        """Detach every tap, write what is queued, and stop the writers."""
         if _RECORDERS.get(id(self._microscope)) is self:
             del _RECORDERS[id(self._microscope)]
         if self._proposals is not None:
@@ -493,6 +613,7 @@ class EventRecorder:
                 pass
         self._disposers = []
         self.writer.close()
+        self.session_writer.close()
 
     def _stamp(
         self, kind: str, payload: Dict[str, Any], actor: Optional[str] = None

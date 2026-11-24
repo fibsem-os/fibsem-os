@@ -51,7 +51,7 @@ def test_after_a_restart_the_chat_comes_back_from_the_file(tmp_path):
 
     # The app started again: its buffer holds only what came since.
     held = [{**_note("b", 1, "Back after the restart."), "timestamp": 100.0}]
-    rows, more = read_rows(held, path)
+    rows, more = read_rows(held, [path])
     assert more is False
     assert [row.text for row in rows] == [
         "Skip 04.",
@@ -62,11 +62,11 @@ def test_after_a_restart_the_chat_comes_back_from_the_file(tmp_path):
     # What was running when the app stopped ended with it.
     assert (rows[2].outcome, rows[2].tone) == ("app restarted", MUTED)
     # Nothing new since the restart: the buffer's stream says so.
-    rows, _ = read_rows([], path, stream="b")
+    rows, _ = read_rows([], [path], stream="b")
     assert rows[-1].outcome == "app restarted"
-    assert read_rows([], path, stream="a")[0][-1].outcome == "running"
+    assert read_rows([], [path], stream="a")[0][-1].outcome == "running"
     # With no file, the buffer alone, as before.
-    assert [row.text for row in read_rows(held, None)[0]] == ["Back after the restart."]
+    assert [row.text for row in read_rows(held, [])[0]] == ["Back after the restart."]
 
 
 def test_show_earlier_pages_back_through_a_long_run(tmp_path):
@@ -85,14 +85,14 @@ def test_show_earlier_pages_back_through_a_long_run(tmp_path):
     held = records[-200:]
     earlier = EarlierRecords()
 
-    rows, more = read_rows(held, path, 50, earlier)
+    rows, more = read_rows(held, [path], 50, earlier)
     assert [row.text for row in rows] == [f"note {n}" for n in range(70, 120)]
     assert more is True
-    rows, more = read_rows(held, path, 100, earlier)
+    rows, more = read_rows(held, [path], 100, earlier)
     assert [row.text for row in rows] == [f"note {n}" for n in range(20, 120)]
     assert more is True
     # All of it: nothing earlier, and nothing twice.
-    rows, more = read_rows(held, path, 150, earlier)
+    rows, more = read_rows(held, [path], 150, earlier)
     assert [row.text for row in rows] == [f"note {n}" for n in range(120)]
     assert more is False
 

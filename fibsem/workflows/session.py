@@ -16,6 +16,7 @@ import os
 import threading
 from concurrent.futures import Future
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from psygnal import Signal
@@ -113,6 +114,10 @@ class AppSession:
         # connects, whatever else runs, and recorded to events.jsonl in the
         # experiment's directory. None only while disconnected.
         self.recorder: Optional[EventRecorder] = None
+        # The agent session running now (`set_agent_session`), for each
+        # recorder made while it runs.
+        self.agent_session_id: Optional[str] = None
+        self._agent_record: Optional[Callable[[], Optional[Path]]] = None
         # The stream while there is no recorder: the agent's messages and
         # calls before a microscope connects.
         self._idle_buffer = EventBuffer()
@@ -478,7 +483,7 @@ class AppSession:
             self.plain_experiment = FibsemExperiment.create(SESSIONS_PATH, name)
             if self.recorder is not None:
                 self.recorder.set_experiment(
-                    self.plain_experiment.path, self.plain_experiment
+                    self.plain_experiment.path, self.plain_experiment, plain=True
                 )
         return self.plain_experiment
 
@@ -520,10 +525,25 @@ class AppSession:
                 # operator's
                 default_actor=OPERATOR,
                 experiment=recorded,
+                plain=self.experiment is None,
             )
+            self.recorder.set_agent_session(self.agent_session_id, self._agent_record)
         except Exception:
             logger.exception("event stream failed to start; continuing without it")
             self.recorder = None
+
+    def set_agent_session(
+        self,
+        session_id: Optional[str],
+        record_file: Optional[Callable[[], Optional[Path]]] = None,
+    ) -> None:
+        """The agent session running now (None for none) and where its own
+        record goes: its conversation is recorded there
+        (`EventRecorder.set_agent_session`)."""
+        self.agent_session_id = session_id
+        self._agent_record = record_file if session_id else None
+        if self.recorder is not None:
+            self.recorder.set_agent_session(session_id, self._agent_record)
 
     def stop_recording(self) -> None:
         """Close the event stream, whose writer thread would otherwise run
