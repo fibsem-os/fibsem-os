@@ -51,7 +51,7 @@ HANDOFF = "handoff.md"
 WAKE_ON = "wake_on"
 # The run's budget, {"usd", "spent_before_usd"}: what it may spend from what
 # the session had spent when it was given. An automatic resume keeps it.
-BUDGET = "budget"
+RUN_BUDGET = "budget"
 # The agent's own files, when it was given no folder.
 WORK = "work"
 # Without a work folder a session runs in run/, which holds only its skills.
@@ -284,10 +284,10 @@ class SessionFolder:
         self._write(record)
 
     def keep_budget(self, **budget) -> None:
-        """The run's budget (`BUDGET`): set at start, and again when the
+        """The run's budget (`RUN_BUDGET`): set at start, and again when the
         operator sets a new one, so an automatic resume carries it on."""
         record = self.record()
-        record[BUDGET] = {**(record.get(BUDGET) or {}), **budget}
+        record[RUN_BUDGET] = {**(record.get(RUN_BUDGET) or {}), **budget}
         self._write(record)
 
     def keep_event_cursor(self, event_id: str) -> None:

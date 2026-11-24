@@ -2651,3 +2651,23 @@ def test_a_resume_carries_on_as_the_session_is_not_as_launched():
     new = harness_mod._parser().parse_args(["--playbook", "autolamella"])
     harness_mod._from_record(new)
     assert new.playbook == "autolamella" and new.goal is None
+
+
+def test_an_automatic_resume_carries_the_runs_budget_on():
+    session_id = str(uuid.uuid4())
+    session = sessions.SessionFolder.open(session_id, {"cwd": "/w"})
+    session.keep_budget(usd=20.0, spent_before_usd=0.0)
+    session.keep_budget(usd=35.0)  # the operator set a new one
+    session.end(1, "the app went away", spent_usd=12.0)
+    record = sessions.read_json(session.folder / sessions.RECORD)
+    assert record[sessions.RUN_BUDGET] == {"usd": 35.0, "spent_before_usd": 0.0}
+
+    def args(*more):
+        return harness_mod._parser().parse_args(
+            ["--resume", session_id, "--max-budget-usd", "50", *more]
+        )
+
+    carried = harness_mod._budget(args("--carry-on"), record)
+    assert carried == {"usd": 35.0, "spent_before_usd": 0.0}
+    fresh = harness_mod._budget(args(), record)
+    assert fresh["usd"] == 50.0

@@ -3870,10 +3870,10 @@ def _too_large_to_resume(
 
 
 def _budget(args, record: dict) -> dict:
-    """This run's budget, as the record keeps it (`sessions.BUDGET`): the
+    """This run's budget, as the record keeps it (`sessions.RUN_BUDGET`): the
     run it carries on's (``--carry-on``), else the one given now, counted
     from what the session has spent so far."""
-    kept = record.get(sessions.BUDGET) or {}
+    kept = record.get(sessions.RUN_BUDGET) or {}
     if getattr(args, "carry_on", False) and "usd" in kept:
         return {"usd": kept["usd"], "spent_before_usd": kept.get("spent_before_usd")}
     spent = _spent_before(record) if args.resume else 0.0
