@@ -228,6 +228,46 @@ def test_a_running_workflow_refuses_a_stop_unless_forced(tmp_path, fakes):
     assert gateway.stop("operator", "page", force=True).mode == OFF
 
 
+def test_milling_by_hand_refuses_a_stop_and_says_what_runs(tmp_path, fakes):
+    gateway = _gateway(tmp_path, fakes)
+    state = _headless(gateway, last=True)
+    fakes.found = {"pid": state.pid, "url": "http://127.0.0.1:8001"}
+    fakes.running = "Milling: rough cut is in progress"
+    with pytest.raises(GatewayRefused) as refused:
+        gateway.stop("operator", "quit")
+    assert refused.value.error_type == "run_in_progress"
+    assert "rough cut is in progress" in str(refused.value)
+    assert gateway.stop("operator", "page", force=True).mode == OFF
+
+
+@pytest.mark.parametrize(
+    "status, busy",
+    [
+        ({"workflow": {"running": True}}, "A workflow is running"),
+        (
+            {"workflow": {}, "progress": {"label": "Milling: rough cut"}},
+            "Milling: rough cut is in progress",
+        ),
+        (
+            {"workflow": {}, "progress": {"label": "Milling", "outcome": True}},
+            None,
+        ),
+        (
+            {"workflow": {}, "in_control": {"by": "agent", "action": "beam_acquire"}},
+            "The agent is beam_acquire",
+        ),
+        ({"workflow": {"running": False}}, None),
+    ],
+)
+def test_what_counts_as_busy(monkeypatch, status, busy):
+    from fibsem.gateway import gateway as module
+
+    monkeypatch.setattr(
+        "fibsem.gateway.host.call_host", lambda url, method, path, timeout: status
+    )
+    assert module.workflow_running("http://x") == busy
+
+
 def test_a_host_it_didnt_start_blocks_a_start(tmp_path, fakes):
     gateway = _gateway(tmp_path, fakes)
     fakes.found = {"pid": 424242, "url": "http://127.0.0.1:8001"}
