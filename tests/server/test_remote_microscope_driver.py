@@ -16,7 +16,6 @@ from fibsem.client.remote_microscope import RemoteMicroscope
 from fibsem.client.transport import ServerUnreachable
 from fibsem.drivers.registry import get_driver
 from fibsem.server import AuthConfig, build_server
-from fibsem.server.discovery import GATEWAY_PORT
 from fibsem.structures.settings import BeamType, ImageSettings
 from fibsem.utils import configured_driver
 from fibsem.workflows.session import AppSession
@@ -71,7 +70,7 @@ def test_a_configuration_names_its_driver(remote_configuration):
         cfg.SHIPPED_CONFIG_PATH, "remote-microscope-configuration.yaml"
     )
     assert configured_driver(example) == "remote"
-    assert get_driver("remote").port == GATEWAY_PORT
+    assert get_driver("remote").port == 8001
 
 
 def test_the_session_connects_a_microscope_behind_another_app_server(

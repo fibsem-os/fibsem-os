@@ -29,7 +29,7 @@ from fibsem.client.transport import NO_SERVER, ServerUnreachable, resolve, serve
 from fibsem.drivers.remote.devices import REMOTE_FM_PARTS, DeviceClient
 from fibsem.drivers.remote.services import connect_remote_services
 from fibsem.microscope import FibsemMicroscope
-from fibsem.server.discovery import GATEWAY_PORT, check_api
+from fibsem.server.discovery import check_api
 from fibsem.structures.system import FibsemExperimentRef, FibsemUser
 
 logger = logging.getLogger(__name__)
@@ -181,19 +181,17 @@ class RemoteMicroscope(FibsemMicroscope):
 
 def remote_microscope(system: Any) -> RemoteMicroscope:
     """The microscope a configuration with ``info.driver: remote`` names: the App
-    Server behind the gateway at its ``ip_address`` and ``port`` (the gateway's,
-    `GATEWAY_PORT`, by default), reached with the token this computer was paired
-    with there. `connect_microscope` connects it.
+    Server at its ``ip_address`` and ``port`` (8001 by default), reached with the
+    token this computer was paired with there. `connect_microscope` connects it.
 
     Never another token: without a pairing, it says how to pair."""
     info = system.info
-    port = info.port or GATEWAY_PORT
-    url = f"http://{info.ip_address}:{port}"
+    url = f"http://{info.ip_address}:{info.port or 8001}"
     token = paired_token(url)
     if token is None:
         raise ServerUnreachable(
-            f"This computer is not paired with the gateway at {url}: pair once "
-            f"with fibsem-cli pair {info.ip_address}:{port} <code> (the code that "
-            "PC's gateway page shows)."
+            f"This computer is not paired with the App Server at {url}: pair once "
+            f"with fibsem-cli pair {info.ip_address}:{info.port or 8001} <code> (the code "
+            "its Computers list shows)."
         )
     return RemoteMicroscope(url, token)
