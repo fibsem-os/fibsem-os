@@ -294,7 +294,10 @@ export function ImageViewer({
     setPath(at == null ? null : (paths[at] ?? null));
   }
   const index = Math.max(0, path ? paths.indexOf(path) : 0);
-  const [gl, setGl] = useState(true);
+  const [webgl, setGl] = useState(true);
+  // A PNG or JPEG (a drawn picture, the agent's marks in colour) is shown as it
+  // is: drawn from its planes, it was read as one grey channel.
+  const gl = webgl && !(path && /\.(png|jpe?g)$/i.test(path));
   const [view, setView] = useState<StackView>(WHOLE);
   const [viewOf, setViewOf] = useState(path);
   const [marking, setMarking] = useState(false);
