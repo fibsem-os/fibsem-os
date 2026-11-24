@@ -957,3 +957,40 @@ def test_start_refuses_a_goal_too_long_to_report(made):
         agent.start("default", "g" * (MAX_GOAL + 1), "watch", "operator", "page")
     assert refused.value.error_type == "goal_too_long"
     assert app.levels == []
+
+
+def test_an_allowed_agent_leaves_the_slot_when_unpaired_or_quiet(made, tmp_path):
+    agent, _, app = made()
+    tokens = PairedTokens(tmp_path / "paired.json")
+    paired, _ = tokens.add("claude-code on this PC", role=AGENT)
+    agent.allowed("claude-code on this PC", "operator", None)
+    agent._follow_slot()
+    assert agent.slot.read()["state"] == "running", "just allowed: not yet heard"
+    app.last_heard_s = 4.0
+    agent._allowed_at = agent._allowed_read = float("-inf")
+    agent._follow_slot()
+    assert agent.slot.read()["state"] == "running"
+    app.last_heard_s = 600.0
+    agent._allowed_read = float("-inf")
+    agent._follow_slot()
+    held = agent.slot.read()
+    assert held["state"] == "ended" and held["why"].startswith("not heard from")
+    app.last_heard_s = 3.0  # back again
+    agent._allowed_read = float("-inf")
+    agent._follow_slot()
+    assert agent.slot.read()["state"] == "running"
+    tokens.remove(paired.id)
+    agent._allowed_read = float("-inf")
+    agent._follow_slot()
+    held = agent.slot.read()
+    assert (held["state"], held["why"]) == ("ended", "no longer paired")
+
+
+def test_a_new_gateway_frees_a_slot_and_pairing_nothing_carries_on(made, tmp_path):
+    agent, _, app = made()
+    app.up = False
+    agent.slot.take(AGENT_NAME, "start", "started by operator (page)", state="waiting")
+    PairedTokens(tmp_path / "paired.json").add(AGENT_NAME, role=AGENT)
+    again, _, _ = made()
+    assert again.slot.read()["state"] == "ended"
+    assert PairedTokens(tmp_path / "paired.json").agent() is None
