@@ -605,8 +605,37 @@ function RunCard({
   );
 }
 
-/** The subagent runs, newest first, those still running above the finished
- * ones: each opens in the Subagents tab. */
+type RunGroup = "state" | "kind" | "none";
+type RunSort = "started" | "finished" | "kind" | "longest";
+const RUN_GROUPS: { key: RunGroup; name: string }[] = [
+  { key: "state", name: "Current state" },
+  { key: "kind", name: "Kind" },
+  { key: "none", name: "Nothing" },
+];
+const RUN_SORTS: { key: RunSort; name: string }[] = [
+  { key: "started", name: "Started, newest first" },
+  { key: "finished", name: "Finished, newest first" },
+  { key: "kind", name: "Kind" },
+  { key: "longest", name: "Longest first" },
+];
+// The order the states' groups show in: what needs a look first.
+const RUN_STATES = ["Running", "Needs attention", "Concern", "Failed", "Stopped", "Done"];
+const RUN_VIEW_KEY = "fibsem-subagent-runs-view";
+
+function readRunView(): { group: RunGroup; sort: RunSort } {
+  try {
+    const kept = JSON.parse(localStorage.getItem(RUN_VIEW_KEY) ?? "null");
+    if (kept && RUN_GROUPS.some((g) => g.key === kept.group) && RUN_SORTS.some((s) => s.key === kept.sort))
+      return kept;
+  } catch {
+    // no storage here: the default view
+  }
+  return { group: "state", sort: "started" };
+}
+
+/** The subagent runs, grouped (by state, the default, or kind) and sorted
+ * (started, finished, kind or longest) as the operator picks, kept in this
+ * browser: each opens in the Subagents tab. */
 function SubagentList({
   calls,
   answered,
@@ -618,16 +647,103 @@ function SubagentList({
   running: (step: TranscriptLine) => boolean;
   onOpen: (call: TranscriptLine) => void;
 }) {
+  const [view, setView] = useState(readRunView);
+  const choose = (next: Partial<typeof view>) => {
+    const kept = { ...view, ...next };
+    setView(kept);
+    try {
+      localStorage.setItem(RUN_VIEW_KEY, JSON.stringify(kept));
+    } catch {
+      // kept for this page only
+    }
+  };
   const runs = (c: TranscriptLine) => !answered.has(stepKey(c.session_id, c.seq)) && running(c);
   const clock = useClock(calls.some(runs));
   if (!calls.length) return null;
-  const newest = [...calls].reverse();
-  const groups: [string, TranscriptLine[]][] = [
-    ["Running", newest.filter(runs)],
-    ["Finished", newest.filter((c) => !runs(c))],
-  ];
+  const answerOf = (c: TranscriptLine) => answered.get(stepKey(c.session_id, c.seq));
+  const stateOf = (c: TranscriptLine) => {
+    if (runs(c)) return "Running";
+    const state = runState(c, answerOf(c), false, clock);
+    // A Verifier that agreed is done; a concern or a flag is its own group.
+    if (state.badge && state.badge.warn) return state.badge.text;
+    if (state.failed) return "Failed";
+    return state.text.startsWith("Stopped") ? "Stopped" : "Done";
+  };
+  const kind = (c: TranscriptLine) => agentName(c.subagent ?? "");
+  const started = (c: TranscriptLine) => time(c.t);
+  const finished = (c: TranscriptLine) => {
+    const answer = answerOf(c);
+    return answer ? time(answer.t) : runs(c) ? Infinity : started(c);
+  };
+  const took = (c: TranscriptLine) => answerOf(c)?.took_s ?? (runs(c) ? (clock - started(c)) / 1000 : 0);
+  const order: Record<RunSort, (a: TranscriptLine, b: TranscriptLine) => number> = {
+    started: (a, b) => started(b) - started(a),
+    finished: (a, b) => finished(b) - finished(a),
+    kind: (a, b) => kind(a).localeCompare(kind(b)) || started(b) - started(a),
+    longest: (a, b) => took(b) - took(a),
+  };
+  const sorted = [...calls].sort(order[view.sort]);
+  let groups: [string, TranscriptLine[]][];
+  if (view.group === "none") groups = [["All", sorted]];
+  else {
+    const by = view.group === "state" ? stateOf : kind;
+    const names = [...new Set(sorted.map(by))];
+    if (view.group === "state") names.sort((a, b) => RUN_STATES.indexOf(a) - RUN_STATES.indexOf(b));
+    else names.sort((a, b) => a.localeCompare(b));
+    groups = names.map((n) => [n, sorted.filter((c) => by(c) === n)]);
+  }
+  const option = (on: boolean, name: string, pick: () => void, close: () => void) => (
+    <button
+      key={name}
+      className={cn(
+        "cursor-pointer border-0 bg-transparent px-3 py-1.5 text-left text-[13px] whitespace-nowrap hover:bg-muted",
+        on && "font-semibold",
+      )}
+      onClick={() => {
+        pick();
+        close();
+      }}
+    >
+      {name}
+    </button>
+  );
   return (
     <div className="flex flex-col gap-3.5">
+      <div className="-mb-2 flex items-center gap-2 text-[12px] text-muted-foreground">
+        <span className="flex-1">
+          {calls.length} run{calls.length === 1 ? "" : "s"} · by{" "}
+          {RUN_GROUPS.find((g) => g.key === view.group)?.name.toLowerCase()},{" "}
+          {RUN_SORTS.find((s) => s.key === view.sort)?.name.toLowerCase()}
+        </span>
+        <Popup
+          label="Group and sort"
+          align="right"
+          side="below"
+          trigger={(on, toggle) => (
+            <button
+              className={cn(
+                "flex size-6 cursor-pointer items-center justify-center rounded border-0 bg-transparent text-muted-foreground hover:text-foreground",
+                on && "text-foreground",
+              )}
+              aria-label="Group and sort"
+              onClick={toggle}
+            >
+              <ListFilter size={14} />
+            </button>
+          )}
+        >
+          {(close) => (
+            <div className="flex flex-col py-1">
+              <span className="px-3 pt-1 pb-0.5 text-[11px] font-semibold text-muted-foreground uppercase">Group by</span>
+              {RUN_GROUPS.map((g) => option(view.group === g.key, g.name, () => choose({ group: g.key }), close))}
+              <span className="mt-1 border-t border-border px-3 pt-2 pb-0.5 text-[11px] font-semibold text-muted-foreground uppercase">
+                Sort by
+              </span>
+              {RUN_SORTS.map((o) => option(view.sort === o.key, o.name, () => choose({ sort: o.key }), close))}
+            </div>
+          )}
+        </Popup>
+      </div>
       {groups.map(([title, shown]) =>
         shown.length ? (
           <section key={title} className="border-b border-border/60 pb-3.5 last:border-b-0 last:pb-0">
@@ -635,7 +751,7 @@ function SubagentList({
               {title} · {shown.length}
             </h4>
             {shown.map((c) => {
-              const answer = answered.get(stepKey(c.session_id, c.seq));
+              const answer = answerOf(c);
               const state = runState(c, answer, runs(c), clock);
               return (
                 <button
