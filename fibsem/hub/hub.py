@@ -1,7 +1,7 @@
 """The hub's list of instruments, and what it reads from each.
 
 Each instrument is another PC's gateway, named in ``~/.fibsem/hub.yaml`` with
-where ssh connects to it: the hub opens a tunnel to each and picks the ports
+where ssh connects to it: the hub opens a tunnel to each and picks the port
 (`fibsem.hub.tunnels`). An instrument can instead give an address to use
 as it is. The hub pairs with each one as a hub (the
 code ``fibsem-gateway pair --hub`` shows there), keeps the token it answers,
@@ -59,11 +59,29 @@ _GATEWAY_KEYS = ("mode", "version", "app", "experiment", "switching", "since")
 _AGENT_KEYS = ("session_id", "state", "playbook", "goal", "level", "started")
 
 
+# What the hub keeps of each piece's health (``GET /gateway``'s ``health``).
+_HEALTH_PIECES = ("app", "microscope")
+_HEALTH_KEYS = ("status", "detail", "since")
+
+
+def _health(read: Any) -> Optional[Dict[str, Any]]:
+    """The gateway's health of its App Server and microscope, cut to what a
+    list shows. None when the gateway gave none (an older gateway)."""
+    if not isinstance(read, dict):
+        return None
+    found = {
+        piece: {key: read[piece][key] for key in _HEALTH_KEYS if read[piece].get(key)}
+        for piece in _HEALTH_PIECES
+        if isinstance(read.get(piece), dict) and read[piece].get("status")
+    }
+    return found or None
+
+
 @dataclass
 class Instrument:
     """One instrument in the hub's list: its name there, and how this PC
     reaches its gateway. With *ssh* (``user@host``) the hub opens a tunnel to
-    it and picks the ports; without, *url* is the address to use as it is."""
+    it and picks the port; without, *url* is the address to use as it is."""
 
     name: str
     url: Optional[str] = None
@@ -78,7 +96,7 @@ class InstrumentState:
     url: Optional[str] = None
     ssh: Optional[str] = None
     tunnel: Optional[Dict[str, Any]] = None
-    """Its tunnel, when the hub opens one: open or not, the local ports."""
+    """Its tunnel, when the hub opens one: open or not, the local port."""
     paired: bool = False
     """Whether this hub holds a token for its gateway."""
     reachable: Optional[bool] = None
@@ -92,6 +110,9 @@ class InstrumentState:
     """Off or running, the app and its experiment, the gateway's version."""
     agent: Optional[Dict[str, Any]] = None
     """The agent running there, if one is."""
+    health: Optional[Dict[str, Any]] = None
+    """How its App Server (``app``) and its microscope (``microscope``) are,
+    as its gateway says: each a status, why in a line, and since when."""
 
 
 @dataclass
@@ -317,31 +338,20 @@ class Hub:
             return self._open(instrument).gateway_url
         return instrument.url or ""
 
-    def app_url(self, instrument: Instrument) -> Optional[str]:
-        """The address this PC reaches *instrument*'s App Server at: the
-        tunnel's other port. None for an instrument reached without one."""
-        if instrument.ssh:
-            return self._open(instrument).app_url
-        return None
-
     def _open(self, instrument: Instrument) -> Tunnel:
-        """*instrument*'s tunnel, on the ports it had in an earlier run when
-        they are free; the ports it has are kept for the next."""
+        """*instrument*'s tunnel, on the port it had in an earlier run when
+        it is free; the port it has is kept for the next."""
         path = self._tokens / PORTS_FILE
         try:
             kept = json.loads(path.read_text())
         except (OSError, ValueError):
             kept = {}
         before = kept.get(instrument.name) if isinstance(kept, dict) else None
-        ports = (
-            (before[0], before[1])
-            if isinstance(before, list)
-            and len(before) == 2
-            and all(isinstance(port, int) for port in before)
-            else None
-        )
-        tunnel = self._tunnels.ensure(instrument.name, instrument.ssh or "", ports)
-        now = [tunnel.gateway_port, tunnel.app_port]
+        # A list is how it was kept while a tunnel also forwarded the app.
+        first = before[0] if isinstance(before, list) and before else before
+        port = first if isinstance(first, int) else None
+        tunnel = self._tunnels.ensure(instrument.name, instrument.ssh or "", port)
+        now = tunnel.gateway_port
         if before != now:
             with self._lock:
                 try:
@@ -361,7 +371,6 @@ class Hub:
         return {
             "open": tunnel.open,
             "gateway_port": tunnel.gateway_port,
-            "app_port": tunnel.app_port,
         }
 
     def _check_one(self, instrument: Instrument) -> None:
@@ -391,6 +400,7 @@ class Hub:
                         if gateway.get(key) is not None
                     }
                     found.agent = self._agent(url, token)
+                    found.health = _health(gateway.get("health"))
                 elif status in (401, 403):
                     found.why = "Its gateway no longer knows this hub: pair again."
                 else:

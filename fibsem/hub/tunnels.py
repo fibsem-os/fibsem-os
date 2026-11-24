@@ -1,7 +1,8 @@
 """The hub's SSH tunnels: one per instrument, from this PC to the instrument's.
 
-An instrument's gateway and App Server listen on that PC only, so the hub
-reaches them through ``ssh -N -L``. The hub picks the local ports, keeps each
+An instrument's gateway listens on that PC only, so the hub reaches it
+through ``ssh -N -L``. The gateway is the one way onto an instrument: the
+tunnel forwards its port and nothing else. The hub picks the local port, keeps each
 tunnel open, opens it again when it drops, and says why when it can't. It
 never types a password: the key is set up once by a person (``BatchMode``),
 and a host this PC hasn't met is refused until someone has connected by hand.
@@ -17,7 +18,7 @@ import subprocess
 import threading
 import time
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional
 
 from fibsem.util.process import end
 
@@ -25,9 +26,8 @@ __all__ = ["Tunnel", "TunnelDown", "Tunnels", "valid_destination"]
 
 log = logging.getLogger(__name__)
 
-# The ports an instrument PC serves on itself: its gateway and its App Server.
+# The port an instrument PC's gateway serves on, on that PC only.
 GATEWAY_PORT = 8010
-APP_PORT = 8001
 # How long a tunnel that failed waits before it is tried again.
 RETRY_S = 15.0
 # How long a new tunnel is given to accept a connection.
@@ -72,12 +72,11 @@ def _spawn(command: List[str]) -> subprocess.Popen:
 
 @dataclass
 class Tunnel:
-    """One instrument's tunnel: the local ports that reach its gateway and
-    its App Server while *process* runs."""
+    """One instrument's tunnel: the local port that reaches its gateway
+    while *process* runs."""
 
     destination: str
     gateway_port: int
-    app_port: int
     process: Optional[subprocess.Popen] = None
     opened: Optional[float] = None
     failed: Optional[float] = None
@@ -90,10 +89,6 @@ class Tunnel:
     @property
     def gateway_url(self) -> str:
         return f"http://127.0.0.1:{self.gateway_port}"
-
-    @property
-    def app_url(self) -> str:
-        return f"http://127.0.0.1:{self.app_port}"
 
 
 def command(tunnel: Tunnel, ssh: str = "ssh") -> List[str]:
@@ -111,8 +106,6 @@ def command(tunnel: Tunnel, ssh: str = "ssh") -> List[str]:
         "ServerAliveCountMax=3",
         "-L",
         f"127.0.0.1:{tunnel.gateway_port}:127.0.0.1:{GATEWAY_PORT}",
-        "-L",
-        f"127.0.0.1:{tunnel.app_port}:127.0.0.1:{APP_PORT}",
         "--",
         tunnel.destination,
     ]
@@ -147,17 +140,11 @@ class Tunnels:
         with self._lock:
             return self._tunnels.get(name)
 
-    def ensure(
-        self,
-        name: str,
-        destination: str,
-        ports: Optional[Tuple[int, int]] = None,
-    ) -> Tunnel:
+    def ensure(self, name: str, destination: str, port: Optional[int] = None) -> Tunnel:
         """The open tunnel to *name* at *destination*, opened now if it isn't.
-        A tunnel opened again keeps its ports, and a first one takes *ports*
-        (its gateway's and its app's, as kept from an earlier run) when
-        nothing else listens on them: an agent given the app's address keeps
-        reaching it."""
+        A tunnel opened again keeps its port, and a first one takes *port*
+        (as kept from an earlier run) when nothing else listens on it, so an
+        address given out for this instrument keeps reaching it."""
         with self._lock:
             lock = self._locks.setdefault(name, threading.Lock())
         with lock:
@@ -166,7 +153,7 @@ class Tunnels:
                 self._end(tunnel)
                 tunnel = None
             if tunnel is not None:
-                ports = (tunnel.gateway_port, tunnel.app_port)
+                port = tunnel.gateway_port
             if tunnel is not None and tunnel.open:
                 return tunnel
             now = self._clock()
@@ -179,23 +166,17 @@ class Tunnels:
             if tunnel is not None and tunnel.process is not None:
                 # It was open and dropped: say so once, then open it again.
                 log.warning("The tunnel to %s dropped; opening it again.", name)
-            tunnel = self._open(name, destination, ports)
+            tunnel = self._open(name, destination, port)
             with self._lock:
                 self._tunnels[name] = tunnel
             if not tunnel.open:
                 raise TunnelDown(tunnel.why or "The tunnel is down.")
             return tunnel
 
-    def _open(
-        self, name: str, destination: str, ports: Optional[Tuple[int, int]]
-    ) -> Tunnel:
-        if ports is not None and not any(self._accepts(port) for port in ports):
-            gateway_port, app_port = ports
-        else:
-            gateway_port = app_port = self._port()
-            while app_port == gateway_port:
-                app_port = self._port()
-        tunnel = Tunnel(destination, gateway_port, app_port)
+    def _open(self, name: str, destination: str, port: Optional[int]) -> Tunnel:
+        if port is None or self._accepts(port):
+            port = self._port()
+        tunnel = Tunnel(destination, port)
         if not valid_destination(destination):
             return self._failed(tunnel, "Its ssh destination is not user@host.")
         ssh = self._which("ssh")
@@ -217,11 +198,10 @@ class Tunnels:
             return self._failed(tunnel, _said(tunnel.process, destination))
         tunnel.opened = self._clock()
         log.info(
-            "Opened the tunnel to %s (%s): gateway on %d, app on %d.",
+            "Opened the tunnel to %s (%s): gateway on %d.",
             name,
             destination,
             tunnel.gateway_port,
-            tunnel.app_port,
         )
         return tunnel
 

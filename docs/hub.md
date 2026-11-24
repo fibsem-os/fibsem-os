@@ -33,13 +33,16 @@ paired computers.
 ## Instruments
 
 The list is `~/.fibsem/hub.yaml`: each instrument's name and where SSH connects to it
-(`user@host`). The hub opens one tunnel per instrument, picks the local ports, and opens a
-tunnel again when it drops. SSH runs in batch mode: it never asks for a password, and a host
+(`user@host`). The hub opens one tunnel per instrument, to its gateway and nothing else: the
+gateway is the one way onto an instrument, so the hub never talks to an App Server or a
+microscope server directly. It picks the local port, and opens a tunnel again when it drops. SSH runs in batch mode: it never asks for a password, and a host
 this PC has not met is refused until a person has connected to it by hand once. See
 [SSH tunnel](ssh-tunnel.md) for setting up the key on a microscope PC.
 
 To add an instrument, pair the hub with its gateway: on the microscope PC run
 `fibsem-gateway pair --hub`, and give the hub the 4-digit code it shows
 (`POST /hub/instruments/{name}/pair`). The hub keeps the token per instrument in
-`~/.fibsem/hub/`. Every 5 seconds it reads from each gateway whether it answers, what it runs
-and whether an agent runs there.
+`~/.fibsem/hub/`. Every 5 seconds it reads from each gateway whether it answers, what it runs,
+whether an agent runs there, and how its App Server and microscope are (the gateway's own
+[health](gateway.md#health): a status, why, and since when). Whether the PC answers at all is
+the hub's own to say; everything else is as the gateway reports it.

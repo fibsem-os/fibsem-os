@@ -225,6 +225,39 @@ def test_one_dead_instrument_does_not_hide_the_others(hub):
     assert one.reachable is True and two.reachable is False
 
 
+def test_the_gateways_health_is_shown_for_each_instrument(
+    hub, instruments, monkeypatch
+):
+    from fibsem.gateway.health import Health, ServersHealth
+
+    health = ServersHealth(
+        app=Health("ok", checked_at=5.0, answer_s=0.01, since=1.0),
+        microscope=Health("halted", "Safety Halt is on.", since=2.0),
+        heard={"devices": {"stage": {"last_ok": 4.0}}},
+    )
+    monkeypatch.setattr(
+        FakeGateway,
+        "state",
+        lambda self: GatewayState(mode=OFF, version="1.2.3", health=health),
+    )
+    hub.add("Scope 1", URL)
+    (row,) = hub.pair("Scope 1", instruments.auth.pairing.open(role=HUB)).instruments
+    assert row.health == {
+        "app": {"status": "ok", "since": 1.0},
+        "microscope": {
+            "status": "halted",
+            "detail": "Safety Halt is on.",
+            "since": 2.0,
+        },
+    }
+
+
+def test_a_gateway_that_gives_no_health_shows_none(hub, instruments):
+    hub.add("Scope 1", URL)
+    (row,) = hub.pair("Scope 1", instruments.auth.pairing.open(role=HUB)).instruments
+    assert row.health is None
+
+
 def test_a_gateway_that_forgot_the_hub_says_to_pair_again(hub, instruments):
     hub.add("Scope 1", URL)
     hub.pair("Scope 1", instruments.auth.pairing.open(role=HUB))
@@ -313,13 +346,15 @@ def test_an_instrument_with_ssh_is_reached_through_a_tunnel_the_hub_opens(
     hub.check()
     (row,) = hub.state().instruments
     assert row.reachable is True
-    assert row.tunnel == {"open": True, "gateway_port": 50000, "app_port": 50001}
+    assert row.tunnel == {"open": True, "gateway_port": 50000}
     (process,) = ssh.started
     assert process.command[-2:] == ["--", "user@scope-1"]
     assert "BatchMode=yes" in process.command
     assert "127.0.0.1:50000:127.0.0.1:8010" in process.command
-    assert "127.0.0.1:50001:127.0.0.1:8001" in process.command
-    assert hub.app_url(hub.instruments()[0]) == "http://127.0.0.1:50001"
+    forwards = [part for part in process.command if part.startswith("127.0.0.1:")]
+    assert forwards == ["127.0.0.1:50000:127.0.0.1:8010"], (
+        "the gateway is the one way onto an instrument: nothing else is forwarded"
+    )
 
     hub.check()
     assert len(ssh.started) == 1, "an open tunnel is kept, not opened again"
@@ -329,12 +364,8 @@ def test_two_instruments_never_share_a_port(hub, ssh):
     hub.add("Scope 1", ssh="user@scope-1")
     hub.add("Scope 2", ssh="user@scope-2")
     hub.check()
-    ports = [
-        port
-        for row in hub.state().instruments
-        for port in (row.tunnel["gateway_port"], row.tunnel["app_port"])
-    ]
-    assert len(set(ports)) == 4
+    ports = [row.tunnel["gateway_port"] for row in hub.state().instruments]
+    assert len(set(ports)) == 2
 
 
 def test_a_tunnel_that_drops_is_opened_again(hub, instruments, ssh):
@@ -365,6 +396,28 @@ def test_a_new_hub_opens_each_tunnel_on_the_ports_it_had(hub, tmp_path, instrume
     )
     later.check()
     assert later.state().instruments[0].tunnel == before
+
+
+def test_ports_kept_while_the_app_was_forwarded_too_still_place_the_tunnel(
+    tmp_path, instruments
+):
+    (tmp_path / "hub").mkdir()
+    (tmp_path / "hub" / "_ports.json").write_text(
+        json.dumps({"Scope 1": [51234, 51235]})
+    )
+    hub = Hub(
+        tmp_path / "hub.yaml",
+        tmp_path / "hub",
+        fetch=instruments.fetch,
+        pair=instruments.pair,
+        tunnels=Ssh().tunnels,
+    )
+    hub.add("Scope 1", ssh="user@scope-1")
+    hub.check()
+    assert hub.state().instruments[0].tunnel["gateway_port"] == 51234
+    assert json.loads((tmp_path / "hub" / "_ports.json").read_text()) == {
+        "Scope 1": 51234
+    }
 
 
 def test_a_tunnel_that_cannot_open_says_why_and_waits_before_trying_again(hub, ssh):
