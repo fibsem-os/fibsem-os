@@ -244,7 +244,9 @@ def test_a_restarted_server_is_followed(app, monkeypatch):
     monkeypatch.delenv("FIBSEM_SERVER_URL", raising=False)
     monkeypatch.delenv("FIBSEM_SERVER_TOKEN", raising=False)
     monkeypatch.setattr("fibsem.client.transport.read_gateway_file", lambda: None)
-    monkeypatch.setattr("fibsem.client.transport.read_discovery_file", lambda: found)
+    monkeypatch.setattr(
+        "fibsem.client.transport.read_discovery_file", lambda path=None: found
+    )
 
     class Discovered(InProcess):
         def __init__(self):
@@ -275,7 +277,9 @@ def _discovered(monkeypatch, found):
     monkeypatch.delenv("FIBSEM_SERVER_URL", raising=False)
     monkeypatch.delenv("FIBSEM_SERVER_TOKEN", raising=False)
     monkeypatch.setattr("fibsem.client.transport.read_gateway_file", lambda: None)
-    monkeypatch.setattr("fibsem.client.transport.read_discovery_file", lambda: found)
+    monkeypatch.setattr(
+        "fibsem.client.transport.read_discovery_file", lambda path=None: found
+    )
 
 
 def test_resolve_takes_what_is_given_then_the_environment_then_discovery(
@@ -291,6 +295,38 @@ def test_resolve_takes_what_is_given_then_the_environment_then_discovery(
     assert resolve("http://x") == ("http://x", "e")
     _discovered(monkeypatch, {"url": "http://d", "connect_token": "d"})
     assert resolve() == ("http://d", "d")
+
+
+def test_while_a_gateway_runs_an_app_server_address_goes_through_it(
+    monkeypatch, tmp_path
+):
+    """An old setting or a kept token for the App Server (8001) never skips the
+    gateway: its slot, Allow card and History apply to every agent."""
+    from fibsem.client import pairing
+    from fibsem.client.transport import resolve
+
+    monkeypatch.setattr(pairing, "AGENT_DIR", tmp_path / "agent")
+    pairing.keep_agent_token("http://127.0.0.1:8001", "kept-at-8001")
+    _discovered(monkeypatch, {"url": "http://127.0.0.1:8001", "pid": os.getpid()})
+    gateway = {"url": "http://127.0.0.1:8010", "connect_token": "asks"}
+    monkeypatch.setattr("fibsem.client.transport.read_gateway_file", lambda: gateway)
+    # Asks at the gateway, never with the token kept for 8001.
+    assert resolve("http://localhost:8001") == ("http://127.0.0.1:8010", "asks")
+    monkeypatch.setenv("FIBSEM_SERVER_URL", "http://127.0.0.1:8001")
+    assert resolve() == ("http://127.0.0.1:8010", "asks")
+    # Allowed there: the gateway's token.
+    pairing.keep_agent_token("http://127.0.0.1:8010", "allowed")
+    assert resolve() == ("http://127.0.0.1:8010", "allowed")
+    # Another server's address is left as it is.
+    assert resolve("http://other:8001", "t") == ("http://other:8001", "t")
+    # A client told of another App Server's file (an eval run beside the
+    # gateway) keeps its address.
+    monkeypatch.setenv("FIBSEM_DISCOVERY_FILE", str(tmp_path / "eval.json"))
+    assert resolve("http://127.0.0.1:8001", "t") == ("http://127.0.0.1:8001", "t")
+    monkeypatch.delenv("FIBSEM_DISCOVERY_FILE")
+    # No gateway: the App Server alone, as before (tests, scripts).
+    monkeypatch.setattr("fibsem.client.transport.read_gateway_file", lambda: None)
+    assert resolve() == ("http://127.0.0.1:8001", "kept-at-8001")
 
 
 def test_a_401_with_nothing_new_to_find_is_answered_as_is(monkeypatch):
