@@ -904,3 +904,31 @@ def test_a_parked_agent_ends_when_the_next_app_opens_another_experiment(made, tm
     assert agent.state().running is None
     assert len(_record(tmp_path)["runs"]) == 1
     assert PairedTokens(tmp_path / "paired.json").agent() is None
+
+
+def test_start_with_no_app_waits_and_starts_at_its_level_when_the_app_answers(
+    made, tmp_path
+):
+    app = App()
+    app.up = False
+    agent, _, _ = made(
+        gateway=FakeGateway(OFF), app=app, own_url="http://127.0.0.1:8010"
+    )
+    state = agent.start("default", "Mill 01", "assist", "operator", "page")
+    assert state.running["state"] == "waiting"
+    assert app.levels == []
+    agent._manager.poll()
+    assert not _record(tmp_path).get("runs"), "nothing runs before the app"
+    app.up = True
+    assert until(lambda: _record(tmp_path).get("args"), agent)
+    assert app.levels == [(URL, "assist")]
+    assert _record(tmp_path)["args"][-2:] == ["--url", "http://127.0.0.1:8010"]
+    assert agent.state().running["state"] == "running"
+    agent.end("operator", "page")
+
+
+def test_start_with_no_app_and_no_gateway_address_is_refused(made):
+    agent, _, _ = made(gateway=FakeGateway(OFF))
+    with pytest.raises(GatewayRefused) as refused:
+        agent.start("default", None, "watch", "operator", "page")
+    assert refused.value.error_type == "no_app"

@@ -417,13 +417,15 @@ class GatewayAgent:
         """Pair, set the level, start ``fibsem-agent``; each failure undoes
         what came before it. Raises `GatewayRefused`."""
         with self._lock:
-            level, url = self._ready(level, playbook, replace)
+            level, url = self._ready(level, playbook, replace, wait=True)
             env = self._pair()
-            try:
-                self._level(url, level)
-            except GatewayRefused:
-                self._unpair()
-                raise
+            # With no app yet, the agent waits; its level is set as it starts.
+            if url is not None:
+                try:
+                    self._level(url, level)
+                except GatewayRefused:
+                    self._unpair()
+                    raise
             args = ["--playbook", playbook, "--url", self._own_url or url]
             if budget_usd is not None:
                 args += ["--max-budget-usd", f"{float(budget_usd):g}"]
@@ -445,6 +447,7 @@ class GatewayAgent:
                     goal=goal or None,
                     env=env,
                     about=about,
+                    wait=url is None,
                 )
             except (AgentRunning, OSError) as error:
                 self._undo(url)
@@ -556,26 +559,32 @@ class GatewayAgent:
         playbook: Optional[str],
         replace: bool,
         mode: Optional[str] = None,
-    ) -> Tuple[str, str]:
+        wait: bool = False,
+    ) -> Tuple[str, Optional[str]]:
         """Start's and Resume's checks, before anything is done: the level
-        and the App Server's url. *mode* is a resumed session's own."""
+        and the App Server's url. *mode* is a resumed session's own. With
+        *wait* (Start), no app is no refusal: the url is None and the agent
+        waits for the app."""
         try:
             level = AgentLevel(str(level).lower()).value
         except ValueError:
             names = ", ".join(lvl.value for lvl in AgentLevel)
             raise GatewayRefused(422, "bad_level", f"The level is one of {names}.")
-        if self._gateway.state().mode != RUNNING:
+        waits = wait and self._own_url is not None
+        if self._gateway.state().mode != RUNNING and not waits:
             raise GatewayRefused(
                 409, "no_app", "Run the app first: the agent acts through it."
             )
         url = self._url()
-        if self._app_starting():
+        if waits and (url is None or self._app_starting()):
+            url = None
+        elif self._app_starting():
             raise GatewayRefused(
                 409,
                 "app_starting",
                 "The app is still starting: try again when its health shows ok.",
             )
-        if url is None:
+        elif url is None:
             raise GatewayRefused(
                 409, "no_app", "The app's server isn't up yet: try again shortly."
             )
@@ -795,8 +804,10 @@ class GatewayAgent:
         if paired is not None and paired.name == AGENT_NAME:
             self._tokens.remove(paired.id)
 
-    def _undo(self, url: str) -> None:
+    def _undo(self, url: Optional[str]) -> None:
         self._unpair()
+        if url is None:
+            return
         try:
             self._level(url, AgentLevel.WATCH.value)
         except GatewayRefused:

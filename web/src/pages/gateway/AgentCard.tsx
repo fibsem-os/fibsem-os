@@ -428,13 +428,9 @@ function Start({
             </p>
           )}
           <div className="flex flex-wrap items-center justify-end gap-2.5">
-            {appStarting ? (
+            {appStarting || !appRunning ? (
               <span className="text-xs text-muted-foreground">
-                Waiting for the app to start…
-              </span>
-            ) : !appRunning ? (
-              <span className="text-xs text-muted-foreground">
-                Start the app first: the agent acts through it.
+                The agent waits for the app, and starts once it answers.
               </span>
             ) : !state.api_key ? null : (
               <span className="text-xs text-muted-foreground">
@@ -445,7 +441,6 @@ function Start({
               variant="primary"
               disabled={
                 start.isPending ||
-                !appRunning ||
                 !state.api_key ||
                 !chosen
               }
