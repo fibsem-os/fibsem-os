@@ -49,6 +49,35 @@ export interface AgentState {
   sessions: Session[];
   api_key: boolean;
   microscope: string;
+  // Who holds the instrument's one agent slot, as the gateway wrote it down.
+  slot?: Slot;
+}
+
+export interface Slot {
+  holder?: string;
+  came_in?: "start" | "resume" | "allow";
+  since?: string;
+  level?: string | null;
+  state?: "running" | "waiting" | "ended";
+  why?: string;
+}
+
+const CAME_IN = { start: "started here", resume: "resumed here", allow: "allowed" };
+
+/** Who holds this instrument's agent slot, while someone does. */
+function Holder({ slot }: { slot?: Slot }) {
+  if (!slot?.holder || slot.state === "ended") return null;
+  const since = slot.since ? ` since ${slot.since.slice(11, 16)}` : "";
+  const how = slot.came_in ? `, ${CAME_IN[slot.came_in]}` : "";
+  const level = slot.level ? `, at ${slot.level}` : "";
+  return (
+    <p className="m-0 text-[13px] text-muted-foreground">
+      Holds this instrument: {slot.holder}
+      {how}
+      {since}
+      {level}
+    </p>
+  );
 }
 
 export interface Playbook {
@@ -654,6 +683,7 @@ export function AgentCard({
             : "No agent is running"}
         </CardTitle>
       </div>
+      <Holder slot={state?.slot} />
       {agent.error && (
         <p className="m-0 text-[13px] text-destructive">
           {(agent.error as Error).message}

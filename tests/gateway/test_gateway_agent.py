@@ -795,3 +795,40 @@ def test_always_allow_takes_a_free_slot_and_says_so_on_the_history(made, tmp_pat
     assert gateway.access == [
         ("always allow", "setting", "Allowed claude-code on this PC")
     ]
+
+
+# --- the slot record ------------------------------------------------------------
+
+
+def test_the_slot_record_follows_the_gateways_agent(made, tmp_path, monkeypatch):
+    agent, _, _ = made()
+    monkeypatch.setattr(
+        "fibsem.gateway.agent.call_host", lambda url, method, path: {"level": "assist"}
+    )
+    agent.start("default", None, "drive", "operator", "page")
+    slot = agent.state().slot
+    assert slot["holder"] == AGENT_NAME and slot["came_in"] == "start"
+    assert slot["state"] == "running" and slot["level"] == "drive"
+    assert slot["why"] == "started by operator (page)"
+    assert until(lambda: _record(tmp_path).get("runs"))
+    agent._follow_level()
+    assert agent.slot.read()["level"] == "assist"
+    agent.end("operator", "page")
+    slot = agent.slot.read()
+    assert slot["state"] == "ended" and slot["why"] == "ended by the operator"
+    assert (tmp_path / "slot.json").is_file(), "written down, beside the sessions"
+
+
+def test_an_allowed_agent_takes_the_slot(made, tmp_path):
+    agent, gateway, _ = made()
+    agent.start("default", None, "watch", "operator", "page")
+    assert until(lambda: _record(tmp_path).get("runs"))
+    client, connections = _allowing(agent, gateway, tmp_path)
+    connections.ask("claude-code 2.1", "this PC", "lab", wait_s=0)
+    card = client.get("/gateway/connections").json()["asking"]
+    client.post(f"/gateway/connections/{card['id']}/allow")
+    agent._follow_slot()  # the old agent's end never overwrites the new holder
+    slot = agent.slot.read()
+    assert slot["holder"] == "claude-code on this PC"
+    assert slot["came_in"] == "allow" and slot["state"] == "running"
+    assert slot["why"].startswith("allowed by operator, replacing the agent")

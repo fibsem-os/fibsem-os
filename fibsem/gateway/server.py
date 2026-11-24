@@ -529,6 +529,7 @@ def build_gateway_app(
                 f"Allowed {computer.name}"
                 + (f", replacing {replaced}" if replaced else ""),
             )
+            agent.allowed(computer.name, "always allow", replaced)
 
         auth.connections.on_allowed_always(always_allowed)
 
@@ -570,6 +571,8 @@ def build_gateway_app(
         )
         logger.info("%s: %s", found.who, allowed)
         gateway.record_access(found.who, "page", allowed)
+        if agent is not None:
+            agent.allowed(computer.name, found.who, replacing)
         return {"id": ask_id, "allowed": True, "name": computer.name}
 
     @app.post("/gateway/connections/{ask_id}/deny")
