@@ -274,6 +274,8 @@ export interface ReviewItem {
   task_id?: string;
   task_name?: string;
   answer?: { choice: string; note: string; evidence: string | null; at: string } | null;
+  /** Answers the operator changed, oldest first: the answer above counts. */
+  earlier?: { choice: string; note: string; evidence: string | null; at: string }[];
   closed?: { reason: string; at: string } | null;
 }
 
