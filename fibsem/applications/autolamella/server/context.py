@@ -130,6 +130,11 @@ from fibsem.workflows.task_configs import config_version, workflow_field_refusal
 
 logger = logging.getLogger(__name__)
 
+# The task whose config holds the milling angle a lamella's patterns are drawn
+# for, and how far its pose may be from it to draw from the pose.
+SETUP_TASK = "Setup Lamella Position"
+MILLING_ANGLE_TOLERANCE = 2.0
+
 __all__ = [
     "AutoLamellaAppContext",
     "ITEM_PATCH_FIELDS",
@@ -831,6 +836,9 @@ class AutoLamellaAppContext(AppContext):
                 unplaced.append({"item_name": lamella.name, "reason": why})
                 continue
             frame = self._fib_frame(lamella, overview, relative)
+            if isinstance(frame, str):
+                unplaced.append({"item_name": lamella.name, "reason": frame})
+                continue
             if frame is None:
                 unplaced.append(
                     {
@@ -929,7 +937,8 @@ class AutoLamellaAppContext(AppContext):
     @staticmethod
     def _fib_frame(lamella, overview, relative):
         """The FIB view *lamella*'s patterns are defined in: its latest ion
-        image's, else its milling pose's (`footprints.pose_frame`)."""
+        image's, else its milling pose's (`footprints.pose_frame`); the
+        reason as a string when the pose isn't at the milling angle yet."""
 
         found = _task_outputs.latest_task_image(lamella, "_ib.tif")
         images = [found] if found else _task_outputs.lamella_images(lamella, "_ib.tif")
@@ -945,6 +954,23 @@ class AutoLamellaAppContext(AppContext):
         position = getattr(pose, "stage_position", None)
         if position is None:
             return None
+        # A pose not yet at the milling angle (a site picked at the SEM view,
+        # before Setup tilts) is not the view the patterns are drawn in:
+        # drawn from it, the outlines look right and land wrong.
+        wanted = getattr(
+            (lamella.task_config or {}).get(SETUP_TASK), "milling_angle", None
+        )
+        angle = lamella.milling_angle
+        if (
+            wanted is not None
+            and angle is not None
+            and abs(float(angle) - float(wanted)) > MILLING_ANGLE_TOLERANCE
+        ):
+            return (
+                f"no FIB image yet, and its pose is at a {float(angle):.0f}° "
+                f"milling angle, not the {float(wanted):.0f}° its patterns are "
+                "drawn for: draw it after Setup has tilted"
+            )
         return fp.pose_frame(position, pose, overview)
 
     @staticmethod

@@ -425,3 +425,18 @@ def test_the_tools_that_read_fibsem_metadata_refuse_another_instrument_s_file(tm
             call()
         assert refused.value.error_type == "invalid"
         assert "isn't one (another instrument's image" in refused.value.message
+
+
+def test_stage_to_pixel_refuses_a_position_without_its_coordinate_system(tmp_path):
+    """A position missing a field is the caller's to fix, not a server error."""
+    from fibsem.analysis.tools import ImageRefused, ImageTools
+    from fibsem.structures.image import FibsemImage
+
+    FibsemImage.generate_blank_image(resolution=(8, 8), hfw=1e-6).save(
+        str(tmp_path / "frame.tif")
+    )
+    tools = ImageTools(lambda: str(tmp_path))
+    with pytest.raises(ImageRefused) as refused:
+        tools.stage_to_pixel("frame.tif", [{"x": 0, "y": 0, "z": 0, "r": 0, "t": 0}])
+    assert refused.value.error_type == "invalid"
+    assert "coordinate_system" in refused.value.message

@@ -406,7 +406,9 @@ you mean*):
   the bars show and the FIB view at the milling angle hides them. Use it to
   check a fiducial or trench is clear of a bar and the gap between
   neighbours' cuts (`nearest`, `closest`) before the first mill; its outlines
-  can sit a few µm off (its `caveats`).
+  can sit a few µm off (its `caveats`). It is the layout from above, never
+  the placement: say so when you show it, and show the FIB drawing
+  (`item_draw_milling`) for where the cuts go.
 
 Where a site came from (grid, square, rank, why it was chosen) belongs on the
 lamella, not in a note: `item_update` with `{"patch": {"description":

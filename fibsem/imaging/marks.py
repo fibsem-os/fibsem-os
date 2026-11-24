@@ -105,9 +105,9 @@ def artist_box(figure, artist) -> Box:
     return (extent.x0, height - extent.y1, extent.x1, height - extent.y0)
 
 
-def legend(axes, handles: List[Any]) -> List[Box]:
-    """*handles* in a dark box at the top left, sized to read at the
-    picture's width; answers the place it takes."""
+def legend(axes, handles: List[Any], title: Optional[str] = None) -> List[Box]:
+    """*handles* in a dark box at the top left, under *title* when given,
+    sized to read at the picture's width; answers the place it takes."""
     if not handles:
         return []
     size = max(10.0, axes.figure.bbox.width / 42) * PT
@@ -123,7 +123,12 @@ def legend(axes, handles: List[Any]) -> List[Box]:
         edgecolor="none",
         framealpha=170 / 255,
         handlelength=1.4,
+        title=title,
+        title_fontsize=size,
+        alignment="left",
     )
+    if title:
+        drawn.get_title().set_color("white")
     drawn.get_frame().set_boxstyle("round", pad=0.2)
     return [artist_box(axes.figure, drawn)]
 

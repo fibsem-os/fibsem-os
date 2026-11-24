@@ -52,6 +52,9 @@ KIND_COLOURS = {
     "polishing": "cyan",
 }
 OTHER_COLOUR = "orange"
+# The drawing's legend title: a layout check from above, its outlines a few µm
+# off the cuts (the caveats); a placement is judged on the FIB image.
+LAYOUT_TITLE = "Layout on SEM, ± a few µm"
 # The least margin round the items in a picture: about a grid square, so the
 # bars round a site are in it.
 MARGIN = 100e-6
@@ -463,7 +466,8 @@ def overview_picture(
                     label=f"nearest gap {closest.distance * 1e6:.1f} µm",
                 )
             )
-        return legend(axes, handles)
+        # Said on the picture: it is the layout from above, not the placement.
+        return legend(axes, handles, title=LAYOUT_TITLE)
 
     marks: Dict[str, Any] = {"areas": [], "lines": []}
     for name, (bx, by, bw, bh) in (labels or {}).items():

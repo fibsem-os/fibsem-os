@@ -447,6 +447,8 @@ class WorkflowState:
     phase: str = "idle"
     current_task: Optional[str] = None
     current_item: Optional[str] = None
+    # when the current task started, for its clock
+    task_started: Optional[str] = None
     # the task's place in the live queue, 1-based, of queue_total
     queue_position: Optional[int] = None
     queue_total: Optional[int] = None

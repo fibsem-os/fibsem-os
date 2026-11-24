@@ -23,6 +23,8 @@ MAX_CHECKLIST = 50
 MAX_HOOKS = 20
 MAX_PARTS = 20
 MAX_LONG = 2000
+# A goal the operator typed: a paragraph or two, the gateway's Start refuses more.
+MAX_GOAL = 4000
 MAX_LIST = 50
 MAX_SERVERS = 20
 
@@ -36,6 +38,7 @@ Count = Annotated[int, Field(ge=0, strict=True)]
 Flag = Annotated[bool, Field(strict=True)]
 # A playbook's line as its file gives it: a reminder or a rule.
 Long = Annotated[str, StringConstraints(max_length=MAX_LONG, strip_whitespace=True)]
+Goal = Annotated[str, StringConstraints(max_length=MAX_GOAL, strip_whitespace=True)]
 
 
 @dataclass
@@ -175,7 +178,7 @@ class McpServer:
 class SessionReport:
     session_id: Optional[Text] = None
     model: Optional[Text] = None
-    goal: Optional[Text] = None
+    goal: Optional[Goal] = None
     # Why it ended, with ``ended``.
     reason: Optional[Text] = None
     harness: Optional[Text] = None

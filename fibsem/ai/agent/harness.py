@@ -34,6 +34,7 @@ import shutil
 import signal
 import sys
 import sysconfig
+import textwrap
 import threading
 import time
 import traceback
@@ -195,6 +196,8 @@ PICTURE_TYPES = ("image/png", "image/jpeg", "image/gif", "image/webp")
 SUBAGENT_TOOLS = ("Agent", "Task")
 # How much of a subagent's answer its run keeps.
 SUBAGENT_ANSWER = 1500
+# How much of a subagent's brief its run's card keeps.
+SUBAGENT_BRIEF = 8000
 # While a turn goes on, its tokens and the context's fill are reported this
 # often (when they changed), not only as it ends: a turn can run for an hour.
 REPORT_EVERY_S = 30.0
@@ -1284,6 +1287,8 @@ class Harness:
         self._sending: Optional[Tuple[Any, asyncio.Lock]] = None
         self._goal = goal
         self._goal_sent = False
+        # The kinds of answer a refused session report gave, each said once.
+        self._refusals_said: set = set()
         # The skills read, as last reported: sent again when the agent reads one.
         self._skills_sent: List[str] = []
         # What it can do (code mode, effort, skills), sent with the first report.
@@ -1887,9 +1892,23 @@ class Harness:
             body.update(ended=True, reason=self._end_reason)
         try:
             body = plain(decode(SessionReport, body, strict=True))
-        except ValueError:
-            log.warning("The session report did not read.", exc_info=True)
-            return
+        except ValueError as error:
+            # Never silent, and never the whole report: without it the App
+            # Server holds no session and refuses the plan. Sent again with
+            # only the fields that always read.
+            log.error(
+                "The session report did not read, sent without its extras: %s", error
+            )
+            body = {
+                key: body[key]
+                for key in ("session_id", "model", "budget_usd", "spent_usd", "ended")
+                if body.get(key) is not None
+            }
+            try:
+                body = plain(decode(SessionReport, body, strict=True))
+            except ValueError:
+                log.error("The session report did not read at all.", exc_info=True)
+                return
         self._goal_sent = True
 
         def post():
@@ -1899,7 +1918,13 @@ class Harness:
                 )
                 if response.status_code == 200:
                     return response.json().get("session")
-            except Exception:
+                # A refused report leaves the App Server without the session
+                # (the plan refuses no_session): said once for each answer.
+                self._report_refused(
+                    f"{response.status_code}: {getattr(response, 'text', '')[:200]}"
+                )
+            except Exception as error:
+                self._report_refused(type(error).__name__)
                 log.debug("Reporting the session failed.", exc_info=True)
             return None
 
@@ -2001,6 +2026,16 @@ class Harness:
                     self._keep_budget(usd=self._budget_usd)
                 except OSError:
                     log.warning("The new budget wasn't kept.", exc_info=True)
+
+    def _report_refused(self, why: str) -> None:
+        """A session report the App Server didn't take: a warning the first
+        time for each kind of answer, then quiet (it reports every 30 s)."""
+        said = self._refusals_said
+        kind = why.split(":", 1)[0]
+        if kind in said:
+            return
+        said.add(kind)
+        log.warning("The App Server didn't take the session report (%s).", why)
 
     async def _reread_budget(self) -> None:
         """Ask the App Server for the session's budget, in case the operator
@@ -2864,6 +2899,14 @@ def _show(message, agent: SdkAgent) -> None:
                 extra = dict(run)
                 if block.name in SUBAGENT_TOOLS:
                     extra["subagent"] = _clip(block.input.get("subagent_type", ""), 60)
+                    # Its brief, for the operator to read on the run's card.
+                    brief = block.input.get("prompt")
+                    if isinstance(brief, str) and brief.strip():
+                        # Its lines kept: a brief is read as written.
+                        brief = brief.strip()
+                        if len(brief) > SUBAGENT_BRIEF:
+                            brief = brief[: SUBAGENT_BRIEF - 1] + "…"
+                        extra["brief"] = brief
                 seq = _line(agent, "step", text, verb=verb, **extra)
                 if seq is not None:
                     agent._steps[block.id] = (
@@ -2921,6 +2964,26 @@ def _run_of(agent, message) -> dict:
 _JSON_BLOCK = re.compile(r"```json\s*(\{.*?\})\s*```", re.DOTALL)
 
 
+_TOOLS_USED = re.compile(
+    r"<tools-used-before-summary>.*?</tools-used-before-summary>", re.DOTALL
+)
+_HAND_BACK = re.compile(
+    r"\[Subagent hand-back\].*?The report follows:[ \t]*\n?", re.DOTALL
+)
+
+
+def _unframed(text: str) -> str:
+    """A subagent's report without the frame the CLI puts round it: the list
+    of tools it used, the hand-back note before the report, and the two-space
+    indent the CLI gives each of the report's lines."""
+    text = _TOOLS_USED.sub("", text)
+    framed = _HAND_BACK.search(text)
+    if framed is None:
+        return text.strip()
+    report = text[framed.end() :]
+    return textwrap.dedent(report).strip()
+
+
 def _answer(content) -> tuple:
     """A subagent's answer, without the CLI's agentId footer, and what its
     closing JSON block says for the run's card: ``verdict`` (agree or concern)
@@ -2928,7 +2991,7 @@ def _answer(content) -> tuple:
     ``attention``. The answer is then the block's ``summary``, else its
     ``concern``, else the words before the block; any other answer is kept as
     it is."""
-    text = re.split(r"\s*agentId: ", _result_text(content))[0].strip()
+    text = _unframed(re.split(r"\s*agentId: ", _result_text(content))[0])
     blocks = _JSON_BLOCK.findall(text)
     try:
         said = json.loads(blocks[-1]) if blocks else None

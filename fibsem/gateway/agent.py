@@ -39,6 +39,7 @@ from fibsem.ai.agent.manager import (
     read_json,
     sessions_dir,
 )
+from fibsem.ai.agent.report import MAX_GOAL
 from fibsem.gateway import slot as slot_mod
 from fibsem.gateway.gateway import RUNNING, Gateway, GatewayRefused
 from fibsem.gateway.health import STARTING
@@ -458,6 +459,13 @@ class GatewayAgent:
     ) -> AgentState:
         """Pair, set the level, start ``fibsem-agent``; each failure undoes
         what came before it. Raises `GatewayRefused`."""
+        if goal and len(goal.strip()) > MAX_GOAL:
+            raise GatewayRefused(
+                422,
+                "goal_too_long",
+                f"The goal is {len(goal.strip())} characters: keep it to {MAX_GOAL} "
+                "(the details can go to the agent in a message).",
+            )
         with self._lock:
             level, url = self._ready(level, playbook, replace, wait=True)
             env = self._pair()

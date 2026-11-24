@@ -949,6 +949,16 @@ def test_a_start_waiting_for_its_app_ends_when_the_gateway_quits(made, tmp_path)
     assert managed["ended"] == "did not start (the gateway closed first)"
 
 
+def test_start_refuses_a_goal_too_long_to_report(made):
+    from fibsem.ai.agent.report import MAX_GOAL
+
+    agent, _, app = made()
+    with pytest.raises(GatewayRefused) as refused:
+        agent.start("default", "g" * (MAX_GOAL + 1), "watch", "operator", "page")
+    assert refused.value.error_type == "goal_too_long"
+    assert app.levels == []
+
+
 def test_history_says_each_sessions_status_and_experiment(made, tmp_path):
     ended = _by_hand(tmp_path)
     (ended / "agent").mkdir()

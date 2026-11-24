@@ -980,6 +980,25 @@ def test_grid_markers_take_a_saved_image_by_its_path(client, host, grid_with_ove
     assert response.json()["image"]["width"] == 128
 
 
+def test_grid_output_image_takes_a_saved_image_by_its_path(
+    client, host, grid_with_overview
+):
+    """The image itself by its path in the experiment, slashes encoded or
+    not: a worker gave it so in the rehearsal and got a bare 404."""
+    from urllib.parse import quote
+
+    path = os.path.relpath(
+        host.experiment.grid_path(grid_with_overview) / "overview_sem" / "overview.tif",
+        str(host.experiment.path),
+    ).replace(os.sep, "/")
+    for sent in (path, quote(path, safe="")):
+        served = client.get(
+            f"/app/experiment/grids/grid-aspen/outputs/{sent}", headers=AUTH
+        )
+        assert served.status_code == 200, served.text
+        assert served.content[:2] == b"\xff\xd8"
+
+
 def test_grid_markers_report_unplaceable_items(client, host, grid_with_overview):
     from fibsem.structures.settings import MicroscopeState
 

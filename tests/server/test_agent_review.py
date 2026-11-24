@@ -513,3 +513,15 @@ def test_a_scored_item_names_what_it_scores_and_keeps_accept_or_reject(server):
         ).status_code
         == 422
     )
+
+
+def test_review_add_with_its_optional_fields_left_out_sends_none_of_them():
+    """The MCP server hands a left-out optional argument over as None; sent as
+    null, ReviewAddBody (level: str = "done") refused the call (rehearsal,
+    24 Nov)."""
+    from fibsem.ai.agent.catalog import CATALOG, route_call
+
+    spec = next(s for s in CATALOG if s.name == "review_add")
+    left_out = {name: None for name in spec.optional}
+    method, path, body = route_call(spec, {"title": "Sites", **left_out})
+    assert (method, path, body) == ("POST", "/app/agent/review", {"title": "Sites"})

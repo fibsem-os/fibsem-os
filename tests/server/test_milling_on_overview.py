@@ -223,6 +223,18 @@ def test_an_item_with_no_fib_image_is_placed_from_its_pose(client, host):
     assert any("milling pose" in c for c in posed["caveats"])
 
 
+def test_an_item_not_yet_at_its_milling_angle_is_not_drawn_from_its_pose(client, host):
+    """A site picked at the SEM view, before Setup tilts: its pose is not the
+    view its patterns are drawn in, so it is listed unplaced, not drawn wrong."""
+    first, second = host.experiment.positions[:2]
+    os.remove(os.path.join(str(second.path), "ref_ion_ib.tif"))
+    second.milling_angle = 38.0
+    posed = _draw(client, grid_name="grid-aspen").json()
+    assert second.name not in {i["item_name"] for i in posed["items"]}
+    (why,) = [u["reason"] for u in posed["unplaced"] if u["item_name"] == second.name]
+    assert "38° milling angle" in why and "after Setup" in why
+
+
 def test_refusals(client, host, tmp_path):
     first, second, other = host.experiment.positions
     elsewhere = _draw(
