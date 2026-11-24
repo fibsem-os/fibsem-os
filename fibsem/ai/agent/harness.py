@@ -3696,13 +3696,16 @@ def _main(argv, opened: List["sessions.SessionFolder"]) -> int:
             extras, mcp_names(playbook, extras, getattr(args, "host", None) is not None)
         )
     )
+    # The skills and specialists the session started with, kept in its own
+    # folder: a resume runs on them, not on today's files.
+    pinned = session.folder / PINNED
     if work is not None:
-        code_mode.prepare(work, checkout, loaded.skills, loaded.agents)
+        code_mode.prepare(work, checkout, loaded.skills, loaded.agents, pinned)
         subagents.add_tools(work, loaded.agents, extra_tools)
         for line in code_mode.details():
             log.debug(line)
     elif run != checkout:
-        sources.assemble(run, checkout, loaded.skills, loaded.agents)
+        sources.assemble(run, checkout, loaded.skills, loaded.agents, pinned)
         subagents.add_tools(run, loaded.agents, extra_tools)
 
     alarm = Alarm(playbook.session.wake_max_min)
@@ -3951,6 +3954,9 @@ REQUIRED = (
     "digest_lines",
 )
 
+
+# In a session's folder: the skills and specialists it started with.
+PINNED = "pinned"
 
 # What a resume takes from the session's record, not from its command line.
 FROM_RECORD = ("goal", "model", "effort", "max_turns")
