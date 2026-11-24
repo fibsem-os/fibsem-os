@@ -17,6 +17,8 @@ const READINGS_EVERY_MS = 5000;
 const IMAGES_EVERY_MS = 10000;
 // Read more often when the images are the main view.
 const MAIN_IMAGES_EVERY_MS = 3000;
+// The height of an image's label in the main view, with the gap under it.
+const LABEL_PX = 22;
 const SHOW_KEY = "fibsem.agent.microscope.show";
 
 type Values = Record<string, unknown>;
@@ -265,7 +267,8 @@ export function MicroscopeTab({ fibsem, shown, onOpenPage }: { fibsem: boolean; 
 }
 
 /** The microscope as the agent page's main view: what runs and its progress
- * across the top, the last image of each view as large as the room allows, and
+ * across the top, the last image of each view in a two-column grid (SEM and FIB,
+ * then FM), each at its own shape and as large as the room allows, and
  * the beams and stage under them. *switcher* and *menu* sit at the top right. */
 export function MicroscopeMain({
   fibsem,
@@ -313,31 +316,41 @@ export function MicroscopeMain({
       </div>
       {pairs.length > 0 ? (
         <div
-          className="grid min-h-0 flex-1 gap-3"
-          style={{ gridTemplateColumns: `repeat(${pairs.length}, minmax(0, 1fr))` }}
+          className="grid min-h-0 flex-1 grid-cols-2 gap-3"
+          style={{ gridTemplateRows: `repeat(${Math.ceil(pairs.length / 2)}, minmax(0, 1fr))` }}
         >
-          {pairs.map(([key, label, image]) => (
-            <div key={key} className="flex min-h-0 min-w-0 flex-col gap-1">
-              <span className="flex gap-1 text-[12px]">
-                <b className="font-semibold">{label}</b>
-                {image?.hfw != null && <span className="text-muted-foreground">· {fmt.length(image.hfw)}</span>}
-                <span className="ml-auto text-muted-foreground">{clock(image?.acquired_at)}</span>
-              </span>
-              {image ? (
-                <button
-                  className="flex min-h-0 flex-1 cursor-pointer items-center justify-center overflow-hidden rounded-sm border-0 bg-black p-0 [container-type:size]"
-                  title={`Open the last ${label} image`}
-                  onClick={() => setOpen(key)}
-                >
-                  <Shown image={image} alt={`Last ${label}`} height="100cqh" />
-                </button>
-              ) : (
-                <div className="flex min-h-0 flex-1 items-center justify-center rounded-sm bg-panel text-muted-foreground">
-                  None yet
+          {pairs.map(([key, label, image]) => {
+            // Each tile is its image's shape, as large as its cell allows, its label above it.
+            const ratio = image ? image.width / image.height : 3 / 2;
+            const room = `(100cqh - ${LABEL_PX}px)`;
+            return (
+              <div key={key} className="min-h-0 min-w-0 [container-type:size]">
+                <div className="flex flex-col gap-1" style={{ width: `min(100cqw, calc(${room} * ${ratio}))` }}>
+                  <span className="flex gap-1 text-[12px]" style={{ height: LABEL_PX - 4 }}>
+                    <b className="font-semibold">{label}</b>
+                    {image?.hfw != null && <span className="text-muted-foreground">· {fmt.length(image.hfw)}</span>}
+                    <span className="ml-auto text-muted-foreground">{clock(image?.acquired_at)}</span>
+                  </span>
+                  {image ? (
+                    <button
+                      className="block cursor-pointer overflow-hidden rounded-sm border-0 bg-black p-0"
+                      title={`Open the last ${label} image`}
+                      onClick={() => setOpen(key)}
+                    >
+                      <Shown image={image} alt={`Last ${label}`} height={room} />
+                    </button>
+                  ) : (
+                    <div
+                      className="flex items-center justify-center rounded-sm bg-panel text-muted-foreground"
+                      style={{ aspectRatio: `${ratio}` }}
+                    >
+                      None yet
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          ))}
+              </div>
+            );
+          })}
         </div>
       ) : (
         <div className="flex flex-1 items-center justify-center text-muted-foreground">No images chosen to show</div>
