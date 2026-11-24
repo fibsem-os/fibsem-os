@@ -68,13 +68,13 @@ def test_each_record_goes_to_one_file(microscope, tmp_path):
     experiment.mkdir()
     recorder = EventRecorder(microscope, experiment_path=experiment)
     _say(recorder, "before any session")
-    recorder.buffer.append("agent_session_started", {"session_id": "s1"})
+    recorder.set_agent_session("s1")
     _say(recorder, "hello")
     recorder.buffer.append(NOTE, note_record("[run_state] two left"), actor=AGENT)
     recorder.buffer.append(
         ACTION, action_record("Stop the agent", stops="agent"), actor=OPERATOR
     )
-    recorder.buffer.append("agent_session_ended", {"session_id": "s1"})
+    recorder.set_agent_session(None)
     _say(recorder, "after it ended")
     recorder.close()
 
@@ -87,23 +87,18 @@ def test_each_record_goes_to_one_file(microscope, tmp_path):
     assert in_session == ["hello", "action"]
     assert in_experiment == [
         "before any session",
-        "agent_session_started",
         "[run_state] two left",
-        "agent_session_ended",
         "after it ended",
     ]
 
 
 def test_a_message_with_no_experiment_open_is_kept(microscope):
     recorder = EventRecorder(microscope)
-    recorder.buffer.append("agent_session_started", {"session_id": "s1"})
+    recorder.set_agent_session("s1")
     _say(recorder, "nothing is open")
     recorder.close()
     session = agent_files.session_folder("s1") / EVENTS_FILENAME
-    assert [r["payload"].get("text") for r in _written(session)] == [
-        None,  # the session's start
-        "nothing is open",
-    ]
+    assert [r["payload"].get("text") for r in _written(session)] == ["nothing is open"]
 
 
 def test_switching_experiments_keeps_one_conversation(microscope, tmp_path):
@@ -111,7 +106,7 @@ def test_switching_experiments_keeps_one_conversation(microscope, tmp_path):
     a.mkdir()
     b.mkdir()
     recorder = EventRecorder(microscope, experiment_path=a)
-    recorder.buffer.append("agent_session_started", {"session_id": "s1"})
+    recorder.set_agent_session("s1")
     _say(recorder, "on a")
     recorder.set_experiment(b)
     _say(recorder, "on b")
@@ -184,7 +179,7 @@ def test_with_no_experiment_open_the_session_keeps_everything(microscope, tmp_pa
     plain = tmp_path / "plain"
     plain.mkdir()
     recorder = EventRecorder(microscope, experiment_path=plain, plain=True)
-    recorder.buffer.append("agent_session_started", {"session_id": "s1"})
+    recorder.set_agent_session("s1")
     recorder.buffer.append(NOTE, note_record("[intake] one grid"), actor=AGENT)
     experiment = tmp_path / "exp"
     experiment.mkdir()
@@ -194,7 +189,7 @@ def test_with_no_experiment_open_the_session_keeps_everything(microscope, tmp_pa
 
     session = agent_files.session_folder("s1") / EVENTS_FILENAME
     texts = [r["payload"].get("text") for r in _written(session)]
-    assert texts == [None, "[intake] one grid"]  # the start, then the note
+    assert texts == ["[intake] one grid"]
     assert [
         r["payload"].get("text") for r in _written(experiment / EVENTS_FILENAME)
     ] == ["[run_state] grid 1"]
@@ -228,3 +223,17 @@ def test_notes_are_read_from_both_records(tmp_path):
         ("run_state", "[run_state] b"),
         ("run_state", "[run_state] a"),
     ]
+
+
+def test_a_reconnected_instrument_keeps_the_running_session(microscope, tmp_path):
+    from fibsem.workflows.session import AppSession
+
+    session = AppSession()
+    session.set_agent_session("s1")
+    session.microscope = microscope
+    session.start_recording()
+    _say(session.recorder, "after connecting")
+    session.stop_recording()
+    session.set_agent_session(None)
+    file = agent_files.session_folder("s1") / EVENTS_FILENAME
+    assert [r["payload"]["text"] for r in _written(file)] == ["after connecting"]

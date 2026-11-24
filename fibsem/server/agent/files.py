@@ -22,6 +22,7 @@ folder. Those are left where they are and still read as earlier sessions'
 import json
 import logging
 import os
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -58,12 +59,26 @@ def record_files(session_id: Optional[str], experiment: Optional[str]) -> List[P
     (with no session running, the newest one's that worked on *experiment*),
     then *experiment*'s. Only those there."""
     if not session_id and experiment:
-        linked = AgentFiles(lambda: None).sessions(experiment)
-        session_id = linked[0][0] if linked else None
+        session_id = _last_session(experiment)
     found = [session_folder(session_id) / EVENTS] if session_id else []
     if experiment:
         found.append(Path(experiment) / EVENTS)
     return [path for path in found if path.is_file()]
+
+
+# The newest session on each experiment, as last found, and when: the chat
+# reads it on every event, and finding it reads every session's link.
+LAST_KEPT_S = 30.0
+_last: Dict[str, Tuple[float, Optional[str]]] = {}
+
+
+def _last_session(experiment: str) -> Optional[str]:
+    kept = _last.get(experiment)
+    if kept is None or time.monotonic() - kept[0] > LAST_KEPT_S:
+        linked = AgentFiles(lambda: None).sessions(experiment)
+        kept = (time.monotonic(), linked[0][0] if linked else None)
+        _last[experiment] = kept
+    return kept[1]
 
 
 def _read_link(folder: Path) -> Dict[str, Any]:

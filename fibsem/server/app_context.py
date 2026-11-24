@@ -1112,6 +1112,13 @@ class AppContext:
         runs, checked at filing; None when it has no objection."""
         return None
 
+    def set_agent_session(self, session_id: Optional[str]) -> None:
+        """The agent session running now, None for none: its conversation is
+        recorded to its own folder."""
+        setter = getattr(self._session, "set_agent_session", None)
+        if setter is not None:
+            setter(session_id)
+
     def record_event(
         self, kind: str, payload: Dict[str, Any], actor: Optional[str] = None
     ) -> None:

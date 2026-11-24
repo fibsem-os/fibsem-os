@@ -49,7 +49,7 @@ def mount_agent_routes(
     )
     app.include_router(build_request_router(app.state.requests))
     # The agent's own report of its session: model, goal, budget, spend.
-    app.include_router(build_agent_session_router(emit))
+    app.include_router(build_agent_session_router(emit, app_context.set_agent_session))
     # Where each session's plan and transcript go: its own folder, linked
     # both ways to the experiment it works on.
     app.state.agent_files = AgentFiles(

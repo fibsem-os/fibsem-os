@@ -113,6 +113,9 @@ class AppSession:
         # connects, whatever else runs, and recorded to events.jsonl in the
         # experiment's directory. None only while disconnected.
         self.recorder: Optional[EventRecorder] = None
+        # The agent session running now (`set_agent_session`), for each
+        # recorder made while it runs.
+        self.agent_session_id: Optional[str] = None
         # The stream while there is no recorder: the agent's messages and
         # calls before a microscope connects.
         self._idle_buffer = EventBuffer()
@@ -522,9 +525,17 @@ class AppSession:
                 experiment=recorded,
                 plain=self.experiment is None,
             )
+            self.recorder.set_agent_session(self.agent_session_id)
         except Exception:
             logger.exception("event stream failed to start; continuing without it")
             self.recorder = None
+
+    def set_agent_session(self, session_id: Optional[str]) -> None:
+        """The agent session running now (None for none): its conversation is
+        recorded to its own folder (`EventRecorder.set_agent_session`)."""
+        self.agent_session_id = session_id
+        if self.recorder is not None:
+            self.recorder.set_agent_session(session_id)
 
     def stop_recording(self) -> None:
         """Close the event stream, whose writer thread would otherwise run

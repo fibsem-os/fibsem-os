@@ -147,9 +147,12 @@ def where(request: Request) -> Dict[str, Optional[str]]:
 
 def build_agent_session_router(
     emit: Optional[Callable[[str, Dict[str, Any]], None]] = None,
+    running: Optional[Callable[[Optional[str]], None]] = None,
 ) -> APIRouter:
     """``/app/agent/session``: the agent reports its session, anyone reads it.
-    *emit* puts an event on the record (the app's ``record_event``)."""
+    *emit* puts an event on the record (the app's ``record_event``);
+    *running* is told the id of the session running after each report, None
+    once it has ended."""
     router = APIRouter(
         prefix="/app/agent", dependencies=[Depends(require_level(AgentLevel.WATCH))]
     )
@@ -174,6 +177,8 @@ def build_agent_session_router(
     def report_session(request: Request, body: Dict[str, Any]):
         auth: AuthConfig = request.app.state.auth
         session, kinds = report(auth, body)
+        if running is not None:
+            running(None if session.get("ended") else session.get("session_id"))
         for key, value in where(request).items():
             if value is None:
                 session.pop(key, None)

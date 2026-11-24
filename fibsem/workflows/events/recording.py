@@ -54,8 +54,6 @@ from fibsem.workflows.proposals import _encode_values
 logger = logging.getLogger(__name__)
 
 EVENTS_FILENAME = "events.jsonl"
-SESSION_STARTED = "agent_session_started"
-SESSION_ENDED = "agent_session_ended"
 
 # How many records may wait for the disk before new ones are dropped. A stalled
 # disk must cost records, never the emitting thread -- which is often milling.
@@ -585,23 +583,23 @@ class EventRecorder:
         """Hand *record* to one file: while an agent session runs, its own
         for the conversation (`is_session_record`) and for everything when no
         experiment is open; else the experiment's."""
-        kind = record.get("kind")
-        if kind == SESSION_STARTED:
-            session_id = (record.get("payload") or {}).get("session_id")
-            if session_id and session_id != self.agent_session_id:
-                self.agent_session_id = session_id
-                self.session_writer.set_path_from(
-                    lambda: session_events_file(session_id)
-                )
         if self.agent_session_id is not None and (
             not self._experiment_open or is_session_record(record)
         ):
             self.session_writer.write(record)
         else:
             self.writer.write(record)
-        if kind == SESSION_ENDED:
-            self.agent_session_id = None
+
+    def set_agent_session(self, session_id: Optional[str]) -> None:
+        """The agent session running now, whose own record its conversation
+        goes to; None when none runs."""
+        if session_id == self.agent_session_id:
+            return
+        self.agent_session_id = session_id
+        if session_id is None:
             self.session_writer.set_path(None)
+        else:
+            self.session_writer.set_path_from(lambda: session_events_file(session_id))
 
     def close(self) -> None:
         """Detach every tap, write what is queued, and stop the writers."""
