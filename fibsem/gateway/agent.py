@@ -308,8 +308,11 @@ class GatewayAgent:
         self._parked_on: Tuple[Optional[str], Optional[str]] = (None, None)
         # Whether no app answered since it was parked (its pid unread then).
         self._parked_gone = False
+<<<<<<< HEAD
         self._allowed_read = float("-inf")
         self._allowed_at = float("-inf")
+=======
+>>>>>>> e6334c8e5da3b2520db101b11c1303578d5c0462
         self._lost_holder()
 
     def _lost_holder(self) -> None:
@@ -324,10 +327,13 @@ class GatewayAgent:
             self.slot.change(
                 state=slot_mod.ENDED, why="did not carry on (the gateway closed)"
             )
+<<<<<<< HEAD
             # Its pairing too: nothing of the gateway's agent runs.
             paired = self._tokens.agent()
             if paired is not None and paired.name == AGENT_NAME:
                 self._unpair()
+=======
+>>>>>>> e6334c8e5da3b2520db101b11c1303578d5c0462
 
     # -- reading -----------------------------------------------------------
 
