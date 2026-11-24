@@ -57,11 +57,17 @@ HOP_BY_HOP = frozenset(
     }
 )
 
-# The longest an App Server answer may take: a long command answers at once
-# with a run id, so a 120 s move or acquisition, or a parked long-poll (30 s),
-# is the most a call waits.
+# The longest an App Server answer may take when the call doesn't say: a long
+# command answers at once with a run id, so a 120 s move or acquisition, or a
+# parked long-poll (30 s), is the most such a call waits.
 READ_TIMEOUT_S = 300.0
 CONNECT_TIMEOUT_S = 5.0
+# A call that says how long it waits (`fibsem.client.transport.WAIT_HEADER`),
+# such as a long acquisition, is waited for that long and this much more, up
+# to `WAIT_MAX_S`.
+WAIT_HEADER = "x-fibsem-wait-s"
+WAIT_MARGIN_S = 30.0
+WAIT_MAX_S = 3 * 3600.0
 
 _STOP = re.compile(r"(^|_)(stop|halt|abort)(_|$)")
 
@@ -87,6 +93,20 @@ def _no_app(status: int, message: str) -> JSONResponse:
     return JSONResponse(
         {"detail": {"error_type": NO_APP, "message": message}}, status_code=status
     )
+
+
+def _timeout(said: Optional[str]):
+    """The pass-through's timeout for a call that said it waits *said*
+    seconds: that and `WAIT_MARGIN_S`, at least `READ_TIMEOUT_S` and at most
+    `WAIT_MAX_S`; the usual for a call that said nothing readable."""
+    try:
+        wait = float(said) if said else None
+    except ValueError:
+        wait = None
+    if wait is None or not wait > 0:
+        return httpx.USE_CLIENT_DEFAULT
+    read = min(max(wait + WAIT_MARGIN_S, READ_TIMEOUT_S), WAIT_MAX_S)
+    return httpx.Timeout(read, connect=CONNECT_TIMEOUT_S)
 
 
 def _headers(items: Iterable) -> list:
@@ -149,6 +169,12 @@ class PassThrough:
         target = httpx.URL(f"{url.rstrip('/')}{path}").copy_with(
             query=request.url.query.encode("utf-8") or None
         )
+        # A stop keeps its short client; any other call may say how long it waits.
+        wait = (
+            httpx.USE_CLIENT_DEFAULT
+            if client is self._stops
+            else _timeout(request.headers.get(WAIT_HEADER))
+        )
         sent = client.build_request(
             request.method,
             target,
@@ -157,6 +183,7 @@ class PassThrough:
                 for k, v in request.headers.raw
             ),
             content=request.stream(),
+            timeout=wait,
         )
         try:
             answer = await client.send(sent, stream=True)

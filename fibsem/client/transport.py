@@ -87,6 +87,9 @@ def unreachable_why(url: str) -> str:
 # answering mid-call (`fibsem.gateway.passthrough`), kept in step by a test.
 GATEWAY_NO_APP = "no_app"
 GATEWAY_APP_LOST = "app_lost"
+# How long this call waits for its answer, in seconds, so the gateway's
+# pass-through waits as long (`fibsem.gateway.passthrough`).
+WAIT_HEADER = "X-Fibsem-Wait-S"
 
 
 class ServerUnreachable(ConnectionError):
@@ -313,6 +316,12 @@ class Transport:
     def request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
         """The server's answer whatever its status, as httpx's ``request``
         answers it; `fetch` reads it as data."""
+        wait = _read_s(kwargs.get("timeout"))
+        if wait is not None:
+            kwargs = {
+                **kwargs,
+                "headers": {**(kwargs.get("headers") or {}), WAIT_HEADER: f"{wait:g}"},
+            }
         try:
             response = self._attempt(method, path, kwargs)
         except httpx.TimeoutException:
@@ -423,6 +432,15 @@ class Transport:
 
     def __exit__(self, *exc_info: Any) -> None:
         self.close()
+
+
+def _read_s(timeout: Any) -> Optional[float]:
+    """The seconds a call's own *timeout* waits for its answer; None for none."""
+    if isinstance(timeout, httpx.Timeout):
+        timeout = timeout.read
+    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
+        return None
+    return float(timeout) if timeout > 0 else None
 
 
 def answer_of(response: httpx.Response, what: str) -> Any:
