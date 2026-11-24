@@ -50,6 +50,7 @@ from typing import (
 )
 
 from fibsem.plugins.loader import PluginRegistry, PluginRejected
+from fibsem.server.discovery import GATEWAY_PORT
 
 if TYPE_CHECKING:
     from fibsem.devices.core import Device
@@ -209,13 +210,13 @@ _DEVICE_DRIVERS: Dict[str, str] = {
 }
 
 
-# ``info.driver: remote``: the microscope another App Server serves, reached at the
-# configuration's ``ip_address`` and ``port`` with the token this computer was
-# paired with there. Its devices are the remote driver's.
+# ``info.driver: remote``: the microscope another App Server serves, reached through
+# that PC's gateway at the configuration's ``ip_address`` and ``port`` with the
+# token this computer was paired with there. Its devices are the remote driver's.
 REMOTE_MICROSCOPE = DriverEntry(
     manufacturer=REMOTE_DRIVER,
     microscope_class="fibsem.client.remote_microscope:remote_microscope",
-    port=8001,
+    port=GATEWAY_PORT,
 )
 
 

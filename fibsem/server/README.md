@@ -19,7 +19,8 @@ which also shows its address and the event log. With
 *Serve the microscope* on, it also serves the `/microscope` routes below. While it runs it writes `~/.fibsem/app-server.json` (url and
 a connect token), so local clients find it without copying anything.
 
-The Swagger UI is available at `http://<host>:8001/docs`.
+The Swagger UI is available at `http://127.0.0.1:8001/docs` on the App Server's own PC; agents and
+other computers reach its routes through the gateway (port 8010).
 
 ### What it serves
 

@@ -551,7 +551,7 @@ def _print_experiments(experiments) -> None:
 
 def cmd_pair_device(args) -> int:
     """Pair this computer with a Device Server, by the code its --pair shows, or
-    with another computer's App Server, by the code its Computers list shows; keep
+    with another computer's gateway, by the code its page's Computers list shows; keep
     the token where a remote entry's (or ``info.driver: remote``'s) connect reads
     it."""
     from fibsem.client.pairing import pair
@@ -933,9 +933,10 @@ def _add_pair_device_parser(sub) -> None:
     p.set_defaults(func=cmd_pair_device, needs_server=False)
     p = sub.add_parser(
         "pair",
-        help="Pair this computer with another computer's App Server",
-        description="Pair with the App Server at ADDRESS:PORT using the code its "
-        "Computers list shows. The token is kept for every later connect of a "
+        help="Pair this computer with another computer's gateway",
+        description="Pair with the gateway at ADDRESS:PORT (port 8010 unless that "
+        "PC set another) using the code its page's Computers list shows. The "
+        "token is kept for every later connect of a "
         "configuration with info.driver: remote at that address.",
     )
     p.add_argument("server", metavar="ADDRESS:PORT")
