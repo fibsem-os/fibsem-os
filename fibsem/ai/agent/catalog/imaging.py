@@ -805,8 +805,10 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "a fine pass, scoring a frame at each step on the current channel, as "
             "the FM tab's auto-focus does, and leave it at the best position. "
             "Refused while the FM is in use or can't image the sample from here, "
-            "as fm_acquire_image is. Start from the item's objective "
-            "position (item_move_to_objective_position) where it has one. A long command: it answers with "
+            "as fm_acquire_image is. Start near focus: the item's objective "
+            "position (item_move_to_objective_position) where it has one, else "
+            "the objective's saved focus_position; the insert position can be "
+            "millimetres away, beyond the sweep. A long command: it answers with "
             "its run at once; service_wait_for_run imaging gives the best objective "
             "position and the scores, or status no_focus when the scores were flat "
             "(the objective goes back where it started: move nearer focus or check "
@@ -879,7 +881,10 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "the objective out, unless it is within half a degree already: the "
             "tab offers 0 and -pi (-180°). Left out, it inserts where the stage "
             "stands. A tilt is refused when the stage is not at the FM. Then go "
-            "to focus (item_move_to_objective_position or fm_auto_focus)."
+            "to focus: the objective stops at its insert position, not at "
+            "focus. Move to the item's objective position "
+            "(item_move_to_objective_position) or the objective's saved "
+            "focus_position, then fm_auto_focus."
         ),
         method="POST",
         path="/microscope/services/stage_movement/commands/insert_objective",
