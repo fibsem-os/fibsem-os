@@ -313,17 +313,6 @@ def test_an_ended_session_is_not_taken_back(make):
     assert second.agent("arctis-1") is None
 
 
-def test_sessions_lists_every_session_with_the_managers_part(make):
-    mgr, env = make("0")
-    one = start(mgr, env)
-    until(lambda: one.state == "ended", mgr)
-    two = start(mgr, env)
-    until(lambda: two.state == "ended", mgr)
-    rows = mgr.sessions()
-    assert {row["session_id"] for row in rows} == {one.session_id, two.session_id}
-    assert all(row["manager"]["microscope"] == "arctis-1" for row in rows)
-
-
 def test_the_last_session_is_the_newest_run_in_the_same_folder(tmp_path):
     work, other = tmp_path / "work", tmp_path / "other"
     assert manager.last_session(work, tmp_path) is None

@@ -215,8 +215,10 @@ end the agent too. Each session's record and log are in
 handoff notes go in its `agent/` folder there, not in the experiment, so the experiment
 holds only what the experiment made. The two name each other: `agent/experiment.json` in
 the session's folder, and an `agent_session_joined` event on the experiment's record.
-History lists the latest sessions, and the
-Agent card shows the last one with **Resume**.
+History lists the latest sessions, each with its status (running, waiting for its app,
+ended, left unfinished when the gateway closed, or stopped without saying why) and the
+experiment it worked on, and the Agent card shows the last one with **Resume**. The list
+comes from `fibsem.records`, which reads the session folders and keeps no copy.
 
 Running `fibsem-agent` by hand still works as before. The gateway doesn't need to be running
 for it.
