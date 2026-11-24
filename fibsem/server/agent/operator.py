@@ -278,7 +278,8 @@ def build_operator_router(agent: AgentControl) -> APIRouter:
         session = request.app.state.auth.agent_session or {}
         session_id = session.get("session_id")
         store = agent_review.store_of(request, agent.experiment_path)
-        item = agent_review.open_item(store, session_id, item_id)
+        # An answer given already may be changed: the new one counts.
+        item = agent_review.answerable_item(store, session_id, item_id)
         if body.choice not in item["options"]:
             raise refusal_error(422, "invalid", f"choice is one of {item['options']}.")
         note = body.note.strip()
@@ -304,12 +305,15 @@ def build_operator_router(agent: AgentControl) -> APIRouter:
                     status_code=refusal.status_code, detail=refusal.detail
                 )
         # Accepting finished work, with nothing to add, is kept on the list
-        # but not told: the agent has nothing to do with it.
+        # but not told: the agent has nothing to do with it. A change of an
+        # answer the agent was told is always told.
+        before = dict(item["answer"]) if item.get("answer") else None
         quiet = (
             item["level"] == "done"
             and body.choice == "Accept"
             and not note
             and record is None
+            and not (before and before.get("message_id"))
         )
         # Saved first: an answer the list can't keep is refused, not told.
         answered = store.answer(
@@ -325,7 +329,7 @@ def build_operator_router(agent: AgentControl) -> APIRouter:
         )
         message_id = None
         if not quiet:
-            text = agent_review.answered_text(item, body.choice, note)
+            text = agent_review.answered_text(item, body.choice, note, before)
             try:
                 message_id = agent.message(text, evidence=record)
             except Exception:  # noqa: BLE001 - the answer is kept: say it wasn't told

@@ -176,6 +176,9 @@ class ReviewStore:
         if item is None:
             return
         if op == "answer":
+            # A changed answer replaces the one before, which is kept.
+            if item.get("answer"):
+                item.setdefault("earlier", []).append(item["answer"])
             item["answer"] = change.get("answer")
         elif op == "close":
             item["closed"] = change.get("closed")
@@ -214,7 +217,7 @@ class ReviewStore:
         self, session_id: str, item_id: str, answer: Dict[str, Any]
     ) -> Dict[str, Any]:
         with self.lock:
-            open_item(self, session_id, item_id)
+            answerable_item(self, session_id, item_id)
             self._write({"op": "answer", "id": item_id, "answer": answer})
             return self.find(item_id)
 
@@ -421,6 +424,18 @@ def store_of(
     return store
 
 
+def answerable_item(store: ReviewStore, session_id: Optional[str], item_id: str):
+    """The item *item_id* as the operator may answer it: open, or answered
+    already (a changed answer); refused once the agent closed it."""
+    store.current(session_id)
+    item = store.find(item_id)
+    if item is None:
+        raise refusal_error(404, "not_found", f"No review item {item_id}.")
+    if item.get("closed"):
+        raise refusal_error(409, "not_open", f"Review item {item_id} is closed.")
+    return item
+
+
 def open_item(store: ReviewStore, session_id: Optional[str], item_id: str):
     """The item *item_id* of the session's list, refused when it is not
     there or no longer waits for an answer."""
@@ -588,7 +603,17 @@ def build_agent_review_router(
     return router
 
 
-def answered_text(item: Dict[str, Any], choice: str, note: str) -> str:
-    """The operator's answer as the message the agent reads."""
-    said = f'Review {item["id"]} "{item["title"]}": {choice}.'
+def answered_text(
+    item: Dict[str, Any],
+    choice: str,
+    note: str,
+    before: Optional[Dict[str, Any]] = None,
+) -> str:
+    """The operator's answer as the message the agent reads; a changed one
+    (*before*, the answer it replaces) says what it was."""
+    before = (before or {}).get("choice")
+    if before:
+        said = f'Review {item["id"]} "{item["title"]}": changed to {choice} (was {before}).'
+    else:
+        said = f'Review {item["id"]} "{item["title"]}": {choice}.'
     return f"{said} {note}" if note else said
