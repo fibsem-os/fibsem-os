@@ -103,3 +103,46 @@ def test_a_taken_port_stops_the_gateway_before_it_writes_its_file(monkeypatch, c
         taken.close()
     assert written == []
     assert f"could not listen on port {port}" in capsys.readouterr().out
+
+
+def test_the_port_comes_from_the_preferences_and_the_flag_wins(monkeypatch):
+    """install.gateway.port sets where the gateway listens and where this PC
+    looks for it; --port overrides it for one run."""
+    from types import SimpleNamespace
+
+    from fibsem import config
+    from fibsem.server import discovery
+
+    prefs = config.UserPreferences()
+    prefs.install.gateway.port = 8020
+    monkeypatch.setattr(config, "load_user_preferences", lambda: prefs)
+    monkeypatch.setattr(discovery, "read_gateway_file", lambda: None)
+    assert discovery.gateway_port() == 8020
+    assert discovery.gateway_url() == "http://127.0.0.1:8020"
+    ran = []
+    monkeypatch.setattr(gateway_main, "run", lambda port, *a: ran.append(port) or 0)
+    monkeypatch.setattr(gateway_main.diagnostics, "install", lambda name: None)
+    monkeypatch.setattr(gateway_main, "refuse", lambda *a, **k: None, raising=False)
+    gateway_main.main(["run", "--no-window"])
+    gateway_main.main(["run", "--no-window", "--port", "8030"])
+    assert ran == [8020, 8030]
+    # A port out of range, or preferences that can't be read, is the default.
+    prefs.install.gateway.port = 0
+    assert discovery.gateway_port() == discovery.GATEWAY_PORT
+    monkeypatch.setattr(config, "load_user_preferences", SimpleNamespace)
+    assert discovery.gateway_port() == discovery.GATEWAY_PORT
+
+
+def test_a_refused_token_names_the_gateway_while_one_runs(monkeypatch):
+    """An agent calling the App Server with a token it doesn't know is told to
+    connect through this PC's gateway, when one runs."""
+    from fibsem.server import auth
+
+    monkeypatch.setattr(auth, "read_gateway_file", lambda: None)
+    assert auth._unauthorized().detail["message"] == "Missing or invalid bearer token."
+    gateway = {"url": "http://127.0.0.1:8010", "pid": 1}
+    monkeypatch.setattr(auth, "read_gateway_file", lambda: gateway)
+    refused = auth._unauthorized()
+    assert refused.status_code == 401
+    assert refused.detail["error_type"] == "unauthorized"
+    assert "through its gateway (http://127.0.0.1:8010)" in refused.detail["message"]

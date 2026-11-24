@@ -52,10 +52,22 @@ GATEWAY_PORT = 8010
 SERVER_TOKEN_ENV = "FIBSEM_SERVER_TOKEN"
 
 
+def gateway_port() -> int:
+    """The port this PC's gateway listens on: the preferences'
+    (``install.gateway.port``), else `GATEWAY_PORT`."""
+    try:
+        from fibsem.config import load_user_preferences
+
+        port = int(load_user_preferences().install.gateway.port)
+    except Exception:  # noqa: BLE001 - unreadable preferences are the default
+        return GATEWAY_PORT
+    return port if 0 < port < 65536 else GATEWAY_PORT
+
+
 def gateway_url() -> str:
     """This PC's gateway: the running one's address, else its usual port."""
     found = read_gateway_file()
-    return found["url"] if found is not None else f"http://127.0.0.1:{GATEWAY_PORT}"
+    return found["url"] if found is not None else f"http://127.0.0.1:{gateway_port()}"
 
 
 # The version of the App Server's routes. A change that an older client can't

@@ -47,6 +47,7 @@ from fibsem.acting import ActorKind, current_actor
 from fibsem.ai.agent.calls import current_call
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.control import MicroscopeBusy
+from fibsem.server.discovery import read_gateway_file
 from fibsem.server.leases import LEASE_HEADER
 from fibsem.server.pairing import AGENT, OPERATOR, PairedComputer, Pairing
 
@@ -288,7 +289,17 @@ def refusal_error(
 
 
 def _unauthorized() -> HTTPException:
-    return refusal_error(401, "unauthorized", "Missing or invalid bearer token.")
+    message = "Missing or invalid bearer token."
+    gateway = read_gateway_file()
+    if gateway is not None:
+        # Said whether the call came through the gateway or not: a server
+        # behind it can't tell.
+        message += (
+            f" An agent on this PC connects through its gateway ({gateway['url']}), "
+            "which asks the operator to allow it; a token kept for another "
+            "address isn't valid here."
+        )
+    return refusal_error(401, "unauthorized", message)
 
 
 def _operator_only() -> HTTPException:

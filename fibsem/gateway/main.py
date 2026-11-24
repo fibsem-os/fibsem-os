@@ -35,7 +35,11 @@ from fibsem.gateway.gateway import (
     write_gateway_file,
 )
 from fibsem.gateway.host import HostMicroscope
-from fibsem.server.discovery import HOST_DISCOVERY_FILE, read_discovery_file
+from fibsem.server.discovery import (
+    HOST_DISCOVERY_FILE,
+    gateway_port,
+    read_discovery_file,
+)
 from fibsem.server.operator_token import read_operator_token
 from fibsem.unreleased import refuse
 
@@ -73,7 +77,13 @@ def _parser() -> argparse.ArgumentParser:
     )
     commands = parser.add_subparsers(dest="command")
     run = commands.add_parser("run", help="Run the gateway (the default).")
-    run.add_argument("--port", type=int, default=GATEWAY_PORT)
+    run.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="the port to listen on (default: install.gateway.port in the "
+        f"preferences, else {GATEWAY_PORT})",
+    )
     run.add_argument(
         "--no-window", action="store_true", help="Run without the gateway's window."
     )
@@ -250,7 +260,7 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
         thread.join(10)
     if again.is_set():
         flags = [] if window else ["--no-window"]
-        if port != GATEWAY_PORT:
+        if port != gateway_port():
             flags += ["--port", str(port)]
         start_gateway([*flags, *connection])
     return 0
@@ -442,7 +452,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         argv = ["run", *argv]
     args, extra = _parser().parse_known_args(argv)
     if args.command == "run":
-        return run(args.port, not args.no_window, _connection(extra), args.minimised)
+        port = args.port if args.port is not None else gateway_port()
+        return run(port, not args.no_window, _connection(extra), args.minimised)
     if extra:
         _parser().error(f"unrecognized arguments: {' '.join(extra)}")
     if args.command == "install":
