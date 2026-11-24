@@ -309,6 +309,8 @@ class GatewayAgent:
         self._parked_on: Tuple[Optional[str], Optional[str]] = (None, None)
         # Whether no app answered since it was parked (its pid unread then).
         self._parked_gone = False
+        self._allowed_read = float("-inf")
+        self._allowed_at = float("-inf")
         self._lost_holder()
 
     def _lost_holder(self) -> None:
@@ -323,6 +325,10 @@ class GatewayAgent:
             self.slot.change(
                 state=slot_mod.ENDED, why="did not carry on (the gateway closed)"
             )
+            # Its pairing too: nothing of the gateway's agent runs.
+            paired = self._tokens.agent()
+            if paired is not None and paired.name == AGENT_NAME:
+                self._unpair()
 
     # -- reading -----------------------------------------------------------
 
@@ -730,11 +736,17 @@ class GatewayAgent:
         """An agent allowed on the gateway's page now holds the slot."""
         why = f"allowed by {who}" + (f", replacing {replacing}" if replacing else "")
         self.slot.take(name, slot_mod.ALLOW, why)
+        self._allowed_at = time.monotonic()
+        self._allowed_read = float("-inf")
 
     def _follow_slot(self) -> None:
-        """The gateway's own agent's state, as the slot record says it."""
+        """The gateway's own agent's state, as the slot record says it; an
+        allowed agent's, from its pairing and when the app last heard it."""
         agent = self._manager.agent(self.microscope)
-        if agent is None:
+        if agent is None or (
+            agent.state == "ended" and self.slot.read().get("came_in") == slot_mod.ALLOW
+        ):
+            self._follow_allowed()
             return
         if agent.state == "ended":
             changes = {"state": slot_mod.ENDED, "why": agent.ended or "ended"}
@@ -743,6 +755,36 @@ class GatewayAgent:
         else:
             changes = {"state": slot_mod.RUNNING}
         self.slot.change(session_id=agent.session_id, **changes)
+
+    def _follow_allowed(self) -> None:
+        """An agent that came in by Allow holds the slot while it stays paired
+        and the app has heard from it in the last `AGENT_LISTENING_S`; asked
+        every `LEVEL_READ_S`."""
+        held = self.slot.read()
+        if held.get("came_in") != slot_mod.ALLOW:
+            return
+        if time.monotonic() - self._allowed_read < LEVEL_READ_S:
+            return
+        self._allowed_read = time.monotonic()
+        paired = self._tokens.agent()
+        if paired is None or paired.name != held.get("holder"):
+            self.slot.change(state=slot_mod.ENDED, why="no longer paired")
+            return
+        connected = self._connected()
+        seconds = connected.get("last_heard_s") if connected else None
+        if seconds is not None and seconds < AGENT_LISTENING_S:
+            self.slot.change(state=slot_mod.RUNNING, why=held.get("why"))
+        elif time.monotonic() - self._allowed_at < AGENT_LISTENING_S:
+            return  # just allowed: give it time to call
+        elif held.get("state") != slot_mod.ENDED:
+            self.slot.change(
+                state=slot_mod.ENDED,
+                why=(
+                    f"not heard from for {AGENT_LISTENING_S / 60:.0f} min"
+                    if self._url() is not None
+                    else "the app is not answering"
+                ),
+            )
 
     def _after_end(self) -> None:
         """Once an agent this gateway saw running has ended (End, replaced
