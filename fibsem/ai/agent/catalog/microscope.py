@@ -428,8 +428,9 @@ TOOLS: Tuple[ToolSpec, ...] = (
                 "optional: 2 to 4 answers to choose from (default Accept, Reject), for a wait that asks a question",
                 List[str],
             ),
+            "score": "optional: the result this item scores, when your skill asks for one: sites (a grid's site list, about = the grid), target or polishing (about = the lamella). The operator's Accept is a pass and Reject a fail; no options",
         },
-        optional=("level", "text", "about", "images", "facts", "options"),
+        optional=("level", "text", "about", "images", "facts", "options", "score"),
     ),
     ToolSpec(
         name="review_list",

@@ -2173,6 +2173,8 @@ export interface components {
             level?: string;
             options?: string[] | null;
             /** @default  */
+            score?: string;
+            /** @default  */
             text?: string;
             title: string;
         };
