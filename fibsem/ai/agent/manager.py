@@ -580,7 +580,11 @@ class AgentSessionManager:
         with self._lock:
             for agent in list(self._agents.values()):
                 if agent.state == "running" and not self._alive(agent):
-                    self._exited(agent)
+                    if agent.parked:
+                        # Stopped by `park`, not ended: it waits.
+                        agent.state = "waiting"
+                    else:
+                        self._exited(agent)
                 if (
                     agent.state == "waiting"
                     and not agent.parked

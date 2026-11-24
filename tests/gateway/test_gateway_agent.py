@@ -42,7 +42,9 @@ class FakeGateway:
         self.access.append((who, via, result))
 
     def state(self):
-        return GatewayState(mode=self.mode, version="test")
+        return GatewayState(
+            mode=self.mode, version="test", experiment=getattr(self, "experiment", None)
+        )
 
     def stop(self, who, via, force=False, window=False):
         for hook in self.before_stop:
@@ -873,3 +875,32 @@ def test_resume_is_offered_with_the_budget_it_last_ran_with():
     # One the operator changed while it ran wins over the start budget.
     assert row({"budget_usd": 5}, {"usd": 8, "spent_before_usd": 0.5}) == 8.0
     assert row({}) is None
+
+
+def test_a_parked_agent_stopping_is_not_taken_for_an_end(made, tmp_path):
+    # The manager's poll may see the stopped agent before park does.
+    agent, _, _ = made()
+    agent.start("default", None, "watch", "operator", "page")
+    assert until(lambda: _record(tmp_path).get("runs"))
+    managed = agent._manager.agent(agent.microscope)
+    managed.parked = True
+    (managed.folder / "stop").touch()
+    assert until(lambda: not agent._manager._alive(managed))
+    agent._manager.poll()
+    assert managed.state == "waiting"
+    assert "ended" not in read_json(managed.folder / MANAGED)
+    agent.end("operator", "page")
+
+
+def test_a_parked_agent_ends_when_the_next_app_opens_another_experiment(made, tmp_path):
+    agent, gateway, app = made()
+    agent.start("default", None, "watch", "operator", "page")
+    assert until(lambda: _record(tmp_path).get("runs"))
+    gateway.stop("operator", "page")
+    assert agent.state().running["state"] == "waiting"
+    gateway.experiment = "another"
+    app.pid = 2
+    agent._unpark()
+    assert agent.state().running is None
+    assert len(_record(tmp_path)["runs"]) == 1
+    assert PairedTokens(tmp_path / "paired.json").agent() is None

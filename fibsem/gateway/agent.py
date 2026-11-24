@@ -305,6 +305,9 @@ class GatewayAgent:
         self._ran: Optional[str] = None
         # The app a parked agent waits out (`_for_switch`).
         self._parked_pid: Optional[int] = None
+        self._parked_on: Tuple[Optional[str], Optional[str]] = (None, None)
+        # Whether no app answered since it was parked (its pid unread then).
+        self._parked_gone = False
 
     # -- reading -----------------------------------------------------------
 
@@ -633,17 +636,36 @@ class GatewayAgent:
         agent = self._manager.agent(self.microscope)
         if agent is not None and agent.state != "ended":
             self._parked_pid = self._app_pid()
-            self._manager.park(self.microscope)
+            self._parked_on = self._app_and_experiment()
+            self._parked_gone = False
+            parked = self._manager.park(self.microscope)
+            if parked is not None and parked.state == "ended":
+                # It didn't stop and was killed: it no longer holds the slot.
+                self._unpair()
+
+    def _app_and_experiment(self) -> Tuple[Optional[str], Optional[str]]:
+        state = self._gateway.state()
+        return state.app, state.experiment
 
     def _unpark(self) -> None:
         """A parked agent carries on once the app it waited out is gone and
-        another answers: never on the app that was being stopped."""
+        another answers: never on the app that was being stopped. A new app
+        or experiment ends it instead: a session is one experiment's."""
         agent = self._manager.agent(self.microscope)
-        if agent is None or not agent.parked:
+        if agent is None or not agent.parked or agent.state == "ended":
             return
         pid = self._app_pid()
-        if pid is not None and pid != self._parked_pid:
-            self._manager.unpark(self.microscope)
+        if pid is None:
+            self._parked_gone = True
+            return
+        if pid == self._parked_pid or (
+            self._parked_pid is None and not self._parked_gone
+        ):
+            return
+        if self._app_and_experiment() != self._parked_on:
+            self.end("gateway", "gateway")
+            return
+        self._manager.unpark(self.microscope)
 
     def left(self) -> None:
         """The gateway is quitting on purpose: an agent it leaves running
