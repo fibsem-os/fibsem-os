@@ -23,17 +23,13 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 
 from fibsem import acquire
+from fibsem.analysis.images import Planes, load_planes
+from fibsem.analysis.measure import intensity_figure, measure_intensity
 from fibsem.cancellation import raise_if_cancelled
 from fibsem.conversions import image_to_microscope_image_coordinates
 from fibsem.fm.acquisition import acquire_z_stack
 from fibsem.fm.structures import ChannelSettings, FluorescenceImage, ZParameters
 from fibsem.imaging import localise
-from fibsem.imaging.analysis import (
-    Planes,
-    intensity_figure,
-    load_planes,
-    measure_intensity,
-)
 from fibsem.imaging.marks import rgb_of
 from fibsem.imaging.thickness import LamellaThicknessResult, measure_lamella_band
 from fibsem.microscope import FibsemMicroscope
@@ -114,7 +110,7 @@ class IterativePolishingConfig(MillingStrategyConfig):
     )
     target_channel: Optional[ChannelSettings] = param(
         None,
-        doc="The channel the target is seen in; None takes no target stack.",
+        doc="The channel the target is seen in, with its excitation in nm and its emission filter (left out, the stack is reflection, not fluorescence); None takes no target stack.",
         display=Display("Target Channel", advanced=True),
     )
     zparams: ZParameters = param(
@@ -177,6 +173,8 @@ class IterativePolishingStrategy(MillingStrategy[IterativePolishingConfig]):
                 "A pass looks at the lamella after the mill: take an SEM image, "
                 "fluorescence stacks, or both"
             )
+        if config.target_channel is not None:
+            config.target_channel.check_units()  # before the mill, not after
         if microscope.fm is None and (
             stacks_wanted or config.objective_position is not None
         ):

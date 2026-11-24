@@ -1,5 +1,6 @@
 """The agent's plan for its session, plan.md: ``/app/agent/plan``."""
 
+import json
 from datetime import datetime, timedelta
 
 import pytest
@@ -8,7 +9,9 @@ from fastapi.testclient import TestClient
 
 from fibsem.ai.agent import watch
 from fibsem.ai.agent.levels import AgentLevel
+from fibsem.ai.agent.report import MAX_CHECKLIST, MAX_ITEM
 from fibsem.server import AuthConfig
+from fibsem.server.agent.files import JOINED, LINK, AgentFiles, session_folder
 from fibsem.server.agent.plan import (
     PLAN_EDITED,
     SAMPLE_SET,
@@ -60,26 +63,110 @@ def test_the_agent_writes_its_plan_a_section_at_a_time_beside_the_experiment(ser
         "steps",
         "### Sites\n- [x] Pick sites\n- [ ] Setup\n\n### Polish\n- [ ] 01",
     )
-    answer = section(agent, "Brief", "Sample: yeast\nWhere do the granules sit?").json()
-    assert answer["sample"] == "yeast"
-    assert [s["name"] for s in answer["sections"]] == ["Steps", "Brief"]
-    assert answer["steps"] == [
+    brief = "Sample: yeast\nWhere do the granules sit?"
+    answer = section(agent, "Brief", brief).json()
+    # A write answers the section and the step counts, not the plan.
+    assert answer == {
+        "session_id": "s1",
+        "section": "Brief",
+        "length": len(brief),
+        "sample": "yeast",
+        "done": 1,
+        "total": 3,
+        "updated": answer["updated"],
+        "updated_by": "agent",
+    }
+    plan = agent.get("/app/agent/plan").json()
+    assert [s["name"] for s in plan["sections"]] == ["Steps", "Brief"]
+    assert plan["steps"] == [
         {"group": "Sites", "text": "Pick sites", "done": True},
         {"group": "Sites", "text": "Setup", "done": False},
         {"group": "Polish", "text": "01", "done": False},
     ]
-    assert answer["done"] == 1 and answer["updated_by"] == "agent"
-    kept = (experiment / "agent" / "plan-s1.md").read_text(encoding="utf-8")
+    kept = (session_folder("s1") / "plan-s1.md").read_text(encoding="utf-8")
+    assert not (experiment / "agent").exists(), "the experiment holds its own data"
+    link = json.loads((session_folder("s1") / LINK).read_text())
+    assert link["path"] == str(experiment)
     assert kept.index("## Brief") < kept.index("## Steps"), "the default order"
-    assert kept == answer["markdown"]
+    assert kept == plan["markdown"]
     assert [(k, p["sample"], a) for k, p, a in recorded] == [
         (SAMPLE_SET, "yeast", "agent")
     ]
     # Empty text removes a section; a heading inside one is refused.
+    assert section(agent, "Steps", "").json()["length"] == 0
     assert "Steps" not in [
-        s["name"] for s in section(agent, "Steps", "").json()["sections"]
+        s["name"] for s in agent.get("/app/agent/plan").json()["sections"]
     ]
     assert section(agent, "Rules", "## Rules\n- x").status_code == 422
+
+
+def append(client, name, text):
+    return client.post("/app/agent/plan/append", json={"section": name, "text": text})
+
+
+def tick(client, step, **more):
+    return client.post("/app/agent/plan/step", json={"step": step, **more})
+
+
+def test_a_line_is_added_to_a_section_without_sending_it_whole(server):
+    agent, operator, recorded, _, _ = server
+    answer = append(agent, "progress", "Started.").json()
+    assert answer["section"] == "Progress" and answer["length"] == len("Started.")
+    assert append(agent, "Progress", "Milled 01.").json()["length"] == len(
+        "Started.\nMilled 01."
+    )
+    append(agent, "Steps", "### Polish\n- [ ] 01")
+    assert agent.get("/app/agent/plan").json()["sections"] == [
+        {"name": "Progress", "text": "Started.\nMilled 01."},
+        {"name": "Steps", "text": "### Polish\n- [ ] 01"},
+    ]
+    assert append(agent, "Progress", "").status_code == 422
+    assert append(agent, "Progress", "## Done").status_code == 422
+    # The plan's rules hold: a deadline is dated, the sample named once is
+    # recorded, and the operator's line wakes the agent.
+    append(agent, "Rules", "- Finish by 07:00")
+    rules = agent.get("/app/agent/plan").json()["sections"]
+    assert f"Finish by {deadline('07:00'):%Y-%m-%d %H:%M}" in str(rules)
+    section(agent, "Brief", "The question.")
+    assert append(agent, "Brief", "Sample: yeast").json()["sample"] == "yeast"
+    assert [(k, p["sample"]) for k, p, _ in recorded] == [(SAMPLE_SET, "yeast")]
+    append(operator, "Rules", "- Stop at 180 nm")
+    assert recorded[-1][0] == PLAN_EDITED and recorded[-1][1]["sections"] == ["Rules"]
+
+
+def test_one_step_is_ticked_by_its_text_or_the_start_of_it(server):
+    agent, _, _, _, _ = server
+    section(
+        agent,
+        "Steps",
+        "### Sites\n- [ ] Pick sites\n- [ ] Setup 01\n- [ ] Setup 02\n\n"
+        "### Polish\n- [ ] 01\n- [ ] Polish 02",
+    )
+    answer = tick(agent, "pick").json()
+    assert answer["step"] == "Pick sites" and answer["checked"] is True
+    assert (answer["section"], answer["done"], answer["total"]) == ("Steps", 1, 5)
+    assert tick(agent, "Polish 02").json()["done"] == 2
+    assert tick(agent, "Polish 02", done=False).json()["done"] == 1
+    # Several boxes start with it: refused, naming them.
+    refused = tick(agent, "Setup")
+    assert refused.status_code == 409
+    detail = refused.json()["detail"]
+    assert detail["error_type"] == "ambiguous"
+    assert "Sites / Setup 01" in detail["message"]
+    assert tick(agent, "01").json()["step"] == "01", "its exact text first"
+    assert tick(agent, "Setup 0", group="sites").status_code == 409
+    assert tick(agent, "Pick", group="Polish").status_code == 404
+    missing = tick(agent, "Coat")
+    assert missing.status_code == 404
+    assert missing.json()["detail"]["error_type"] == "not_found"
+    assert tick(agent, "  ").status_code == 422
+    assert agent.get("/app/agent/plan").json()["steps"] == [
+        {"group": "Sites", "text": "Pick sites", "done": True},
+        {"group": "Sites", "text": "Setup 01", "done": False},
+        {"group": "Sites", "text": "Setup 02", "done": False},
+        {"group": "Polish", "text": "01", "done": True},
+        {"group": "Polish", "text": "Polish 02", "done": False},
+    ]
 
 
 def test_the_sample_is_written_once_then_only_the_operator_changes_it(server):
@@ -141,6 +228,28 @@ def test_the_sessions_checklist_is_read_from_the_plan(server):
     ]
 
 
+def test_a_long_plan_still_reads_as_the_sessions_checklist(server):
+    agent, _, _, _, _ = server
+    long = "Mill the trench " + "deeper " * 40
+    section(agent, "Rules", f"- {long}")
+    boxes = [f"- [x] Done {n}" for n in range(30)]
+    boxes += [f"- [ ] Open {n}" for n in range(30)]
+    section(agent, "Steps", "\n".join([f"- [ ] {long}"] + boxes))
+    answer = agent.get("/app/agent/session")
+    assert answer.status_code == 200
+    checklist = answer.json()["session"]["checklist"]
+    assert len(checklist) == MAX_CHECKLIST
+    assert all(len(item["text"]) <= MAX_ITEM for item in checklist)
+    assert checklist[0]["text"].startswith("Mill the trench deeper")
+    assert checklist[0]["text"].endswith("…")
+    assert checklist[0]["state"] == "always" and checklist[1]["state"] == "open"
+    # The earliest done steps make room; every open step stays.
+    assert [i["text"] for i in checklist if i["state"] == "open"][-1] == "Open 29"
+    assert checklist[2]["text"] == "Done 12"
+    # The plan itself keeps every word.
+    assert long.strip() in agent.get("/app/agent/plan").json()["markdown"]
+
+
 def test_a_rule_with_a_time_is_a_deadline_saved_with_its_date(server, experiment_s1):
     agent, operator, _, _, _ = server
     section(
@@ -183,7 +292,7 @@ def test_a_rule_with_a_time_is_a_deadline_saved_with_its_date(server, experiment
 
 @pytest.fixture
 def experiment_s1(server):
-    return server[3] / "agent" / "plan-s1.md"
+    return session_folder("s1") / "plan-s1.md"
 
 
 def test_a_clock_time_is_its_next_occurrence():
@@ -217,28 +326,28 @@ def test_a_restarted_app_reads_the_plan_back_and_none_is_kept_without_a_session(
     agent.post("/app/agent/session", json={"ended": True})
     assert section(agent, "Brief", "x").json()["detail"]["error_type"] == "no_session"
 
-    # No experiment open: kept in the session's own folder, so a restarted
-    # app reads it back, and moved into the first experiment that opens.
+    # No experiment open: kept in the session's own folder all along, so a
+    # restarted app reads it back; the first experiment that opens is its.
     opened["path"] = None
     agent.post("/app/agent/session", json={"session_id": "s3"})
     assert section(agent, "Progress", "Started.").status_code == 200
     assert agent.get("/app/agent/plan").json()["sections"] == [
         {"name": "Progress", "text": "Started."}
     ]
-    assert not list(experiment.glob("agent/plan-s3.md"))
     assert PlanStore(lambda: None).current("s3") == {"Progress": "Started."}
     later = tmp_path / "grid-2"
     later.mkdir()
     opened["path"] = str(later)
     section(agent, "Brief", "Sample: yeast")
-    kept = (later / "agent" / "plan-s3.md").read_text(encoding="utf-8")
+    kept = (session_folder("s3") / "plan-s3.md").read_text(encoding="utf-8")
     assert "Started." in kept and "Sample: yeast" in kept
-    assert PlanStore(lambda: None).current("s3") == {}, "moved, not copied"
-    # The session keeps its experiment when the operator opens another.
+    assert not (later / "agent").exists(), "nothing moves into the experiment"
+    # The session keeps its experiment when the operator opens another, and
+    # a restarted app finds it from the session's link.
     opened["path"] = str(experiment)
     section(agent, "Progress", "Milled 01.")
-    assert "Milled 01." in (later / "agent" / "plan-s3.md").read_text()
-    assert not (experiment / "agent" / "plan-s3.md").exists()
+    assert "Milled 01." in (session_folder("s3") / "plan-s3.md").read_text()
+    assert AgentFiles(lambda: str(experiment)).experiment("s3") == str(later)
 
 
 def test_a_plan_reads_back_as_it_was_written():
@@ -283,3 +392,70 @@ def test_the_experiments_sample_is_the_sessions_and_the_agents_is_saved_on_it(
     assert refused.status_code == 409 and "Sample: yeast" in str(refused.json())
     assert section(agent, "Brief", "Sample: yeast\nThe question.").status_code == 200
     assert kept["sample"] == "yeast"
+
+
+def test_a_later_session_reads_an_earlier_sessions_plan_on_the_experiment(server):
+    agent, _, _, experiment, _ = server
+    # None yet: the running session's own plan is not an earlier one.
+    section(agent, "Rules", "- Stop at 200 nm.")
+    refused = agent.get("/app/agent/plan", params={"previous": True})
+    assert refused.status_code == 404
+    assert refused.json()["detail"]["error_type"] == "no_plan"
+    # Two earlier sessions left plans; the newest is read first. One is
+    # linked from its own folder, one is from before, in the experiment's.
+    files = AgentFiles(lambda: str(experiment))
+    files.experiment("s0")
+    folder = experiment / "agent"
+    folder.mkdir()
+    (session_folder("s0") / "plan-s0.md").write_text(
+        "## Rules\n\n- Stop thicker.\n\n## What worked\n\n- 30 pA, 1 µm passes.\n",
+        encoding="utf-8",
+    )
+    older = folder / "plan-old.md"
+    older.write_text("## Steps\n\n- [x] Setup 01\n- [ ] Polish 01\n", encoding="utf-8")
+    import os
+
+    os.utime(older, (1_000_000, 1_000_000))
+    newest = agent.get("/app/agent/plan", params={"previous": True}).json()
+    assert newest["session_id"] == "s0"
+    assert [s["name"] for s in newest["sections"]] == ["Rules", "What worked"]
+    assert newest["earlier"] == ["s0", "old"]
+    named = agent.get("/app/agent/plan", params={"session_id": "old"}).json()
+    assert named["steps"] == [
+        {"group": "", "text": "Setup 01", "done": True},
+        {"group": "", "text": "Polish 01", "done": False},
+    ]
+    assert named["done"] == 1
+    # Reading one leaves the running session's plan as it was.
+    mine = agent.get("/app/agent/plan").json()
+    assert mine["session_id"] == "s1"
+    assert [s["name"] for s in mine["sections"]] == ["Rules"]
+    assert (
+        agent.get("/app/agent/plan", params={"session_id": "nope"}).status_code == 404
+    )
+
+
+def test_a_session_and_its_experiment_name_each_other_and_nothing_is_copied(
+    tmp_path,
+):
+    """The session's folder names its experiment; the experiment's record
+    says the session joined it, once; earlier sessions are found from it."""
+    experiment = tmp_path / "grid-1"
+    experiment.mkdir()
+    joined = []
+    files = AgentFiles(
+        lambda: str(experiment),
+        joined=lambda kind, payload: joined.append((kind, payload)),
+        experiment_id=lambda: "exp-1",
+    )
+    folder = files.folder("s1")
+    files.folder("s1")
+    link = json.loads((folder / LINK).read_text())
+    assert link["path"] == str(experiment) and link["id"] == "exp-1"
+    assert link["session_id"] == "s1"
+    assert joined == [
+        (JOINED, {"session_id": "s1", "folder": str(session_folder("s1").parent)})
+    ]
+    files.folder("s2")
+    assert sorted(s for s, _ in files.sessions(str(experiment))) == ["s1", "s2"]
+    assert not (experiment / "agent").exists()

@@ -30,6 +30,78 @@ FIELDS = ("name", "description", "tools", "model", "effort", "skills")
 BUILT_IN = tuple(code_mode.CODE_TOOLS) + ("Skill", "ToolSearch")
 
 
+# The general worker (`.claude/agents/fibsem-worker.md`): the lead hands it
+# one job on one site or lamella. It has every fibsem tool but `LEAD_ONLY`.
+WORKER = "fibsem-worker"
+# The tools that are the lead's job, not a worker's: the record (the plan,
+# notes, the review list, the session's report, the knowledge base), the
+# operator (messages and requests), the run as a whole (the workflow, the
+# protocol, the experiment, grids, coating, every item at once) and
+# suggesting at lower levels. A worker may decide a proposal on its own
+# item when its brief says so. Every catalog tool is either the worker's or
+# here (`tests/agent/test_agent_subagents.py`), so a new one is a choice.
+LEAD_ONLY = frozenset(
+    {
+        "server_report_session",
+        "plan_set_section",
+        "plan_append",
+        "plan_check_step",
+        "review_add",
+        "review_close",
+        "experiment_add_note",
+        "experiment_message_operator",
+        "request_create",
+        "request_withdraw",
+        "knowledge_write",
+        "proposal_suggest",
+        "workflow_start",
+        "workflow_stop",
+        "workflow_stop_task",
+        "workflow_plan",
+        "workflow_plan_grids",
+        "workflow_start_grids",
+        "workflow_queue_grids",
+        "workflow_requeue",
+        "workflow_edit_queue",
+        "workflow_set_options",
+        "protocol_load",
+        "protocol_save",
+        "protocol_add_task",
+        "protocol_remove_task",
+        "protocol_reorder_tasks",
+        "protocol_reorder_milling_stages",
+        "protocol_set_schedule",
+        "protocol_set_supervision",
+        "protocol_set_task_requirements",
+        "protocol_set_lamella_defaults",
+        "protocol_update_task_config",
+        "protocol_update_grid_task_config",
+        "protocol_reorder_grid_tasks",
+        "protocol_set_grid_task_requirements",
+        "experiment_create",
+        "experiment_load",
+        "item_add",
+        "item_remove",
+        "item_set_objective_position_on_all",
+        "grid_add",
+        "grid_rename",
+        "grid_remove",
+        "grid_set_quality",
+        "grid_set_note",
+        "grid_assign_items",
+        "grid_set_current",
+        "grid_run_inventory",
+        "grid_load",
+        "grid_unload",
+        "grid_move_to_slot",
+        "coating_deposit",
+        "coating_sputter",
+    }
+)
+# A tools line's entry that lets a subagent start only the named ones.
+_AGENT_LIMIT = re.compile(r"^Agent\(([\w-]+(?:\s*,\s*[\w-]+)*)\)$")
+
+
 class SubagentError(ValueError):
     """A subagent's file that can't be used, with the reason in words."""
 
@@ -97,7 +169,10 @@ def check(
         raise SubagentError(f"unknown setting(s) {', '.join(unknown)}")
     tools = names(data.get("tools"))
     known = set(known_tools(extras))
-    missing = [tool for tool in tools if tool not in known]
+    # Agent(a, b): it may start those subagents, and no others.
+    missing = [
+        tool for tool in tools if tool not in known and not _AGENT_LIMIT.match(tool)
+    ]
     if missing:
         raise SubagentError(f"no tool {', '.join(missing)}")
     efforts = list(efforts)

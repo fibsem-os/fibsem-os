@@ -13,11 +13,14 @@ import threading
 import time
 import uuid
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 
 from fibsem.acting import AGENT, OPERATOR
+from fibsem.ai.agent import aside
 from fibsem.ai.agent.levels import AgentLevel, if_allowed
 from fibsem.workflows.actions import ACTION, NOTE, action_record, note_record
+from fibsem.workflows.events.recording import EVENTS_FILENAME
 from fibsem.workflows.evidence import EVIDENCE
 from fibsem.workflows.proposals import DecisionResult
 
@@ -166,6 +169,8 @@ class AgentControl:
         self._now: Optional[Any] = None
         self._now_microscope: Optional[Any] = None
         self._stop_now: Optional[Callable[[], None]] = None
+        # The chat's records from before the live buffer (`recent_page`).
+        self._earlier: Optional[Any] = None
 
     @property
     def host(self) -> Optional[Any]:
@@ -225,6 +230,11 @@ class AgentControl:
             return None
         previous = host.auth.level
         stopped = host.stop_agent(self._session.microscope)
+        # Why the Stop didn't reach everything it should, from a host that
+        # passes it on (the agent host to its instrument); none from the App
+        # Server's.
+        reason = getattr(host, "stop_reason", None)
+        reason = reason if isinstance(reason, str) else ""
         logger.warning(
             "Agent stopped by the operator: level set to watch%s",
             f"; stopped {stopped}" if stopped else "",
@@ -235,6 +245,7 @@ class AgentControl:
                 ACTION,
                 action_record(
                     "Stop the agent",
+                    reason=reason,
                     stops="agent",
                     previous=previous.value if previous is not None else None,
                     level=host.auth.level.value,
@@ -318,8 +329,9 @@ class AgentControl:
 
     def waiting(self) -> Optional[Dict[str, Any]]:
         """The decision a run waits on, and who can make it, for the chat
-        page: ``proposal`` ("01 · Setup · Alignment area") and ``who``; None
-        while nothing waits."""
+        page: ``proposal`` ("01 · Setup · Alignment area"), ``who`` and
+        ``agent_reviewing`` (the agent decides it now); None while nothing
+        waits."""
         from fibsem.ai.agent.suggestions import front_suggestion
         from fibsem.workflows.proposals import proposal_label
 
@@ -329,10 +341,17 @@ class AgentControl:
             return None
         item, task_name, proposal = pending[0]
         level = self.level
-        if OPERATOR in self._session.deciders():
+        deciders = self._session.deciders()
+        # The agent at Drive, listening, decides it: the page says it is
+        # reviewing, and never asks the operator to act, window or not.
+        reviewing = AGENT in deciders
+        if reviewing:
+            who = "The agent is reviewing it."
+        elif OPERATOR in deciders:
             who = "Decide it in the window."
         elif level is AgentLevel.DRIVE:
-            who = "The agent decides it."
+            # At Drive but not heard lately: it decides when it is back.
+            who = "Waiting on the agent."
         elif level is AgentLevel.ASSIST:
             who = (
                 "The agent suggested a decision."
@@ -347,6 +366,7 @@ class AgentControl:
         return {
             "proposal": f"{item.name} · {task_name} · {proposal_label(proposal)}",
             "who": who,
+            "agent_reviewing": reviewing,
         }
 
     def approve_suggestion(self, proposal_id: str) -> DecisionResult:
@@ -452,23 +472,78 @@ class AgentControl:
         where the agent's watch hears it as a ``MESSAGE`` line and answers with
         a message naming its id. *evidence*, the record of the
         image the operator marked for it (`fibsem.workflows.evidence.save`),
-        goes on the record first and the message cites it. Returns the id, or
-        None when nothing is recording, so the agent can't hear it."""
+        goes on the record first and the message cites it. A message starting
+        ``/btw`` is a side question, marked ``aside`` on the record: fibsem-agent
+        answers it outside the agent's conversation (`fibsem.ai.agent.aside`).
+        Any other message waits for the agent's turn to end, but one starting
+        ``/now`` is marked ``interrupt`` and cuts the turn short. One starting
+        ``/note`` is a note for the record, not a message: the agent hears it
+        with its next turn and answers nothing.
+        Returns the id, or None when nothing is recording, so the agent can't
+        hear it."""
         recorder = self._session.recorder
         if recorder is None:
             return None
         message_id = uuid.uuid4().hex[:8]
-        logger.info("Operator message to the agent (%s): %s", message_id, text)
+        # ``/note``: for the record, not to the agent, so nothing waits on it.
+        note = aside.note_of(text) if evidence is None else None
+        if note is not None:
+            logger.info("Operator note for the record (%s): %s", message_id, note)
+            recorder.buffer.append(
+                NOTE,
+                note_record(note, **{aside.FOR_RECORD: True}),
+                actor=OPERATOR,
+            )
+            return message_id
+        # A side question (``/btw``) is answered beside the agent's work, from
+        # its conversation; one with marks is a message, the marks being for it.
+        side = evidence is None and aside.question_of(text) is not None
+        # ``/now``: the agent's turn is cut short for it.
+        interrupt = not side and aside.interruption_of(text) is not None
+        logger.info(
+            "Operator %s to the agent (%s): %s",
+            "side question"
+            if side
+            else "interrupting message"
+            if interrupt
+            else "message",
+            message_id,
+            text,
+        )
         evidence_id = None
         if evidence is not None:
             evidence_id = evidence["evidence_id"]
             recorder.buffer.append(EVIDENCE, dict(evidence), actor=OPERATOR)
         recorder.buffer.append(
             NOTE,
-            note_record(text, to=AGENT, id=message_id, evidence=evidence_id),
+            note_record(
+                text,
+                to=AGENT,
+                id=message_id,
+                evidence=evidence_id,
+                **({aside.MARK: True} if side else {}),
+                **({aside.INTERRUPT: True} if interrupt else {}),
+            ),
             actor=OPERATOR,
         )
         return message_id
+
+    def interrupt(self, message_id: str) -> bool:
+        """Cut the agent's turn short so it reads the operator's message
+        *message_id* now, as one sent with ``/now`` would be: the *Interrupt
+        now* of a message still waiting for the turn to end. It stops the
+        turn, not the run, and the level is untouched. False when nothing is
+        recording, so the agent can't hear it."""
+        recorder = self._session.recorder
+        if recorder is None:
+            return False
+        logger.info("Operator interrupted the agent for message %s", message_id)
+        recorder.buffer.append(
+            ACTION,
+            action_record("Interrupt the agent", interrupts=message_id),
+            actor=OPERATOR,
+        )
+        return True
 
     # --- the pictures of what it asks ------------------------------------------
 
@@ -622,17 +697,39 @@ class AgentControl:
             self._now_microscope = microscope
         return self._now.text if self._now is not None else None
 
-    def recent(self) -> List[Any]:
-        """The agent card's rows (`recent.RecentRow`), read from the session's
-        record now: for a reader outside the window."""
-        from fibsem.ai.agent.recent import RecentActions
+    def recent(self, size: Optional[int] = None) -> List[Any]:
+        """The agent card's last *size* rows (`recent.RecentRow`), read from
+        the session's record now: for a reader outside the window."""
+        return self.recent_page(size)[0]
+
+    def recent_page(self, size: Optional[int] = None) -> Tuple[List[Any], bool]:
+        """The last *size* rows and whether there are earlier ones: from the
+        live buffer and, past it, the record's file, so the chat survives an
+        app restart and pages back through a long run."""
+        from fibsem.ai.agent.recent import SIZE, EarlierRecords, read_rows
 
         recorder = self._session.recorder
-        rows = RecentActions()
-        if recorder is not None:
-            for record in recorder.buffer.events_since(0).get("events", []):
-                rows.add(record)
-        return rows.rows
+        if recorder is None:
+            return [], False
+        held = recorder.buffer.events_since(0).get("events", [])
+        if self._earlier is None:
+            self._earlier = EarlierRecords()
+        return read_rows(
+            held,
+            self._events_file(),
+            size or SIZE,
+            self._earlier,
+            getattr(recorder.buffer, "stream", None),
+        )
+
+    def _events_file(self) -> Optional[Path]:
+        """The file the session's record is written to: the host's own, or
+        the experiment's."""
+        own = getattr(self._session.recorder, "events_file", None)
+        if own is not None:
+            return Path(own)
+        root = self.experiment_path()
+        return Path(root) / EVENTS_FILENAME if root is not None else None
 
     def citing(self, evidence_id: str) -> Optional[str]:
         """What the agent was doing when it cited the evidence *evidence_id*,

@@ -303,6 +303,7 @@ class VolumePreview(QWidget):
             BeamType.ION,
             MillingSpec(
                 id=PREVIEW_OVERLAY_ID,
+                draggable=False,
                 stages=placed.milling.stages,
                 stage_styles=placed.styles,
                 stage_colours=placed.colours,

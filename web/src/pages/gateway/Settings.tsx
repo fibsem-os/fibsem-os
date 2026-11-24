@@ -27,6 +27,27 @@ export interface Defaults {
   playbook: string | null;
   level: string | null;
   budget_usd: number | null;
+  /** The app's own start settings, by name. */
+  settings?: Record<string, string>;
+  /** Each app's own choices, by app key. */
+  apps?: Record<string, Defaults>;
+}
+
+/** An app the gateway can start, and what its start takes. */
+export interface AppFacts {
+  key: string;
+  name: string;
+  headless: boolean;
+  opens_experiments?: boolean;
+  connects_microscope?: boolean;
+  has_window?: boolean;
+  settings?: { name: string; label: string; default: string }[];
+}
+
+/** *key*'s own saved choices: its entry, else the saved ones when they are its. */
+export function forApp(d: Defaults | undefined, key: string | null | undefined): Defaults | undefined {
+  if (!d || !key) return undefined;
+  return d.apps?.[key] ?? (d.app === key ? d : undefined);
 }
 
 interface Secret {
@@ -163,7 +184,7 @@ function DefaultsCard({
   apps,
   configurations,
 }: {
-  apps: { key: string; name: string }[];
+  apps: AppFacts[];
   configurations: { name: string; default: boolean }[];
 }) {
   const client = useQueryClient();
@@ -201,6 +222,10 @@ function DefaultsCard({
       </Card>
     ) : null;
   const set = (change: Partial<Defaults>) => setEdit({ ...d, ...change });
+  // Choosing an app shows its own saved choices.
+  const pick = (app: string | null) =>
+    setEdit({ ...d, ...(forApp(d, app) ?? { settings: {} }), apps: d.apps, app });
+  const facts = apps.find((a) => a.key === (d.app ?? apps[0]?.key));
   const shownBudget = budget ?? (d.budget_usd != null ? String(d.budget_usd) : "");
   const changed = edit !== null || budget !== null;
   const usable = (playbooks.data ?? []).filter((p) => !p.error);
@@ -229,10 +254,10 @@ function DefaultsCard({
     <Card className="flex flex-col gap-1">
       <CardTitle>Defaults</CardTitle>
       <p className="m-0 pb-2 text-[13px] text-muted-foreground">
-        What Overview fills in. You can still change each start.
+        What Overview fills in, for each app. You can still change each start.
       </p>
-      <SubHeading first>Microscope</SubHeading>
-      <Row label="Configuration">
+      {facts?.connects_microscope !== false && <SubHeading first>Microscope</SubHeading>}
+      {facts?.connects_microscope !== false && <Row label="Configuration">
         {select(
           d.configuration,
           (configuration) => set({ configuration }),
@@ -240,33 +265,48 @@ function DefaultsCard({
           `The default (${configurations.find((c) => c.default)?.name ?? configurations[0]?.name ?? "none"})`,
           "Default configuration",
         )}
-      </Row>
-      <Row label="Connect when the app starts">
-        <input
-          type="checkbox"
-          checked={d.connect}
-          onChange={(event) => set({ connect: event.target.checked })}
-          aria-label="Connect when the app starts"
-        />
-      </Row>
-      <SubHeading>App</SubHeading>
+      </Row>}
+      {facts?.connects_microscope !== false && (
+        <Row label="Connect when the app starts">
+          <input
+            type="checkbox"
+            checked={d.connect}
+            onChange={(event) => set({ connect: event.target.checked })}
+            aria-label="Connect when the app starts"
+          />
+        </Row>
+      )}
+      <SubHeading first={facts?.connects_microscope === false}>App</SubHeading>
       <Row label="App">
         {select(
           d.app,
-          (app) => set({ app }),
+          pick,
           apps.map((a) => [a.key, a.name]),
           `The first (${apps[0]?.name ?? "none"})`,
           "Default app",
         )}
       </Row>
-      <Row label="Show the window on this PC">
-        <input
-          type="checkbox"
-          checked={d.window}
-          onChange={(event) => set({ window: event.target.checked })}
-          aria-label="Show the window on this PC"
-        />
-      </Row>
+      {facts?.has_window !== false && (
+        <Row label="Show the window on this PC">
+          <input
+            type="checkbox"
+            checked={d.window}
+            onChange={(event) => set({ window: event.target.checked })}
+            aria-label="Show the window on this PC"
+          />
+        </Row>
+      )}
+      {(facts?.settings ?? []).map((setting) => (
+        <Row key={setting.name} label={setting.label}>
+          <input
+            value={d.settings?.[setting.name] ?? ""}
+            onChange={(event) => set({ settings: { ...d.settings, [setting.name]: event.target.value } })}
+            placeholder={setting.default || "Unset"}
+            aria-label={setting.label}
+            className={cn(FIELD, "w-full sm:w-72")}
+          />
+        </Row>
+      ))}
       <SubHeading>Agent</SubHeading>
       <Row label="Playbook">
         {select(
@@ -503,7 +543,7 @@ export function Settings({
   running,
   onQuit,
 }: {
-  apps: { key: string; name: string }[];
+  apps: AppFacts[];
   configurations: { name: string; default: boolean }[];
   version: string;
   newer: { text: string; detail: string } | null;

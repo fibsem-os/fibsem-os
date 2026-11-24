@@ -531,7 +531,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="item_update",
         returns="ItemEdit",
-        description="Patch an item's own document with dotted-path edits: poi.x/poi.y (metres, milling frame), alignment_area.left/top/width/height (frame fractions), description, defect.verdict (UNASSESSED/GOOD/REWORK/FAILED) and defect.reason. milling_angle is read-only: it is an outcome of the Setup task, not an input. Echo the version from item_get — a mismatch is refused (409 stale_config); the version also changes when a pose moves, since a POI is in the milling frame. Tasks re-record geometry at their own moments, so an edit here is what the NEXT run starts from, not a permanent override.",
+        description="Patch an item's own document with dotted-path edits: poi.x/poi.y (metres, milling frame), alignment_area.left/top/width/height (frame fractions), description (what the item is: where it came from, why it was picked, its target; set once), notes (working notes on where it stands now, rewritten whole after each step), defect.verdict (UNASSESSED/GOOD/REWORK/FAILED) and defect.reason. milling_angle is read-only: it is an outcome of the Setup task, not an input. Echo the version from item_get — a mismatch is refused (409 stale_config); the version also changes when a pose moves, since a POI is in the milling frame. Tasks re-record geometry at their own moments, so an edit here is what the NEXT run starts from, not a permanent override. Which grid an item is on is not here: grid_assign_items moves items to a grid.",
         method="POST",
         path="/app/experiment/items/{item_name}",
         level="drive",

@@ -350,6 +350,41 @@ def pattern_outline(pattern) -> List[List[Tuple[float, float]]]:
     return [[(x_min, y_min), (x_max, y_min), (x_max, y_max), (x_min, y_max)]]
 
 
+def shape_contains(shape, x: float, y: float, tolerance: float = 0.0) -> bool:
+    """Whether the point (metres from the field's centre, y up) is on *shape*: inside
+    its outline by the even-odd rule, so a ring's hole is outside; for a line, within
+    *tolerance* of it."""
+    rings = pattern_outline(shape)
+    if len(rings) == 1 and len(rings[0]) == 2:
+        (x0, y0), (x1, y1) = rings[0]
+        dx, dy = x1 - x0, y1 - y0
+        along = ((x - x0) * dx + (y - y0) * dy) / ((dx * dx + dy * dy) or 1.0)
+        along = min(1.0, max(0.0, along))
+        return float(np.hypot(x - x0 - along * dx, y - y0 - along * dy)) <= tolerance
+    crossings = 0
+    for ring in rings:
+        for (x0, y0), (x1, y1) in zip(ring, ring[1:] + ring[:1]):
+            if (y0 > y) != (y1 > y) and x < x0 + (y - y0) * (x1 - x0) / (y1 - y0):
+                crossings += 1
+    return crossings % 2 == 1
+
+
+def stage_at(
+    stages, x: float, y: float, tolerance: float = 0.0, prefer: Optional[int] = None
+) -> Optional[int]:
+    """The index of the stage whose pattern is under the point, or None. Where
+    several overlap, *prefer* if it is one of them, else the last, which is drawn
+    on top."""
+    hits = [
+        i
+        for i, stage in enumerate(stages)
+        if any(shape_contains(s, x, y, tolerance) for s in stage.define_patterns())
+    ]
+    if prefer in hits:
+        return prefer
+    return hits[-1] if hits else None
+
+
 def outside_field(pattern, width: float, height: float) -> bool:
     """Whether *pattern* reaches past a *width* × *height* field (metres),
     centred on the beam, which a real instrument refuses to mill."""

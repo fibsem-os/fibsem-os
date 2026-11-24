@@ -85,11 +85,17 @@ def test_the_refusal_names_the_lamellae_and_the_grid(experiment, arctis):
     also_two = _lamella(experiment, "also-two", "Grid-02")
     assert run_refusal(experiment, stage, [on_two]) == (
         "Cannot run: on-two is on Grid-02, which is not on the stage. "
-        "Load Grid-02 first, or leave that lamella out."
+        "Load Grid-02 first, or leave that lamella out. "
+        "The loader's record has no grid on the stage. If Grid-02 is there "
+        "already, mark it with Is on the stage on its grid card instead of "
+        "loading it."
     )
     assert run_refusal(experiment, stage, [on_two, also_two]) == (
         "Cannot run: on-two, also-two are on Grid-02, which is not on the stage. "
-        "Load Grid-02 first, or leave those lamellae out."
+        "Load Grid-02 first, or leave those lamellae out. "
+        "The loader's record has no grid on the stage. If Grid-02 is there "
+        "already, mark it with Is on the stage on its grid card instead of "
+        "loading it."
     )
 
 
@@ -113,3 +119,26 @@ def test_the_inventory_is_read_first(experiment, arctis, monkeypatch):
     )
     run_refusal(experiment, stage, [on_two])
     assert calls == [1]
+
+
+def test_a_grid_on_the_stage_under_no_name_is_named_not_loaded(experiment, arctis):
+    """After a restart the loader may read the grid on the stage unnamed, and
+    its home slot empty: the refusal says what the loader has, and naming the
+    grid there clears it with nothing moved."""
+    from fibsem.devices.sample_loader import StageSample
+    from fibsem.structures.settings import SampleGrid
+
+    stage = arctis.sample_handling
+    on_two = _lamella(experiment, "on-two", "Grid-02")
+    # The loader's read as it is then: frozen here, for the check reads it again.
+    stage.magazine._read_magazine = lambda: None
+    stage.magazine._on_stage = lambda: StageSample(present=True)
+    stage.magazine.slots["Slot-02"].loaded_grid = None
+    stage.magazine.working_slot.loaded_grid = SampleGrid(name="Grid-on-stage")
+    assert "The loader's record has 'Grid-on-stage' on the stage." in run_refusal(
+        experiment, stage, [on_two]
+    )
+
+    answer = stage.set_current("Grid-02")
+    assert answer == {"slot": "Shuttle", "grid": "Grid-02", "home_slot": "Slot-02"}
+    assert run_refusal(experiment, stage, [on_two]) == ""

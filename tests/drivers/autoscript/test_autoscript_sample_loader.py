@@ -274,6 +274,67 @@ class TestInventory:
         assert all(r.source == "magazine" for r in rows)
 
 
+class TestAfterARestart:
+    """Before 4.14 the loader keeps no name for the grid on the stage: its home
+    slot reads Empty and the stage's description is the slot's, often blank. The
+    session state keeps the name across a restart of the application."""
+
+    def _loaded_then_restarted(self, hw):
+        microscope, loader = _microscope_with(hw)
+        loader.get_inventory()
+        microscope.sample_handling.ensure_loaded("Grid-03")
+        assert hw._slots[2].state == "Empty" and hw.stage.sample_description == ""
+        return _microscope_with(hw)  # the application again, same configuration
+
+    def test_the_grid_on_the_stage_keeps_its_name_and_home(self):
+        from fibsem.services.sample_handling import GridSlotState
+
+        hw = FakeAutoloader(occupied={2: "grid-elm", 3: ""})
+        microscope, loader = self._loaded_then_restarted(hw)
+        loader.get_inventory()
+        assert [g.name for g in microscope.sample_handling.loaded_grids] == ["Grid-03"]
+        rows = {r.slot_name: r for r in microscope.sample_handling.grid_inventory()}
+        assert rows["Slot-03"].name == "Grid-03"
+        assert rows["Slot-03"].state is GridSlotState.LOADED
+
+    def test_when_the_stage_does_not_say_the_name_still_comes_back(self):
+        hw = FakeAutoloader(occupied={3: ""})
+        microscope, loader = self._loaded_then_restarted(hw)
+        hw.stage.state = "Unknown"
+        loader.get_inventory()
+        assert [g.name for g in microscope.sample_handling.loaded_grids] == ["Grid-03"]
+
+    def test_a_grid_unloaded_behind_our_back_is_not_put_back(self):
+        hw = FakeAutoloader(occupied={3: ""})
+        microscope, loader = self._loaded_then_restarted(hw)
+        hw.unload()  # from the vendor UI, while the application was down
+        hw.stage.state = "Unknown"
+        loader.get_inventory()
+        assert microscope.sample_handling.loaded_grids == []
+        assert loader.slots["Slot-03"].loaded_grid.name == "Grid-03"
+
+    def test_with_nothing_remembered_it_is_unnamed_until_named(self):
+        hw = FakeAutoloader(occupied={3: ""})
+        hw.load(3)  # loaded from the vendor UI
+        microscope, loader = _microscope_with(hw)
+        loader.get_inventory()
+        stage = microscope.sample_handling
+        assert [g.name for g in stage.loaded_grids] == ["Grid-on-stage"]
+        stage.set_current("Grid-03")
+        assert hw._slots[2].sample_description == "Grid-03"
+        # and the next start of the application has it
+        microscope, loader = _microscope_with(hw)
+        loader.get_inventory()
+        assert [g.name for g in microscope.sample_handling.loaded_grids] == ["Grid-03"]
+
+    def test_naming_is_refused_when_the_stage_is_empty(self):
+        hw = FakeAutoloader(occupied={3: ""})
+        microscope, loader = _microscope_with(hw)
+        loader.get_inventory()
+        with pytest.raises(GridExchangeError, match="no grid on the stage"):
+            microscope.sample_handling.set_current("Grid-03")
+
+
 # ---------------------------------------------------------------------------
 # Exchange
 # ---------------------------------------------------------------------------

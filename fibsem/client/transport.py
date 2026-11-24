@@ -32,7 +32,11 @@ from fibsem.devices.wire import (
     Frame,
     frames_from_bytes,
 )
-from fibsem.server.discovery import read_discovery_file
+from fibsem.server.discovery import (
+    SERVER_TOKEN_ENV,
+    read_discovery_file,
+    read_gateway_file,
+)
 from fibsem.server.images import (
     IMAGES_MEDIA_TYPE,
     TIFF_MEDIA_TYPE,
@@ -79,6 +83,12 @@ def unreachable_why(url: str) -> str:
     )
 
 
+# The gateway's answers for an App Server that isn't there or stopped
+# answering mid-call (`fibsem.gateway.passthrough`), kept in step by a test.
+GATEWAY_NO_APP = "no_app"
+GATEWAY_APP_LOST = "app_lost"
+
+
 class ServerUnreachable(ConnectionError):
     """No server was found, or it did not answer: ``timed_out`` when a request
     may have reached it."""
@@ -109,8 +119,10 @@ class ServerError(RuntimeError):
 
 # The App Server a process is pointed at, set by whoever launches it.
 SERVER_URL_ENV = "FIBSEM_SERVER_URL"
-SERVER_TOKEN_ENV = "FIBSEM_SERVER_TOKEN"
 OPERATOR_TOKEN_ENV = "FIBSEM_OPERATOR_TOKEN"
+# The agent's token at an agent host (`fibsem.server.agent.host`): in the
+# environment or the key store, read by fibsem-agent --host and the host.
+HOST_TOKEN_ENV = "FIBSEM_HOST_TOKEN"
 
 
 def server_env() -> Tuple[Optional[str], Optional[str]]:
@@ -127,9 +139,10 @@ def resolve(
 ) -> Optional[Tuple[str, str]]:
     """The server's url and token: as given, else from the environment, else the
     agent token this computer was paired with there (`fibsem.client.pairing`),
-    else from the discovery file the App Server on this machine writes (the
-    agent token this agent was allowed, else the file's connect token, which
-    asks to be allowed), else the agent token paired at the SSH tunnel's end.
+    else this machine's gateway (`gateway.json`: the agent token this agent was
+    allowed there, else the file's connect token, which asks to be allowed),
+    else an App Server running alone here, else the agent token paired at the
+    SSH tunnel's end, the gateway's port on the microscope PC.
     None when none is known (yet). Never an operator's paired token.
 
     Where the agent is not released (`fibsem.unreleased`), a client is the
@@ -143,16 +156,14 @@ def resolve(
         token = agent_token(url)
     if url and token:
         return url, token
-    found = read_discovery_file()
-    if found is not None:
-        url = url or found["url"]
-        token = (
-            token
-            or agent_token(url)
-            or found.get("token")
-            or found.get("connect_token")
-        )
-        return url, token
+    # This PC's gateway, the one way in: the agent token it was allowed there,
+    # else the gateway's connect token, which asks to be allowed. Else an App
+    # Server running alone (tests, scripts), whose token the environment names.
+    for found in (read_gateway_file(), read_discovery_file()):
+        if found is not None:
+            url = url or found["url"]
+            token = token or agent_token(url) or found.get("connect_token")
+            return url, token
     if not url and (paired := agent_token(DEFAULT_URL)) is not None:
         return DEFAULT_URL, token or paired
     return None
@@ -177,12 +188,13 @@ def resolve_operator(
     url: Optional[str] = None, token: Optional[str] = None
 ) -> Optional[Tuple[str, str]]:
     """The server's url and the operator's token, for a client that acts as the
-    operator: url as given, else ``FIBSEM_SERVER_URL``, else the discovery file;
+    operator: url as given, else ``FIBSEM_SERVER_URL``, else this PC's gateway,
+    else an App Server running alone here;
     token as given, else ``FIBSEM_OPERATOR_TOKEN``, else this install's operator
     token file. Never the agent's token. None when either is unknown."""
     url = url or server_env()[0]
     if not url:
-        found = read_discovery_file()
+        found = read_gateway_file() or read_discovery_file()
         url = found["url"] if found is not None else None
     token = token or os.environ.get(OPERATOR_TOKEN_ENV) or read_operator_token()
     return (url, token) if url and token else None
@@ -283,7 +295,7 @@ class Transport:
         """The server's answer whatever its status, as httpx's ``request``
         answers it; `fetch` reads it as data."""
         try:
-            return self._attempt(method, path, kwargs)
+            response = self._attempt(method, path, kwargs)
         except httpx.TimeoutException:
             raise ServerUnreachable(
                 f"{method} {self.url}{path}: no answer in time", timed_out=True
@@ -293,6 +305,16 @@ class Transport:
                 f"{method} {self.url}{path}: {type(error).__name__}. "
                 + unreachable_why(self.url)
             ) from None
+        # Through the gateway (`fibsem.gateway.passthrough`): its App Server
+        # not answering reads as the server not answering, as it would direct.
+        if response.status_code in (502, 503, 504):
+            gone = _detail(response).get("error_type")
+            if gone in (GATEWAY_NO_APP, GATEWAY_APP_LOST):
+                raise ServerUnreachable(
+                    f"{method} {self.url}{path}: {_detail(response).get('message')}",
+                    timed_out=gone == GATEWAY_APP_LOST,
+                )
+        return response
 
     def _attempt(
         self, method: str, path: str, kwargs: Dict[str, Any]

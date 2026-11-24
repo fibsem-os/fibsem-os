@@ -8,10 +8,10 @@ from pathlib import Path
 import pytest
 import yaml
 
-from fibsem.ai.evals import report, runner, visual
 from fibsem.ai.evals.__main__ import main
-from fibsem.ai.evals.cases import load_case
-from fibsem.ai.evals.runner import (
+from fibsem.ai.evals.core import report, runner, visual
+from fibsem.ai.evals.core.cases import load_case
+from fibsem.ai.evals.core.runner import (
     RunConfig,
     link_inputs,
     run_case,
@@ -99,11 +99,11 @@ def test_run_scores_the_answer(home, case, tmp_path, monkeypatch):
     assert not (experiment / "what-the-run-did.json").exists()
     assert json.loads((folder / "result.json").read_text())["case"] == "polish"
     assert (folder / "session" / "session.json").is_file()
-    # Each run starts from its own state root, which lets the agent connect.
+    # Each run starts from its own state root, its App Server on.
     prefs = yaml.safe_load(
         (folder / "home" / "config" / "user-preferences.yaml").read_text()
     )
-    assert prefs["install"]["app_server"]["allow_local_agents"] is True
+    assert prefs["install"]["app_server"] == {"enabled": True}
     assert discovery.read_discovery_file() is None  # the server was ended
 
     (row,) = report.summarise(report.load_results(tmp_path / "out"))
@@ -187,11 +187,11 @@ def test_repeats_and_skips_unkeyed(home, case, tmp_path, monkeypatch):
 def test_cli_run_and_report(home, case, tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("EVAL_FAKE_ANSWER", json.dumps(STOP_AT_P3))
     monkeypatch.setattr(
-        "fibsem.ai.evals.runner.server_command",
+        "fibsem.ai.evals.core.runner.server_command",
         lambda: [sys.executable, FAKES, "server"],
     )
     monkeypatch.setattr(
-        "fibsem.ai.evals.runner.agent_command",
+        "fibsem.ai.evals.core.runner.agent_command",
         lambda: [sys.executable, FAKES, "agent"],
     )
     out = tmp_path / "out"
@@ -240,7 +240,7 @@ def test_the_squares_to_label_are_in_the_task_but_not_their_labels(tmp_path):
 
 
 def test_a_case_can_raise_its_own_budget(case, tmp_path):
-    from fibsem.ai.evals.runner import case_budget
+    from fibsem.ai.evals.core.runner import case_budget
 
     config = RunConfig(out=tmp_path / "out", budget_usd=1.0)
     assert case_budget(case, config) == 1.0
@@ -255,7 +255,7 @@ def test_a_stopped_parallel_run_starts_no_more(case, tmp_path, monkeypatch):
         started.append(repeat)
         raise KeyboardInterrupt
 
-    monkeypatch.setattr("fibsem.ai.evals.runner.run_case", run)
+    monkeypatch.setattr("fibsem.ai.evals.core.runner.run_case", run)
     with pytest.raises(KeyboardInterrupt):
         run_cases([case], config(tmp_path, repeats=8, jobs=2))
     assert len(started) < 8

@@ -149,6 +149,10 @@ class Grids(Protocol):
 
     def remove_grid(self, grid_name: str) -> Dict[str, Any]: ...
 
+    def assign_items_to_grid(
+        self, grid_name: str, item_names: List[str]
+    ) -> Dict[str, Any]: ...
+
     def grid_task_config(self, task_name: str) -> Dict[str, Any]: ...
 
     def apply_grid_task_config_patch(
@@ -235,6 +239,15 @@ class Lamellae(Protocol):
         scan_direction: bool = False,
         alignment_area: bool = False,
         metadata_bar: bool = True,
+    ) -> Any: ...
+
+    def draw_milling_on_overview(
+        self,
+        item_names: Optional[List[str]] = None,
+        grid_name: Optional[str] = None,
+        path: Optional[str] = None,
+        task_names: Optional[List[str]] = None,
+        box: Optional[List[float]] = None,
     ) -> Any: ...
 
     def lamella_run_plan(

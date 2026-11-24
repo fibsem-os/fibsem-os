@@ -7,6 +7,31 @@
 description: General microscope work, for when no workflow fits.
 # The instrument kind: its prompt files are in ../instruments/<kind>/.
 instrument: fibsem
+# The MCP servers the agent uses, by name: fibsem is the sidecar to the App
+# Server, built in; any other is an entry in the lab's ~/.fibsem/agent/mcp.yaml.
+# A playbook adds its own; a server in the lab's mcp.yaml is on only for a
+# playbook that names it.
+mcp: [fibsem]
+# The fibsem tools loaded from the first turn: the CLI defers the rest until
+# the agent finds them with ToolSearch. The ones every session uses; each
+# costs context from the start, so a playbook adds only its own few.
+tools:
+  - server_get_capabilities
+  - app_get_status
+  - proposal_list
+  - plan_get
+  - plan_set_section
+  - plan_append
+  - plan_check_step
+  - experiment_message_operator
+  - experiment_add_note
+  - workflow_get_queue
+  - knowledge_list
+  - stage_get_position
+  - microscope_get_state
+  - beam_acquire_image
+  - analysis_crop_image
+  - analysis_draw_image
 session:
   effort: high
   max_budget_usd: 500
@@ -18,6 +43,34 @@ session:
   deadline_warn_min: 30
   # A running workflow this many minutes without an event wakes the agent once.
   quiet_min: 20
+  # Every turn re-reads the whole context, so a large one costs more each step.
+  # Above context_suggest (tokens) the agent is told once, at a natural point
+  # (a workflow, task or command ended, nothing failed or waiting on it), that
+  # it may start a fresh context there (context_reset). Above context_ceiling
+  # one is due: it is asked at each natural point, more firmly after three.
+  context_suggest: 300000
+  context_ceiling: 500000
+  # The CLI compacts the context near this window (tokens, 100000 to 1000000):
+  # the backstop for an agent that hasn't reset by then.
+  compact_window: 700000
+  # A resume reloads the last conversation only while its context was below
+  # this many tokens: a larger one costs nearly the whole window on every turn
+  # and compacts at once. Above it, or when the reload fails, fibsem-agent
+  # carries the session on in a fresh context rebuilt from the plan, the
+  # handoff notes and the experiment's record.
+  resume_max_context: 700000
+  # What wakes the agent at each level, until it sets its own with wake_on:
+  # all (every watcher line) or digest (routine lines, such as a task finishing
+  # normally or an autofocus that passed, held and given together). At Drive
+  # and Assist it checks each result as it comes; at Watch it is told what went
+  # well in a digest, and anything that needs it at once.
+  wake_on_watch: digest
+  wake_on_assist: all
+  wake_on_drive: all
+  # A digest comes this many minutes after its first line was held, or once
+  # this many lines are held, or with the next line that wakes the agent.
+  digest_min: 30
+  digest_lines: 20
 # Read first, every session.
 skills: [fibsem-agent, fibsem-microscope]
 reminders:
@@ -27,4 +80,4 @@ reminders:
 rules:
   - "Never trust an auto function's result on its own (alignment, focus, thickness, centre offsets): look at the image it gives and check it worked well enough before you act on it."
   - Judge an image only once its focus and brightness/contrast are good enough; fix them first.
-  - "Every time you choose a position (a site, a lamella, a place to mill), verify focus, brightness/contrast and SEM/FIB coincidence there before you accept it, even for FIB-only milling. Coincident means the same feature is centred in both the SEM and the FIB image at a 50 µm field of view: within 5 µm of centre in both, aiming for 2-3 µm."
+  - "Every time you choose a position (a site, a lamella, a place to mill), verify focus, brightness/contrast and SEM/FIB coincidence there before you accept it, even for FIB-only milling. Coincident means the same feature is centred in both the SEM and the FIB image: start wide (150-200 µm) where a narrow view shares too few features, and finish at about a 50 µm field of view. As a guide, within 5 µm of centre in both, 2-3 µm where the scene allows; how close is close enough depends on the sample and on what you will do there, so say what you reached and why it is enough."

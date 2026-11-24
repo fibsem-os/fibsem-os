@@ -141,10 +141,6 @@ _APP_HOSTING = ("server", "server.py", "ui", "launch.py")
 SERVER_IMPORTERS = {
     # AppSession is the composition root: it starts the server it hosts.
     "fibsem/workflows/session.py",
-    # The Qt agent card's server setup and pairing.
-    "fibsem/ui/agent/app_server_dialog.py",
-    "fibsem/ui/agent/chip_host.py",
-    "fibsem/ui/agent/pairing_widgets.py",
 }
 
 

@@ -53,7 +53,7 @@ class RecordingContext(AutoLamellaAppContext):
 
 @pytest.fixture
 def auth():
-    auth = AuthConfig(token="agent", dashboard_token="dashboard")
+    auth = AuthConfig(token="agent")
     auth.set_level(AgentLevel.ASSIST)
     return auth
 
@@ -529,6 +529,7 @@ def test_cancel_clears_the_waiting_request(client, app):
 # The arguments a named tool cannot be called without.
 _AXES = {axis: 0.0 for axis in "xyzrt"}
 _SAMPLE_ARGUMENTS = {
+    "grid_set_current": {"grid_name": "G2"},
     "stage_stable_move": {"dx": 1e-6, "dy": 0.0},
     "stage_fm_stable_move": {"dx": 1e-6, "dy": 0.0},
     "stage_move_to_device": {"device": "FM"},
@@ -545,6 +546,7 @@ _SAMPLE_ARGUMENTS = {
         "path": "experiment",
     },
     "beam_acquire_focus_stack": {"image_settings": {"hfw": 1e-4}, "path": "experiment"},
+    "beam_acquire_pair_preview": {"hfw": 50e-6, "path": "experiment"},
     "fm_acquire_image": {"channels": [{"name": "GFP"}], "path": "experiment"},
     "milling_run_stage": {"stage": {"name": "Rough"}},
     "milling_run_task": {"config": {"name": "Mill"}, "path": "experiment"},

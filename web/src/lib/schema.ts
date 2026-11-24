@@ -37,6 +37,15 @@ export interface components {
             specialists: components["schemas"]["SkillRow"][];
             tools: components["schemas"]["ToolRow"][];
         };
+        /** @description GET /app/agent/playbook-file: the running session's playbook as its
+         *     file is now. ``hash`` is None when the file is gone or doesn't load;
+         *     ``edited``, that it differs from the copy the session runs. */
+        AgentPlaybookFile: {
+            /** @default false */
+            edited: boolean;
+            hash: string | null;
+            name: string | null;
+        };
         /** @description POST /app/agent/requests: the agent's actions, each ``{tool,
          *     arguments}``, and why, for the operator to approve at Assist. */
         AgentRequestBody: {
@@ -185,6 +194,13 @@ export interface components {
             device: string;
             why: string;
         };
+        /** @description A call on a device running now (`fibsem.devices.heard`). */
+        CallRunning: {
+            call: string;
+            /** @default false */
+            long: boolean;
+            since: number;
+        };
         Change: {
             new: unknown;
             old: unknown;
@@ -198,15 +214,50 @@ export interface components {
             state: "open" | "done" | "always";
             text: string;
         };
+        /** @description POST /app/experiment/analysis/coincidence: features picked in a saved
+         *     SEM image and in a saved FIB image, one (sem_point, fib_point) or
+         *     several (pairs). */
+        CoincidenceOffsetBody: {
+            fib_crop?: string | [
+                number,
+                number,
+                number,
+                number
+            ] | null;
+            fib_path: string;
+            fib_point?: [
+                number,
+                number
+            ] | null;
+            pairs?: components["schemas"]["PointPair"][] | null;
+            sem_crop?: string | [
+                number,
+                number,
+                number,
+                number
+            ] | null;
+            sem_path: string;
+            sem_point?: [
+                number,
+                number
+            ] | null;
+            tolerance_um?: number | null;
+        };
         CommandDescription: {
             agent: boolean | null;
             arguments: {
                 [key: string]: unknown;
             };
             available: boolean;
+            /** @default  */
+            label: string;
             /** @default false */
             long: boolean;
+            /** @default  */
+            reason: string;
             returns: string | null;
+            /** @default false */
+            safety: boolean;
             signature: string;
         };
         /** @description A patch to a task config, or its milling stages reordered, against
@@ -242,17 +293,6 @@ export interface components {
             replaces: string | null;
             user: string;
         };
-        /** @description POST /connect: an agent asking to connect, waiting up to ``wait_s``.
-         *     Unknown keys are ignored, as for pairing. */
-        ConnectBody: {
-            /** @default  */
-            client?: string;
-            /** @default  */
-            origin?: string;
-            /** @default  */
-            user?: string;
-            wait_s?: number | null;
-        };
         ConnectText: {
             text: string | null;
         };
@@ -284,9 +324,18 @@ export interface components {
             error: string | null;
             run: components["schemas"]["RunAnswer"] | null;
         };
-        /** @description How full its context is, in tokens. */
+        /** @description One part of the context and its size, as the CLI's ``/context`` names
+         *     it: "System prompt", "MCP tools", "Messages". */
+        ContextPart: {
+            name: string;
+            tokens: number;
+        };
+        /** @description How full its context is, in tokens, and of what. */
         ContextUse: {
             compact_at: number | null;
+            due_at: number | null;
+            parts: components["schemas"]["ContextPart"][] | null;
+            suggest_at: number | null;
             used: number | null;
             window: number | null;
         };
@@ -337,6 +386,9 @@ export interface components {
             synced_tasks: string[] | null;
         };
         DisplayImages: {
+            devices: {
+                [key: string]: components["schemas"]["ImagePayload"];
+            };
             fib: components["schemas"]["ImagePayload"] | null;
             fm: components["schemas"]["ImagePayload"] | null;
             /** @default false */
@@ -665,10 +717,6 @@ export interface components {
             entries: components["schemas"]["FileEntry"][];
             root: string;
         };
-        /** @description PATCH /pairing/computers/{id}: the computer's grants, replaced. */
-        GrantsBody: {
-            grants?: string[];
-        };
         /** @description A grid's summary, every task run with its files, and its items. */
         GridDetail: {
             completed_tasks: string[];
@@ -695,6 +743,7 @@ export interface components {
             added: string[] | null;
             /** @default false */
             applied: boolean;
+            assigned: string[] | null;
             grid_name: string | null;
             grid_names: string[] | null;
             items_without_grid: string[] | null;
@@ -705,6 +754,10 @@ export interface components {
             save_error: string | null;
             saved: boolean | null;
             was: string | null;
+        };
+        /** @description POST .../grids/{grid_name}/items: the lamellae to record as on it. */
+        GridItemsBody: {
+            item_names: string[];
         };
         GridMarker: {
             inside: boolean;
@@ -772,6 +825,24 @@ export interface components {
             /** @default false */
             unload_at_end?: boolean;
         };
+        /** @description POST /app/experiment/analysis/grid_squares: the grid-bar lattice on a
+         *     saved image, *limit* squares and the *points* to check against the bars;
+         *     fitted in *box* and preferring *pitch_um* when given. */
+        GridSquaresBody: {
+            box?: [
+                number,
+                number,
+                number,
+                number
+            ] | null;
+            limit?: number | null;
+            path: string;
+            pitch_um?: number | null;
+            points?: [
+                number,
+                number
+            ][] | null;
+        };
         GridSummary: {
             completed_tasks: string[];
             current_task: string | null;
@@ -805,6 +876,26 @@ export interface components {
         };
         HTTPValidationError: {
             detail: components["schemas"]["ValidationError"][];
+        };
+        /** @description POST /app/agent/handoff: a handoff note fibsem-agent keeps as the agent
+         *     starts a fresh context. */
+        HandoffBody: {
+            session_id: string;
+            text: string;
+        };
+        /** @description POST /app/experiment/analysis/histogram: a saved image's values, on a
+         *     plane and in a box when given. */
+        HistogramBody: {
+            bins?: number | null;
+            box?: [
+                number,
+                number,
+                number,
+                number
+            ] | null;
+            channel?: string | null;
+            path: string;
+            plane?: number | null;
         };
         /** @description One run of a task on an item, oldest first. */
         HistoryRow: {
@@ -870,7 +961,7 @@ export interface components {
             scalebar_locations: string[];
             width: number;
         };
-        /** @description An analysis tool's answer (`fibsem.imaging.analysis`) on a saved image. */
+        /** @description An analysis tool's answer (`fibsem.analysis.measure`) on a saved image. */
         ImageMeasured: {
             image: string;
             measurement: string;
@@ -998,11 +1089,39 @@ export interface components {
             save: boolean;
             scan_interlacing: number | null;
         };
+        /** @description The shift of *image* from *reference*, as an alignment measures it
+         *     (`fibsem.alignment.AlignmentIteration.to_dict`), and with every method
+         *     when asked (`fibsem.alignment.AlignmentDifferential.to_dict`). */
+        ImageShift: {
+            comparison: {
+                [key: string]: unknown;
+            } | null;
+            image: string;
+            reference: string;
+            shift: {
+                [key: string]: unknown;
+            };
+        };
         /** @description Who is in control, doing what, since when (epoch seconds). */
         InControl: {
             action: string;
             by: components["schemas"]["ActorKind"];
             since: number;
+        };
+        /** @description The App Server's ``/microscope/health``: the connection, the Safety
+         *     Halt's reason while one is set, and when each device and service was last
+         *     heard from. Read from what the server holds, never from the hardware. */
+        InstrumentHealth: {
+            connected: boolean;
+            connecting: string | null;
+            devices: {
+                [key: string]: components["schemas"]["LastHeard"];
+            };
+            error: string | null;
+            halted: string | null;
+            services: {
+                [key: string]: components["schemas"]["LastHeard"];
+            };
         };
         /** @description POST /app/experiment/analysis/intensity: points on a saved image. */
         IntensityBody: {
@@ -1140,6 +1259,8 @@ export interface components {
             is_failure: boolean;
             item_name: string;
             milling_angle: number | null;
+            /** @default  */
+            notes: string;
             poi: {
                 name: string | null;
                 /** @default 0 */
@@ -1186,6 +1307,16 @@ export interface components {
         };
         LamellaSummary: {
             items: components["schemas"]["LamellaRow"][];
+        };
+        /** @description When a device was last heard from, from the calls a run made to it: the
+         *     last that came back, the last that failed in the driver or the hardware
+         *     (refusals don't count), and those running now. */
+        LastHeard: {
+            last_error: string | null;
+            last_error_at: number | null;
+            last_error_call: string | null;
+            last_ok: number | null;
+            running: components["schemas"]["CallRunning"][];
         };
         LeaseTaken: {
             idle_s: number;
@@ -1270,12 +1401,23 @@ export interface components {
             };
             reason: string | null;
         };
+        /** @description An MCP server of the session, as the agent's CLI last said: its
+         *     status (``connected``, ``failed``, ``pending``, ...) and its tools. */
+        McpServer: {
+            about: string | null;
+            name: string;
+            status: string;
+            tools: number | null;
+        };
         /** @description POST /app/agent/messages: the operator's message to the agent. ``text``
          *     may be empty when ``evidence`` says it. */
         MessageBody: {
             evidence?: components["schemas"]["MarkedEvidence"] | null;
             /** @default  */
             text?: string;
+        };
+        MessageInterrupted: {
+            id: string;
         };
         MessageSent: {
             evidence_id: string | null;
@@ -1295,6 +1437,8 @@ export interface components {
             } | null;
             native_max: number | null;
             native_unit: string | null;
+            /** @default  */
+            reason: string;
             settable: boolean;
         };
         MicroscopeInfo: {
@@ -1375,6 +1519,42 @@ export interface components {
             scan_direction?: boolean | null;
             task_names: string | string[];
         };
+        MillingOnOverview: {
+            caveats: string[];
+            closest: {
+                [key: string]: unknown;
+            } | null;
+            grid_name: string | null;
+            image: string;
+            items: {
+                [key: string]: unknown;
+            }[];
+            path: string;
+            plot: {
+                [key: string]: string;
+            };
+            task_names: string[];
+            unplaced: {
+                [key: string]: string;
+            }[];
+        };
+        /** @description POST /app/experiment/images/milling: items' milling drawn on an
+         *     overview of their grid. Items by name, or every item of ``grid_name``;
+         *     the overview at ``path`` or the grid's latest SEM overview; a ``box``
+         *     ([x, y, width, height] in its pixels) to show instead of the items'
+         *     neighbourhood. */
+        MillingOverviewBody: {
+            box?: [
+                number,
+                number,
+                number,
+                number
+            ] | null;
+            grid_name?: string | null;
+            item_names?: string | string[] | null;
+            path?: string | null;
+            task_names?: string | string[] | null;
+        };
         /** @description A new name. */
         NameBody: {
             name: string;
@@ -1446,13 +1626,6 @@ export interface components {
         NotificationTest: {
             channel_id: string;
         };
-        /** @description POST /pairing: for the operator's app, or ``agent`` (``hub`` on a
-         *     gateway, with ``grants``). */
-        OpenPairingBody: {
-            grants?: string[];
-            /** @default operator */
-            role?: string;
-        };
         /** @description POST /app/experiment/messages: the agent's message to the operator,
          *     ``reply_to`` the message it answers. */
         OperatorMessageBody: {
@@ -1509,16 +1682,6 @@ export interface components {
                 z: number | null;
             };
         };
-        /** @description POST /pair: the code shown, and what to call this computer. Unknown
-         *     keys are ignored: a client of another version pairs here too. */
-        PairBody: {
-            /** @default  */
-            browser?: string;
-            /** @default  */
-            code?: string;
-            /** @default  */
-            name?: string;
-        };
         ParameterDescription: {
             agent: boolean | null;
             choices: unknown[] | null;
@@ -1533,6 +1696,8 @@ export interface components {
             } | null;
             native_max: number | null;
             native_unit: string | null;
+            /** @default  */
+            reason: string;
             settable: boolean;
             type: string;
             type_path: string | null;
@@ -1585,6 +1750,11 @@ export interface components {
                 [key: string]: unknown;
             } | null;
         };
+        /** @description POST /app/agent/plan/append: lines added at the end of one section. */
+        PlanAppendBody: {
+            section: string;
+            text: string;
+        };
         /** @description PUT /app/agent/plan: the whole plan, its sections under ## headings. */
         PlanBody: {
             markdown: string;
@@ -1598,6 +1768,44 @@ export interface components {
         PlanStep: {
             grid: string;
             step: string;
+        };
+        /** @description POST /app/agent/plan/step: one Steps box ticked, or unticked. */
+        PlanStepBody: {
+            /** @default true */
+            done?: boolean;
+            group?: string | null;
+            step: string;
+        };
+        /** @description The playbook the session runs, as it was loaded (`Playbook.about`):
+         *     what the agent follows, whatever its file says now. Sent when the
+         *     session starts on it or ``playbook_set`` changes it. */
+        PlaybookAbout: {
+            agents: string[] | null;
+            description: string | null;
+            extends: string[] | null;
+            hash: string | null;
+            instrument: string | null;
+            mcp: string[] | null;
+            name: string;
+            optional: components["schemas"]["PlaybookOption"][] | null;
+            reminders: components["schemas"]["PlaybookReminder"][] | null;
+            rules: string[] | null;
+            skills: string[] | null;
+            source: ("shipped" | "lab" | "plugin") | null;
+            tools: string[] | null;
+        };
+        /** @description An optional skill: read *when* the job needs it, its reminders and
+         *     subagents on while it is loaded. */
+        PlaybookOption: {
+            agents: string[] | null;
+            reminders: components["schemas"]["PlaybookReminder"][] | null;
+            skill: string;
+            when: string;
+        };
+        PlaybookReminder: {
+            label: string;
+            say: string;
+            when: string;
         };
         PlaybookSkill: {
             skill: string;
@@ -1619,6 +1827,18 @@ export interface components {
             /** @default 0 */
             y: number;
         };
+        /** @description One feature: where it is in the SEM image and in the FIB image. */
+        PointPair: {
+            fib: [
+                number,
+                number
+            ];
+            label?: string | null;
+            sem: [
+                number,
+                number
+            ];
+        };
         /** @description POST .../items/{item_name}/move_to: a pose name from the item. */
         PoseBody: {
             pose: string;
@@ -1633,6 +1853,7 @@ export interface components {
             ];
             path: string;
             plane?: number | null;
+            points?: number | null;
             start: [
                 number,
                 number
@@ -1695,6 +1916,8 @@ export interface components {
                 [key: string]: unknown;
             };
             available: boolean;
+            /** @default  */
+            reason: string;
             returns: string | null;
             signature: string;
         };
@@ -1753,6 +1976,8 @@ export interface components {
         };
         /** @description One thing the agent did: when (HH:MM), what, and how it ended. */
         RecentRow: {
+            /** @default false */
+            aside: boolean;
             /** @default  */
             at: string;
             evidence: {
@@ -1774,6 +1999,8 @@ export interface components {
             why: string;
         };
         RecentRows: {
+            /** @default false */
+            more: boolean;
             rows: components["schemas"]["RecentRow"][];
         };
         /** @description A note, a message or evidence put on the record; for a message, its
@@ -1871,11 +2098,13 @@ export interface components {
         };
         /** @description The session as the server holds it. */
         ReportedSession: {
+            budget_set_usd: number | null;
             budget_usd: number | null;
             checklist: components["schemas"]["ChecklistItem"][] | null;
             client: string | null;
             code: boolean | null;
             context: components["schemas"]["ContextUse"] | null;
+            contexts: number | null;
             deadlines: components["schemas"]["Deadline"][] | null;
             effort: string | null;
             ended: boolean | null;
@@ -1888,8 +2117,12 @@ export interface components {
             instrument_serial: string | null;
             model: string | null;
             playbook: components["schemas"]["PlaybookState"] | null;
+            playbook_about: components["schemas"]["PlaybookAbout"] | null;
             reason: string | null;
+            reset_asked_at: string | null;
+            reset_asked_in: number | null;
             resumed: boolean | null;
+            servers: components["schemas"]["McpServer"][] | null;
             session_id: string | null;
             skills: string[] | null;
             spent_usd: number | null;
@@ -1927,6 +2160,33 @@ export interface components {
         };
         ResultAnswer: {
             result: unknown;
+        };
+        /** @description POST /app/agent/review: an item for the operator's review list. */
+        ReviewAddBody: {
+            /** @default  */
+            about?: string;
+            facts?: {
+                [key: string]: unknown;
+            }[] | null;
+            images?: string[] | null;
+            /** @default done */
+            level?: string;
+            options?: string[] | null;
+            /** @default  */
+            text?: string;
+            title: string;
+        };
+        /** @description POST /app/agent/review/{id}/answer: the operator's answer, a note and
+         *     marks on one of its pictures. */
+        ReviewAnswerBody: {
+            choice: string;
+            evidence?: components["schemas"]["MarkedEvidence"] | null;
+            /** @default  */
+            note?: string;
+        };
+        /** @description POST /app/agent/review/{id}/close: the agent no longer needs an answer. */
+        ReviewCloseBody: {
+            reason: string;
         };
         /** @description One entry in the index. */
         Row: {
@@ -2186,9 +2446,33 @@ export interface components {
             scheduled_at?: string | null;
             task_name: string;
         };
+        /** @description POST /app/experiment/analysis/shift: two saved beam images; *compare*
+         *     measures by every method too. */
+        ShiftBody: {
+            agreement_px?: number | null;
+            compare?: boolean | null;
+            image: string;
+            method?: string | null;
+            reference: string;
+        };
         SkillRow: {
             description: string;
             name: string;
+        };
+        /** @description POST /app/experiment/analysis/spectrum: a saved image's power
+         *     spectrum, on a plane and in a box when given; *points* adds its radial
+         *     average resampled to that many frequencies. */
+        SpectrumBody: {
+            box?: [
+                number,
+                number,
+                number,
+                number
+            ] | null;
+            channel?: string | null;
+            path: string;
+            plane?: number | null;
+            points?: number | null;
         };
         /** @description One image of an item's stack: the file one run recorded under a role. */
         StackSlice: {
@@ -2290,10 +2574,6 @@ export interface components {
             supervise: boolean;
             task_name: string;
         };
-        /** @description A setting turned on or off. */
-        SwitchBody: {
-            on: boolean;
-        };
         /** @description Which instrument, and what software is running on it. Provenance.
          *
          *     Owns both facts, and is the only place either belongs.
@@ -2337,6 +2617,16 @@ export interface components {
             /** @default Unknown */
             software_version: string;
         };
+        /** @description The newest notes of each tag asked for, from the whole record
+         *     (`fibsem.server.agent.notes`): each ``{tag, id, timestamp, text}``, with
+         *     ``item_name`` and ``evidence`` when it named them; by tag as asked,
+         *     newest first. ``missing``: the tags with no note on the record. */
+        TaggedNotes: {
+            missing: string[];
+            notes: {
+                [key: string]: unknown;
+            }[];
+        };
         /** @description A task's config document, at the protocol's level or an item's, with the
          *     version a patch echoes. */
         TaskConfigRead: {
@@ -2370,7 +2660,7 @@ export interface components {
             order: string[];
         };
         /** @description A lamella's thickness read off a FIB image (`ThicknessResult.to_dict`,
-         *     in nm and degrees), with the plot. */
+         *     in nm and degrees), with the plot; *item_name* when measured for an item. */
         Thickness: {
             angle_deg: number | null;
             centre_from: string | null;
@@ -2378,7 +2668,7 @@ export interface components {
                 [key: string]: unknown;
             };
             image: string;
-            item_name: string;
+            item_name: string | null;
             pixel_size_nm: number;
             plot: {
                 [key: string]: string;
@@ -2409,8 +2699,10 @@ export interface components {
             window_from: string;
             window_um: number[];
         };
-        /** @description POST .../items/{item_name}/thickness: a saved image, and the window to
-         *     measure in, else the whole lamella. */
+        /** @description POST .../items/{item_name}/thickness and /experiment/analysis/thickness:
+         *     a saved FIB image, and the window to measure in, else the item's trench
+         *     window (the default window with no item) about its POI (the image's
+         *     centre with no item), or about *centre*. */
         ThicknessBody: {
             centre?: [
                 number,
@@ -2462,6 +2754,8 @@ export interface components {
         };
         /** @description The decision a run waits on, and who can make it. */
         Waiting: {
+            /** @default false */
+            agent_reviewing: boolean;
             proposal: string;
             who: string;
         };

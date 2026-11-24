@@ -34,7 +34,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "sputter_coater's current choices; left out, as it is). On an Arctis "
             "the coater moves the stage to it and back itself. grids, the coater's "
             "1-based grid numbers, only where it coats each grid itself "
-            "(device_list: sputter_coater coats_grids). The coater's own commands "
+            "(device_describe sputter_coater: coats_grids). The coater's own commands "
             "are not the agent's. A long command that can't be stopped: it answers "
             "with its run at once; service_wait_for_run coating says how it ended."
         ),

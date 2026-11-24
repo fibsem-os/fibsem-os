@@ -119,8 +119,9 @@ class AppSession:
         # Where an edit to the experiment runs: the window's GUI thread, whose
         # widgets listen to the experiment, or here under a lock.
         self.executor: EditExecutor = executor or LockedExecutor()
-        # The latest image of each beam, as the window shows it: what the App
-        # Server serves and a question's marker is placed on.
+        # The latest image of each beam, as the window shows it, and of each
+        # device that sends images: what the App Server serves and a
+        # question's marker is placed on.
         self.images = LatestImages()
         # Each overview of the connected microscope, by kind.
         self._overviews: Dict[str, OverviewSession] = {}
@@ -327,6 +328,7 @@ class AppSession:
                 configuration_path or cfg.DEFAULT_CONFIGURATION_PATH
             )
             self._devices = instrument
+            self.images.follow(instrument)
             self.changed.emit(MICROSCOPE)
             self.start_recording()
         return instrument
@@ -353,6 +355,7 @@ class AppSession:
             self.configuration_path = None
             if instrument is self._devices:
                 self._devices = None
+                self.images.follow(None)
                 self.changed.emit(MICROSCOPE)
             else:
                 self.microscope = None
@@ -554,7 +557,7 @@ class AppSession:
         if started:
             self.agent.keep_pictures()
             if self.alerts is None:
-                self.alerts = Alerts(self, link=f"{self.app_server.url}/ui")
+                self.alerts = Alerts(self, link=f"{self.app_server.connect_url}/ui")
                 self.alerts.start()
         return started
 

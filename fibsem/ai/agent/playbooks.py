@@ -4,6 +4,9 @@
     description: On-grid lamellae, not correlative.
     extends: fibsem-agent            # optional
     instrument: fibsem               # the instrument kind its prompts are for
+    mcp: [notebook]                  # MCP servers it uses, by name (`extra_mcp`)
+    tools: [item_list]               # fibsem tools loaded from the first turn
+    wakes: [decisions, run]          # what wakes the agent (`wake_lines.GROUPS`)
     session:                         # what a session STARTED on it runs with
       level: watch                   # the level the gateway's card picks first
       model: opus
@@ -14,6 +17,11 @@
       wake_max_min: 240              # the longest wake-up the agent can set
       deadline_warn_min: 30          # a deadline wakes it this long before
       quiet_min: 20                  # a quiet running workflow wakes it after
+      wake_on_watch: digest          # what wakes it at Watch: all or digest
+      wake_on_assist: all            # ... at Assist
+      wake_on_drive: all             # ... at Drive
+      digest_min: 30                 # held routine lines come this long after
+      digest_lines: 20               # ... or once this many are held
     skills: [autolamella]            # read at the start of the job
     optional:                        # read only when the job needs them
       - skill: autolamella-polishing
@@ -27,12 +35,31 @@
       before_milling: Confirm the current and depth.
     rules:
       - Stop at the operator's thickness target, 200 nm by default.
-    plan: [Brief, Playbook, Rules, Steps, Progress, Summary]   # plan.md's headings
+    plan: [Brief, Playbook, Rules, Steps, Progress, What worked, Summary]   # plan.md's headings
 
 A playbook is ``<name>.yaml`` in the lab's ``~/.fibsem/knowledge/playbooks/``
 or the shipped ``.claude/fibsem-agent/playbooks/``, the lab's winning. Skills,
 optional skills, subagents, hooks, reminders and rules add up along ``extends``, the parent's
 first; ``session`` settings and ``instrument`` too, the child's winning.
+``mcp`` adds up the same way: the MCP servers the agent uses, by name, each
+``fibsem`` (the sidecar, built in) or a server in the lab's ``mcp.yaml``
+(`extra_mcp`). The shipped base names ``fibsem``, under every playbook of
+its instrument kind; a playbook for another kind names its own, and one with
+no instrument (``instrument: none``) names no ``fibsem``.
+
+``tools`` names fibsem tools (`catalog.CATALOG`) whose schemas the CLI
+loads from the first turn, where it otherwise defers every MCP tool until
+the agent finds it with ToolSearch: the sidecar marks them
+``anthropic/alwaysLoad``. They add up along ``extends``, under the base's
+for a playbook of its instrument kind, like skills. Each costs context from
+the first turn, so the list stays short. Only the playbook a session starts
+on counts: the sidecar lists its tools once.
+
+``wakes`` names the watcher's lines that wake the agent, by group
+(`wake_lines.GROUPS`): the nearest playbook that names them wins, and one
+that names none lets every line wake it. A line that doesn't wake it goes in
+its next turn. The operator's messages, the level, Stop, the watch's own
+state and the agent's own wake-ups always wake it (`wake_lines.ALWAYS`).
 
 The shipped base playbook is the one place the agent's defaults live: it sits
 under every playbook, a lab's copy of the base included, so its session
@@ -56,7 +83,8 @@ from typing import Any, Callable, Dict, List, Optional
 
 import yaml
 
-from fibsem.ai.agent import instruments, reminders, sources
+from fibsem.ai.agent import instruments, reminders, sources, wake_lines
+from fibsem.ai.agent.catalog import CATALOG
 
 PLAYBOOK_DIR = Path(sources.CLAUDE) / "fibsem-agent" / "playbooks"
 # The playbook a session starts on when its launch names none.
@@ -65,6 +93,9 @@ FIELDS = (
     "description",
     "extends",
     "instrument",
+    "mcp",
+    "tools",
+    "wakes",
     "session",
     "skills",
     "optional",
@@ -75,8 +106,12 @@ FIELDS = (
     "plan",
 )
 # plan.md's headings when a playbook names none (fibsem.server.agent.plan).
-PLAN = ["Brief", "Playbook", "Rules", "Steps", "Progress", "Summary"]
+PLAN = ["Brief", "Playbook", "Rules", "Steps", "Progress", "What worked", "Summary"]
 _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
+# An MCP server's name, as it sits in mcp__<server>__<tool> (`extra_mcp.NAME`).
+_SERVER = re.compile(r"[A-Za-z][\w-]*")
+# The fibsem tools a playbook's ``tools`` may name.
+_TOOL_NAMES = frozenset(spec.name for spec in CATALOG)
 SESSION = (
     "level",
     "model",
@@ -88,7 +123,19 @@ SESSION = (
     "wake_max_min",
     "deadline_warn_min",
     "quiet_min",
+    "context_marks",
+    "compact_window",
+    "resume_max_context",
+    "context_suggest",
+    "context_ceiling",
+    "wake_on_watch",
+    "wake_on_assist",
+    "wake_on_drive",
+    "digest_min",
+    "digest_lines",
 )
+# What wakes the agent at each level (`wake_policy`).
+WAKE_ON = ("wake_on_watch", "wake_on_assist", "wake_on_drive")
 # Numbers above 0, and the type each is read as.
 NUMBERS = {
     "max_budget_usd": float,
@@ -96,6 +143,12 @@ NUMBERS = {
     "wake_max_min": float,
     "deadline_warn_min": float,
     "quiet_min": float,
+    "compact_window": int,
+    "resume_max_context": int,
+    "context_suggest": int,
+    "context_ceiling": int,
+    "digest_min": float,
+    "digest_lines": int,
 }
 MODES = ("none", "files", "code")
 LEVELS = ("watch", "assist", "drive")
@@ -123,6 +176,33 @@ class SessionSettings:
     """A deadline wakes the agent this many minutes before it, and at it."""
     quiet_min: Optional[float] = None
     """A running workflow quiet this many minutes wakes the agent, once."""
+    context_marks: Optional[List[int]] = None
+    """Context sizes, in tokens, at which the agent is told once how full its
+    context is (`handoff.Marks`)."""
+    compact_window: Optional[int] = None
+    """The CLI's auto-compact window, in tokens (100k to 1M); None leaves the
+    CLI's own, which compacts near the model's window."""
+    resume_max_context: Optional[int] = None
+    """A resume reloads the session's last conversation only while its
+    context was below this many tokens; above it, or when the reload fails,
+    the session carries on in a fresh context rebuilt from its record
+    (`handoff`). None always reloads it."""
+    context_suggest: Optional[int] = None
+    """Above this many tokens of context, the agent is told once, at a natural
+    point (`handoff.natural_point`), that it may call context_reset there."""
+    context_ceiling: Optional[int] = None
+    """Above this many tokens, a fresh context is due: the agent is asked for
+    one at each natural point, more firmly after a few, until it resets. The
+    CLI's compaction (``compact_window``) is the backstop."""
+    wake_on_watch: Optional[str] = None
+    """What wakes the agent at Watch until it sets its own (`wake_policy`):
+    ``all`` lines, or ``digest``, routine ones held and given together."""
+    wake_on_assist: Optional[str] = None
+    wake_on_drive: Optional[str] = None
+    digest_min: Optional[float] = None
+    """Held routine lines come this many minutes after the first was held."""
+    digest_lines: Optional[int] = None
+    """Held routine lines come once this many are held."""
 
     def merged(self, child: "SessionSettings") -> "SessionSettings":
         """This, with *child*'s settings winning where it has them."""
@@ -174,6 +254,13 @@ class Playbook:
     session: SessionSettings = field(default_factory=SessionSettings)
     # The instrument kind its prompts are for (`instruments`).
     instrument: Optional[str] = None
+    # The MCP servers it uses, by name: ``fibsem`` or a lab's (`extra_mcp`).
+    mcp: List[str] = field(default_factory=list)
+    # The fibsem tools the CLI loads from the first turn, not deferred.
+    tools: List[str] = field(default_factory=list)
+    # The groups of lines that wake the agent (`wake_lines.GROUPS`); None
+    # for every line.
+    wakes: Optional[List[str]] = None
 
     def optional_skill(self, name: str) -> Optional[Optional_]:
         return next((o for o in self.optional if o.skill == name), None)
@@ -183,8 +270,10 @@ class Playbook:
         return _merge(self.skills, [o.skill for o in self.optional])
 
     def all_agents(self) -> List[str]:
-        """Its subagents, those of its optional skills too."""
-        return _merge(self.agents, [a for o in self.optional for a in o.agents])
+        """Its subagents, those of its optional skills too, each once: two
+        optional skills may name the same one."""
+        named = self.agents + [a for o in self.optional for a in o.agents]
+        return list(dict.fromkeys(named))
 
     def summary(self) -> dict:
         """The playbook as the agent and the Agent page read it."""
@@ -193,6 +282,9 @@ class Playbook:
             "description": self.description,
             "extends": self.chain[:-1],
             "instrument": self.instrument,
+            "mcp": list(self.mcp),
+            "tools": list(self.tools),
+            "wakes": list(self.wakes) if self.wakes is not None else None,
             "hooks": list(self.switched_on),
             "skills": list(self.skills),
             "optional": [
@@ -212,6 +304,57 @@ class Playbook:
             "plan": list(self.plan),
             "session": self.session.as_dict(),
         }
+
+    def about(self) -> dict:
+        """The playbook as it was loaded, for the Agent page
+        (`fibsem.ai.agent.report.PlaybookAbout`): what the session runs,
+        whatever its file says now."""
+
+        def reminders_of(hooks: List[reminders.Hook]) -> List[dict]:
+            return [
+                {"when": h.when, "label": _label(h.when), "say": _clip(h.say)}
+                for h in hooks
+            ]
+
+        return {
+            "name": self.name,
+            "hash": self.hash,
+            "description": _clip(self.description) if self.description else None,
+            "extends": self.chain[:-1],
+            "instrument": self.instrument,
+            "source": source(self.path),
+            "skills": list(self.skills),
+            "optional": [
+                {
+                    "skill": o.skill,
+                    "when": _clip(o.when),
+                    **({"agents": list(o.agents)} if o.agents else {}),
+                    **({"reminders": reminders_of(o.hooks)} if o.hooks else {}),
+                }
+                for o in self.optional
+            ],
+            "reminders": reminders_of(self.hooks),
+            "rules": [_clip(rule) for rule in self.rules],
+            "agents": list(self.agents),
+            "mcp": list(self.mcp),
+            "tools": list(self.tools),
+        }
+
+
+def _clip(text: str, most: int = 2000) -> str:
+    """*text*, cut to what a session report takes."""
+    return text if len(text) <= most else text[: most - 1] + "…"
+
+
+def source(path: Path) -> str:
+    """Where playbook *path* is from: ``lab`` (the lab's own copy),
+    ``plugin`` or ``shipped`` (fibsemOS's)."""
+    if path.is_relative_to(sources.lab_folder("playbooks")):
+        return "lab"
+    for root in sources.plugin_roots():
+        if path.is_relative_to(root):
+            return "plugin"
+    return "shipped"
 
 
 def _label(when: str) -> str:
@@ -249,18 +392,20 @@ def available(checkout: Optional[Path]) -> List[str]:
 
 def load(name: str, checkout: Optional[Path], efforts=()) -> Playbook:
     """Playbook *name* with what it extends added in, on the shipped base
-    playbook's session settings and instrument kind, and its skills for a
-    playbook of the base's instrument kind; a
+    playbook's session settings and instrument kind, and its skills and
+    servers for a playbook of the base's instrument kind; a
     `PlaybookError` says what is wrong with it. *efforts*, when given, are
     the efforts allowed."""
     playbook = _load(name, checkout, [], tuple(efforts))
     base = shipped_base(checkout)
     if base is not None:
         playbook.instrument = playbook.instrument or base.instrument
-        # The base's skills are for its instrument kind: a playbook for
-        # another kind names its own.
+        # The base's skills and servers are for its instrument kind: a
+        # playbook for another kind names its own.
         if playbook.instrument == base.instrument:
             playbook.skills = _merge(base.skills, playbook.skills)
+            playbook.mcp = _merge(base.mcp, playbook.mcp)
+            playbook.tools = _merge(base.tools, playbook.tools)
         playbook.session = base.session.merged(playbook.session)
     if checkout is not None:
         kinds = instruments.kinds(checkout)
@@ -371,6 +516,29 @@ def _read(
     ):
         raise PlaybookError(f"{path}: instrument is one instrument kind's name")
     skills = _names(data.get("skills"), "skills", path)
+    mcp = _names(data.get("mcp"), "mcp", path)
+    bad = [m for m in mcp if not _SERVER.fullmatch(m)]
+    if bad:
+        raise PlaybookError(
+            f"{path}: mcp lists servers by name, not {', '.join(bad)}: letters, "
+            "digits, _ and -, letter first"
+        )
+    tools = _names(data.get("tools"), "tools", path)
+    unknown = [t for t in tools if t not in _TOOL_NAMES]
+    if unknown:
+        raise PlaybookError(
+            f"{path}: tools names no fibsem tool {', '.join(unknown)}: a tool's "
+            "name without mcp__fibsem__, as fibsem-mcp lists it"
+        )
+    wakes = None
+    if data.get("wakes") is not None:
+        wakes = _names(data.get("wakes"), "wakes", path)
+        unknown = [w for w in wakes if w not in wake_lines.GROUPS]
+        if unknown:
+            raise PlaybookError(
+                f"{path}: wakes names {', '.join(unknown)}; one of "
+                f"{', '.join(wake_lines.GROUPS)}"
+            )
     optional = _optional(data.get("optional"), path)
     switched_on = _names(data.get("hooks"), "hooks", path)
     unknown = [h for h in switched_on if h not in reminders.HOOK_OPTIONS]
@@ -418,6 +586,9 @@ def _read(
         plan=plan or (parent.plan if parent else list(PLAN)),
         session=(parent.session if parent else SessionSettings()).merged(session),
         instrument=instrument or (parent.instrument if parent else None),
+        mcp=_merge(parent.mcp if parent else [], mcp),
+        tools=_merge(parent.tools if parent else [], tools),
+        wakes=wakes if wakes is not None else (parent.wakes if parent else None),
     )
     return playbook
 
@@ -431,7 +602,7 @@ def _session(value: Any, path: Path, efforts=()) -> SessionSettings:
     if unknown:
         raise PlaybookError(f"{path}: unknown session setting(s) {', '.join(unknown)}")
     found = {}
-    for key in ("level", "model", "effort", "mode", "folder"):
+    for key in ("level", "model", "effort", "mode", "folder", *WAKE_ON):
         given = value.get(key)
         if given is None:
             continue
@@ -445,10 +616,24 @@ def _session(value: Any, path: Path, efforts=()) -> SessionSettings:
         if isinstance(given, bool) or not isinstance(given, (int, float)) or given <= 0:
             raise PlaybookError(f"{path}: session {key} must be a number above 0")
         found[key] = kind(given)
+    marks = value.get("context_marks")
+    if marks is not None:
+        if not isinstance(marks, list) or not all(
+            isinstance(m, int) and not isinstance(m, bool) and m > 0 for m in marks
+        ):
+            raise PlaybookError(
+                f"{path}: session context_marks must be a list of token counts above 0"
+            )
+        found["context_marks"] = sorted(set(marks))
     if found.get("level", "watch") not in LEVELS:
         raise PlaybookError(f"{path}: session level is one of {', '.join(LEVELS)}")
     if found.get("mode", "none") not in MODES:
         raise PlaybookError(f"{path}: session mode is one of {', '.join(MODES)}")
+    for key in WAKE_ON:
+        if found.get(key, "all") not in wake_lines.WAKE_MODES:
+            raise PlaybookError(
+                f"{path}: session {key} is one of {', '.join(wake_lines.WAKE_MODES)}"
+            )
     if efforts and found.get("effort", efforts[0]) not in efforts:
         raise PlaybookError(f"{path}: session effort is one of {', '.join(efforts)}")
     return SessionSettings(**found)
@@ -629,6 +814,10 @@ class Reminders:
         given = (state or {}).get("playbook")
         if not given:
             return None
+        # A session that ended before it kept its playbook's state recorded only
+        # the name it started with.
+        if isinstance(given, str):
+            given = {"name": given}
         try:
             playbook = load(given["name"], checkout)
         except PlaybookError as error:

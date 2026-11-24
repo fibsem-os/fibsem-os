@@ -14,13 +14,23 @@ from typing import TYPE_CHECKING, Any, Dict, Generic, List, Optional, TypeVar
 from fibsem.ai.agent.library import Item as LibraryItem
 from fibsem.ai.agent.recent import RecentRow
 from fibsem.ai.agent.report import ReportedSession
+from fibsem.analysis.answers import (  # noqa: F401 - route models, by name too
+    ImageDrawn,
+    ImageMeasured,
+    ImagePairDrawn,
+    ImageShift,
+    PixelPoint,
+    SavedImageMetadata,
+    SavedImagePixels,
+    SavedImagePosition,
+    Thickness,
+)
 from fibsem.codec import encode, saved
 from fibsem.config import NotificationPreferences
 from fibsem.control import InControl
 from fibsem.geometry.stage_places import StageMapPlaces
 from fibsem.knowledge import Entry as KnowledgeEntryFile
 from fibsem.knowledge import Row as KnowledgeRow
-from fibsem.structures.image import FibsemImageMetadata
 from fibsem.structures.params import Limits
 from fibsem.structures.settings import (
     FibsemRectangle,
@@ -205,6 +215,8 @@ class ParameterDescription:
     native_unit: Optional[str] = None
     # Whether the agent may set it; None where the server has no blocklist.
     agent: Optional[bool] = None
+    # Why it can't be set now, when it can at other times.
+    reason: str = ""
 
 
 @dataclass
@@ -214,6 +226,8 @@ class QueryDescription:
     arguments: Dict[str, Any]
     returns: Optional[str]
     available: bool
+    # Why it is not available now, when it says.
+    reason: str = ""
 
 
 @dataclass
@@ -221,6 +235,11 @@ class CommandDescription(QueryDescription):
     agent: Optional[bool] = None
     # Answered at once with a run on the App Server.
     long: bool = False
+    # A safety action (`command`'s ``safety``): it runs during a Safety Halt,
+    # and takes no control of the microscope.
+    safety: bool = False
+    # Its button pinned on the Agent page ("Close valves"); empty for none.
+    label: str = ""
 
 
 @saved(keys={"class_": "class"})
@@ -255,6 +274,7 @@ class MetadataAnswer:
     settable: bool
     native_max: Optional[float]
     native_unit: Optional[str]
+    reason: str = ""
 
 
 @dataclass
@@ -332,6 +352,43 @@ class DeviceHealth:
 class Health:
     ok: bool
     devices: Dict[str, DeviceHealth]
+
+
+@dataclass
+class CallRunning:
+    """A call on a device running now (`fibsem.devices.heard`)."""
+
+    call: str
+    since: float
+    # A long command (a mill), which may run for minutes.
+    long: bool = False
+
+
+@dataclass
+class LastHeard:
+    """When a device was last heard from, from the calls a run made to it: the
+    last that came back, the last that failed in the driver or the hardware
+    (refusals don't count), and those running now."""
+
+    last_ok: Optional[float] = None
+    last_error: Optional[str] = None
+    last_error_call: Optional[str] = None
+    last_error_at: Optional[float] = None
+    running: List[CallRunning] = field(default_factory=list)
+
+
+@dataclass
+class InstrumentHealth:
+    """The App Server's ``/microscope/health``: the connection, the Safety
+    Halt's reason while one is set, and when each device and service was last
+    heard from. Read from what the server holds, never from the hardware."""
+
+    connected: bool
+    connecting: Optional[str] = None
+    error: Optional[str] = None
+    halted: Optional[str] = None
+    devices: Dict[str, LastHeard] = field(default_factory=dict)
+    services: Dict[str, LastHeard] = field(default_factory=dict)
 
 
 # --- The app's experiment and workflow (/app) ---
@@ -546,36 +603,9 @@ class DisplayImages:
     # microscope without an FM
     fm: Optional[ImagePayload] = None
     fm_available: bool = False
-
-
-@dataclass
-class SavedImageMetadata:
-    path: str
-    metadata: FibsemImageMetadata
-
-
-@dataclass
-class SavedImagePosition:
-    path: str
-    stage_position: FibsemStagePosition
-
-
-@dataclass
-class PixelPoint:
-    """Where a stage position falls on an image, in source pixels; ``reason``
-    when the image cannot place it."""
-
-    px: Optional[List[float]] = None
-    inside: Optional[bool] = None
-    reason: Optional[str] = None
-
-
-@dataclass
-class SavedImagePixels:
-    path: str
-    # the image's scale block (`fibsem.server.images.image_metadata`)
-    image: Dict[str, Any]
-    points: List[PixelPoint]
+    # each imaging device's latest image, by the device's name: the beams',
+    # and those of an instrument with no FIB/SEM
+    devices: Dict[str, ImagePayload] = field(default_factory=dict)
 
 
 @dataclass
@@ -985,33 +1015,6 @@ class EventHistory:
 
 
 @dataclass
-class Thickness:
-    """A lamella's thickness read off a FIB image (`ThicknessResult.to_dict`,
-    in nm and degrees), with the plot."""
-
-    item_name: str
-    image: str
-    poi: Point
-    window_um: List[float]
-    window_from: str
-    saved_to: Optional[str]
-    pixel_size_nm: float
-    region_px: List[int]
-    continuity: Dict[str, Any]
-    uncertainty_nm: float
-    thickness_nm: Optional[Dict[str, Optional[float]]] = None
-    thirds_nm: Optional[List[Optional[float]]] = None
-    wedge: Optional[Dict[str, Optional[float]]] = None
-    angle_deg: Optional[float] = None
-    straightness: Optional[Dict[str, Optional[float]]] = None
-    warnings: Optional[List[Dict[str, str]]] = None
-    plot: Optional[Dict[str, str]] = None
-    # Where the window is centred: the item's poi, a given centre, or the
-    # image_centre when the item has no POI.
-    centre_from: Optional[str] = None
-
-
-@dataclass
 class MarkersDrawn:
     image: str
     path: str
@@ -1020,46 +1023,6 @@ class MarkersDrawn:
     grid_name: Optional[str] = None
     linked: Optional[bool] = None
     reason: Optional[str] = None
-
-
-@dataclass
-class ImageDrawn:
-    image: str
-    # The picture saved beside the image: drawn/<image>.png.
-    path: str
-    # The marks as drawn: measured lines labelled with their length, each
-    # place with its stage position when the image says where it was taken.
-    marks: Optional[Dict[str, Any]]
-    plot: Dict[str, str]
-    # Per layer drawn (a channel, or SEM/FIB): the look it was drawn with, its
-    # auto limits as numbers, and its stats (`fibsem.imaging.looks.layer_stats`).
-    layers: Dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
-class ImagePairDrawn:
-    before: str
-    after: str
-    path: str
-    marks: Optional[Dict[str, Any]]
-    plot: Dict[str, str]
-    # Each half's layers, as `ImageDrawn.layers`.
-    before_layers: Dict[str, Any] = field(default_factory=dict)
-    after_layers: Dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
-class ImageMeasured:
-    """An analysis tool's answer (`fibsem.imaging.analysis`) on a saved image."""
-
-    image: str
-    # intensity, profile or quality
-    measurement: str
-    result: Dict[str, Any]
-    # The figure saved beside the image (drawn/<image>-<measurement>.png) and
-    # its preview, when the measurement draws one.
-    path: Optional[str] = None
-    plot: Optional[Dict[str, str]] = None
 
 
 @dataclass
@@ -1072,6 +1035,24 @@ class ItemMillingDrawn:
     # The stages drawn in colour, and those drawn behind them.
     stages: List[str]
     background: List[str]
+    plot: Dict[str, str]
+
+
+@dataclass
+class MillingOnOverview:
+    # The overview drawn on and the picture saved, relative to the experiment.
+    image: str
+    path: str
+    grid_name: Optional[str]
+    task_names: List[str]
+    # Per item: what its patterns were placed from (its FIB image, or its
+    # milling pose), the kinds drawn, its footprint's box on the sample
+    # surface and its nearest neighbour.
+    items: List[Dict[str, Any]]
+    # The two items whose footprints come nearest; None with one item.
+    closest: Optional[Dict[str, Any]]
+    unplaced: List[Dict[str, str]]
+    caveats: List[str]
     plot: Dict[str, str]
 
 
@@ -1153,6 +1134,17 @@ class LibraryIndex:
 
     kind: str
     items: List[LibraryItem] = field(default_factory=list)
+
+
+@dataclass
+class TaggedNotes:
+    """The newest notes of each tag asked for, from the whole record
+    (`fibsem.server.agent.notes`): each ``{tag, id, timestamp, text}``, with
+    ``item_name`` and ``evidence`` when it named them; by tag as asked,
+    newest first. ``missing``: the tags with no note on the record."""
+
+    notes: List[Dict[str, Any]] = field(default_factory=list)
+    missing: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -1316,6 +1308,8 @@ class GridEdit(Edit):
     quality: Optional[Dict[str, Any]] = None
     note: Optional[str] = None
     items_without_grid: Optional[List[str]] = None
+    # the lamellae an assignment put on the grid that were not on it
+    assigned: Optional[List[str]] = None
 
 
 # An app's own item detail, experiment summary and protocol view
@@ -1431,6 +1425,8 @@ class Waiting:
 
     proposal: str
     who: str
+    # The agent decides it now (Drive, listening): nothing for the operator to do.
+    agent_reviewing: bool = False
 
 
 @dataclass
@@ -1535,6 +1531,8 @@ class ConnectText:
 @dataclass
 class RecentRows:
     rows: List[RecentRow]
+    # Earlier rows are on the record: the page's Show earlier asks for more.
+    more: bool = False
 
 
 @dataclass
@@ -1595,6 +1593,11 @@ class MessageSent:
 
 
 @dataclass
+class MessageInterrupted:
+    id: str
+
+
+@dataclass
 class LevelSet:
     level: str
 
@@ -1615,6 +1618,17 @@ class RequestDecided:
 class AgentSession:
     # what the agent reported of its session, None before it has
     session: Optional[ReportedSession] = None
+
+
+@dataclass
+class AgentPlaybookFile:
+    """GET /app/agent/playbook-file: the running session's playbook as its
+    file is now. ``hash`` is None when the file is gone or doesn't load;
+    ``edited``, that it differs from the copy the session runs."""
+
+    name: Optional[str] = None
+    hash: Optional[str] = None
+    edited: bool = False
 
 
 @dataclass

@@ -23,7 +23,7 @@ from fibsem.server.operator_token import (
     load_operator_token,
     new_operator_token,
 )
-from fibsem.workflows.actions import NOTE
+from fibsem.workflows.actions import ACTION, NOTE
 from fibsem.workflows.session import AppSession
 from tests.autolamella.test_select_position_asks import (  # noqa: F401
     SETUP,
@@ -100,13 +100,10 @@ def test_the_server_takes_the_install_token(server, tmp_path):
     )
 
 
-@pytest.mark.parametrize(
-    "who, status", [("agent", 403), ("dashboard", 403), ("nobody", 401)]
-)
+@pytest.mark.parametrize("who, status", [("agent", 403), ("nobody", 401)])
 def test_only_the_operator_reaches_the_operator_routes(server, who, status):
     headers = {
         "agent": server.agent,
-        "dashboard": _bearer(server.config.dashboard_token),
         "nobody": _bearer("wrong"),
     }[who]
     answer = server.put("/app/agent/level", headers=headers, json={"level": "drive"})
@@ -185,6 +182,27 @@ def test_a_message_goes_on_the_record_as_the_operators(server):
     assert note["payload"]["id"] == message_id
     assert note["payload"]["text"] == "how's 01?"
     assert str(note["actor"]).startswith(str(OPERATOR))
+
+
+def test_a_stop_message_is_marked_to_interrupt_and_a_plain_one_is_not(server):
+    for text, interrupt in (("/now look at 01", True), ("look at 01", False)):
+        answer = server.post(
+            "/app/agent/messages", headers=server.operator, json={"text": text}
+        )
+        assert answer.status_code == 201, answer.text
+        note = _notes(server)[-1]
+        assert note["payload"]["text"] == text
+        assert bool(note["payload"].get("interrupt")) is interrupt, text
+
+
+def test_interrupt_now_goes_on_the_record_as_the_operators(server):
+    answer = server.post("/app/agent/messages/ab12/interrupt", headers=server.operator)
+    assert answer.status_code == 200, answer.text
+    assert answer.json() == {"id": "ab12"}
+    events = server.get("/app/events", headers=server.operator).json()["events"]
+    action = [e for e in events if e["kind"] == ACTION][-1]
+    assert action["payload"]["interrupts"] == "ab12"
+    assert str(action["actor"]).startswith(str(OPERATOR))
 
 
 @pytest.mark.parametrize(
@@ -539,31 +557,12 @@ def test_the_session_draws_a_waiting_request_without_a_window(server):
         server.session.agent.stop_pictures()
 
 
-def test_the_chat_is_the_web_app_s_agent_page(server):
-    answer = server.get("/chat", follow_redirects=False)
-    assert answer.status_code in (302, 307)
-    assert answer.headers["location"] == "/ui/agent"
-
-
-def test_the_web_app_is_served(server):
-    # Every page path gets index.html; assets are served with their type.
-    for path in ("/ui", "/ui/", "/ui/microscope", "/ui/events"):
-        answer = server.get(path)
-        assert answer.status_code == 200
-        assert "/ui/assets/index.js" in answer.text
-    script = server.get("/ui/assets/index.js")
-    assert script.status_code == 200
-    assert "javascript" in script.headers["content-type"]
-    assert server.get("/ui/assets/missing.js").status_code == 404
-    outside = server.get("/ui/assets/..%2F..%2Fserver.py")
-    assert "def build_server" not in outside.text
-
-
 def test_the_connect_text_is_the_card_s(server):
     from fibsem.server.agent.setup import setup_text
 
     answer = server.get("/app/agent/connect", headers=server.operator)
-    assert answer.json()["text"] == setup_text(server.session.app_server.url)
+    # The card's text points the agent at the gateway, where it pairs.
+    assert answer.json()["text"] == setup_text(server.session.app_server.connect_url)
     assert server.get("/app/agent/connect", headers=server.agent).status_code == 403
 
 

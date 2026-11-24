@@ -8,7 +8,8 @@ repeats today (checking, logging, caching, change events) happens here, once.
 Two paths reach the hardware:
 
 - the new API, ``param.set_value(v)``: type and choice checks raise, numeric values clip to
-  their limits with a warning, and then the write path runs;
+  their limits with a warning (or are refused, for a parameter declared
+  ``out_of_range="refuse"``), and then the write path runs;
 - the microscope's named methods, ``param.write_through(v)``: no new
   validation, so each backend keeps its current behaviour, and then the same write path.
 
@@ -26,6 +27,7 @@ import math
 import threading
 import time
 from contextlib import contextmanager
+from contextvars import ContextVar
 from copy import deepcopy
 from dataclasses import dataclass, replace
 from enum import Enum
@@ -48,6 +50,7 @@ from typing import (
 
 from psygnal import Signal
 
+from fibsem.devices.heard import heard_call
 from fibsem.devices.runs import Runs
 from fibsem.structures.params import (
     DisplayHint,
@@ -74,6 +77,20 @@ class ParameterUnavailable(AttributeError):
 
 class ParameterReadOnly(Exception):
     """The parameter is bound but cannot be set."""
+
+
+class ParameterOutOfRange(ValueError):
+    """A value outside the limits of a parameter that refuses rather than clips
+    (``out_of_range="refuse"``). Nothing was written."""
+
+
+class CommandUnavailable(Exception):
+    """The device has the command, but it is not available now. The message says why."""
+
+
+class SafetyHalted(Exception):
+    """The instrument is in a Safety Halt (`SafetyHalt`): until the operator clears
+    it, only reads and safety commands run. The message gives the halt's reason."""
 
 
 class DeviceFault(RuntimeError):
@@ -140,13 +157,28 @@ class DeviceParameter(Parameter):
     ``display`` says how to show it (a ``fibsem.structures.params.Display``, or one per field for
     a composite value). Like the type and unit it means the same on every backend: a
     subclass that redeclares the parameter keeps it, and can't give another.
+
+    ``operator_only`` says why an agent may never set it, at any level: the App Server
+    refuses the write and the value stays readable (`operator_only_reason`). A
+    subclass that redeclares the parameter keeps it.
+
+    ``out_of_range`` says what ``set_value`` does with a number outside the limits:
+    ``"clip"`` (the default) sets the nearest limit, with a warning; ``"refuse"``
+    raises `ParameterOutOfRange` and writes nothing, for a parameter where a quietly
+    different value would mislead (an instrument that refuses it itself).
     """
 
     depends_on: Sequence[str] = ()
     nearest: Union[bool, str] = False
+    operator_only: str = ""
+    out_of_range: str = "clip"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "depends_on", tuple(self.depends_on))
+        if self.out_of_range not in ("clip", "refuse"):
+            raise ValueError(
+                f"out_of_range is 'clip' or 'refuse', not {self.out_of_range!r}"
+            )
 
     # One declaration is one parameter: compared and hashed by identity, as the
     # class attribute it is.
@@ -285,7 +317,22 @@ class BoundParameter:
 
     @property
     def settable(self) -> bool:
-        return self.metadata.settable
+        """Whether it can be set now: its metadata says so, and the instrument is
+        not in a Safety Halt."""
+        return self.metadata.settable and self.device.safety_halt.blocking() is None
+
+    @property
+    def reason(self) -> str:
+        """Why it can't be set now, when it can at other times: the Safety Halt's
+        reason, else the metadata's. Empty otherwise."""
+        halt = self.device.safety_halt.blocking()
+        if halt is not None and self.metadata.settable:
+            return f"Safety Halt: {halt}"
+        return "" if self.metadata.settable else self.metadata.reason
+
+    def effective_metadata(self) -> ParameterMetadata:
+        """The metadata as a client sees it now, the Safety Halt included."""
+        return replace(self.metadata, settable=self.settable, reason=self.reason)
 
     @property
     def writable(self) -> bool:
@@ -305,9 +352,14 @@ class BoundParameter:
             metadata, limits=limits, choices=choices, settable=settable
         )
         if emit:
-            self.metadata_changed.emit(self.metadata)
-            self.device.metadata_changed.emit(self.name, self.metadata)
+            self.emit_metadata()
         return self.metadata
+
+    def emit_metadata(self) -> None:
+        """Tell listeners the metadata as it is now (`effective_metadata`)."""
+        metadata = self.effective_metadata()
+        self.metadata_changed.emit(metadata)
+        self.device.metadata_changed.emit(self.name, metadata)
 
     # -- reads --------------------------------------------------------------------
 
@@ -333,7 +385,9 @@ class BoundParameter:
         It updates the cache.
         """
         with self.device._claim(self):
-            value = self._read()
+            # once the claim is held: waiting for it says nothing of the hardware
+            with heard_call(self.device, f"read {self.name}"):
+                value = self._read()
         self._remember(value)
         return value
 
@@ -343,10 +397,13 @@ class BoundParameter:
         """The new API: validate, then write. Returns the value actually written.
 
         Wrong type or a value outside the choices raises. A number outside the limits
-        is clipped to them, with a warning.
+        is clipped to them, with a warning, or refused (``out_of_range="refuse"``).
+        During a Safety Halt it raises `SafetyHalted`.
         """
+        self.device.safety_halt.check(f"{self.device.name}.{self.name}")
         if not self.settable:
-            raise ParameterReadOnly(f"{self.device.name}.{self.name} is read-only")
+            why = f": {self.reason}" if self.reason else ""
+            raise ParameterReadOnly(f"{self.device.name}.{self.name} is read-only{why}")
         value = self.validate(value)
         written = self._write_path(value, read_back=bool(self.spec.nearest))
         if (
@@ -408,6 +465,10 @@ class BoundParameter:
                     raise
         if isinstance(self.limits, RangeLimit) and isinstance(value, (int, float)):
             clipped = self.limits.clamp(value)
+            if clipped != value and self.spec.out_of_range == "refuse":
+                raise ParameterOutOfRange(
+                    f"{self.device.name}.{self.name}: {value} is outside {self.limits}"
+                )
             if clipped != value:
                 logger.warning(
                     f"{self.device.name}.{self.name}: {value} is outside {self.limits}, "
@@ -445,12 +506,15 @@ class BoundParameter:
         return self.type(choice)
 
     def _write_path(self, value: Any, read_back: bool = False) -> Any:
-        """Write, cache and signal; returns the value now held."""
+        """Write, cache and signal; returns the value now held. Refused during a
+        Safety Halt, unless a safety command is writing it."""
+        self.device.safety_halt.check(f"{self.device.name}.{self.name}")
         with self.device._claim_write(self):
-            self._write(value)
-            if read_back:
-                # what the hardware applied, which a driver may have adjusted again
-                value = self._read()
+            with heard_call(self.device, f"set {self.name}"):
+                self._write(value)
+                if read_back:
+                    # what the hardware applied, which a driver may have adjusted
+                    value = self._read()
         logger.debug(
             {
                 "msg": "set",
@@ -496,40 +560,119 @@ class CommandInfo:
     available: bool
     doc: str
     long: bool = False
+    reason: str = ""
+    """Why it is not available now, when it says; empty when it is."""
+    safety: bool = False
+    """A safety action (`command`'s ``safety``): it runs during a Safety Halt."""
+    label: str = ""
+    """A safety action's button, as it reads ("Close valves"): pinned on the
+    Agent page. Empty for one with no button of its own."""
+
+
+# Set while a safety command runs, so its own writes and calls pass a Safety Halt.
+_IN_SAFETY_COMMAND: ContextVar[bool] = ContextVar("in_safety_command", default=False)
+
+
+def _availability(available: Any, owner: Any) -> Tuple[bool, str]:
+    """A command's ``available`` answer as (available, reason). It may answer True,
+    False, or a string: the reason it is not available now."""
+    if available is None:
+        return True, ""
+    answer = available(owner)
+    if isinstance(answer, str):
+        return (False, answer) if answer else (False, "")
+    return bool(answer), ""
 
 
 def command(
     fn: Optional[Callable] = None,
     *,
-    available: Optional[Callable[[Any], bool]] = None,
+    available: Optional[Callable[[Any], Union[bool, str]]] = None,
     long: bool = False,
     line: Optional[Callable[..., Dict[str, Any]]] = None,
+    operator_only: str = "",
+    safety: bool = False,
+    label: str = "",
 ) -> Any:
     """Mark a device method as a command. It stays a plain method.
 
     The mark records only what a UI, the agent API or a remote proxy needs to list it:
     its name, its arguments and whether it is available on this device right now.
+    ``available`` answers that: True, False, or a string saying why not ("no GIS
+    fitted", "locked after alignment"). The App Server refuses a call to a command
+    that is not available, with that reason.
     ``long`` marks a command that runs for minutes (a mill, a spot burn): each
     call is one run on its device or service, ``self.runs``, whoever made it
     (`fibsem.devices.runs`), and the App Server answers a call to it at once
     with the run's id and lets it run on. ``line`` says a call to it in an
     agent's request, as the operator approves it (`fibsem.util.wording.Line`).
+    ``operator_only`` says why an agent may never run it, at any level
+    (`operator_only_reason`); a subclass overriding the method keeps it.
+    ``safety`` marks a safety action (stop, blank the beam, close a valve, and the
+    command that clears a Safety Halt): it still runs during a Safety Halt, and so do
+    the writes and commands it makes. Every other command is refused then, by
+    whoever calls it. A subclass overriding the method keeps the mark. It takes
+    no control of the microscope, so it also runs while a mill or a move holds it,
+    and the agent may run it only at Drive. ``label`` gives a safety action a
+    button pinned on the Agent page, as it reads ("Close valves").
 
     A numpy value among its arguments reaches the method as the plain Python it
     holds (`fibsem.util.plain`), so no driver is handed numpy.
     """
 
     def mark(method: Callable) -> Callable:
-        method = _plain_arguments(method)
+        method = _halt_guarded(_plain_arguments(method), long=long)
         if long:
             method = _tracked(method)
             method.__device_long__ = True  # type: ignore[attr-defined]
         method.__device_command__ = available  # type: ignore[attr-defined]
         if line is not None:
             method.__command_line__ = line  # type: ignore[attr-defined]
+        if operator_only:
+            method.__operator_only__ = operator_only  # type: ignore[attr-defined]
+        if safety:
+            method.__device_safety__ = True  # type: ignore[attr-defined]
+        if label:
+            method.__device_label__ = label  # type: ignore[attr-defined]
         return method
 
     return mark(fn) if fn is not None else mark
+
+
+def is_safety_command(controllable: Any, name: str) -> bool:
+    """Whether *name* is a safety command (`command`'s ``safety``) on *controllable*,
+    on its own class or any it inherits from, so an override keeps the mark."""
+    return any(
+        getattr(vars(klass).get(name), "__device_safety__", False)
+        for klass in type(controllable).__mro__
+    )
+
+
+def _halt_guarded(method: Callable, long: bool = False) -> Callable:
+    """*method*, refused during a Safety Halt unless it is a safety command; a safety
+    command runs with the halt lifted for what it does. Each call is noted as the
+    device's last heard from (`fibsem.devices.heard`); *long* marks a command that
+    may run for minutes."""
+
+    def run(self: Any, *args: Any, **kwargs: Any) -> Any:
+        with heard_call(self, method.__name__, long=long):
+            return method(self, *args, **kwargs)
+
+    @functools.wraps(method)
+    def guarded(self: Any, *args: Any, **kwargs: Any) -> Any:
+        halt = getattr(getattr(self, "resources", None), "safety_halt", None)
+        if halt is None or _IN_SAFETY_COMMAND.get():
+            return run(self, *args, **kwargs)
+        if is_safety_command(self, method.__name__):
+            token = _IN_SAFETY_COMMAND.set(True)
+            try:
+                return run(self, *args, **kwargs)
+            finally:
+                _IN_SAFETY_COMMAND.reset(token)
+        halt.check(f"{getattr(self, 'name', type(self).__name__)}.{method.__name__}")
+        return run(self, *args, **kwargs)
+
+    return guarded
 
 
 def _plain_arguments(method: Callable) -> Callable:
@@ -577,6 +720,28 @@ def query(
     return mark(fn) if fn is not None else mark
 
 
+def operator_only_reason(controllable: Any, kind: str, name: str) -> Optional[str]:
+    """Why an agent may never use *name* on *controllable* (a device or a
+    service), at any level, or None when it may: a parameter's write when *kind*
+    is "write", a command when "command". The mark is the class's
+    (``operator_only``), the parameter's or the command's (``operator_only=``), on the
+    device's own class or any it inherits from, so a backend can't drop one by
+    overriding."""
+    for klass in type(controllable).__mro__:
+        whole = vars(klass).get("operator_only")
+        if whole:
+            return whole
+    if kind == "write":
+        spec = type(controllable).declared_parameters().get(name)
+        return (spec.operator_only or None) if spec is not None else None
+    if kind == "command":
+        for klass in type(controllable).__mro__:
+            reason = getattr(vars(klass).get(name), "__operator_only__", None)
+            if reason:
+                return reason
+    return None
+
+
 class ResourceBusy(RuntimeError):
     """A resource is held by someone else (`Resources.hold`): a refusal, not a fault.
     Say what to stop to free it."""
@@ -585,6 +750,77 @@ class ResourceBusy(RuntimeError):
         super().__init__(message or f"{resource} is in use by {holder}")
         self.resource = resource
         self.holder = holder
+
+
+class SafetyHalt:
+    """The instrument's Safety Halt: a latched stop for the whole instrument.
+
+    While it is set, every device and service of the instrument refuses commands and
+    parameter writes with `SafetyHalted`, whoever calls them, and lists them as not
+    available with the reason. Reads still work, and so do safety commands
+    (`command`'s ``safety``), which include the command that clears it.
+
+    It is not the Stop of a mill or a workflow, which ends the current action and
+    lets work carry on: a Safety Halt stays until a person clears it. The service
+    that sets it clears it, through its own operator-only ``clear_command``, which
+    a page shows next to the reason. An interlock is the instrument's own hardware;
+    this is the software's.
+    """
+
+    changed = Signal(object)
+    """The reason after a change: a string while halted, None once cleared."""
+
+    def __init__(self) -> None:
+        self._guard = threading.Lock()
+        self._reason: Optional[str] = None
+        self._clear_command = ""
+
+    @property
+    def reason(self) -> Optional[str]:
+        """Why the instrument is halted, or None when it is not."""
+        return self._reason
+
+    @property
+    def clear_command(self) -> str:
+        """The command that clears it, as ``device.command``; empty when not halted."""
+        return self._clear_command
+
+    def set(self, reason: str, clear_command: str = "") -> None:
+        """Halt the instrument for *reason*. *clear_command* names the safety command
+        that clears it, for a page to offer. Setting it again updates the reason."""
+        if not reason:
+            raise ValueError("a Safety Halt needs a reason")
+        with self._guard:
+            changed = (reason, clear_command) != (self._reason, self._clear_command)
+            self._reason, self._clear_command = reason, clear_command
+        if changed:
+            logger.warning(
+                {"msg": "safety halt", "reason": reason, "clear": clear_command}
+            )
+            self.changed.emit(reason)
+
+    def clear(self) -> None:
+        """Lift the halt. Only the service that set it calls this, from its clear
+        command, after its own check."""
+        with self._guard:
+            was, self._reason, self._clear_command = self._reason, None, ""
+        if was is not None:
+            logger.info({"msg": "safety halt cleared", "reason": was})
+            self.changed.emit(None)
+
+    def blocking(self) -> Optional[str]:
+        """The reason, while it refuses what is asked here: halted, and no safety
+        command running. None otherwise."""
+        return None if _IN_SAFETY_COMMAND.get() else self._reason
+
+    def check(self, what: str) -> None:
+        """Raise `SafetyHalted` for *what* while halted, unless a safety command is
+        running."""
+        reason = self.blocking()
+        if reason is None:
+            return
+        clear = f"; {self._clear_command} clears it" if self._clear_command else ""
+        raise SafetyHalted(f"{what} refused: Safety Halt ({reason}){clear}")
 
 
 class Resources:
@@ -597,6 +833,9 @@ class Resources:
     ``locks`` gives a group a lock that already exists, so devices and older code that
     takes that lock directly exclude each other. The microscope's own registry
     (`FibsemMicroscope.resources`) gives ``imaging_channel`` its ``_threading_lock``.
+
+    The instrument's `SafetyHalt` is here too, as ``safety_halt``: every device and
+    service of a microscope shares its resources, and so its halt.
     """
 
     def __init__(
@@ -604,6 +843,7 @@ class Resources:
         groups: Optional[Mapping[str, str]] = None,
         locks: Optional[Mapping[str, threading.RLock]] = None,
     ):
+        self.safety_halt = SafetyHalt()
         self._groups = dict(groups or {})
         self._locks: Dict[str, threading.RLock] = dict(locks or {})
         self._guard = threading.Lock()
@@ -781,6 +1021,11 @@ class _Controllable:
     remote_properties: Mapping[str, str] = MappingProxyType({})
     """Properties a remote client reads with a query, by name: the query's name."""
 
+    operator_only: str = ""
+    """Why an agent may never set any parameter or run any command of this kind
+    of device, at any level (venting is the operator's), or empty. Its values
+    stay readable. A subclass can't take it back (`operator_only_reason`)."""
+
     def __init__(
         self,
         name: str,
@@ -794,6 +1039,8 @@ class _Controllable:
         # reports to its session.
         self.resources = resources if resources is not None else resources_of(parent)
         self.session = session if session is not None else session_of(parent)
+        # A Safety Halt changes what can be set: tell listeners, as a metadata change.
+        self.resources.safety_halt.changed.connect(self._safety_halt_changed)
         # The latest run of a long command on it, whoever started it.
         self.runs = Runs(self)
         self._bound: Dict[str, BoundParameter] = {}
@@ -901,6 +1148,8 @@ class _Controllable:
                     f"{base_param.unit!r}; a backend can't change a parameter's type "
                     f"or unit"
                 )
+            if base_param.operator_only and not attr.operator_only:
+                object.__setattr__(attr, "operator_only", base_param.operator_only)
             if attr.display is None:
                 object.__setattr__(attr, "display", base_param.display)
             elif attr.display != base_param.display:
@@ -989,15 +1238,22 @@ class _Controllable:
         for name, attr in inspect.getmembers(type(self), inspect.isfunction):
             if not hasattr(attr, mark):
                 continue
-            available = getattr(attr, mark)
+            available, reason = _availability(getattr(attr, mark), self)
+            safety = is_safety_command(self, name)
+            halt = self.safety_halt.reason
+            if mark == "__device_command__" and halt is not None and not safety:
+                available, reason = False, f"Safety Halt: {halt}"
             signature = inspect.signature(attr)
             arguments = list(signature.parameters.values())[1:]  # without self
             found[name] = CommandInfo(
                 name=name,
                 signature=str(signature.replace(parameters=arguments)),
-                available=True if available is None else bool(available(self)),
+                available=available,
                 doc=inspect.getdoc(attr) or "",
                 long=bool(getattr(attr, "__device_long__", False)),
+                reason=reason,
+                safety=safety,
+                label=getattr(attr, "__device_label__", ""),
             )
         return found
 
@@ -1043,6 +1299,15 @@ class _Controllable:
         if self._select_channel is not None:
             return self._select_channel()
         return None
+
+    @property
+    def safety_halt(self) -> SafetyHalt:
+        """The instrument's Safety Halt, shared with every device of it."""
+        return self.resources.safety_halt
+
+    def _safety_halt_changed(self, _reason: Optional[str]) -> None:
+        for param in list(self._bound.values()):
+            param.emit_metadata()
 
     def _dependency_changed(self, name: str) -> None:
         for param in self._bound.values():
@@ -1227,6 +1492,9 @@ def _describe(p: BoundParameter) -> Dict[str, Any]:
         "choices": list(p.choices) if p.choices is not None else None,
         "settable": p.settable,
     }
+    # Why it can't be set now, when it can at other times.
+    if p.reason:
+        described["reason"] = p.reason
     # How to show it, when the class says: a client with no copy of the class (an
     # agent) shows it the same way.
     display = display_to_dict(p.display)

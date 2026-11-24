@@ -70,6 +70,31 @@ def context_text(context: Optional[dict]) -> Optional[str]:
     return text
 
 
+def last_context(path: Path) -> Optional[int]:
+    """How much the agent's last call in *path* (a session's usage file) read:
+    how full its context was as the session stopped. None when no call of
+    the agent itself is there. A fresh context's first call counts from
+    there."""
+    try:
+        with open(path, "rb") as file:
+            file.seek(0, 2)
+            size = file.tell()
+            # The last calls are enough: a line is a few hundred bytes.
+            file.seek(max(0, size - 256 * 1024))
+            tail = file.read().decode("utf-8", errors="replace")
+    except OSError:
+        return None
+    for text in reversed(tail.splitlines()):
+        try:
+            call = json.loads(text)
+        except ValueError:
+            continue
+        if isinstance(call, dict) and call.get("agent") is None:
+            counts = {key: int(call.get(key) or 0) for key in FIELDS}
+            return prompt(counts) or None
+    return None
+
+
 class Calls:
     """The model calls of a run, each one line in *path* (none when None).
 
@@ -80,6 +105,9 @@ class Calls:
     def __init__(self, path: Optional[Path] = None) -> None:
         self.path = path
         self.turn = 0
+        # The session's context the calls are in: 1, then one more for each
+        # fresh context (`handoff`); written on a line from the second on.
+        self.segment = 1
         self.turn_tokens = zero()
         # How much the last call of the agent itself (not a specialist) read.
         self.context: Optional[int] = None
@@ -114,6 +142,27 @@ class Calls:
             call[key] = max(call[key], value)
         call["tools"].extend(tools)
 
+    def so_far(self) -> Dict[str, int]:
+        """The tokens of the turn going on, the call still open included."""
+        if self._open is None:
+            return dict(self.turn_tokens)
+        return add(self.turn_tokens, {key: self._open[key] for key in FIELDS})
+
+    def reading(self) -> Optional[int]:
+        """How much the agent's latest call read, the call still open
+        included: how full its context is, while a turn goes on."""
+        call = self._open
+        if call is not None and call["agent"] is None:
+            return prompt({key: call[key] for key in FIELDS}) or self.context
+        return self.context
+
+    def new_context(self) -> None:
+        """A fresh context starts: its calls are the next segment, and its
+        size is not known until its first call."""
+        self._close()
+        self.segment += 1
+        self.context = None
+
     def end_turn(self) -> Dict[str, int]:
         """The tokens of the turn just ended."""
         self._close()
@@ -134,6 +183,7 @@ class Calls:
         line = {
             "at": timestamps.now().isoformat(),
             "turn": self.turn + 1,
+            **({"context": self.segment} if self.segment > 1 else {}),
             **{key: value for key, value in call.items() if value is not None},
         }
         try:

@@ -266,15 +266,6 @@ def test_a_file_is_fetched_raw_and_the_fetch_is_recorded(driver, host, reads):
     # A preview read of the open experiment is not recorded.
     client.get("/app/experiment/files/experiment.yaml")
     assert len(recorded) == 1
-    # The event log's read-only token sees previews, never the files themselves.
-    dashboard = {"Authorization": f"Bearer {client.app.state.auth.dashboard_token}"}
-    looked = client.get("/app/experiment/files/experiment.yaml", headers=dashboard)
-    assert looked.status_code == 200
-    fetched = client.get(
-        "/app/experiment/files/data/raw.bin", params={"raw": True}, headers=dashboard
-    )
-    assert fetched.status_code == 403
-    assert len(recorded) == 1
     folder = client.get("/app/experiment/files/data", params={"raw": True})
     assert folder.status_code == 422
     for path in ("..%2Felsewhere", "/etc/hostname"):
@@ -367,3 +358,39 @@ def test_an_experiment_is_created_with_its_sample_and_the_status_names_it(
     # the sample is kept in the experiment's metadata, on disk
     text = (places / "s" / "experiment.yaml").read_text(encoding="utf-8")
     assert "sample: yeast" in text
+
+
+def test_an_app_for_another_instrument_changes_experiments_with_no_microscope(
+    places,
+):
+    """A FIB/SEM app waits for its microscope to change experiments; an app
+    that says its experiments don't need one doesn't."""
+
+    class OtherInstrumentContext(AutoLamellaAppContext):
+        experiments_need_microscope = False
+
+    def client_for(context_type):
+        host = stub_session()
+        host.microscope = None
+        app = build_server(
+            None,
+            app_context=context_type(host),
+            auth=AuthConfig.generate(level="drive", token=TOKEN),
+        )
+        client = TestClient(app, raise_server_exceptions=False)
+        client.headers["Authorization"] = f"Bearer {TOKEN}"
+        return client, host
+
+    client, host = client_for(AutoLamellaAppContext)
+    with client:
+        refused = client.post("/app/experiment/create", json={"name": "fib-run"})
+    assert refused.status_code == 404, refused.text
+    assert "microscope" in refused.text.lower() and host.experiment is None
+
+    client, host = client_for(OtherInstrumentContext)
+    with client:
+        created = client.post("/app/experiment/create", json={"name": "other-run"})
+        assert created.status_code == 200, created.text
+        assert host.experiment is not None and host.experiment.name == "other-run"
+        status = client.get("/app/workflow/status")
+        assert status.status_code == 200, status.text

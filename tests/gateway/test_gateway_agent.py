@@ -19,7 +19,7 @@ from fibsem.ai.agent.manager import (
     folders,
     read_json,
 )
-from fibsem.gateway.agent import AGENT_NAME, API_KEY, GatewayAgent
+from fibsem.gateway.agent import AGENT_NAME, API_KEY, SESSIONS_SHOWN, GatewayAgent
 from fibsem.gateway.gateway import OFF, RUNNING, GatewayRefused, GatewayState
 from fibsem.server.pairing import AGENT, PairedTokens
 
@@ -35,6 +35,10 @@ class FakeGateway:
         self.before_stop = []
         self.watchers = []
         self.stopped = []
+        self.access = []
+
+    def record_access(self, who, via, result):
+        self.access.append((who, via, result))
 
     def state(self):
         return GatewayState(mode=self.mode, version="test")
@@ -81,6 +85,7 @@ def made(tmp_path, monkeypatch):
         platform="linux",
         key="sk-test",
         stored=None,
+        own_url=None,
     ):
         gateway = gateway or FakeGateway()
         app = app or App()
@@ -107,6 +112,7 @@ def made(tmp_path, monkeypatch):
             stored=lambda name: stored if name == API_KEY else None,
             platform=platform,
             microscope="arctis-pc",
+            own_url=own_url,
         )
         built.append(agent)
         return agent, gateway, app
@@ -133,6 +139,15 @@ def until(test, agent=None, timeout=20.0):
 def _record(tmp_path):
     found = folders(tmp_path / "sessions")
     return read_json(found[0] / RECORD) if found else {}
+
+
+def test_the_agent_reaches_the_app_through_the_gateways_port(made, tmp_path):
+    agent, _, app = made(own_url="http://127.0.0.1:8010")
+    agent.start("default", None, "assist", "operator", "page")
+    # The level is set on the App Server itself; the agent goes through the gateway.
+    assert app.levels == [(URL, "assist")]
+    assert until(lambda: _record(tmp_path).get("args"))
+    assert _record(tmp_path)["args"][-2:] == ["--url", "http://127.0.0.1:8010"]
 
 
 def test_start_pairs_the_agent_sets_the_level_and_runs_the_playbook(made, tmp_path):
@@ -374,6 +389,26 @@ def _by_hand(tmp_path, **about):
     return session.folder
 
 
+def test_history_pages_through_every_session_not_only_the_newest(made, tmp_path):
+    for i in range(SESSIONS_SHOWN + 3):
+        session = SessionFolder.open(
+            f"s{i:02d}", {"playbook": "default", "mode": "none"}, tmp_path / "sessions"
+        )
+        session.end(0, "stopped")
+    agent, _, _ = made()
+    assert len(agent.state().sessions) == SESSIONS_SHOWN
+    page = agent.sessions(3)
+    assert len(page.sessions) == 3 and page.more
+    every = agent.sessions()
+    assert len(every.sessions) == SESSIONS_SHOWN + 3 and not every.more
+    # The oldest can be resumed as any other.
+    oldest = every.sessions[-1]["session_id"]
+    assert (
+        agent.resume(oldest, "watch", "operator", "page").running["session_id"]
+        == oldest
+    )
+
+
 def test_resume_carries_an_ended_gateway_session_on(made, tmp_path):
     agent, _, app = made()
     agent.start("default", "Mill 01", "assist", "operator", "page")
@@ -554,3 +589,80 @@ def test_the_shipped_playbooks_and_a_configuration_read_in_process():
     with pytest.raises(GatewayRefused) as refused:
         read_configuration("no-such-playbook")
     assert refused.value.error_type == "bad_playbook"
+
+
+# --- the one agent slot -------------------------------------------------------------
+
+
+def test_the_slot_is_in_use_by_a_running_agent_or_one_heard_lately(made, tmp_path):
+    agent, _, app = made()
+    assert agent.in_use() is None
+    PairedTokens(tmp_path / "paired.json").add("claude-code on this PC", role=AGENT)
+    assert agent.in_use() is None, "never heard: not in use"
+    app.last_heard_s = 4.0
+    assert agent.in_use() == "claude-code on this PC"
+    app.last_heard_s = 600.0
+    assert agent.in_use() is None, "gone quiet: the slot is free to take"
+    agent.start("default", None, "watch", "operator", "page", replace=True)
+    assert agent.in_use().startswith("the agent started from the gateway at ")
+    assert agent.own_running() == agent.in_use()
+
+
+def _allowing(agent, gateway, tmp_path, always=False):
+    """The gateway's routes over *agent*, and an ask from this PC waiting."""
+    from fastapi.testclient import TestClient
+
+    from fibsem.gateway.server import GatewayAuth, build_gateway_app
+
+    token_file = tmp_path / "operator-token.json"
+    token_file.write_text('{"token": "operator"}')
+    auth = GatewayAuth.from_disk(token_file, tmp_path / "paired.json")
+    auth.connections.always_allow = always
+    client = TestClient(build_gateway_app(gateway, auth, agent=agent))
+    client.headers["Authorization"] = "Bearer operator"
+    return client, auth.connections
+
+
+def test_allowing_an_agent_ends_the_one_the_gateway_started(made, tmp_path):
+    agent, gateway, _ = made()
+    agent.start("default", None, "watch", "operator", "page")
+    assert until(lambda: _record(tmp_path).get("runs"))
+    client, connections = _allowing(agent, gateway, tmp_path)
+    connections.ask("claude-code 2.1", "this PC", "lab", wait_s=0)
+    card = client.get("/gateway/connections").json()["asking"]
+    assert card["replaces"].startswith("the agent started from the gateway")
+    assert "allowing ends it" in card["if_allowed"]
+    allowed = client.post(f"/gateway/connections/{card['id']}/allow")
+    assert allowed.json()["allowed"] is True
+    # Ended as its End does, not left running without a token.
+    assert agent.state().running is None
+    assert agent.state().sessions[0]["ended"] == "ended by the operator"
+    paired = PairedTokens(tmp_path / "paired.json").agent()
+    assert paired.name == "claude-code on this PC"
+    ((who, _, result),) = gateway.access
+    assert who == "operator"
+    assert result.startswith("Allowed claude-code on this PC, replacing the agent")
+
+
+def test_always_allow_never_replaces_an_agent_in_use(made, tmp_path):
+    agent, gateway, _ = made()
+    agent.start("default", None, "watch", "operator", "page")
+    _, connections = _allowing(agent, gateway, tmp_path, always=True)
+    answer = connections.ask(
+        "claude-code 2.1", "this PC", "lab", wait_s=0, loopback=True
+    )
+    assert answer["state"] == "waiting", "the operator's card decides"
+    assert agent.state().running is not None
+    assert PairedTokens(tmp_path / "paired.json").agent().name == AGENT_NAME
+
+
+def test_always_allow_takes_a_free_slot_and_says_so_on_the_history(made, tmp_path):
+    agent, gateway, _ = made()
+    _, connections = _allowing(agent, gateway, tmp_path, always=True)
+    answer = connections.ask(
+        "claude-code 2.1", "this PC", "lab", wait_s=0, loopback=True
+    )
+    assert answer["state"] == "allowed"
+    assert gateway.access == [
+        ("always allow", "setting", "Allowed claude-code on this PC")
+    ]

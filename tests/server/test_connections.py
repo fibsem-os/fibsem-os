@@ -1,17 +1,18 @@
-"""An agent on this PC asks to connect with the discovery file's token, and the
-operator allows or denies it: the rules, the routes, and the client's side."""
+"""An agent on this PC asks the gateway to connect with ``gateway.json``'s token,
+and the operator allows or denies it: the rules, the gateway's routes, the App
+Server checking the token the gateway paired, and the client's side."""
 
 import json
 import threading
 import time
 
+import httpx
 import pytest
 
 from fibsem.client import pairing as client_pairing
 from fibsem.client.transport import Transport
 from fibsem.server.connections import DENIED_S, Connections
 from fibsem.server.pairing import AGENT, PairedTokens
-from fibsem.workflows.actions import ACTION
 from tests.server.test_operator_routes import (  # noqa: F401
     _bearer,
     microscope,
@@ -107,59 +108,120 @@ def test_deciding_what_nobody_asks_is_refused(connections):
         connections.deny("nope")
 
 
-# --- the routes -------------------------------------------------------------------
+# --- the routes: the gateway's ---------------------------------------------------
 
 
-def _found(server):
-    return json.loads(server.session.app_server._discovery_path.read_text())
+@pytest.fixture
+def gateway(server, tmp_path):
+    """This PC's gateway in front of *server*: the one place that pairs, on the
+    same paired file and operator token, its connect token in ``gateway.json``."""
+    from fibsem.gateway.gateway import Gateway, write_gateway_file
+    from fibsem.gateway.passthrough import PassThrough
+    from fibsem.gateway.server import GatewayAuth, build_gateway_app
+    from tests.fixtures.app_server import serving
+
+    auth = GatewayAuth.from_disk(
+        tmp_path / "operator-token.json", tmp_path / "paired.json"
+    )
+    home = tmp_path / "gateway"
+    home.mkdir()
+    gateway = Gateway(
+        home=home,
+        app_registry=lambda: {},
+        last=lambda: None,
+        recent=lambda: [],
+        new_folder=lambda: str(home),
+        configurations=lambda: [],
+        discovery=lambda: None,
+    )
+    app = build_gateway_app(
+        gateway,
+        auth,
+        passthrough=PassThrough(
+            lambda: server.session.app_server.url, is_connect=auth.is_connect
+        ),
+    )
+    with serving(app) as url:
+        found = write_gateway_file(url, auth.connect_token, tmp_path / "gateway.json")
+        with httpx.Client(base_url=url, timeout=30) as client:
+            client.auth_config = auth
+            client.found = found
+            client.operator = server.operator
+            client.agent = server.agent
+            client.server = server
+            client.history = gateway.history
+            yield client
 
 
-def test_the_discovery_file_only_asks_to_connect(server):
-    found = _found(server)
+def _found(gateway):
+    return json.loads(gateway.found.read_text())
+
+
+def test_the_app_server_takes_no_asks_and_pairs_nothing(server):
+    found = json.loads(server.session.app_server._discovery_path.read_text())
+    assert "token" not in found and "connect_token" not in found
+    for method, path in (
+        ("POST", "/connect"),
+        ("GET", "/pair"),
+        ("GET", "/pairing"),
+        ("GET", "/ui/agent"),
+        ("GET", "/chat"),
+    ):
+        answer = server.request(method, path, headers=server.operator)
+        assert answer.status_code in (404, 405), (path, answer.status_code)
+
+
+def test_the_gateway_file_only_asks_to_connect(gateway):
+    found = _found(gateway)
     assert "token" not in found
     connect = _bearer(found["connect_token"])
-    refused = server.get("/capabilities", headers=connect)
+    refused = gateway.get("/capabilities", headers=connect)
     assert refused.status_code == 403
     assert refused.json()["detail"]["error_type"] == "connect_first"
-    assert server.get("/app/experiment", headers=connect).status_code == 403
+    assert gateway.get("/app/experiment", headers=connect).status_code == 403
     # The connect token is no operator either.
-    assert server.get("/app/agent", headers=connect).status_code == 401
+    assert gateway.get("/gateway/connections", headers=connect).status_code == 401
     # Only the connect token asks.
-    assert server.post("/connect", headers=server.agent).status_code == 401
+    assert gateway.post("/connect", headers=gateway.agent).status_code == 401
 
 
-def test_the_operator_allows_the_asking_agent_and_it_acts_at_the_level(server):
-    found = _found(server)
+def _ask(gateway, wait_s=10, **headers):
+    return gateway.post(
+        "/connect",
+        json={"origin": "this PC", "user": "lab", "wait_s": wait_s},
+        headers={**_bearer(_found(gateway)["connect_token"]), **headers},
+    ).json()
+
+
+def _card(gateway):
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        asking = gateway.get("/gateway/connections", headers=gateway.operator).json()
+        if asking["asking"]:
+            return asking["asking"]
+        time.sleep(0.02)
+    raise AssertionError("no ask came")
+
+
+def test_the_operator_allows_the_asking_agent_and_it_acts_at_the_level(gateway):
     answers = []
     thread = threading.Thread(
         target=lambda: answers.append(
-            server.post(
-                "/connect",
-                json={"origin": "this PC", "user": "lab", "wait_s": 10},
-                headers={
-                    **_bearer(found["connect_token"]),
-                    "User-Agent": "fibsem-mcp/0.6 claude-code/2.1.3",
-                },
-            ).json()
+            _ask(gateway, **{"User-Agent": "fibsem-mcp/0.6 claude-code/2.1.3"})
         )
     )
     thread.start()
-    deadline = time.monotonic() + 10
-    while time.monotonic() < deadline:
-        asking = server.get("/app/agent", headers=server.operator).json()["asking"]
-        if asking:
-            break
-        time.sleep(0.02)
+    asking = _card(gateway)
     assert asking["client"] == "claude-code 2.1.3"
     assert asking["name"] == "claude-code on this PC"
-    assert "now Watch, so it can look but not act" in asking["if_allowed"]
+    assert "acts only at the agent level" in asking["if_allowed"]
     # The agent can't allow itself.
-    agent_tried = server.post(
-        f"/app/agent/connections/{asking['id']}/allow", headers=server.agent
+    agent_tried = gateway.post(
+        f"/gateway/connections/{asking['id']}/allow", headers=gateway.agent
     )
-    assert agent_tried.status_code == 403
-    allowed = server.post(
-        f"/app/agent/connections/{asking['id']}/allow", headers=server.operator
+    assert agent_tried.status_code == 401
+    allowed = gateway.post(
+        f"/gateway/connections/{asking['id']}/allow", headers=gateway.operator
     )
     assert allowed.json() == {
         "id": asking["id"],
@@ -168,52 +230,54 @@ def test_the_operator_allows_the_asking_agent_and_it_acts_at_the_level(server):
     }
     thread.join(10)
     token = answers[0]["token"]
-    caps = server.get("/capabilities", headers=_bearer(token))
+    # The App Server checks the token the gateway paired: at the level set.
+    caps = gateway.get("/capabilities", headers=_bearer(token))
     assert caps.json()["level"] == "watch"
+    direct = gateway.server.get("/capabilities", headers=_bearer(token))
+    assert direct.json()["level"] == "watch"
     # Listed with Unpair, as a computer paired with a code is.
-    listed = server.get("/pairing", headers=server.operator).json()["computers"]
+    listed = gateway.get("/pairing", headers=gateway.operator).json()["computers"]
     assert [(c["name"], c["role"]) for c in listed] == [
         ("claude-code on this PC", "agent")
     ]
-    events = server.get("/app/events", headers=server.operator).json()["events"]
-    said = [e["payload"]["what"] for e in events if e["kind"] == ACTION]
-    assert "Allow claude-code on this PC to connect" in said
+    # Who let it in, on the gateway's History.
+    (line,) = gateway.history().switches
+    assert (line.kind, line.result, line.who) == (
+        "agent",
+        "Allowed claude-code on this PC",
+        "operator",
+    )
 
 
-def test_the_operator_denies_with_a_reason(server):
-    found = _found(server)
-    connect = _bearer(found["connect_token"])
-    waiting = server.post("/connect", json={"wait_s": 0}, headers=connect).json()
+def test_the_operator_denies_with_a_reason(gateway):
+    waiting = _ask(gateway, wait_s=0)
     assert waiting["state"] == "waiting"
-    denied = server.post(
-        f"/app/agent/connections/{waiting['id']}/deny",
+    denied = gateway.post(
+        f"/gateway/connections/{waiting['id']}/deny",
         json={"reason": "who is this?"},
-        headers=server.operator,
+        headers=gateway.operator,
     )
     assert denied.json() == {"id": waiting["id"], "allowed": False, "name": None}
-    again = server.post("/connect", json={"wait_s": 0}, headers=connect).json()
+    again = _ask(gateway, wait_s=0)
     assert again["state"] == "denied" and "who is this?" in again["message"]
-    missing = server.post("/app/agent/connections/nope/deny", headers=server.operator)
+    (line,) = gateway.history().switches
+    assert (line.kind, line.result) == (
+        "agent",
+        "Denied an agent on this PC: who is this?",
+    )
+    missing = gateway.post("/gateway/connections/nope/deny", headers=gateway.operator)
     assert missing.status_code == 404
 
 
 # --- the client ---------------------------------------------------------------------
 
 
-def _allow_when_asked(server):
+def _allow_when_asked(gateway):
     """The operator, clicking Allow once the card shows an ask."""
 
     def allow():
-        deadline = time.monotonic() + 20
-        while time.monotonic() < deadline:
-            asking = server.get("/app/agent", headers=server.operator).json()
-            if asking.get("asking"):
-                ask_id = asking["asking"]["id"]
-                server.post(
-                    f"/app/agent/connections/{ask_id}/allow", headers=server.operator
-                )
-                return
-            time.sleep(0.02)
+        ask_id = _card(gateway)["id"]
+        gateway.post(f"/gateway/connections/{ask_id}/allow", headers=gateway.operator)
 
     thread = threading.Thread(target=allow)
     thread.start()
@@ -221,28 +285,33 @@ def _allow_when_asked(server):
 
 
 @pytest.fixture
-def discovered(server, monkeypatch):
-    """Clients find the server by its discovery file, as on the microscope PC."""
+def discovered(gateway, monkeypatch):
+    """Clients find the gateway by its file, as on the microscope PC."""
     monkeypatch.delenv("FIBSEM_SERVER_URL", raising=False)
     monkeypatch.delenv("FIBSEM_SERVER_TOKEN", raising=False)
-    path = server.session.app_server._discovery_path
-    monkeypatch.setattr("fibsem.server.discovery.DISCOVERY_FILE", path)
-    return server
+    monkeypatch.setattr("fibsem.server.discovery.GATEWAY_FILE", gateway.found)
+    monkeypatch.setattr(
+        "fibsem.server.discovery.DISCOVERY_FILE",
+        gateway.server.session.app_server._discovery_path,
+    )
+    return gateway
 
 
 def test_a_client_asks_keeps_the_token_and_later_connects_without_asking(discovered):
-    server = discovered
-    operator = _allow_when_asked(server)
+    gateway = discovered
+    operator = _allow_when_asked(gateway)
     with Transport(user_agent="fibsem-mcp/0.6 claude-code/2.1.3") as transport:
+        assert transport.url == str(gateway.base_url).rstrip("/")
         assert transport.fetch("GET", "/capabilities")["level"] == "watch"
     operator.join(20)
-    kept = client_pairing.agent_token(server.session.app_server.url)
+    kept = client_pairing.agent_token(transport.url)
     assert kept is not None
     # The next program connects with the kept token: no card.
     with Transport() as transport:
         assert transport.bearer == f"Bearer {kept}"
         assert transport.fetch("GET", "/capabilities")["level"] == "watch"
-    assert server.get("/app/agent", headers=server.operator).json()["asking"] is None
+    asking = gateway.get("/gateway/connections", headers=gateway.operator).json()
+    assert asking["asking"] is None
 
 
 def test_a_client_waiting_too_long_is_told_to_try_again(discovered):
@@ -253,19 +322,37 @@ def test_a_client_waiting_too_long_is_told_to_try_again(discovered):
 
 
 def test_an_unpaired_agent_forgets_its_token_and_asks_again(discovered):
-    server = discovered
-    operator = _allow_when_asked(server)
+    gateway = discovered
+    operator = _allow_when_asked(gateway)
     transport = Transport()
     transport.fetch("GET", "/capabilities")
     operator.join(20)
-    computers = server.get("/pairing", headers=server.operator).json()["computers"]
-    server.delete(f"/pairing/computers/{computers[0]['id']}", headers=server.operator)
-    operator = _allow_when_asked(server)
+    computers = gateway.get("/pairing", headers=gateway.operator).json()["computers"]
+    gateway.delete(f"/pairing/computers/{computers[0]['id']}", headers=gateway.operator)
+    operator = _allow_when_asked(gateway)
     assert transport.fetch("GET", "/capabilities")["level"] == "watch"
     operator.join(20)
     transport.close()
-    computers = server.get("/pairing", headers=server.operator).json()["computers"]
+    computers = gateway.get("/pairing", headers=gateway.operator).json()["computers"]
     assert len(computers) == 1
+
+
+def test_with_no_gateway_an_app_server_alone_takes_the_launchers_token(
+    server, monkeypatch
+):
+    monkeypatch.setattr(
+        "fibsem.server.discovery.GATEWAY_FILE",
+        server.session.app_server._discovery_path.parent / "none.json",
+    )
+    monkeypatch.setattr(
+        "fibsem.server.discovery.DISCOVERY_FILE",
+        server.session.app_server._discovery_path,
+    )
+    monkeypatch.setenv("FIBSEM_SERVER_TOKEN", server.config.token)
+    monkeypatch.delenv("FIBSEM_SERVER_URL", raising=False)
+    with Transport() as transport:
+        assert transport.url == server.session.app_server.url
+        assert transport.fetch("GET", "/capabilities")["level"] == "watch"
 
 
 # --- always allow agents logged in to this PC ---------------------------------------
@@ -310,32 +397,23 @@ def test_loopback_is_the_peer_address(peer, loopback):
     assert _loopback(SimpleNamespace(client=None)) is False
 
 
-def test_the_operator_sets_always_allow_and_it_goes_on_the_record(server, monkeypatch):
+def test_the_operator_sets_always_allow_and_an_ask_from_this_pc_is_let_in(
+    gateway, monkeypatch
+):
     saved = []
     monkeypatch.setattr(
-        server.session.app_server.auth.connections, "_save_always_allow", saved.append
+        gateway.auth_config.connections, "_save_always_allow", saved.append
     )
-    agent_refused = server.put(
-        "/pairing/always_allow_local", json={"on": True}, headers=server.agent
+    agent_refused = gateway.put(
+        "/pairing/always_allow_local", json={"on": True}, headers=gateway.agent
     )
     assert agent_refused.status_code in (401, 403)
-    listing = server.put(
-        "/pairing/always_allow_local", json={"on": True}, headers=server.operator
+    listing = gateway.put(
+        "/pairing/always_allow_local", json={"on": True}, headers=gateway.operator
     ).json()
     assert listing["always_allow_local"] is True and saved == [True]
-    found = _found(server)
-    answer = server.post(
-        "/connect",
-        json={"origin": "this PC", "user": "lab", "wait_s": 0},
-        headers=_bearer(found["connect_token"]),
-    ).json()
-    assert answer["state"] == "allowed"
-    events = server.get("/app/events", headers=server.operator).json()["events"]
-    said = [e["payload"] for e in events if e["kind"] == ACTION]
-    assert any(
-        p["what"].endswith("to connect") and "Always allow" in p.get("reason", "")
-        for p in said
-    )
+    # this test reaches the gateway on 127.0.0.1: an ask from this PC
+    assert _ask(gateway, wait_s=0)["state"] == "allowed"
 
 
 # --- one agent per microscope -------------------------------------------------------
@@ -352,23 +430,18 @@ def test_a_new_agent_replaces_the_allowed_one(tmp_path):
     assert tokens.match(second_token) == second
 
 
-def test_the_card_says_which_agent_allowing_replaces(server):
-    found = _found(server)
-    connect = _bearer(found["connect_token"])
-    server.session.app_server.auth.pairing.tokens.add("codex on mac-mini", AGENT)
-    waiting = server.post("/connect", json={"wait_s": 0}, headers=connect).json()
-    asking = server.get("/app/agent", headers=server.operator).json()["asking"]
+def test_the_card_says_which_agent_allowing_replaces(gateway):
+    gateway.auth_config.pairing.tokens.add("codex on mac-mini", AGENT)
+    waiting = _ask(gateway, wait_s=0)
+    asking = _card(gateway)
     assert asking["replaces"] == "codex on mac-mini"
     assert asking["if_allowed"].endswith(
         "It replaces codex on mac-mini, which is unpaired."
     )
-    server.post(
-        f"/app/agent/connections/{waiting['id']}/allow", headers=server.operator
+    gateway.post(
+        f"/gateway/connections/{waiting['id']}/allow", headers=gateway.operator
     )
-    listed = server.get("/pairing", headers=server.operator).json()["computers"]
+    listed = gateway.get("/pairing", headers=gateway.operator).json()["computers"]
     assert [c["name"] for c in listed if c["role"] == "agent"] == [
         "an agent on this PC"
     ]
-    events = server.get("/app/events", headers=server.operator).json()["events"]
-    allowed = [e["payload"] for e in events if e["kind"] == ACTION][-1]
-    assert allowed["reason"] == "Replaces codex on mac-mini"

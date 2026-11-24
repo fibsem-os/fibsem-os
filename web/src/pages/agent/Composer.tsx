@@ -1,5 +1,5 @@
 import { ChevronDown, Paperclip, Square } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Facts } from "@/components/ui/card";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -268,9 +268,35 @@ function AttachLong({
   );
 }
 
+// The composer's commands, listed while the draft is "/" and the start of a name.
+export const COMMANDS = [
+  { name: "/now", say: "Interrupt the agent's turn so it reads this at once" },
+  { name: "/btw", say: "Ask a quick side question; the agent carries on" },
+  { name: "/status", say: "Ask where things stand, as a side question" },
+  { name: "/note", say: "Keep a note on the record; it doesn't wake the agent" },
+  { name: "/level", say: "Set the level: off, watch, assist or drive" },
+];
+/** Starts the composer with *text* and puts the focus in it, as the quick search does. */
+export function compose(text: string) {
+  dispatchEvent(new CustomEvent<string>(COMPOSE, { detail: text }));
+}
+const COMPOSE = "fibsem:compose";
+// The command the page does itself rather than send.
+const LEVEL = /^\s*\/level(?:\s+(\S*))?\s*$/i;
+
+// How long "Sent" stays beside the Send button.
+const SAID_MS = 4000;
+
 export function Composer({ agent, attach, onSent }: { agent: AgentState; attach: Attachments; onSent: () => void }) {
   const [draft, setDraft] = useState("");
   const [said, setSaid] = useState<string | null>(null);
+  // A moment's confirmation only: the message itself then shows, marked "Not read
+  // yet" until the agent reads it, so the note would only go stale here.
+  useEffect(() => {
+    if (!said) return;
+    const timer = setTimeout(() => setSaid(null), SAID_MS);
+    return () => clearTimeout(timer);
+  }, [said]);
   // Pasted text that would take the message past LIMIT, waiting to be attached.
   const [long, setLong] = useState<string | null>(null);
   const { act, busy, error, setError } = useAct();
@@ -279,15 +305,82 @@ export function Composer({ agent, attach, onSent }: { agent: AgentState; attach:
   const send = async () => {
     if (!text || attach.uploading) return;
     setSaid(null);
+    const level = LEVEL.exec(draft);
+    if (level) {
+      const name = (level[1] ?? "").toLowerCase();
+      if (!name) {
+        setError("Say the level: /level off, watch, assist or drive");
+        return;
+      }
+      const set = await act("/app/agent/level", { method: "PUT", body: JSON.stringify({ level: name }) });
+      if (set === undefined) return;
+      setDraft("");
+      setSaid(`Level set to ${name}`);
+      return;
+    }
     const answer = await act("/app/agent/messages", { method: "POST", body: JSON.stringify({ text }) });
     if (answer === undefined) return;
     setDraft("");
     attach.clear();
     onSent();
-    setSaid(connected(agent) ? "Sent · the agent reads it on its next turn" : "Sent · waiting for an agent");
+    // A /btw side question is answered here without interrupting the agent or joining its conversation.
+    const side = /^\s*(\/btw\s+\S|\/status(\s|$))/i.test(text);
+    // A /note is kept on the record and wakes the agent for nothing.
+    const note = /^\s*\/note\s+\S/i.test(text);
+    // A /now message cuts the agent's turn short; any other waits for the turn to end.
+    const now = /^\s*\/now(\s|$)/i.test(text);
+    setSaid(
+      !connected(agent)
+        ? "Sent · waiting for an agent"
+        : note
+          ? "Noted · the agent sees it with its next turn"
+          : side
+          ? "Sent · a side answer comes here; the agent carries on"
+          : now
+            ? "Sent · the agent stops its turn to read it"
+            : "Sent · the agent reads it when its turn ends",
+    );
   };
+  // Shown while the draft is "/" and the start of a command's name.
+  const commands = /^\/\w*$/.test(draft) ? COMMANDS.filter((c) => c.name.startsWith(draft.toLowerCase())) : [];
+  const pick = (name: string) => {
+    setDraft(`${name} `);
+    document.getElementById("msg")?.focus();
+  };
+  useEffect(() => {
+    const start = (e: Event) => {
+      setDraft((e as CustomEvent<string>).detail);
+      setSaid(null);
+      setError(null);
+      document.getElementById("msg")?.focus();
+    };
+    addEventListener(COMPOSE, start);
+    return () => removeEventListener(COMPOSE, start);
+  }, [setError]);
   return (
-    <div className="flex flex-col rounded-md border border-input bg-card">
+    <div className="relative flex flex-col rounded-md border border-input bg-card">
+      {commands.length > 0 && (
+        <div
+          role="listbox"
+          aria-label="Commands"
+          className="absolute bottom-full left-0 mb-1 flex flex-col rounded-md border border-input bg-popover py-1 text-[13px] shadow-[0_4px_14px_rgba(0,0,0,0.4)]"
+        >
+          {commands.map((c) => (
+            <button
+              key={c.name}
+              type="button"
+              role="option"
+              aria-selected={false}
+              className="flex cursor-pointer gap-3 px-3 py-1.5 text-left hover:bg-accent"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => pick(c.name)}
+            >
+              <span className="font-mono text-foreground">{c.name}</span>
+              <span className="text-muted-foreground">{c.say}</span>
+            </button>
+          ))}
+        </div>
+      )}
       <AttachedChips attach={attach} />
       {long != null && (
         <AttachLong text={long} experiment={!!agent.experiment} attach={attach} done={() => setLong(null)} />
@@ -299,6 +392,7 @@ export function Composer({ agent, attach, onSent }: { agent: AgentState; attach:
         id="msg"
         rows={2}
         maxLength={LIMIT}
+        placeholder="Message the agent · / for commands"
         value={draft}
         onChange={(e) => {
           setDraft(e.target.value);
@@ -313,6 +407,12 @@ export function Composer({ agent, attach, onSent }: { agent: AgentState; attach:
           setLong(pasted);
         }}
         onKeyDown={(e) => {
+          // Tab completes the first command listed.
+          if (e.key === "Tab" && commands.length > 0) {
+            e.preventDefault();
+            pick(commands[0].name);
+            return;
+          }
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
             send();
@@ -328,7 +428,10 @@ export function Composer({ agent, attach, onSent }: { agent: AgentState; attach:
           {error ?? said}
         </span>
         <div className="flex-1" />
-        <Stop agent={agent} act={act} />
+        {/* From lg up, Stop is at the bottom of the side column. */}
+        <span className="lg:hidden">
+          <Stop agent={agent} act={act} />
+        </span>
         <Button variant="primary" onClick={send} disabled={!text || attach.uploading || busy}>
           Send
         </Button>

@@ -244,6 +244,7 @@ def test_experiments_lists_the_apps_experiments_folder(
 def test_no_server_says_what_to_start(monkeypatch, capsys):
     monkeypatch.delenv("FIBSEM_SERVER_URL", raising=False)
     monkeypatch.delenv("FIBSEM_OPERATOR_TOKEN", raising=False)
+    monkeypatch.setattr("fibsem.client.transport.read_gateway_file", lambda: None)
     monkeypatch.setattr("fibsem.client.transport.read_discovery_file", lambda: None)
     with pytest.raises(SystemExit) as exit:
         cli.main(["stage", "get-position"])
@@ -258,9 +259,10 @@ def test_the_operator_token_never_the_agents(monkeypatch, tmp_path):
 
     monkeypatch.delenv("FIBSEM_SERVER_URL", raising=False)
     monkeypatch.delenv("FIBSEM_OPERATOR_TOKEN", raising=False)
+    monkeypatch.setattr("fibsem.client.transport.read_gateway_file", lambda: None)
     monkeypatch.setattr(
         "fibsem.client.transport.read_discovery_file",
-        lambda: {"url": "http://pc:8001", "token": "agent"},
+        lambda: {"url": "http://pc:8001", "connect_token": "agent"},
     )
     monkeypatch.setattr("fibsem.client.transport.read_operator_token", lambda: None)
     assert resolve_operator() is None

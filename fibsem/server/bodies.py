@@ -145,6 +145,63 @@ class PlanSectionBody:
 
 
 @dataclass
+class PlanAppendBody:
+    """POST /app/agent/plan/append: lines added at the end of one section."""
+
+    __pydantic_config__ = STRICT
+
+    section: str
+    text: str
+
+
+@dataclass
+class PlanStepBody:
+    """POST /app/agent/plan/step: one Steps box ticked, or unticked."""
+
+    __pydantic_config__ = STRICT
+
+    step: str
+    done: bool = True
+    group: Optional[str] = None
+
+
+@dataclass
+class ReviewAddBody:
+    """POST /app/agent/review: an item for the operator's review list."""
+
+    __pydantic_config__ = STRICT
+
+    title: str
+    level: str = "done"
+    text: str = ""
+    about: str = ""
+    images: Optional[List[str]] = None
+    facts: Optional[List[Dict[str, Any]]] = None
+    options: Optional[List[str]] = None
+
+
+@dataclass
+class ReviewCloseBody:
+    """POST /app/agent/review/{id}/close: the agent no longer needs an answer."""
+
+    __pydantic_config__ = STRICT
+
+    reason: str
+
+
+@dataclass
+class ReviewAnswerBody:
+    """POST /app/agent/review/{id}/answer: the operator's answer, a note and
+    marks on one of its pictures."""
+
+    __pydantic_config__ = STRICT
+
+    choice: str
+    note: str = ""
+    evidence: Optional[MarkedEvidence] = None
+
+
+@dataclass
 class PlanBody:
     """PUT /app/agent/plan: the whole plan, its sections under ## headings."""
 
@@ -161,6 +218,17 @@ class TranscriptBody:
 
     session_id: str
     entries: List[Any] = field(default_factory=list)
+
+
+@dataclass
+class HandoffBody:
+    """POST /app/agent/handoff: a handoff note fibsem-agent keeps as the agent
+    starts a fresh context."""
+
+    __pydantic_config__ = STRICT
+
+    session_id: str
+    text: str
 
 
 @dataclass
@@ -493,6 +561,15 @@ class GridNoteBody:
 
 
 @dataclass
+class GridItemsBody:
+    """POST .../grids/{grid_name}/items: the lamellae to record as on it."""
+
+    __pydantic_config__ = STRICT
+
+    item_names: List[str]
+
+
+@dataclass
 class PlaceBody:
     """Where an item is: a stage position, or a point on a grid overview
     (``{grid_name, filename, px | fraction}``)."""
@@ -540,8 +617,10 @@ Plane = Annotated[int, Strict(), Field(ge=0)]
 
 @dataclass
 class ThicknessBody:
-    """POST .../items/{item_name}/thickness: a saved image, and the window to
-    measure in, else the whole lamella."""
+    """POST .../items/{item_name}/thickness and /experiment/analysis/thickness:
+    a saved FIB image, and the window to measure in, else the item's trench
+    window (the default window with no item) about its POI (the image's
+    centre with no item), or about *centre*."""
 
     __pydantic_config__ = STRICT
 
@@ -625,6 +704,98 @@ class ProfileBody:
     channel: Optional[str] = None
     plane: Optional[Plane] = None
     dip: Optional[Flag] = None
+    points: Optional[Annotated[int, Strict(), Field(ge=2, le=10000)]] = None
+
+
+@dataclass
+class PointPair:
+    """One feature: where it is in the SEM image and in the FIB image."""
+
+    __pydantic_config__ = STRICT
+
+    sem: Point
+    fib: Point
+    label: Optional[Annotated[str, Field(min_length=1, max_length=24)]] = None
+
+
+@dataclass
+class CoincidenceOffsetBody:
+    """POST /app/experiment/analysis/coincidence: features picked in a saved
+    SEM image and in a saved FIB image, one (sem_point, fib_point) or
+    several (pairs)."""
+
+    __pydantic_config__ = STRICT
+
+    sem_path: str
+    fib_path: str
+    sem_point: Optional[Point] = None
+    fib_point: Optional[Point] = None
+    pairs: Optional[Annotated[List[PointPair], Field(min_length=1, max_length=10)]] = (
+        None
+    )
+    # the crop each point was read off: a cell's name or [x, y, width, height]
+    sem_crop: Optional[Union[str, Tuple[float, float, float, float]]] = None
+    fib_crop: Optional[Union[str, Tuple[float, float, float, float]]] = None
+    # how far a pair's dy or dx may be off the others' before it is flagged
+    tolerance_um: Optional[float] = None
+
+
+@dataclass
+class HistogramBody:
+    """POST /app/experiment/analysis/histogram: a saved image's values, on a
+    plane and in a box when given."""
+
+    __pydantic_config__ = STRICT
+
+    path: str
+    channel: Optional[str] = None
+    plane: Optional[Plane] = None
+    bins: Optional[Annotated[int, Strict(), Field(ge=2, le=1024)]] = None
+    box: Optional[Tuple[float, float, float, float]] = None
+
+
+@dataclass
+class SpectrumBody:
+    """POST /app/experiment/analysis/spectrum: a saved image's power
+    spectrum, on a plane and in a box when given; *points* adds its radial
+    average resampled to that many frequencies."""
+
+    __pydantic_config__ = STRICT
+
+    path: str
+    channel: Optional[str] = None
+    plane: Optional[Plane] = None
+    box: Optional[Tuple[float, float, float, float]] = None
+    points: Optional[Annotated[int, Strict(), Field(ge=2, le=1000)]] = None
+
+
+@dataclass
+class GridSquaresBody:
+    """POST /app/experiment/analysis/grid_squares: the grid-bar lattice on a
+    saved image, *limit* squares and the *points* to check against the bars;
+    fitted in *box* and preferring *pitch_um* when given."""
+
+    __pydantic_config__ = STRICT
+
+    path: str
+    points: Optional[List[Point]] = None
+    limit: Optional[Annotated[int, Strict(), Field(ge=0, le=200)]] = None
+    box: Optional[Tuple[float, float, float, float]] = None
+    pitch_um: Optional[Annotated[float, Field(gt=0)]] = None
+
+
+@dataclass
+class ShiftBody:
+    """POST /app/experiment/analysis/shift: two saved beam images; *compare*
+    measures by every method too."""
+
+    __pydantic_config__ = STRICT
+
+    reference: str
+    image: str
+    method: Optional[str] = None
+    compare: Optional[Flag] = None
+    agreement_px: Optional[float] = None
 
 
 @dataclass
@@ -640,6 +811,23 @@ class MillingDrawnBody:
     scan_direction: Optional[Flag] = None
     alignment_area: Optional[Flag] = None
     metadata_bar: Optional[Flag] = None
+
+
+@dataclass
+class MillingOverviewBody:
+    """POST /app/experiment/images/milling: items' milling drawn on an
+    overview of their grid. Items by name, or every item of ``grid_name``;
+    the overview at ``path`` or the grid's latest SEM overview; a ``box``
+    ([x, y, width, height] in its pixels) to show instead of the items'
+    neighbourhood."""
+
+    __pydantic_config__ = STRICT
+
+    item_names: Optional[Union[str, List[str]]] = None
+    grid_name: Optional[str] = None
+    path: Optional[str] = None
+    task_names: Optional[Union[str, List[str]]] = None
+    box: Optional[Tuple[float, float, float, float]] = None
 
 
 @dataclass

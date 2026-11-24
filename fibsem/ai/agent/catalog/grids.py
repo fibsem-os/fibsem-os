@@ -1,9 +1,9 @@
 """The grid tools: the sample handling service's, and the experiment's grid records."""
 
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, List, Tuple
 
 from fibsem.ai.agent.catalog.spec import ToolSpec, arg, kwargs_body
-from fibsem.server.parts import GRIDS
+from fibsem.server.parts import GRIDS, LAMELLAE
 from fibsem.util import wording
 
 
@@ -65,6 +65,39 @@ def _grid_remove(a: Dict[str, Any], ctx: wording.ActionContext) -> Dict[str, Any
     }
 
 
+def _grid_assign_items(a: Dict[str, Any], ctx: wording.ActionContext) -> Dict[str, Any]:
+    names = [str(n) for n in a.get("item_names") or []]
+    return {
+        "what": ", ".join(names) or "No lamellae",
+        "change": f"Record as on grid '{a.get('grid_name')}'",
+    }
+
+
+# How many of a role's files grid_get lists before it gives their count.
+_LISTED_FILES = 3
+
+
+def _grid_files(answer: Dict[str, Any], a: Dict[str, Any]) -> Dict[str, Any]:
+    """grid_get's answer: a role with more than a few files (an overview's
+    tiles) as their count and its first and last file, unless files asks for
+    them all."""
+    if a.get("files"):
+        return answer
+
+    def cut(names: List[str]) -> Any:
+        if len(names) <= _LISTED_FILES:
+            return names
+        return {"count": len(names), "first": names[0], "last": names[-1]}
+
+    tasks = [
+        dict(task, files={role: cut(names) for role, names in task["files"].items()})
+        if isinstance(task.get("files"), dict)
+        else task
+        for task in answer.get("tasks") or []
+    ]
+    return dict(answer, tasks=tasks)
+
+
 TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="grid_list",
@@ -79,17 +112,24 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="grid_get",
         returns="GridDetail",
-        description="One grid: its summary plus every task run with the files it recorded by role, and the names of the items linked to it.",
+        description="One grid: its summary (description, quality, status, latest overviews and their paths) plus every task run with the files it recorded by role, and the names of the items linked to it. A role with more than 3 files (an overview's tiles) comes as their count and its first and last file; files=true lists them all.",
         method="GET",
         path="/app/experiment/grids/{grid_name}",
         level="watch",
         router="app",
         part=GRIDS,
-        params={"grid_name": "the grid name"},
+        params={
+            "grid_name": "the grid name",
+            "files": arg(
+                "optional: true lists every file of every run (default false)", bool
+            ),
+        },
+        optional=("files",),
+        shape=_grid_files,
     ),
     ToolSpec(
         name="grid_get_output_image",
-        description="One saved overview (mosaic) of a grid, as an image you can look at: a 768 px JPEG preview of a file grid_list / grid_get lists. A preview, not the data; grid_get_markers places the items on it. A beam image comes with its metadata block (pixel size, preview_pixelsize, stage position, beam, detector). A name it neither lists nor finds in the experiment is refused with the valid ones. With cells, the overview is shown cut into named cells (its tiles; columns A, B, ..., rows 1, 2, ...), each listed in the metadata with its box and centre stage position, to crop by name with experiment_crop_image.",
+        description="One saved overview (mosaic) of a grid, as an image you can look at: a 768 px JPEG preview of a file grid_list / grid_get lists. A preview, not the data; grid_get_markers places the items on it. A beam image comes with its metadata block (pixel size, preview_pixelsize, stage position, beam, detector). A name it neither lists nor finds in the experiment is refused with the valid ones. With cells, the overview is shown cut into named cells (its tiles; columns A, B, ..., rows 1, 2, ...), each listed in the metadata with its box and centre stage position, to crop by name with analysis_crop_image.",
         method="GET",
         path="/app/experiment/grids/{grid_name}/outputs/{filename}",
         level="watch",
@@ -137,6 +177,32 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "grid_name": "the grid name",
             "filename": "an overview basename from grid_list / grid_get, or any saved image's path in the experiment",
         },
+    ),
+    ToolSpec(
+        name="grid_draw_milling",
+        returns="MillingOnOverview",
+        description="Items' milling patterns drawn on an overview of their grid, to check layout before milling: each pattern's outline (trench, stress relief, fiducial, polishing) carried from the item's FIB frame at its pose onto the grid's latest SEM overview (or any saved image with stage metadata), cropped to the items with a grid square's margin so the bars show. Judge a fiducial or trench on a bar by eye. Answers per item its footprint's box on the sample surface (metres from the overview centre) and its nearest neighbour's edge-to-edge distance and which cuts, the nearest pair (drawn as a line), what could not be placed, and caveats on the projection. Saved as drawn/<image>-milling.png beside the overview (replaced when drawn again): cite it as evidence. Items on another grid than the overview's are refused. Nothing moves.",
+        method="POST",
+        path="/app/experiment/images/milling",
+        level="watch",
+        router="app",
+        part=LAMELLAE,
+        params={
+            "item_names": arg(
+                "the items to draw (default: every item on grid_name)", List[str]
+            ),
+            "grid_name": "the grid whose items and latest SEM overview to use (default: the items' grid)",
+            "path": "optional: an overview or other saved image inside the experiment to draw on",
+            "task_names": arg(
+                "optional: the milling tasks to draw (default: every milling task)",
+                List[str],
+            ),
+            "box": arg(
+                "optional: draw this region instead, [x, y, width, height] in the image's pixels",
+                List[float],
+            ),
+        },
+        optional=("item_names", "grid_name", "path", "task_names", "box"),
     ),
     ToolSpec(
         name="grid_add",
@@ -220,6 +286,21 @@ TOOLS: Tuple[ToolSpec, ...] = (
         params={"grid_name": "the grid name, from grid_list"},
         line=_grid_remove,
     ),
+    ToolSpec(
+        name="grid_assign_items",
+        returns="GridEdit",
+        description="Record lamellae as on a grid, as a lamella row's Assign to Grid does: for lamellae marked before the grid had a record (no grid, or the wrong one). The grid must already have a record (grid_add makes them from the inventory); nothing moves. Answers the lamellae that changed grid (assigned). Refused for a lamella the run is on, or one on a grid the run is on.",
+        method="POST",
+        path="/app/experiment/grids/{grid_name}/items",
+        level="drive",
+        router="app",
+        part=GRIDS,
+        params={
+            "grid_name": "the grid name, from grid_list",
+            "item_names": arg("the lamellae to put on it, by name", list),
+        },
+        line=_grid_assign_items,
+    ),
     # The grids on the hardware: the sample handling service, which loads them
     # onto the stage and names them where the loader keeps names.
     ToolSpec(
@@ -249,6 +330,40 @@ TOOLS: Tuple[ToolSpec, ...] = (
         result_key="current",
         level="watch",
         call=lambda a: ({}, kwargs_body()),
+    ),
+    ToolSpec(
+        name="grid_set_current",
+        description=(
+            "Say which grid is on the stage, by name, without a load cycle: for "
+            "a grid the loader's record lost, as after an application restart "
+            "(grid_get_inventory shows no grid loaded, or one called "
+            "Grid-on-stage), so workflow_plan and workflow_start accept its "
+            "lamellae. Only on the operator's word for which grid it is: ask "
+            "them, never guess it. slot_name is the magazine slot it came from, "
+            "if they know it (a default name Grid-NN goes home to Slot-NN when "
+            "that slot reads empty). Refused when the loader reads that grid in "
+            "the magazine, when slot_name holds another grid, and when the "
+            "loader reports nothing on the stage. Nothing moves; with no "
+            "autoloader it is refused (grid_rename names a holder slot's grid)."
+        ),
+        method="POST",
+        path="/microscope/services/sample_handling/commands/set_current",
+        result_key="current",
+        level="drive",
+        hardware=True,
+        params={
+            "grid_name": "the grid's name, as the experiment records it (grid_list)",
+            "slot_name": arg(
+                "the magazine slot it came from, e.g. Slot-03, if known", default=""
+            ),
+        },
+        optional=("slot_name",),
+        call=lambda a: (
+            {},
+            kwargs_body(
+                grid_name=str(a["grid_name"]), slot_name=str(a.get("slot_name") or "")
+            ),
+        ),
     ),
     ToolSpec(
         name="grid_get_holder_slots",

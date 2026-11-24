@@ -342,23 +342,29 @@ def render(
     if optics is not None:
         # the beam's focus, stigmation, current and dwell (see sim_optics)
         optics = (optics, 0 if beam == "SEM" else 1, pix)
-    return _finish(scene, img, rng, q if charge > 0 else None, charge, optics)
+    return _finish(
+        scene, img, rng, q if charge > 0 else None, charge, optics, beam == "FIB"
+    )
 
 
-def _finish(scene, img, rng, q=None, charge=0.0, optics=None):
+def _finish(scene, img, rng, q=None, charge=0.0, optics=None, ion=False):
     """Probe blur, charging, scan-line jitter, per-line gain and shot noise,
     as grey levels. `optics` is (the beam's Optics, 0 SEM or 1 FIB, um a
-    pixel): what its focus, stigmation, current and dwell add."""
+    pixel): what its focus, stigmation, current and dwell add. `ion` charges
+    as the FIB does."""
     dose = 1.0
     if optics is not None:
         img = sim_optics.blur(img, *optics)
         dose = optics[0].dose(optics[1])
     img = gauss(img, 0.7)
+    if rng is None:
+        rng = np.random.default_rng()
     if q is not None and charge > 0:
-        img = scene.charge_up(img * BRIGHTNESS, q, charge) / BRIGHTNESS
+        if ion:
+            img = scene.ion_charge_up(img * BRIGHTNESS, q, charge, rng) / BRIGHTNESS
+        else:
+            img = scene.charge_up(img * BRIGHTNESS, q, charge) / BRIGHTNESS
     if scene.noise_sigma > 0 or scene.noise_fraction > 0:
-        if rng is None:
-            rng = np.random.default_rng()
         height, width = img.shape
         jitter = rng.normal(0, 0.35, height)
         cols = np.clip(np.arange(width)[None, :] - jitter[:, None], 0, width - 1)

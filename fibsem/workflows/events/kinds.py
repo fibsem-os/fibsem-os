@@ -136,6 +136,11 @@ AGENT_SESSION_STARTED = _kind(
     "agent_session_started", OTHER, "An agent session started."
 )
 AGENT_SESSION_ENDED = _kind("agent_session_ended", OTHER, "An agent session ended.")
+AGENT_SESSION_JOINED = _kind(
+    "agent_session_joined",
+    OTHER,
+    "An agent session took this experiment; its own record is in its folder.",
+)
 AGENT_SESSION_BUDGET = _kind(
     "agent_session_budget", OTHER, "The agent has used much of its budget."
 )
@@ -143,6 +148,11 @@ AGENT_MESSAGES_READ = _kind(
     "agent_messages_read", OTHER, "The agent read the operator's messages."
 )
 AGENT_PLAN_EDITED = _kind("agent_plan_edited", OTHER, "The agent edited its plan.")
+AGENT_CONTEXT_RESET_ASKED = _kind(
+    "agent_context_reset_asked",
+    OTHER,
+    "The operator asked the agent for a fresh context.",
+)
 AGENT_SAMPLE_SET = _kind("agent_sample_set", OTHER, "The agent set the sample.")
 
 # --- requests (the agent's actions held for the operator) ----------------------------

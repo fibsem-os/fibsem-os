@@ -17,6 +17,7 @@ re-read its tool list, so the server's 403 is the gate and each description
 names the level it needs.
 """
 
+import fnmatch
 import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, FrozenSet, Optional, Tuple
@@ -40,6 +41,7 @@ __all__ = [
     "INSTRUMENT_ENV",
     "GROUP_TITLES",
     "NOT_TOOLS",
+    "RECORD_TOOLS",
     "Devices",
     "ToolSpec",
     "needs",
@@ -50,6 +52,26 @@ __all__ = [
 # Where fibsem-agent tells the sidecar its playbook's instrument kind, so the
 # sidecar offers the tools on that kind's devices (`Devices`).
 INSTRUMENT_ENV = "FIBSEM_AGENT_INSTRUMENT"
+
+# The agent's own record: its plan, its notes and messages to the
+# operator, and its session's goal. With an agent host
+# (`fibsem.server.agent.host`) these go to the host, not the instrument's
+# server: fibsem-agent runs one sidecar on the host with these alone, and
+# the instrument's without them.
+RECORD_TOOLS = frozenset(
+    (
+        "plan_get",
+        "plan_set_section",
+        "plan_append",
+        "plan_check_step",
+        "review_add",
+        "review_list",
+        "review_close",
+        "experiment_add_note",
+        "experiment_message_operator",
+        "server_report_session",
+    )
+)
 
 CATALOG: Tuple[ToolSpec, ...] = (
     microscope.TOOLS
@@ -71,6 +93,7 @@ NOT_TOOLS: Dict[str, str] = {
     "GET /app/experiment/replay/{index}": "The web page's replay scene, images and overlays at one recorded action; the agent reads the record and images directly.",
     "GET /health": "Open liveness check, no token; the agent's first read is server_get_capabilities.",
     "GET /app/agent/session": "The agent's own report, read back by the app and the dashboard; the agent knows what it reported.",
+    "GET /app/agent/playbook-file": "For the Agent page's playbook view: whether the playbook's file changed since the session started; the agent follows the copy it loaded.",
     "GET /app/knowledge/{section}/{id}/images/{name}": "One knowledge image as a file, for the web page; knowledge_get answers the agent its images as pictures.",
     "DELETE /app/knowledge/{section}/{id}": "Removing a knowledge entry is the operator's only (operator token).",
     "POST /app/knowledge/{section}/{id}/keep": "Keeping an entry the agent wrote is the operator's only (operator token).",
@@ -83,11 +106,15 @@ NOT_TOOLS: Dict[str, str] = {
     "DELETE /app/library/{kind}/{name}": "Removing the lab's own copy is the operator's only (operator token).",
     "GET /app/agent/transcript": "What fibsem-agent printed, read back by the web page; the agent has its own context.",
     "POST /app/agent/transcript": "fibsem-agent's harness sends what it printed; not the agent's to call.",
-    "PUT /app/agent/plan": "The operator edits the whole plan from the Agent page; the agent writes it a section at a time (plan_set_section).",
+    "GET /app/agent/transcript/runs": "Every subagent run's call and answer, read back by the web page's Subagents tab; the agent has its own context.",
+    "GET /app/agent/transcript/runs/{session_id}/{call}": "One subagent run's lines, read back by the web page; the agent has its own context.",
+    "GET /app/agent/transcript/pictures/{name}": "A picture a lab tool answered a step with, read back by the web page; the agent saw it in the tool's answer.",
+    "POST /app/agent/handoff": "fibsem-agent's harness keeps the agent's handoff note when it starts a fresh context; the agent calls context_reset.",
+    "GET /app/agent/handoff": "The handoff notes, read back by the operator; a fresh context is given its note in its first prompt.",
+    "PUT /app/agent/plan": "The operator edits the whole plan from the Agent page; the agent writes it a section, a line or a box at a time (plan_set_section, plan_append, plan_check_step).",
+    "POST /app/agent/context-reset": "Asking the agent for a fresh context is the operator's only (operator token); the watcher tells the agent.",
+    "PUT /app/agent/budget": "Raising the session's budget while it runs is the operator's only (operator token); the harness reads it.",
     "POST /app/agent/read": "fibsem-agent's harness, or fibsem-mcp watch, says which of the operator's messages the agent has read; not the agent's to call.",
-    "GET /chat": "A redirect to the web app's Agent page, GET /ui/agent.",
-    "GET /ui": "The operator's web app, HTML; it calls the operator's routes.",
-    "GET /ui/{}": "The web app's pages and assets, served like GET /ui.",
     "GET /pair": "Pairing a computer with the operator's code: a person's computer, not the agent.",
     "POST /pair": "Pairing a computer with the operator's code: a person's computer, not the agent.",
     "POST /connect": "An agent on this PC asking to connect, with the discovery file's token: the client asks itself before any tool runs.",
@@ -107,10 +134,8 @@ NOT_TOOLS: Dict[str, str] = {
     "POST /app/experiment/export/image": "An image exported for a person to download; the agent reads images through experiment_read_file.",
     "GET /app/experiment/export/animation/frames": "The web animation export's frames; an animation is a file for a person.",
     "POST /app/experiment/export/animation": "A lamella's animation for a person to download; the agent reads its images through experiment_read_file.",
-    "GET /microscope/devices/{device}": "device_list carries every device's description.",
-    "GET /microscope/devices/{device}/{parameter}/metadata": "device_list carries limits, choices and settable.",
-    "GET /microscope/services/{service}": "service_list carries every service's description.",
-    "GET /microscope/services/{service}/{parameter}/metadata": "service_list carries limits, choices and settable.",
+    "GET /microscope/devices/{device}/{parameter}/metadata": "device_describe carries limits, choices and settable.",
+    "GET /microscope/services/{service}/{parameter}/metadata": "service_describe carries limits, choices and settable.",
     "GET /microscope/devices/{device}/values": "Not decided yet; device_get_parameter reads one value at a time.",
     "GET /microscope/services/{service}/values": "Not decided yet; service_get_parameter reads one value at a time.",
     "GET /microscope/services/{service}/run/files": "A remote microscope's task folder, brought back to its own computer; the agent reads a run's files in the experiment.",
@@ -158,13 +183,19 @@ def needs(tool: ToolSpec) -> FrozenSet[str]:
 class Devices:
     """What a kind of instrument has, as its ``devices.yaml`` says
     (`fibsem.ai.agent.instruments.devices`): a FIB-SEM, which gets every
-    tool, or its devices and services by name."""
+    tool, or its devices and services by name. *hide* names tools it is
+    never offered, as names or shell patterns (``fm_*``): a tool on a device
+    it has that doesn't fit it, such as a stage tool that reads a FIB-SEM's
+    stage."""
 
     microscope: bool = False
     devices: FrozenSet[str] = field(default_factory=frozenset)
     services: FrozenSet[str] = field(default_factory=frozenset)
+    hide: Tuple[str, ...] = ()
 
     def offers(self, tool: ToolSpec) -> bool:
+        if any(fnmatch.fnmatchcase(tool.name, pattern) for pattern in self.hide):
+            return False
         if self.microscope:
             return True
         have = {f"device:{d}" for d in self.devices} | {
@@ -191,6 +222,10 @@ def tools_for_capabilities(
     start before it is connected. None offers every tool.
     """
     routers = dict(capabilities.get("routers", {}), base=True, microscope=True)
+    # A server from before the analysis and files routers named them apart
+    # served them with the app.
+    for apart in ("analysis", "files"):
+        routers.setdefault(apart, routers.get("app", False))
     # A server from before the parts lists none and serves them all.
     parts = capabilities.get("parts")
     return tuple(

@@ -9,6 +9,11 @@ the app's host, with its window at this PC (as a desktop launch opens it) or wit
 It never touches the microscope itself; the app it starts does. Without the gateway
 installed, nothing changes: desktop launches work as they always have.
 
+A PC runs one App Server at a time, and the gateway runs one app at a time. Clients on the
+PC (`fibsem-agent`, `fibsem-cli`, the `fibsem-mcp` sidecar, the gateway itself) find it
+through its discovery file, `~/.fibsem/app-server.json`. A second app's App Server is
+refused while a live one runs, and says which one (its pid and address).
+
 ## Installing it
 
 ```
@@ -28,14 +33,55 @@ connect as it starts, give connection flags to `install` or `run` (`--manufactur
 `--ip-address`, `--config`): every start then connects with them.
 
 The gateway listens on this PC only (`http://127.0.0.1:8010`). Another computer reaches it
-over an SSH tunnel, as it reaches the App Server: see
-[Running the agent on another computer](ssh-tunnel.md).
+over an SSH tunnel: see [Running the agent on another computer](ssh-tunnel.md).
+
+The gateway's port also serves the App Server's routes: a call to `/app/...`,
+`/microscope/...`, `/services/...` or `/capabilities` on 8010 goes to the App Server running
+on this PC, and its answer comes back unchanged (status, headers and body, streamed). The
+caller's token goes on as it came and the App Server checks it as ever, so one tunnel to 8010
+is enough for a client. With no app running the gateway answers 503 `no_app`; a client reads
+that, and an app that stops answering mid-call (504 `app_lost`), as the App Server not
+answering, as it would calling the App Server directly. A stop (the workflow's, a task's, the
+agent's, or a device's stop or halt command) goes through connections of its own, so it never
+waits behind other calls.
+
+The gateway is the one place this PC pairs, and it serves the web app (`/ui`). The App
+Server serves neither: it checks each call's token against the paired computers the gateway
+keeps (`~/.fibsem/paired.json`) and the operator's token, and nothing else. Its own port
+stays for now, for a program on this PC that names it.
+
+### Pairing
+
+Every browser, computer, agent and hub pairs at the gateway, with a 4-digit code from
+**Pairing → Pair a computer…** on its page (or **Pair a computer** in its window, or Tools →
+Host in AutoLamella, which opens the page). Pick what pairs: **Operator** (a browser or
+another computer, which acts as you), **Agent** (`fibsem-mcp pair <code>` on the agent's
+computer; one agent per microscope, so it replaces the one paired before) or **Hub**. The
+same list unpairs one.
+
+An agent on this PC asks instead: a program here reads the connect token in the gateway's
+`gateway.json` (readable by this PC's user only) and asks to connect. The ask shows on the
+gateway's Overview and on the Agent page, with **Allow** and **Deny**; Allow pairs it as the
+agent, listed with the rest. **Always allow agents logged in to this PC**, under Pairing,
+allows an ask from this PC at once.
+
+One agent holds the microscope's slot at a time: the one the gateway started, or one paired
+another way. Taking the slot from an agent in use is always the operator's choice. Start
+asks before it disconnects an agent paired another way. The Allow card says when allowing
+ends the agent the gateway started, and Allow then ends it as its End does. Always allow
+never replaces an agent in use (the gateway's running agent, or one the app heard from in
+the last two minutes): the ask waits on the card instead. Every Allow and Deny, by the
+operator or by the setting, goes on the History.
+
+An App Server run alone, with no gateway (tests, live evals, scripts), pairs nothing: its
+agent token is the one its launcher sets in `FIBSEM_SERVER_TOKEN`, sent by the client the
+same way.
 
 ## The window and the page
 
 The gateway runs in a small window, on the taskbar (the Dock on a Mac). It shows the app, with
 **Start** and **Stop**; the microscope's connection; and the agent, with **End**. **Pair a
-computer** shows a code for another computer's browser. **Open page** opens the gateway's page,
+computer** shows a code to pair another computer, an agent or a hub. **Open page** opens the gateway's page,
 and **Restart** and **Stop** at the bottom restart or stop the gateway. The desktop shortcut brings the window to
 the front, starting the gateway first if none runs.
 Its icon's badge shows the app: grey for off, blue with its window, purple without one. Closing the window asks,
@@ -50,23 +96,48 @@ on the left has four pages:
 
 - **Overview.** While nothing runs: the **Microscope** (a configuration saved on this PC,
   the default first, and **Connect when the app starts**) and the **App** (an app, an
-  experiment folder and **Show the window on this PC**), with **Start the app**. While it
+  experiment folder and **Show the window on this PC**), with **Start the app**. An app
+  shows only what its start takes: an app for an instrument that isn't a FIB-SEM may open
+  no experiment, take no microscope connection, have no window of its own (it then runs
+  without one), and have settings of its own (its server, a folder), passed to it as
+  `--<name> <value>`. While it
   runs: one row for the microscope, with Connect or Disconnect, and one for the app, with
   **Open the app** and **Stop** (Stop asks first in a dialog; with its window, it closes the window).
   Under them, the **Agent** card (below).
 - **History.** Every start and stop of the app, with who made it and from where, and the
-  latest agent sessions, newest first. **All**, **App** and **Agent** filter it. A session
+  agent sessions, newest first. **All**, **App** and **Agent** filter it, and **Show older**
+  reads further back, so every session on this PC can be opened and resumed. A session
   opens to show its playbook, spend, how it ended and what it last said, and **Resume**.
-- **Pairing.** The paired computers, and a code to pair another.
+- **Pairing.** The paired computers, agents and hubs, and a code to pair another
+  (see [Pairing](#pairing)).
 - **Settings.**
   - **Secrets:** whether each key fibsemOS reads is set on this PC, and where from (the
     environment or the key store). The page never shows or takes a key. **Copy command**
     copies the `fibsem-cli key set` command to run on the PC.
   - **Defaults:** what Overview fills in for the microscope, the app and the agent, kept in
-    `~/.fibsem/gateway-defaults.json`. Only the operator saves them.
+    `~/.fibsem/gateway-defaults.json`, for each app: choosing an app shows its own, so one
+    app's playbook and settings don't replace another's. Only the operator saves them.
   - **Playbooks:** the playbooks on this PC, read-only.
   - **Gateway:** the version, **Restart** and **Stop**. Stopping the gateway from the page
     stops the app and any agent run. Start it again at the computer.
+
+### Health
+
+The gateway asks the App Server how it is every 5 seconds (its `/health`, timed), and how
+its microscope is every 15 seconds and as soon as the app comes up or goes (its
+`/microscope/health`: the connection, a Safety Halt, and when each device and service was
+last heard from). Neither reaches the hardware: both are what the App Server already holds,
+so asking never takes the microscope's locks or switches its imaging channel. "Last heard
+from" is kept from the calls a run already makes: when one last came back, the last that
+failed in the driver (a refusal such as a value out of range doesn't count), and the calls
+running now. A call running over 2 minutes is slow and over 10 minutes not answering (a long
+command, such as a mill, never is); a driver error in the last 30 minutes with no call back
+since is a fault. Noting a call never raises into it or holds it up. Each answers in one shape, at `GET /gateway/health` and in `GET /gateway`'s
+`health`: a status (`ok`, `slow`, `not_answering`, `stopped`, `starting`, and for the
+microscope also `not_connected`, `connecting`, `halted`, `fault` or `unknown` while the
+app doesn't answer), why in a line, how long the answer took, and since when. A hub reads
+the same. A piece that isn't well turns its dot amber on Overview, with the reason and for
+how long under its row. The gateway only reports: it restarts nothing.
 
 The bottom of the list says when there is newer code: "fibsemOS 0.6.3 available" when a
 newer release is on PyPI, or "Update available" for a source checkout behind GitHub's
@@ -75,7 +146,8 @@ was never pushed, it shows nothing.
 
 ## The agent
 
-The gateway can run the agent on this PC, next to the app. The **Agent** card on the page
+The gateway can run the agent on this PC, next to the app. The agent reaches the app
+through the gateway's port. The **Agent** card on the page
 starts it with:
 
 - a **playbook** (the default in Settings, else `fibsem-agent`, the general one);
@@ -112,11 +184,22 @@ app or has restarted.
 
 The page has **End** while one runs. A hub with "may start and stop apps" can start and
 end the agent too. Each session's record and log are in
-`~/.fibsem/agent/sessions/<date>-<session id>/`. History lists the latest sessions, and the
+`~/.fibsem/agent/sessions/<date>-<session id>/`: its plan, transcript, review list and
+handoff notes go in its `agent/` folder there, not in the experiment, so the experiment
+holds only what the experiment made. The two name each other: `agent/experiment.json` in
+the session's folder, and an `agent_session_joined` event on the experiment's record.
+History lists the latest sessions, and the
 Agent card shows the last one with **Resume**.
 
 Running `fibsem-agent` by hand still works as before. The gateway doesn't need to be running
 for it.
+
+An agent with no App Server (no instrument, or an instrument served by something else) runs
+against `fibsem-agent-host`. It sits behind the gateway the same way: it serves no pages and
+pairs nothing, checks tokens against the gateway's `paired.json`, and the gateway passes calls
+to it while no App Server runs. `fibsem-agent --host` asks to connect at the gateway, and the
+operator allows it on the gateway's Agent page. Agents allowed on a host before this have to
+ask again.
 
 ### The API key
 
@@ -156,8 +239,8 @@ same from a terminal.
 A hub is a separate program on another PC, [`agent-hub`](hub.md). The gateway is the door
 to this microscope PC: a hub reaches it only after it is paired here.
 
-Pair a hub with a 4-digit code from `fibsem-gateway pair --hub --may-switch`. The
-window's **Pair a computer** pairs a browser, not a hub. With it a
+Pair a hub with a 4-digit code from `fibsem-gateway pair --hub --may-switch`, or pick
+**Hub** under **Pairing → Pair a computer…** on the page. With **May start and stop apps** a
 hub can also connect and disconnect the microscope. Without that grant a hub can only read
 the gateway. Untick **May start and stop apps** on the page to take it back, or unpair the
 hub. A hub can never force a stop past a running workflow; only the operator at the PC

@@ -37,13 +37,13 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from fibsem import unreleased
-from fibsem.acting import AGENT
+from fibsem.acting import AGENT, OPERATOR
 from fibsem.cancellation import NothingToStop
 from fibsem.workflows.events import EventBuffer
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["AppServerHost", "chat_url", "event_log_url"]
+__all__ = ["AppServerHost", "agent_connections"]
 
 
 def _stop_the_microscope(microscope) -> None:
@@ -70,17 +70,43 @@ def _stop_the_microscope(microscope) -> None:
 _START_TIMEOUT_S = 10.0
 
 
-def event_log_url(host) -> str:
-    """The web app's Events page with the read-only dashboard token, never
-    the agent's, in the URL *fragment* — the one part of a URL a browser
-    never sends anywhere, so it reaches the page's own script and nothing
-    else (no server log, no referrer)."""
-    return f"{host.url}/ui/events#token={host.auth.dashboard_token}"
+def agent_connections(tokens, buffer: Callable[[], Optional[EventBuffer]]):
+    """Asks to connect to a server with these paired *tokens*, allowed at once
+    from this PC while the operator's setting says so; an Allow by the setting
+    goes on *buffer*'s record as theirs. The App Server's, and the agent
+    host's (`fibsem.server.agent.host`)."""
+    from fibsem import config
+    from fibsem.server.connections import Connections
+    from fibsem.workflows.actions import ACTION, action_record
 
+    def save(on: bool) -> None:
+        config.update_user_preferences(
+            lambda p: setattr(p.install.app_server, "allow_local_agents", on)
+        )
 
-def chat_url(host) -> str:
-    """The web app's Agent page, with the operator token in the fragment."""
-    return f"{host.url}/ui/agent#token={host.auth.operator_token}"
+    connections = Connections(
+        tokens,
+        always_allow=config.load_user_preferences().install.app_server.allow_local_agents,
+        save_always_allow=save,
+    )
+
+    def record(computer, replaced) -> None:
+        logger.info("Allowed %s to connect (always allowed)", computer.name)
+        stream = buffer()
+        if stream is None:
+            return
+        stream.append(
+            ACTION,
+            action_record(
+                f"Allow {computer.name} to connect",
+                reason="Always allow agents logged in to this PC is on"
+                + (f"; replaces {replaced}" if replaced else ""),
+            ),
+            actor=OPERATOR,
+        )
+
+    connections.on_allowed_always(record)
+    return connections
 
 
 class AppServerHost:
@@ -219,41 +245,13 @@ class AppServerHost:
     def url(self) -> str:
         return f"http://{self._host}:{self._port}"
 
-    def _connections(self):
-        """Asks to connect, allowed at once from this PC while the operator's
-        setting says so; an Allow by the setting goes on the record as theirs."""
-        from fibsem import config
-        from fibsem.acting import OPERATOR
-        from fibsem.server.connections import Connections
-        from fibsem.workflows.actions import ACTION, action_record
+    @property
+    def connect_url(self) -> str:
+        """Where an agent connects to this session: this PC's gateway, which
+        pairs it and passes its calls here."""
+        from fibsem.server.discovery import gateway_url
 
-        def save(on: bool) -> None:
-            config.update_user_preferences(
-                lambda p: setattr(p.install.app_server, "allow_local_agents", on)
-            )
-
-        connections = Connections(
-            self.auth.pairing.tokens,
-            always_allow=config.load_user_preferences().install.app_server.allow_local_agents,
-            save_always_allow=save,
-        )
-
-        def record(computer, replaced) -> None:
-            logger.info("Allowed %s to connect (always allowed)", computer.name)
-            if self.event_buffer is None:
-                return
-            self.event_buffer.append(
-                ACTION,
-                action_record(
-                    f"Allow {computer.name} to connect",
-                    reason="Always allow agents logged in to this PC is on"
-                    + (f"; replaces {replaced}" if replaced else ""),
-                ),
-                actor=OPERATOR,
-            )
-
-        connections.on_allowed_always(record)
-        return connections
+        return gateway_url()
 
     def start(self) -> bool:
         """Serve the session, connected or not. Returns False (and logs)
@@ -272,6 +270,7 @@ class AppServerHost:
         from fibsem.server import AuthConfig, build_server
         from fibsem.server.devices import WS_PROTOCOL
         from fibsem.server.discovery import (
+            SERVER_TOKEN_ENV,
             read_discovery_file,
             write_discovery_file,
         )
@@ -311,6 +310,10 @@ class AppServerHost:
         if session.agent_auth is None:
             session.agent_auth = AuthConfig.generate(
                 level=AgentLevel.DRIVE if arm_control else AgentLevel.WATCH,
+                # Run alone (tests, live evals), the agent's token is the
+                # launcher's; else one nobody holds but the server's own calls:
+                # an agent is paired at the gateway.
+                token=os.environ.get(SERVER_TOKEN_ENV) or None,
                 agent_allowed=agent_allowed,
             )
         self.auth = session.agent_auth
@@ -325,8 +328,9 @@ class AppServerHost:
                 PairedTokens(self._paired_path),
                 roles=ROLES if agent_allowed else (OPERATOR,),
             )
-        if self.auth.connections is None and agent_allowed:
-            self.auth.connections = self._connections()
+        # An agent on this PC asks to connect at the gateway, not here: no
+        # connect token in the discovery file, no asks.
+        self.auth.connect_token = None
         app = build_server(
             session=session,
             app_context=self._app_context(),
@@ -334,6 +338,7 @@ class AppServerHost:
             serve_microscope=self.serve_microscope,
             services=session.analysis_services,
             operator=getattr(session, "agent", None) if self.agent else None,
+            pairs=not self.agent,
         )
         self._app = app
         config = uvicorn.Config(

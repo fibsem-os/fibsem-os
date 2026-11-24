@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,8 @@ export interface Switch {
   app: string | null;
   experiment: string | null;
   window?: boolean | null;
+  /** "agent": an agent the operator allowed or denied, not a start or stop. */
+  kind?: string | null;
 }
 
 type Kind = "app" | "agent";
@@ -67,12 +69,13 @@ function Tag({ kind }: { kind: Kind }) {
 }
 
 function AppRow({ s, name }: { s: Switch; name: string }) {
+  const access = s.kind === "agent";
   return (
     <div className={ROW}>
       <span className="text-muted-foreground tabular-nums">
         {fmt.when(s.at)}
       </span>
-      <Tag kind="app" />
+      <Tag kind={access ? "agent" : "app"} />
       <span
         className={cn(
           "min-w-0 break-words",
@@ -80,7 +83,7 @@ function AppRow({ s, name }: { s: Switch; name: string }) {
             "text-[var(--fibsem-semantic-warning-color)]",
         )}
       >
-        {happened(s, name)}
+        {access ? s.result : happened(s, name)}
         {s.experiment && (
           <span className="text-muted-foreground" title={s.experiment}>
             {" "}
@@ -192,6 +195,10 @@ function AgentRow({
   );
 }
 
+// Read per "Show older": starts and stops of the app, and agent sessions.
+const APP_PAGE = 50;
+const AGENT_PAGE = 20;
+
 /** Starts and stops of the app and this PC's agent sessions, newest first. */
 export function History({
   apps,
@@ -202,35 +209,67 @@ export function History({
   ready: string | null;
 }) {
   const [shown, setShown] = useState<Kind | "all">("all");
+  // Pages shown: each "Show older" reads one more page of each list.
+  const [pages, setPages] = useState(1);
   const history = useQuery({
-    queryKey: ["gateway/history"],
-    queryFn: () => api<{ switches: Switch[] }>("/gateway/history"),
+    queryKey: ["gateway/history", pages],
+    queryFn: () =>
+      api<{ switches: Switch[]; more?: boolean }>(
+        `/gateway/history?limit=${APP_PAGE * pages}`,
+      ),
     refetchInterval: 5000,
+    placeholderData: keepPreviousData,
   });
   const agent = useQuery({
     queryKey: ["gateway/agent"],
     queryFn: () => api<AgentState>("/gateway/agent"),
     refetchInterval: 5000,
   });
-  const state = agent.data;
-  const entries: Entry[] = [
-    ...(history.data?.switches ?? []).map(
-      (s): Entry => ({ kind: "app", at: s.at * 1000, switch: s }),
-    ),
-    ...[...(state?.running ? [state.running] : []), ...(state?.sessions ?? [])]
-      .filter((s) => s.started)
-      .map(
-        (s): Entry => ({
-          kind: "agent",
-          at: Date.parse(s.started!),
-          session: s,
-          running: s === state?.running,
-        }),
+  const sessions = useQuery({
+    queryKey: ["gateway/agent/sessions", pages],
+    queryFn: () =>
+      api<{ sessions: Session[]; more?: boolean }>(
+        `/gateway/agent/sessions?limit=${AGENT_PAGE * pages}`,
       ),
-  ]
-    .filter((e) => shown === "all" || e.kind === shown)
+    refetchInterval: 5000,
+    placeholderData: keepPreviousData,
+  });
+  const state = agent.data;
+  const listed = (sessions.data?.sessions ?? state?.sessions ?? []).filter(
+    (s) => s.session_id !== state?.running?.session_id,
+  );
+  const appEntries = (history.data?.switches ?? []).map(
+    (s): Entry => ({ kind: "app", at: s.at * 1000, switch: s }),
+  );
+  // An agent allowed or denied is filed under Agent.
+  const shownAs = (e: Entry): Kind =>
+    e.kind === "app" && e.switch.kind === "agent" ? "agent" : e.kind;
+  const agentEntries = [...(state?.running ? [state.running] : []), ...listed]
+    .filter((s) => s.started)
+    .map(
+      (s): Entry => ({
+        kind: "agent",
+        at: Date.parse(s.started!),
+        session: s,
+        running: s === state?.running,
+      }),
+    );
+  // A list with older entries not read yet shows down to its oldest read, so
+  // the two lists don't leave a gap where one has stopped and the other not.
+  const appMore = !!history.data?.more;
+  const agentMore = !!sessions.data?.more;
+  const oldest = (entries: Entry[], more: boolean) =>
+    more && entries.length ? Math.min(...entries.map((e) => e.at)) : -Infinity;
+  const floor =
+    shown === "all"
+      ? Math.max(oldest(appEntries, appMore), oldest(agentEntries, agentMore))
+      : -Infinity;
+  const entries: Entry[] = [...appEntries, ...agentEntries]
+    .filter((e) => shown === "all" || shownAs(e) === shown)
+    .filter((e) => e.at >= floor)
     .sort((a, b) => b.at - a.at);
-  const error = (history.error ?? agent.error) as Error | null;
+  const more = shown === "app" ? appMore : shown === "agent" ? agentMore : appMore || agentMore;
+  const error = (history.error ?? agent.error ?? sessions.error) as Error | null;
   return (
     <Card className="flex flex-col gap-2">
       <div className="flex gap-1.5 pb-1">
@@ -278,6 +317,15 @@ export function History({
             ready={ready}
           />
         ),
+      )}
+      {more && (
+        <Button
+          variant="ghost"
+          className="self-start"
+          onClick={() => setPages((n) => n + 1)}
+        >
+          Show older
+        </Button>
       )}
     </Card>
   );

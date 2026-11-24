@@ -18,6 +18,8 @@ export interface Capabilities {
   // whether this install serves an agent at all (fibsem.unreleased)
   agent?: boolean;
   connected?: boolean;
+  // the kind of each instrument served now, the microscope's first ("fibsem")
+  instruments?: string[];
   // the optional /app parts the app serves (fibsem.server.parts)
   parts?: string[];
   fibsem?: { version: string; path: string };
@@ -64,6 +66,8 @@ export interface DeviceSpec {
   driver: string;
   type: string;
   parameters: Record<string, ParameterSpec>;
+  /** `safety`: a command that makes the instrument safe, named as its button reads. */
+  commands?: Record<string, S["CommandDescription"]>;
 }
 
 export type DeviceListing = Record<string, DeviceSpec>;
@@ -74,7 +78,12 @@ export type ImagePayload = Narrow<S["ImagePayload"], { info: ImageInfo | null }>
 
 export type DisplayImages = Narrow<
   S["DisplayImages"],
-  { sem: ImagePayload | null; fib: ImagePayload | null; fm: ImagePayload | null }
+  {
+    sem: ImagePayload | null;
+    fib: ImagePayload | null;
+    fm: ImagePayload | null;
+    devices?: Record<string, ImagePayload>;
+  }
 >;
 
 export interface PairedComputer {
@@ -141,8 +150,47 @@ export type SkillRow = S["SkillRow"];
 /** GET /app/agent/customisation: what the agent runs with. */
 export type AgentCustomisation = Narrow<S["AgentCustomisation"], { tools: ToolRow[] }>;
 
+/** A reminder of a playbook or of one of its optional skills. */
+export interface PlaybookReminder {
+  when: string;
+  label: string;
+  say: string;
+}
+
+/** The playbook a session runs, as it loaded it: what the agent follows,
+ * whatever its file says now. */
+export interface PlaybookAbout {
+  name: string;
+  hash?: string;
+  description?: string;
+  /** The playbooks it builds on, the base first. */
+  extends?: string[];
+  instrument?: string;
+  source?: "shipped" | "lab" | "plugin";
+  /** The skills always read. */
+  skills?: string[];
+  /** The skills read when needed: when, and the subagents and reminders on while loaded. */
+  optional?: { skill: string; when: string; agents?: string[]; reminders?: PlaybookReminder[] }[];
+  reminders?: PlaybookReminder[];
+  rules?: string[];
+  agents?: string[];
+  mcp?: string[];
+  /** The fibsem tools loaded from the first turn. */
+  tools?: string[];
+}
+
+/** One of the session's MCP servers: "connected", "failed", "pending", ... */
+export interface McpServer {
+  name: string;
+  status: string;
+  tools?: number;
+  about?: string;
+}
+
 /** GET /app/agent/session: what the agent reported of its session. */
 export interface ReportedSession {
+  /** The fibsem session's id: its transcript lines carry it. */
+  session_id?: string | null;
   /** The reminders on now. */
   hooks?: { when: string; label: string; say: string }[];
   /** The skills it has read, in order. */
@@ -154,15 +202,36 @@ export interface ReportedSession {
     chosen_by?: string;
     skills?: { skill: string; state: "not loaded" | "loaded" | "done" | string; summary?: string }[];
   };
+  /** The playbook it runs, whole, as the session loaded it. */
+  playbook_about?: PlaybookAbout;
+  /** Its MCP servers, as its CLI last said. */
+  servers?: McpServer[];
   /** When the server first heard of it, as an ISO time with its offset. */
   started?: string;
   goal?: string;
   budget_usd?: number;
+  /** The budget the operator set while it ran (PUT /app/agent/budget). */
+  budget_set_usd?: number;
   spent_usd?: number;
   /** What its model calls used this run, in tokens. */
   tokens?: { input: number; output: number; cache_read: number; cache_write: number };
-  /** How full its context is, in tokens: compacted at `compact_at`. */
-  context?: { used: number; window?: number; compact_at?: number };
+  /** How full its context is, in tokens: a fresh context suggested at
+   * `suggest_at` and due at `due_at` (the playbook's context_suggest and
+   * context_ceiling), compacted at `compact_at`; `parts` as the CLI's /context
+   * names them, when the harness reports them. */
+  context?: {
+    used: number;
+    window?: number;
+    suggest_at?: number;
+    due_at?: number;
+    compact_at?: number;
+    parts?: { name: string; tokens: number }[];
+  };
+  /** How many contexts the session has had: 1, one more per fresh context. */
+  contexts?: number;
+  /** When the operator last asked for a fresh context, and in which context. */
+  reset_asked_at?: string;
+  reset_asked_in?: number;
   /** The plan's Rules that give a time; `by` is an ISO time with its offset. */
   deadlines?: { text: string; by: string }[];
   checklist?: { text: string; state: "open" | "done" | "always" }[];
@@ -182,6 +251,32 @@ export interface AgentPlan {
   updated_by: "agent" | "operator" | null;
 }
 
+/** One item of GET /app/agent/review: the agent's finished work, a check or a wait. */
+export interface ReviewItem {
+  id: string;
+  at: string;
+  level: "done" | "check" | "wait";
+  state: "done" | "to_check" | "waiting" | "answered" | "closed";
+  title: string;
+  text: string;
+  about: string;
+  /** Images inside the experiment, the key one first. */
+  images: string[];
+  /** The picture with the agent's marks, if it gave one. */
+  evidence: string | null;
+  facts: { label: string; value: string }[];
+  options: string[];
+  answer?: { choice: string; note: string; evidence: string | null; at: string } | null;
+  closed?: { reason: string; at: string } | null;
+}
+
+/** GET /app/agent/review. */
+export interface ReviewList {
+  session_id: string | null;
+  items: ReviewItem[];
+  counts: { waiting: number; to_check: number; rejected: number; all: number };
+}
+
 /** One row of GET /app/agent/recent. */
 export type RecentRow = Narrow<
   S["RecentRow"],
@@ -192,15 +287,30 @@ export type RecentRow = Narrow<
 export interface TranscriptLine {
   t: string;
   /** context: what fibsem-agent says of the session, "Playbook set: autolamella, ...".
-   * done: the step it names finished, so it no longer shows as running. */
-  kind: "said" | "step" | "done" | "failed" | "context";
+   * done: the step it names finished, so it no longer shows as running.
+   * picture: an image a lab's tool answered the step with, at *path*. */
+  kind: "said" | "step" | "done" | "failed" | "context" | "picture";
   text: string;
   verb?: string;
   seq?: number;
-  /** For "done" and "failed": the step it was. */
+  /** For "done", "failed" and "picture": the step it was. */
   step?: number;
+  /** For "picture": where it is, under the agent folder ("pictures/<session>-<seq>.png"). */
+  path?: string;
   /** For "done" and "failed": how long the step took, in seconds. */
   took_s?: number;
+  /** A subagent's line: the seq of the Agent call that started it. */
+  run?: number;
+  /** For the Agent call that starts a subagent: the subagent's name. Its "done"
+   * line's text is the subagent's answer. */
+  subagent?: string;
+  /** On a subagent call's "done": whether it agreed with the decision it checked. */
+  verdict?: "agree" | "concern";
+  /** On a subagent call's "done": the subagent says someone should look before going on. */
+  attention?: boolean;
+  /** On a step: its run ended (stopped, crashed, or the session resumed)
+   * before it answered, so it no longer runs. */
+  ended?: boolean;
   session_id: string;
 }
 

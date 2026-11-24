@@ -2,8 +2,47 @@
 pieces its route call is built from."""
 
 import inspect
+import json
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Optional, Tuple, Union
+from typing import (
+    Annotated,
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Union,
+    get_origin,
+)
+
+from pydantic import BeforeValidator
+
+
+def _listed(value: Any) -> Any:
+    """A list argument as the model sometimes gives it: one string for a
+    one-item list, or the list written out as JSON text. Anything else as
+    given, for the type to check."""
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if text.startswith("["):
+        try:
+            found = json.loads(text)
+        except ValueError:
+            return value
+        if isinstance(found, list):
+            return found
+    return [value]
+
+
+def lenient(annotation: Any) -> Any:
+    """*annotation*, taking a list (or an optional one) as `_listed` reads
+    it; any other type as it is. The input schema stays the list's."""
+    inner = [annotation, *getattr(annotation, "__args__", ())]
+    if any(get_origin(each) is list for each in inner):
+        return Annotated[annotation, BeforeValidator(_listed)]
+    return annotation
 
 
 @dataclass(frozen=True)
@@ -35,8 +74,10 @@ class ToolSpec:
     optional: Tuple[str, ...] = ()
     # Which router serves it: "microscope" unless the App Server's devices
     # service is off; "app" only when the server was built with an
-    # app_context; "services" (the analysis services) and "base" always.
-    # /capabilities reports which.
+    # app_context; "analysis" (the image tools, `fibsem.analysis`) and "files"
+    # (reading files) wherever a folder is served, the App Server's open
+    # experiment or an agent host's data folder; "services" (the analysis
+    # services) and "base" always. /capabilities reports which.
     router: str = "microscope"
     # The optional /app part that serves it (fibsem.server.parts); "" for the
     # core. /capabilities lists the parts the app serves.
@@ -70,6 +111,13 @@ class ToolSpec:
     # The name the sidecar answers its route's ``result`` under; "" answers
     # the route's whole answer.
     result_key: str = ""
+    # The answer the agent gets, from the sidecar's answer (after result_key)
+    # and the tool's arguments, where it is not that answer as it stands: a
+    # listing cut to its names until the agent asks for one in full. Raises
+    # ValueError for arguments it cannot answer.
+    shape: Optional[Callable[[Any, Dict[str, Any]], Any]] = field(
+        default=None, compare=False
+    )
 
     @property
     def arguments(self) -> Dict[str, Arg]:
@@ -91,6 +139,7 @@ class ToolSpec:
                 default, annotation = None, Optional[argument.type]
             else:
                 default, annotation = argument.default, argument.type
+            annotation = lenient(annotation)
             parameters.append(
                 inspect.Parameter(
                     name,
@@ -112,11 +161,12 @@ class ToolSpec:
 
     @property
     def level_note(self) -> str:
-        """What the tool needs, in the agent's terms."""
+        """What the tool needs, in the agent's terms; "" for a Watch tool,
+        which works at every level."""
         if self.note:
             return self.note
         if self.level == "watch":
-            return "Works at Watch, Assist and Drive."
+            return ""
         if self.level == "assist":
             return "Works at Assist and Drive without asking; refused (403) at Watch."
         note = (
@@ -134,7 +184,8 @@ class ToolSpec:
 
     @property
     def full_description(self) -> str:
-        return f"{self.description} {self.level_note}"
+        note = self.level_note
+        return f"{self.description} {note}" if note else self.description
 
     @property
     def title(self) -> str:
@@ -201,6 +252,18 @@ BOX_PARAM = (
     "contrasted to the region"
 )
 
+# A fluorescence stack's plane and channels, as the files route reads them.
+STACK_PARAMS = {
+    "z": arg(
+        "a fluorescence stack's plane to show, 0 the first (default: the max projection over z)",
+        int,
+    ),
+    "channels": arg(
+        "the fluorescence channels to show, by name, as its fm block lists them (default: all)",
+        List[str],
+    ),
+}
+
 # The optional argument every acting tool takes (`ToolSpec.takes_evidence`):
 # what the agent judged from, kept in the experiment (fibsem.workflows.evidence).
 EVIDENCE_PARAM = (
@@ -211,7 +274,7 @@ EVIDENCE_PARAM = (
     "on it); or file, an image you made yourself in your working folder (an overlay "
     "your code drew, a plot; PNG or JPEG, at most 4 MB, saved at most 2048 px), "
     "shown as it is, with source, the experiment image it was drawn from; "
-    f"marks, {MARKS_PARAM}; experiment_draw_image shows them drawn. "
+    f"marks, {MARKS_PARAM}; analysis_draw_image shows them drawn. "
     "Attach it whenever an image decided what you do; without it the operator "
     "sees 'No evidence'"
 )
@@ -221,6 +284,7 @@ EVIDENCE_PARAM = (
 GROUP_TITLES: Dict[str, str] = {
     "server": "Server",
     "plan": "Plan",
+    "review": "Review",
     "microscope": "Microscope",
     "device": "Device",
     "service": "Service",
@@ -250,18 +314,28 @@ _WRITES_AT_WATCH = frozenset(
         "experiment_message_operator",
         "knowledge_write",  # the microscope's knowledge base, not the experiment
         "server_report_session",  # the agent's own session, on the record
-        "plan_set_section",  # the session's plan.md, beside the experiment
+        "plan_set_section",  # the session's plan.md, in its own folder
+        "plan_append",
+        "plan_check_step",
+        "review_add",  # the session's review list, beside the plan
+        "review_close",
         "request_create",
         "request_withdraw",
         "item_measure_thickness",  # saves its result beside the image
+        "analysis_measure_thickness",  # saves its result beside the image
         "correlation_correlate",  # saves a run in the lamella's Correlation folder
         "correlation_refine_point",  # saves its fit figure beside the image
         "experiment_render_markers",  # saves its picture beside the image
-        "experiment_draw_image",  # saves its picture beside the image
-        "experiment_draw_pair",  # saves its picture beside the first image
+        "analysis_draw_image",  # saves its picture beside the image
+        "analysis_draw_pair",  # saves its picture beside the first image
+        "analysis_measure_coincidence_offset",  # saves its picture beside the SEM image
         "item_draw_milling",  # saves its picture beside the image
+        "grid_draw_milling",  # saves its picture beside the overview
         "analysis_measure_intensity",  # saves its figure beside the image
         "analysis_measure_profile",  # saves its figure beside the image
+        "analysis_measure_histogram",  # saves its figure beside the image
+        "analysis_measure_power_spectrum",  # saves its figure beside the image
+        "analysis_find_grid_squares",  # saves its figure beside the image
     }
 )
 

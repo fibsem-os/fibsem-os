@@ -239,7 +239,7 @@ def test_a_load_after_an_unload_step_doesn_t_say_the_unload_again():
 def test_assist_asks_for_an_exchange_and_the_operator_reads_it(arctis, tmp_path):
     host = stub_session()
     host.microscope = arctis
-    auth = AuthConfig(token=TOKEN, dashboard_token="dashboard")
+    auth = AuthConfig(token=TOKEN)
     auth.set_level(AgentLevel.ASSIST)
     app = build_server(arctis, app_context=RecordingContext(host), auth=auth)
     arctis.sample_handling.ensure_loaded("G1")
@@ -302,7 +302,7 @@ def test_a_request_s_next_step_waits_for_a_long_command_to_end(arctis, monkeypat
     _slowed(monkeypatch, arctis.sample_handling, "ensure_loaded")
     host = stub_session()
     host.microscope = arctis
-    auth = AuthConfig(token=TOKEN, dashboard_token="dashboard")
+    auth = AuthConfig(token=TOKEN)
     auth.set_level(AgentLevel.ASSIST)
     context = RecordingContext(host)
     app = build_server(arctis, app_context=context, auth=auth)
@@ -335,7 +335,7 @@ def test_a_failed_run_fails_its_request_step(arctis):
     the steps after it do not run."""
     host = stub_session()
     host.microscope = arctis
-    auth = AuthConfig(token=TOKEN, dashboard_token="dashboard")
+    auth = AuthConfig(token=TOKEN)
     auth.set_level(AgentLevel.ASSIST)
     app = build_server(arctis, app_context=RecordingContext(host), auth=auth)
     arctis.sample_handling.magazine.device.fail_next_exchange = True
@@ -512,3 +512,29 @@ def test_a_load_the_inventory_doesn_t_hold_is_refused_unless_a_scan_comes_first(
         [("grid_load", {"grid_name": "G2"}, "/x")], read=EXCHANGE.get
     )
     assert "refused" not in held
+
+
+def test_the_agent_names_the_grid_on_the_stage(driving, arctis):
+    """grid_set_current: the grid on the stage, named on the operator's word
+    after the loader's record lost it, with nothing moved."""
+    from fibsem.devices.sample_loader import StageSample
+    from fibsem.structures.settings import SampleGrid
+
+    magazine = arctis.sample_handling.magazine
+    magazine._read_magazine = lambda: None  # the loader's read, frozen
+    magazine._on_stage = lambda: StageSample(present=True)
+    magazine.slots["Slot-02"].loaded_grid = None
+    magazine.working_slot.loaded_grid = SampleGrid(name="Grid-on-stage")
+
+    answer = _call(driving, "grid_set_current", grid_name="G2", slot_name="Slot-02")
+    assert answer.status_code == 200, answer.text
+    assert answer.json()["result"] == {
+        "slot": "Shuttle",
+        "grid": "G2",
+        "home_slot": "Slot-02",
+    }
+    assert _states(driving)["G2"] == "loaded"
+
+    refused = _call(driving, "grid_set_current", grid_name="G1")
+    assert refused.status_code >= 400
+    assert "in Slot-01" in refused.text

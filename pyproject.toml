@@ -141,6 +141,7 @@ fibsem-volume = "fibsem.applications.volume.launch:main"
 fibsem-volume-ui = "fibsem.tools.desktop_launch:volume"
 fibsem-autolamella-server = "fibsem.applications.autolamella.launch:main"
 fibsem-agent = "fibsem.ai.agent.harness:main"
+fibsem-agent-host = "fibsem.server.agent.host:main"
 fibsem-gateway = "fibsem.gateway.main:main"
 agent-hub = "fibsem.hub.main:main"
 
@@ -199,6 +200,12 @@ filterwarnings = [
     # PySide warns where PyQt raises TypeError when a slot that is not connected is
     # disconnected; the code already treats that as nothing to do.
     "ignore:libpyside. Failed to disconnect:RuntimeWarning",
+    # FastAPI builds each body parameter's TypeAdapter with the parameter's name
+    # as its alias and silences pydantic's warning about it with
+    # warnings.catch_warnings, which is not thread-safe: a server starting in
+    # another thread can put "error" back in the middle, and a route build fails.
+    # Third-party, and the alias is FastAPI's, not ours.
+    "ignore:The '[^']*' attribute with value",
 ]
 
 [tool.ruff]

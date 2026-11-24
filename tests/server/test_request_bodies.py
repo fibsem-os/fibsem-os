@@ -20,6 +20,8 @@ TYPED = [
     ("post", "/app/agent/requests"),
     ("post", "/app/agent/requests/{request_id}/withdraw"),
     ("post", "/app/agent/plan/section"),
+    ("post", "/app/agent/plan/append"),
+    ("post", "/app/agent/plan/step"),
     ("put", "/app/agent/plan"),
     ("post", "/app/agent/transcript"),
     ("post", "/app/agent/read"),
@@ -53,6 +55,11 @@ TYPED = [
     ("post", "/app/experiment/images/pixels"),
     ("post", "/app/experiment/analysis/intensity"),
     ("post", "/app/experiment/analysis/profile"),
+    ("post", "/app/experiment/analysis/coincidence"),
+    ("post", "/app/experiment/analysis/grid_squares"),
+    ("post", "/app/experiment/analysis/histogram"),
+    ("post", "/app/experiment/analysis/spectrum"),
+    ("post", "/app/experiment/analysis/thickness"),
     ("post", "/app/experiment/export/image"),
     ("post", "/app/experiment/notes"),
     ("post", "/app/experiment/messages"),
@@ -74,6 +81,7 @@ def client(microscope):
         microscope,
         app_context=AutoLamellaAppContext(session),
         auth=AuthConfig(token="agent"),
+        pairs=True,  # the pairing bodies are described where pairing is served
     )
     with TestClient(app, raise_server_exceptions=False) as client:
         client.headers["Authorization"] = "Bearer agent"

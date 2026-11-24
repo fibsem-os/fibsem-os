@@ -75,7 +75,7 @@ def context(tmp_path, microscope):
 
 @pytest.fixture
 def client(microscope, context):
-    auth = AuthConfig(token="agent", dashboard_token="dashboard")
+    auth = AuthConfig(token="agent")
     auth.set_level(AgentLevel.DRIVE)
     app = build_server(microscope, app_context=context, auth=auth)
     with TestClient(app, raise_server_exceptions=False) as client:

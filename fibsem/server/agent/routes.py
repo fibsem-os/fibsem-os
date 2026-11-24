@@ -5,9 +5,11 @@ from typing import TYPE_CHECKING, Any, Callable, FrozenSet, Mapping, Optional
 from fastapi import FastAPI
 
 from fibsem.server.agent.files import AgentFiles
+from fibsem.server.agent.handoff import build_agent_handoff_router
 from fibsem.server.agent.library import build_library_router
 from fibsem.server.agent.plan import PlanStore, build_agent_plan_router
 from fibsem.server.agent.requests import RequestStore, build_request_router
+from fibsem.server.agent.review import build_agent_review_router
 from fibsem.server.agent.session import build_agent_session_router
 from fibsem.server.agent.transcript import build_agent_transcript_router
 
@@ -48,9 +50,13 @@ def mount_agent_routes(
     app.include_router(build_request_router(app.state.requests))
     # The agent's own report of its session: model, goal, budget, spend.
     app.include_router(build_agent_session_router(emit))
-    # Where each session's plan and transcript go: its experiment, or its own
-    # folder until one is open.
-    app.state.agent_files = AgentFiles(experiment_path)
+    # Where each session's plan and transcript go: its own folder, linked
+    # both ways to the experiment it works on.
+    app.state.agent_files = AgentFiles(
+        experiment_path,
+        joined=emit,
+        experiment_id=lambda: getattr(app_context._experiment, "id", None),
+    )
     app.state.agent_plan = PlanStore(
         experiment_path,
         lambda: app_context.experiment_sample,
@@ -58,7 +64,10 @@ def mount_agent_routes(
         files=app.state.agent_files,
     )
     app.include_router(build_agent_plan_router(experiment_path, emit))
-    # What fibsem-agent printed.
+    # Its review list: finished work, checks and waits for the operator.
+    app.include_router(build_agent_review_router(experiment_path, emit))
+    # What fibsem-agent printed, and the agent's handoff notes.
     app.include_router(build_agent_transcript_router(experiment_path, emit))
+    app.include_router(build_agent_handoff_router(experiment_path))
     # The agent's playbooks, skills and subagents: shipped and the lab's.
     app.include_router(build_library_router())

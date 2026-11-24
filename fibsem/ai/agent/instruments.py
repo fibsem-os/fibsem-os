@@ -5,13 +5,20 @@ intake steps and the re-read lines, as files beside the playbooks.
         prompt.md     the harness prompt
         intake.md     ## start, ## resumed, ## goal
         reread.md     ## proposals, ## plan, ## level
+        handoff.md    ## start, ## mark, ## compact, ## recovered: a fresh
+                      context's first prompt, the context-size line, what
+                      compaction keeps, and the first prompt of a fresh
+                      context a resume starts (`handoff`); optional: the default kind's if
+                      missing, and without one the agent has no fresh context
         devices.yaml  what it has, so the agent is offered the tools on them:
                       ``microscope: true`` for a FIB-SEM (every tool), else
                       ``devices:`` and ``services:``, each a list of names;
-                      none gets only the tools for any instrument
+                      none gets only the tools for any instrument.
+                      ``hide:`` lists tools never offered, by name or
+                      pattern (``fm_*``)
 
 A playbook names its kind (``instrument:``); the shipped base playbook sets
-``fibsem``. The files are fibsemOS's own, or an installed plugin's for its own
+``fibsem``, and ``none`` is for a playbook with no instrument (`NONE`). The files are fibsemOS's own, or an installed plugin's for its own
 kind (`sources.plugin_roots`), never the lab's: they carry the safety wording.
 A plugin can't replace a shipped kind. A leading ``<!-- -->`` comment is a
 note for whoever edits the file, not part of the text. ``{name}`` fills in a
@@ -34,12 +41,24 @@ from fibsem.ai.agent.catalog import Devices
 INSTRUMENT_DIR = Path(sources.CLAUDE) / "fibsem-agent" / "instruments"
 # The kind a playbook that names none is for: the only one there is.
 DEFAULT = "fibsem"
+# A playbook with no instrument (``instrument: none``): its words are a kind
+# like any other's, with no devices, and it has no fibsem server.
+NONE = "none"
 # Each file's sections ("" for a file that is one text), and the values each
 # may fill in.
 FILES: Dict[str, Dict[str, set]] = {
     "prompt.md": {"": {"tools", "deadline_warn_min"}},
     "intake.md": {"start": set(), "resumed": set(), "goal": {"goal"}},
     "reread.md": {"proposals": set(), "plan": set(), "level": set()},
+}
+# Files a kind may leave out: the default kind's are used instead.
+OPTIONAL: Dict[str, Dict[str, set]] = {
+    "handoff.md": {
+        "start": {"skills", "read_before", "note", "file"},
+        "mark": {"used", "window", "turn_cost"},
+        "compact": set(),
+        "recovered": {"why", "skills", "note"},
+    },
 }
 _NOTE = re.compile(r"\A\s*<!--.*?-->\s*", re.S)
 _SECTION = re.compile(r"^## +(\S.*?)\s*$", re.M)
@@ -61,6 +80,10 @@ class Texts:
     reread_proposals: str
     reread_plan: str
     reread_level: str
+    handoff_start: str = ""
+    handoff_mark: str = ""
+    handoff_compact: str = ""
+    handoff_recovered: str = ""
 
 
 def _folders(checkout: Optional[Path]) -> Dict[str, Path]:
@@ -92,25 +115,18 @@ def load(kind: Optional[str], checkout: Path) -> Texts:
         )
     folder = folders[kind]
     found: Dict[str, Dict[str, str]] = {}
-    for name, sections in FILES.items():
+    for name, sections in {**FILES, **OPTIONAL}.items():
         path = folder / name
+        if not path.is_file() and name in OPTIONAL:
+            path = folders.get(DEFAULT, folder) / name
+            if not path.is_file():
+                found[name] = dict.fromkeys(sections, "")
+                continue
         if not path.is_file():
             raise InstrumentError(f"{path} is missing")
-        texts = _sections(path.read_text(encoding="utf-8"), set(sections) != {""})
-        for section, allowed in sections.items():
-            if section not in texts:
-                raise InstrumentError(f"{path} has no '## {section}' section")
-            try:
-                unknown = _fields(texts[section]) - allowed
-            except ValueError as error:
-                raise InstrumentError(f"{path}: a stray brace: {error}") from None
-            if unknown:
-                raise InstrumentError(
-                    f"{path}: {section or 'the text'} fills in "
-                    f"{', '.join(sorted(unknown))}, which nothing gives"
-                )
-        found[name] = texts
+        found[name] = _read(path, sections)
     intake, reread = found["intake.md"], found["reread.md"]
+    handoff = found["handoff.md"]
     return Texts(
         kind=kind,
         prompt=found["prompt.md"][""],
@@ -120,11 +136,33 @@ def load(kind: Optional[str], checkout: Path) -> Texts:
         reread_proposals=reread["proposals"],
         reread_plan=reread["plan"],
         reread_level=reread["level"],
+        handoff_start=handoff["start"],
+        handoff_mark=handoff["mark"],
+        handoff_compact=handoff["compact"],
+        handoff_recovered=handoff["recovered"],
     )
 
 
+def _read(path: Path, sections: Dict[str, set]) -> Dict[str, str]:
+    """*path*'s sections, each checked for the values it may fill in."""
+    texts = _sections(path.read_text(encoding="utf-8"), set(sections) != {""})
+    for section, allowed in sections.items():
+        if section not in texts:
+            raise InstrumentError(f"{path} has no '## {section}' section")
+        try:
+            unknown = _fields(texts[section]) - allowed
+        except ValueError as error:
+            raise InstrumentError(f"{path}: a stray brace: {error}") from None
+        if unknown:
+            raise InstrumentError(
+                f"{path}: {section or 'the text'} fills in "
+                f"{', '.join(sorted(unknown))}, which nothing gives"
+            )
+    return texts
+
+
 DEVICES_FILE = "devices.yaml"
-_DEVICES_KEYS = {"microscope", "devices", "services"}
+_DEVICES_KEYS = {"microscope", "devices", "services", "hide"}
 
 
 def devices(kind: Optional[str], checkout: Optional[Path]) -> Devices:
@@ -145,12 +183,13 @@ def devices(kind: Optional[str], checkout: Optional[Path]) -> Devices:
             f"{path}: give {', '.join(sorted(_DEVICES_KEYS))}, not {data!r}"
         )
     names = {}
-    for key in ("devices", "services"):
+    for key in ("devices", "services", "hide"):
         value = data.get(key) or []
         if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
             raise InstrumentError(f"{path}: {key} is a list of names")
         names[key] = frozenset(value)
-    return Devices(microscope=data.get("microscope") is True, **names)
+    hide = tuple(sorted(names.pop("hide")))
+    return Devices(microscope=data.get("microscope") is True, hide=hide, **names)
 
 
 @cache

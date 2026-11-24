@@ -1,5 +1,7 @@
 """Pairing a computer with a 4-digit code: the code's rules, the routes, and
-`RemoteMicroscope.pair` over a real server.
+`RemoteMicroscope.pair` over a real server. The routes are the gateway's and,
+until the gateway pairs for it, the microscope server's (``pairs``): a token
+they pair is checked by the server it reaches as one paired with a code there.
 """
 
 import json
@@ -171,7 +173,7 @@ def auth(tmp_path):
 
 @pytest.fixture
 def http(microscope, auth):
-    return TestClient(build_server(microscope, auth=auth))
+    return TestClient(build_server(microscope, auth=auth, pairs=True))
 
 
 def _as(token):
@@ -240,7 +242,7 @@ def test_a_browser_asks_the_headless_server_for_a_code(http, auth):
 
 @pytest.fixture
 def url(microscope, auth):
-    with serving(build_server(microscope, auth=auth)) as url:
+    with serving(build_server(microscope, auth=auth, pairs=True)) as url:
         yield url
 
 

@@ -285,7 +285,7 @@ def test_reference_images_answer_one_image_answer_each(armed_client):
     """A command that returns several images (the reference pair) answers each in
     its place, None for a beam not asked for; no program format carries a list."""
     resp = armed_client.post(
-        "/microscope/services/imaging/commands/reference_images",
+        "/microscope/services/imaging/commands/acquire_pair",
         headers=AUTH,
         json={
             "kwargs": {

@@ -45,6 +45,91 @@ def _parameter_spec(info: Any) -> Optional["Parameter"]:
     return Parameter(unit=info.get("unit"), display=shown)
 
 
+def _index(listing: Dict[str, Any], a: Dict[str, Any]) -> Dict[str, Any]:
+    """device_list's and service_list's answer: each one's kind and the names
+    of its parameters, commands and queries; under ``agent_false`` the
+    parameters it may never set and the commands it may never run, and under
+    ``unavailable`` the commands and queries this microscope lacks."""
+    return {name: _indexed(entry) for name, entry in listing.items()}
+
+
+def _indexed(entry: Dict[str, Any]) -> Dict[str, Any]:
+    parameters = entry.get("parameters") or {}
+    commands = entry.get("commands") or {}
+    queries = entry.get("queries") or {}
+    index = {key: entry[key] for key in ("type", "class") if entry.get(key)}
+    index["parameters"] = list(parameters)
+    index["commands"] = list(commands)
+    if queries:
+        index["queries"] = list(queries)
+    never = {
+        kind: [name for name, info in found.items() if info.get("agent") is False]
+        for kind, found in (("parameters", parameters), ("commands", commands))
+    }
+    never = {kind: names for kind, names in never.items() if names}
+    if never:
+        index["agent_false"] = never
+    unavailable = [
+        name
+        for found in (commands, queries)
+        for name, info in found.items()
+        if info.get("available") is False
+    ]
+    if unavailable:
+        index["unavailable"] = unavailable
+    return index
+
+
+def _described(entry: Dict[str, Any], a: Dict[str, Any]) -> Dict[str, Any]:
+    """device_describe's and service_describe's answer: the description with
+    its empty fields left out, and each command and query by its signature,
+    the JSON Schema of its arguments only for the one *command* names."""
+    command = a.get("command")
+    names = {*(entry.get("commands") or {}), *(entry.get("queries") or {})}
+    if command and command not in names:
+        raise ValueError(
+            f"{entry.get('name')} has no command or query {command!r}; "
+            f"it has {sorted(names)}"
+        )
+
+    def kept(info: Dict[str, Any], name: str = "") -> Dict[str, Any]:
+        return {
+            key: value
+            for key, value in info.items()
+            if value is not None and (key != "arguments" or name == command)
+        }
+
+    described = kept(entry)
+    described["parameters"] = {
+        name: kept(info) for name, info in (entry.get("parameters") or {}).items()
+    }
+    for kind in ("commands", "queries"):
+        described[kind] = {
+            name: kept(info, name) for name, info in (entry.get(kind) or {}).items()
+        }
+    return described
+
+
+def _saved_positions_call(a: Dict[str, Any]) -> Tuple[Dict[str, Any], dict]:
+    """The saved_positions query with the names asked for, one name as a list
+    of one; none asks for every position."""
+    names = a.get("names")
+    if not names:
+        return {}, kwargs_body()
+    if isinstance(names, str):
+        names = [names]
+    return {}, kwargs_body(names=[str(n) for n in names])
+
+
+def _saved_position_names(answer: Dict[str, Any], a: Dict[str, Any]) -> Any:
+    """stage_get_saved_positions' answer without names: how many, and their
+    names; with names, the positions in full."""
+    if a.get("names"):
+        return answer
+    positions = answer.get("saved_positions") or []
+    return {"count": len(positions), "names": [p.get("name") for p in positions]}
+
+
 def _set_parameter(
     a: Dict[str, Any], owner_key: str, path: str, get: Callable[[str], Any]
 ) -> Dict[str, Any]:
@@ -266,22 +351,109 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="plan_get",
-        description="Your plan for this session, plan.md, which the operator reads on the Agent page and can edit: its sections (Brief, Playbook, Rules, Steps, Progress, Summary, or your playbook's headings), the sample from the Brief's Sample line, the Steps' boxes ({group, text, done}) and who changed it last. Read it before each step, and again after a PLAN EDITED line, a wake-up or a compaction. Empty until you write it.",
+        description="Your plan for this session, plan.md, which the operator reads on the Agent page and can edit: its sections (Brief, Playbook, Rules, Steps, Progress, What worked, Summary, or your playbook's headings), the sample from the Brief's Sample line, the Steps' boxes ({group, text, done}) and who changed it last. Read it before each step, and again after a PLAN EDITED line, a wake-up or a compaction. Empty until you write it. previous=true reads instead the newest plan an earlier session left on this experiment (session_id names one), read only, with the other sessions' ids under earlier: where a run you take over stood, its rules and its What worked; 404 no_plan when none did.",
         method="GET",
         path="/app/agent/plan",
         level="watch",
         router="app",
+        params={
+            "previous": arg(
+                "optional: true for the newest earlier session's plan on this experiment (default false: yours)",
+                bool,
+                default=False,
+            ),
+            "session_id": "optional: an earlier session's plan by its id, one plan_get previous=true named under earlier",
+        },
+        optional=("previous", "session_id"),
     ),
     ToolSpec(
         name="plan_set_section",
-        description="Write one section of your plan (plan.md), replacing it; empty text removes it. Brief: the operator's question, the sample and the target, the goal, in their words, with a first line 'Sample: <name>' -- the sample is written once, and only the operator changes it after (409 sample_set). Playbook: which one runs and who chose it. Rules: the operator's standing rules, one '- ' line each, in their words. Steps: '- [ ] step' boxes, grouped under '### Group' lines, ticked '- [x]' only when done and said. Progress: what happened, newest last. Summary: at the end. No # or ## headings inside a section. Refused (409 no_session) before your session is reported.",
+        description="Write one section of your plan (plan.md), replacing it; empty text removes it. Brief: the operator's question, the sample and the target, the goal, in their words, with a first line 'Sample: <name>' -- the sample is written once, and only the operator changes it after (409 sample_set). Playbook: which one runs and who chose it. Rules: the operator's standing rules, one '- ' line each, in their words. Steps: '- [ ] step' boxes, grouped under '### Group' lines, ticked '- [x]' only when done and said. Progress: one line per block of work, newest last (finished results and their pictures go on the review list, review_add). What worked: per task, the settings and signs that worked on this sample, each change old -> new, for the next lamella and the next session. Summary: at the end. No # or ## headings inside a section. To add a line use plan_append, to tick a box plan_check_step. Answers the section's name and length and the boxes done of total, not the plan (plan_get reads it). Refused (409 no_session) before your session is reported.",
         method="POST",
         path="/app/agent/plan/section",
         level="watch",
         router="app",
         params={
-            "section": "the heading: Brief, Playbook, Rules, Steps, Progress, Summary, or one of your playbook's",
+            "section": "the heading: Brief, Playbook, Rules, Steps, Progress, What worked, Summary, or one of your playbook's",
             "text": "the section's markdown, all of it",
+        },
+    ),
+    ToolSpec(
+        name="plan_append",
+        description="Add a line (or a few) at the end of one section of your plan, making the section if it has none: a Progress line, a Rules line, a new Steps box. Same rules as plan_set_section. Answers like it.",
+        method="POST",
+        path="/app/agent/plan/append",
+        level="watch",
+        router="app",
+        params={
+            "section": "the heading, as plan_set_section takes it",
+            "text": "the line(s) to add, no # or ## headings",
+        },
+    ),
+    ToolSpec(
+        name="plan_check_step",
+        description="Tick one Steps box in your plan, or untick it (done false): the box whose text is step, else the only one starting with it. Refused (404 not_found) for none, (409 ambiguous) for several, listing them. Answers the box's full text and the boxes done of total.",
+        method="POST",
+        path="/app/agent/plan/step",
+        level="watch",
+        router="app",
+        params={
+            "step": "the box's text, or enough of its start to name one",
+            "done": arg("false to untick (default true)", bool, default=True),
+            "group": "optional: the ### group it is under, when two boxes read alike",
+        },
+        optional=("done", "group"),
+    ),
+    ToolSpec(
+        name="review_add",
+        description="Put a piece of finished work on the operator's review list, with its pictures, so they see what was done without reading the chat: one item per result worth seeing (a lamella thinned, a site placed, a screen done), not per call. level: done, a record (they may still reject it); check, you want a look and carry on; wait, you hold that piece of work until they answer (other work goes on), for a rule that says to ask, a first-of-a-kind decision, something outside the plan's rules or that you are unsure of. Keep waits rare. images: up to 4 experiment images, the key one first; evidence, a picture with your marks. Their answer comes as a MESSAGE naming the item ('Review r3 ...: Reject. ...'), with any marks they drew. Answers the item with its id. Keep the plan's Progress to one line per block of work: the detail goes here.",
+        method="POST",
+        path="/app/agent/review",
+        level="watch",
+        router="app",
+        params={
+            "title": "what was done or what you ask, one line ('Polished to 290 nm', 'Keep site 3 or move it 1 µm in?')",
+            "level": "done (default), check or wait",
+            "text": "optional: a sentence or two on what you did and saw",
+            "about": "optional: what it is about, as the operator names it ('Lamella 01', 'Setup')",
+            "images": arg(
+                "optional: up to 4 image paths inside the experiment, as the image tools answered them",
+                List[str],
+            ),
+            "facts": arg(
+                "optional: up to 4 {label, value} the operator should see at a glance ({label: 'Thickness', value: '290 nm (target 300 ± 20)'})",
+                list,
+            ),
+            "options": arg(
+                "optional: 2 to 4 answers to choose from (default Accept, Reject), for a wait that asks a question",
+                List[str],
+            ),
+        },
+        optional=("level", "text", "about", "images", "facts", "options"),
+    ),
+    ToolSpec(
+        name="review_list",
+        description="Your review list, or a slice of it: show waiting (what you hold for the operator), to_check, answered, closed or done; about filters by what it is about. Each item has its state and the operator's answer when given. Read a slice, not the whole list: the answers already reached you as messages. Answers the items and the counts.",
+        method="GET",
+        path="/app/agent/review",
+        level="watch",
+        router="app",
+        params={
+            "show": "optional: all (default), waiting, to_check, answered, closed or done",
+            "about": "optional: only items whose about contains this",
+        },
+        optional=("show", "about"),
+    ),
+    ToolSpec(
+        name="review_close",
+        description="Close a review item that no longer needs an answer, with why: the operator answered in the chat, or it became moot. Refused (409 not_open) once answered or closed.",
+        method="POST",
+        path="/app/agent/review/{item_id}/close",
+        level="watch",
+        router="app",
+        params={
+            "item_id": "the item's id, as review_add answered it (r3)",
+            "reason": "why it no longer needs an answer, one line",
         },
     ),
     ToolSpec(
@@ -317,14 +489,39 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="device_list",
         description=(
-            "Every device on the microscope (electron, ion, stage, manipulator, ...): "
-            "its parameters with type, unit, limits, choices and whether settable, "
-            "and its commands. agent: false marks a write or command you may never "
-            "use, at any level (403 not_allowed); its value stays readable."
+            "Every device on the microscope (electron, ion, stage, manipulator, ...) "
+            "by name: its type and the names of its parameters, commands and "
+            "queries. agent_false names the parameters you may never set and the "
+            "commands you may never run, at any level (403 not_allowed); their "
+            "values stay readable. unavailable names what this microscope lacks. "
+            "device_describe gives one device's parameters with type, unit, limits "
+            "and choices, and its command signatures: read it before using a "
+            "parameter or command you have not used, never write a value to find out."
         ),
         method="GET",
         path="/microscope/devices",
         level="watch",
+        shape=_index,
+    ),
+    ToolSpec(
+        name="device_describe",
+        description=(
+            "One device in full: each parameter's type, unit, limits, choices, "
+            "whether settable and agent (false: you may never set it), and each "
+            "command's and query's signature, return type, whether this "
+            "microscope has it, agent and long (answers at once with a run). "
+            "With command, that command's or query's arguments as JSON Schema too "
+            "(units, limits, choices of each)."
+        ),
+        method="GET",
+        path="/microscope/devices/{device}",
+        level="watch",
+        params={
+            "device": "device name from device_list",
+            "command": "optional: a command or query to give the argument schema of",
+        },
+        optional=("command",),
+        shape=_described,
     ),
     ToolSpec(
         name="device_get_parameter",
@@ -365,7 +562,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "(a path from item_list_outputs or an image you saved). A long command: "
             "it answers with its run at once; service_wait_for_run alignment gives each "
             "step's shift, whether the methods agree on what is left, and the "
-            "folder the run saved to. alignment_measure_shift first if you only want to know "
+            "folder the run saved to. analysis_measure_shift first if you only want to know "
             "how far off the view is."
         ),
         method="POST",
@@ -423,68 +620,6 @@ TOOLS: Tuple[ToolSpec, ...] = (
                 validate=bool(a.get("validate", True)),
                 use_autocontrast=bool(a.get("use_autocontrast", False)),
                 path=a.get("path"),
-            ),
-        ),
-    ),
-    ToolSpec(
-        name="alignment_measure_shift",
-        description=(
-            "The shift of one saved image from another, as alignment_align_to_reference "
-            "measures it: metres and pixels, a score (higher is better) and "
-            "whether it cleared the minimum. Both paths inside the open "
-            "experiment. Reads the files and moves nothing."
-        ),
-        method="POST",
-        path="/microscope/services/alignment/queries/measure_shift",
-        result_key="shift",
-        level="watch",
-        params={
-            "reference_path": "the saved reference image",
-            "image_path": "the saved image to measure against it",
-            "method": arg(
-                "cross-correlation (default), phase-correlation or skimage-phase-correlation",
-                default="cross-correlation",
-            ),
-        },
-        optional=("method",),
-        call=lambda a: (
-            {},
-            kwargs_body(
-                reference_path=str(a["reference_path"]),
-                image_path=str(a["image_path"]),
-                method=str(a.get("method") or "cross-correlation"),
-            ),
-        ),
-    ),
-    ToolSpec(
-        name="alignment_compare_methods",
-        description=(
-            "The shift of one saved image from another by every alignment method, "
-            "how far apart the methods are in pixels, and whether they agree: the "
-            "check alignment_align_to_reference validates with. A disagreement "
-            "means the measurement is not to be trusted. Both paths inside the "
-            "open experiment. Reads the files and moves nothing."
-        ),
-        method="POST",
-        path="/microscope/services/alignment/queries/compare_methods",
-        result_key="comparison",
-        level="watch",
-        params={
-            "reference_path": "the saved reference image",
-            "image_path": "the saved image to measure against it",
-            "agreement_px": arg(
-                "the most the methods may differ and agree, in pixels (default 2)",
-                float,
-                default=2.0,
-            ),
-        },
-        optional=("agreement_px",),
-        call=lambda a: (
-            {},
-            kwargs_body(
-                reference_path=str(a["reference_path"]),
-                image_path=str(a["image_path"]),
-                agreement_px=float(a.get("agreement_px") or 2.0),
             ),
         ),
     ),
@@ -838,12 +973,19 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="stage_get_saved_positions",
-        description="The named stage positions saved with this microscope configuration, as the Saved Positions panel lists them (metres and radians).",
+        description="The named stage positions saved with this microscope configuration, as the Saved Positions panel lists them: how many and their names; with names, those positions in full (metres and radians).",
         method="POST",
         path="/microscope/services/stage_movement/queries/saved_positions",
         result_key="saved_positions",
         level="watch",
-        call=lambda a: ({}, kwargs_body()),
+        params={
+            "names": arg(
+                "optional: the saved positions to give in full, by name", List[str]
+            )
+        },
+        optional=("names",),
+        call=_saved_positions_call,
+        shape=_saved_position_names,
     ),
     ToolSpec(
         name="stage_save_position",
@@ -1114,7 +1256,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         description=(
             "Set the microscope to a saved state: both beams' settings and the "
             "stage position, e.g. the microscope_state of an image's metadata "
-            "(experiment_get_image_metadata) to go back to where and how it was "
+            "(analysis_get_image_metadata) to go back to where and how it was "
             "taken. The stage moves. microscope_get_state gives the shape."
         ),
         method="PUT",
@@ -1132,14 +1274,39 @@ TOOLS: Tuple[ToolSpec, ...] = (
         name="service_list",
         description=(
             "Every service on the microscope (milling, stage_movement, spot_burn, "
-            "sample_handling, ...): what the instrument does with its devices over "
-            "time. Each lists its parameters (e.g. milling progress) and its commands "
-            "with their signatures and whether this microscope has them; agent: "
-            "false marks one you may never use."
+            "sample_handling, ...) by name: what the instrument does with its "
+            "devices over time. Each names its parameters (e.g. milling progress), "
+            "commands and queries; agent_false names the commands you may never "
+            "run and the parameters you may never set, and unavailable what this "
+            "microscope lacks. service_describe gives one service's parameters "
+            "and command signatures: read it before using a parameter or command "
+            "you have not used, never write a value to find out."
         ),
         method="GET",
         path="/microscope/services",
         level="watch",
+        shape=_index,
+    ),
+    ToolSpec(
+        name="service_describe",
+        description=(
+            "One service in full: each parameter's type, unit, limits, choices, "
+            "whether settable and agent (false: you may never set it), and each "
+            "command's and query's signature, return type, whether this "
+            "microscope has it, agent and long (answers at once with a run). "
+            "With command, that command's or query's arguments as JSON Schema too "
+            "(units, limits, choices of each; a milling stage's runs to tens of "
+            "thousands of characters, where the milling tools say the same)."
+        ),
+        method="GET",
+        path="/microscope/services/{service}",
+        level="watch",
+        params={
+            "service": "service name from service_list",
+            "command": "optional: a command or query to give the argument schema of",
+        },
+        optional=("command",),
+        shape=_described,
     ),
     ToolSpec(
         name="service_get_parameter",
@@ -1177,7 +1344,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         description=(
             "Run a service command listed by service_list, e.g. service=stage_movement "
             "command=move_to_orientation kwargs={'orientation': 'SEM'}. A long command "
-            "(listed with long: true: milling run, run_stage and run_task, spot burn "
+            "(long: true in service_describe: milling run, run_stage and run_task, spot burn "
             "run, alignment align_to_reference, imaging fm_auto_focus, "
             "fm_acquire_image, acquire_overview, fm_acquire_overview and "
             "acquire_focus_stack) answers at once with "

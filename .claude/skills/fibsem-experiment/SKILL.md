@@ -71,7 +71,7 @@ tell the operator rather than carrying on through the list.
 - At each site, before any step: an image in each beam, centre the feature,
   and check coincidence (fibsem-microscope, *Coincidence*). A site saved earlier
   is a starting point, not the place: centre on the feature itself.
-- Show the sites on an overview with `experiment_draw_image`, a labelled
+- Show the sites on an overview with `analysis_draw_image`, a labelled
   point each, and cite that drawing in your note.
 
 ## Images

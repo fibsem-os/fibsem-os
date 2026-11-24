@@ -40,20 +40,28 @@ level the operator sets from the Agent chip: reads at Watch, asking first at
 Assist (a request the operator approves), acting at Drive; at Off everything is
 refused. A refusal is a structured 403
 naming why (`level`, `ask_first`, `agent_off`, `agent_stopped`, `not_allowed`).
-Separate from the level, a blocklist (`fibsem/ai/agent/blocklist.py`) names what
-the agent may never write or run, at any level and in an approved request too:
-a beam's `on`, `angular_correction`, `tilt_correction` and `plasma_gas`; the
-stage's `home`, `link` and raw `move_absolute` (stage_movement's too: the agent moves with `safe_absolute_stage_movement`); every chamber and manipulator write and command; the
-objective's `limit_position`; the FM's `cancel` (the agent stops a z-stack with
-`imaging`'s `stop`). `GET /microscope/devices` and `/microscope/services` mark those
+Separate from the level, some writes and commands are the operator's only: the
+agent may never write or run them, at any level and in an approved request too.
+Each is marked where it is declared, with the reason the refusal gives:
+`DeviceParameter(..., operator_only="...")`, `@command(operator_only="...")`, or
+`operator_only = "..."` on a whole kind of device. Today: a beam's `on`,
+`angular_correction`, `tilt_correction` and `plasma_gas`; the stage's `home`,
+`link` and raw `move_absolute` (stage_movement's too: the agent moves with
+`safe_absolute_stage_movement`); milling's bare `start`; the objective's
+`limit_position`; every chamber, manipulator, GIS and sputter coater write and
+command. `fibsem/ai/agent/blocklist.py` reads the marks, and the Customisation
+dialog lists them. `GET /microscope/devices` and `/microscope/services` mark those
 `agent: false`. A command's `path` argument must be inside the open experiment. A hardware
 command takes control of the microscope while it runs: when a workflow, a script or
 another command is in control it gets `409 microscope_busy`, naming who.
 The **operator token** (Tools → Host → Copy operator token; one per
 install, kept in `~/.fibsem/operator-token.json`) is the operator from outside
-the window. It reads what the dashboard reads and reaches the operator's routes,
+the window. It reads the monitoring routes and reaches the operator's routes,
 whatever the level: `GET /app/agent` (level, last heard, the waiting request),
-`POST /app/agent/messages` `{"text"}`, `PUT /app/agent/level` `{"level"}`,
+`POST /app/agent/messages` `{"text"}` (one starting `/now` cuts the agent's
+turn short; any other waits for it to end), `POST
+/app/agent/messages/{id}/interrupt` (*Interrupt now* for a message already
+sent), `PUT /app/agent/level` `{"level"}`,
 `POST /app/agent/stop`, and `POST /app/agent/requests/{id}/approve` or
 `/reject` `{"reason"}`. The agent's token gets `403 operator_only` there.
 It also reaches every agent route as the operator, at any level (Off too): the

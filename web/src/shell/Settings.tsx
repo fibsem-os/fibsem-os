@@ -39,9 +39,9 @@ function GrantToggle({ on, onChange }: { on: boolean; onChange: (on: boolean) =>
   );
 }
 
-/** The paired computers and pairing a new one: the App Server's operators and
- * agents, or a gateway's operators and hubs. */
-export function Connections({ roles = ["operator", "agent"] }: { roles?: PairingRole[] }) {
+/** The paired computers and pairing a new one, at the gateway: the one place this
+ * PC pairs browsers and other computers (operators), agents and hubs. */
+export function Connections({ roles = ["operator", "agent", "hub"] }: { roles?: PairingRole[] }) {
   const client = useQueryClient();
   const pairing = useQuery({
     queryKey: ["pairing"],
@@ -224,7 +224,7 @@ function SlackCard() {
     onSuccess: () => client.invalidateQueries({ queryKey: ["app/notifications"] }),
   });
   const agent = useAgentReleased();
-  // Not the operator (a dashboard, an agent), or a host without the routes.
+  // Not the operator (an agent), or a host without the routes.
   if (!slack.data) return null;
   const { settings: s, token_set, token_from } = slack.data;
   const set = (change: Partial<Slack>) => {
@@ -493,7 +493,7 @@ export function Settings({ open, onOpenChange }: { open: boolean; onOpenChange: 
             ))}
           </nav>
           <div className="min-w-0 flex-1 px-5 py-4">
-            {section === "connections" ? <Connections roles={agent ? ["operator", "agent"] : ["operator"]} /> : section === "notifications" ? <Notifications /> : section === "report" ? <Report /> : <About />}
+            {section === "connections" ? <Connections roles={agent ? ["operator", "agent", "hub"] : ["operator", "hub"]} /> : section === "notifications" ? <Notifications /> : section === "report" ? <Report /> : <About />}
           </div>
         </div>
       </DialogContent>

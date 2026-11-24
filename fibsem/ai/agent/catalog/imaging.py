@@ -435,6 +435,35 @@ def _acquire_timeout(a: Dict[str, Any], read: Callable[[str], Any]) -> Optional[
     """Seconds an acquire may take: a minute plus twice its scan time, where that is
     longer than the usual timeout (None keeps the usual). A setting left out is the
     beam's own, as the server fills it."""
+    scan = _scan_seconds(a, read)
+    if scan is None:
+        return None  # nothing to estimate from: the usual timeout
+    seconds = _FRAME_MARGIN_S + 2 * scan
+    return seconds if seconds > _USUAL_TIMEOUT_S else None  # None: the usual
+
+
+# What one beam's autocontrast routine may take, on top of its frames.
+_AUTOCONTRAST_S = 30.0
+
+
+def _pair_timeout(a: Dict[str, Any], read: Callable[[str], Any]) -> Optional[float]:
+    """Seconds beam_acquire_pair_preview may take: a minute, twice both frames' scan
+    time, and half a minute per autocontrast, where that is longer than the
+    usual timeout (None keeps the usual)."""
+    scans = [_scan_seconds({"beam_type": b}, read) for b in ("ELECTRON", "ION")]
+    if any(scan is None for scan in scans):
+        return None
+    try:
+        routines = len(_pair_beams(a.get("autocontrast")))
+    except ValueError:
+        routines = 2  # its call refuses it anyway
+    seconds = _FRAME_MARGIN_S + 2 * sum(scans) + _AUTOCONTRAST_S * routines
+    return seconds if seconds > _USUAL_TIMEOUT_S else None
+
+
+def _scan_seconds(a: Dict[str, Any], read: Callable[[str], Any]) -> Optional[float]:
+    """One frame's scan time with *a*'s image_settings over the beam's own;
+    None when it can't be told."""
     settings = a.get("image_settings")
     settings = dict(settings) if isinstance(settings, dict) else {}
     beam = _beam_device(a)
@@ -447,11 +476,53 @@ def _acquire_timeout(a: Dict[str, Any], read: Callable[[str], Any]) -> Optional[
         passes = int(settings.get("line_integration") or 1) * int(
             settings.get("frame_integration") or 1
         )
-        scan = float(settings["dwell_time"]) * int(width) * int(height) * passes
+        return float(settings["dwell_time"]) * int(width) * int(height) * passes
     except (KeyError, TypeError, ValueError):
-        return None  # nothing to estimate from: the usual timeout
-    seconds = _FRAME_MARGIN_S + 2 * scan
-    return seconds if seconds > _USUAL_TIMEOUT_S else None  # None: the usual
+        return None
+
+
+def _pair_beams(value: Any) -> List[str]:
+    """beam_acquire_pair_preview's autocontrast: the beams named (one as a string
+    too), checked."""
+    if isinstance(value, str):
+        value = [value]
+    beams = [str(b).upper() for b in (value or [])]
+    wrong = [b for b in beams if b not in ("ELECTRON", "ION")]
+    if wrong:
+        raise ValueError(f"autocontrast names ELECTRON and ION only, not {wrong}")
+    return list(dict.fromkeys(beams))
+
+
+def _beam_acquire_pair(a: Dict[str, Any], ctx: wording.ActionContext) -> Dict[str, Any]:
+    hfw = a.get("hfw")
+    wide = f", {wording.distance(hfw)} wide" if hfw is not None else ""
+    try:
+        contrasted = _pair_beams(a.get("autocontrast"))
+    except ValueError:
+        contrasted = []
+    first = ""
+    if contrasted:
+        names = " and ".join(wording.beam_short(b) for b in contrasted)
+        first = f"; autocontrast first on {names}"
+    name = a.get("filename") or "pair-<time>"
+    rows = []
+    for device in ("electron", "ion"):
+        now = ctx.get(f"/microscope/devices/{device}/hfw")
+        if hfw is not None and isinstance(now, dict) and "value" in now:
+            rows.append(
+                (
+                    f"{wording.beam_short(device.upper())} field of view",
+                    wording.distance(now["value"]),
+                    wording.distance(hfw),
+                )
+            )
+    return {
+        "what": "SEM and FIB",
+        "change": f"Take an SEM and a FIB image here{wide}{first}\n"
+        "The field of view stays on both beams; the rest are as each is set now\n"
+        f"Save them in {a.get('path')} as {name}_eb and {name}_ib",
+        "details": wording.table(("Setting", "Now", "New"), rows) if rows else None,
+    }
 
 
 TOOLS: Tuple[ToolSpec, ...] = (
@@ -494,6 +565,61 @@ TOOLS: Tuple[ToolSpec, ...] = (
                     filename=a.get("filename"),
                 ),
                 preview=True,
+            ),
+        ),
+    ),
+    ToolSpec(
+        name="beam_acquire_pair_preview",
+        description=(
+            "A fresh SEM image and FIB image where the stage is, to check it: "
+            "both at field of view hfw (it stays set) and each beam's other "
+            "settings as they are, autocontrast first on the beams in "
+            "autocontrast. Saved in path as <filename>_eb and _ib, and shown "
+            "to the operator. Answers one side-by-side picture (SEM left, FIB "
+            "right, saved as drawn/<sem>-<fib>.png beside them, for evidence) "
+            "and compact facts: each image's experiment path, resolution, "
+            "pixel size and quality (the fractions clipped black and white, "
+            "the histogram's centre and spread on the file's range, and focus, "
+            "the mean Laplacian, comparable only within one scene: measures "
+            "for you to weigh with the picture, not a verdict), the stage "
+            "position. A point read off the picture "
+            "is (point - origin) * scale in that half's image, full-resolution "
+            "pixels, with picture.sem / picture.fib's origin and scale. Moves "
+            "nothing and judges nothing: pick the same feature in both halves "
+            "yourself. Refused when a beam is off. For beams that need "
+            "different fields of view or settings, take them one at a time "
+            "(beam_acquire_image)."
+        ),
+        method="POST",
+        path="/microscope/services/imaging/commands/acquire_pair_preview",
+        result_key="result",
+        level="drive",
+        hardware=True,
+        params={
+            "hfw": arg("field of view for both images, metres (e.g. 50e-6)", float),
+            "path": (
+                "folder inside the open experiment to save into, relative to it "
+                '(e.g. the item\'s folder, "02-nice-dassie/site-check")'
+            ),
+            "filename": "optional file name, without the _eb/_ib suffix (default: pair- and the time)",
+            "autocontrast": arg(
+                'optional: beams to autocontrast first, e.g. ["ION"] (default none)',
+                List[str],
+            ),
+        },
+        optional=("filename", "autocontrast"),
+        line=_beam_acquire_pair,
+        timeout=_pair_timeout,
+        call=lambda a: (
+            {},
+            kwargs_body(
+                hfw=float(a["hfw"]),
+                path=str(a["path"]),
+                filename=a.get("filename"),
+                autocontrast=_pair_beams(a.get("autocontrast")) or None,
+                # read inside the open experiment, as path is: the saved
+                # paths come back relative to it
+                experiment_path=".",
             ),
         ),
     ),

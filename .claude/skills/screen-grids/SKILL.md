@@ -21,6 +21,22 @@ Ask the operator before renaming a grid (`grid_rename`), and say the old and
 new names. At Assist an exchange is a request like a move; put `grid_load`
 and `grid_move_to` in one request when you want to look at the grid.
 
+`grid_assign_items` records lamellae as on a grid (sites marked before the
+grid had a record, or on the wrong one); nothing moves.
+
+## After the app restarts
+
+A loader can lose the grid on the stage across a restart of the app:
+`grid_get_inventory` then shows no grid loaded, or one called
+`Grid-on-stage`, and its home slot empty. Before you plan a run, compare
+`grid_get_current` and `grid_get_inventory` with the grid you know is on the
+stage (from the run so far, or the operator). If they disagree, ask the
+operator which grid is on the stage; don't run loader commands to find out.
+On their word, `grid_set_current` names it there with nothing moved (with
+`slot_name` if they know the magazine slot it came from), and the run then
+accepts its lamellae. Never unload and reload to fix a name: that costs a
+grid exchange and every site's position confirmed again.
+
 ## A screening run
 
 Starting one is a control action (Drive). Plan it first with
@@ -45,6 +61,10 @@ agree. What
 you saw goes on the grid's card with `grid_set_note`, so the next session
 finds it with the grid.
 
+Screening reviewed, and later the sites approved, are natural points for a
+fresh context (fibsem-agent, *A fresh context*): the grid cards, the plan and
+the sites hold what the next step needs.
+
 ## Finding sites
 
 When you pick sites (cells, squares):
@@ -57,9 +77,9 @@ When you pick sites (cells, squares):
   often arrive coated, so you will also have to pick on coated grids.
 - Read a large overview in parts: `experiment_read_file` with `cells` cuts it
   into named cells (A1, B3) with their stage positions, and
-  `experiment_crop_image` with `cells` gives up to 8 of them at full
+  `analysis_crop_image` with `cells` gives up to 8 of them at full
   detail. A point read off a crop goes to
-  `experiment_get_image_stage_position` with that `crop`.
+  `analysis_map_pixel_to_stage` with that `crop`.
 - Prefer the FIB image for picking cells when you have it (at the milling
   angle): good cells are often easier to tell there than on the SEM
   overview. A FIB image doses the sample, so keep the current low and the
@@ -68,11 +88,18 @@ When you pick sites (cells, squares):
   without overlapping another lamella's trenches, fiducial or stress-relief
   cuts, or a grid bar. If two must share a square, the film between their
   cuts can tear (two lamellae about 15 µm apart tore during rough milling):
-  ask the operator first.
+  ask the operator first. Once sites have patterns, `grid_draw_milling`
+  draws them on the SEM overview and measures the gap between neighbours'
+  cuts: check that, not only that patterns don't overlap.
 - Where in the square, best first: (1) the clear middle, more than about
   10 µm from any bar, with room for the trenches, fiducial and stress relief;
   (2) within 10 µm of a bar, only if the square has no cell in the middle, and
   ranked below every square that has; (3) on a bar: never mill it.
+- `analysis_find_grid_squares` helps with the bars and square centres:
+  pass your candidates as `points` for each one's distance to the nearest
+  bar edge, and `box` or `pitch_um` when you know them. It is a fit: check
+  its overlay against the image. When it accepts no lattice or warns, weigh
+  its candidate and your own reading, and say which you relied on.
 - The film under the site has to be intact. A broken, sheeted or covered
   square is not a site. Check each site in the FIB and SEM (bars, torn or
   curled film) before spending FM time on it.
@@ -93,6 +120,33 @@ When you pick sites (cells, squares):
 - Confirm shorthand before acting on it. "3:3" or "C2" can name a square, a
   cell or a rank; ask which the operator means.
 
+**The site finder.** When picking means looking through many squares or tiles,
+or several grids, the `autolamella-site-finder` agent (when it is in your Agent
+tool) can do the looking in its own context and answer a short list: your
+context keeps the list, not the crops. For a handful of crops, or one site
+the operator pointed at, look yourself. Call it as the other agents are
+called: one call, and wait for it. It judges from what you give it, so give
+it what the decision should rest on:
+
+- the grid, and the overview or tiles to judge from, by the paths a tool
+  answered;
+- the operator's rules word for word from the plan's Rules, or that they
+  gave none and it should use these;
+- at least one example of a good site on this sample: the operator's marked
+  image, a site approved earlier, or the knowledge entry with its images;
+- the view to judge from, and whether the grid is coated;
+- the sites already chosen, and how many candidates you want at most;
+- the job: `review` (what a grid shows, to compare grids) or `sites`.
+
+Its answer is a shortlist, not a decision. On a new sample, or with no
+example, each candidate still goes to the operator one site at a time.
+Each one you take forward you visit and check on fresh images, both checks
+below; a doubtful one needs the image its `would_settle` names first. You
+write the grid notes and the plan, citing its evidence paths. In a lead run
+the Verifier still checks the site list, from the images and the list, not
+the site finder's reasoning. When the operator rejects a candidate, put their
+reason in the plan's Rules in their words, and in the next brief.
+
 **Two separate checks: is the site good, and is the microscope set up there.**
 
 - *Is the site good* is about the sample: the cell or target, the film, the
@@ -104,12 +158,15 @@ When you pick sites (cells, squares):
 
 Picking on the overview gives candidates by the first check. Then go to
 each candidate (`stage_stable_move`) and do the second there: the same
-feature centred in both beams at a 50 µm field of view, within 5 µm as
-measured in the FIB image, aiming for 2-3 µm (fibsem-microscope,
-*Coincidence: do it yourself*). If it isn't, fix it:
+feature centred in both beams at about a 50 µm field of view, as measured
+in the FIB image; within 5 µm, 2-3 µm where the scene allows, is the guide
+(fibsem-microscope,
+*Coincidence: do it yourself*), checked with `beam_acquire_pair_preview` at
+150-200 µm, then at 50 µm. If it isn't, fix it:
 focus, then the coincidence loop. Never reject a candidate for focus or
 coincidence. If you can't fix one, say what you tried and ask the operator;
-in a lead run, hold it in `[run_state]` and carry on with the others. With
+in a lead run, hold it in the plan's `Held` section and carry on with the
+others. With
 the beams on it, look at the site again: a closer look can still show it
 isn't good, and that is the first check, not the second. Record each site
 with its coincident height: on a bent grid it changes from site to site.

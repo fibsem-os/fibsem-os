@@ -14,7 +14,7 @@ import os
 from dataclasses import asdict
 from typing import Any, Dict, Optional, Tuple
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from fibsem import knowledge
 from fibsem.ai.agent.catalog import tools_for_capabilities
@@ -25,16 +25,19 @@ from fibsem.ai.agent.levels import (
     AgentLevel,
     chip_text,
 )
+from fibsem.ai.agent.recent import MAX_SIZE as RECENT_MAX
+from fibsem.ai.agent.recent import SIZE as RECENT_SIZE
 from fibsem.ai.agent.session import MESSAGE_LIMIT, AgentControl
 from fibsem.codec import encode
 from fibsem.imaging.marks import plane_shown
 from fibsem.server import files
 from fibsem.server.agent import plan as agent_plan
+from fibsem.server.agent import review as agent_review
 from fibsem.server.agent.customisation import customisation
 from fibsem.server.agent.requests import RequestRefused
 from fibsem.server.agent.setup import setup_text
 from fibsem.server.auth import refusal_error, require_operator
-from fibsem.server.bodies import LevelBody, MessageBody, ReasonBody
+from fibsem.server.bodies import LevelBody, MessageBody, ReasonBody, ReviewAnswerBody
 from fibsem.server.knowledge_routes import entry_source, request_instrument
 from fibsem.server.parts import served_parts
 from fibsem.server.responses import (
@@ -47,6 +50,7 @@ from fibsem.server.responses import (
     EvidenceView,
     LevelOption,
     LevelSet,
+    MessageInterrupted,
     MessageSent,
     Picture,
     PictureInfo,
@@ -128,7 +132,9 @@ def build_operator_router(agent: AgentControl) -> APIRouter:
         on this machine, it registers the sidecar and checks the connection.
         None when the sidecar isn't installed."""
         host = agent.host
-        return answer(ConnectText(setup_text(host.url if host is not None else None)))
+        # where an agent connects: the gateway's, for the App Server
+        url = getattr(host, "connect_url", host.url) if host is not None else None
+        return answer(ConnectText(setup_text(url)))
 
     @router.get("/customisation", response_model=AgentCustomisation)
     def get_customisation(request: Request):
@@ -144,10 +150,12 @@ def build_operator_router(agent: AgentControl) -> APIRouter:
         return answer(customisation(tools))
 
     @router.get("/recent", response_model=RecentRows)
-    def recent():
-        """The card's rows: the conversation and the agent's actions, oldest
-        first, as the card reads them from the record."""
-        return answer(RecentRows(agent.recent()))
+    def recent(rows: int = Query(RECENT_SIZE, ge=1, le=RECENT_MAX)):
+        """The card's last *rows* rows: the conversation and the agent's
+        actions, oldest first, as the card reads them from the record, back
+        past an app restart; ``more`` when there are earlier ones."""
+        found, more = agent.recent_page(rows)
+        return answer(RecentRows(found, more))
 
     @router.get("/pictures/{kind}", response_model=Picture)
     def get_picture(kind: str):
@@ -258,6 +266,76 @@ def build_operator_router(agent: AgentControl) -> APIRouter:
             )
         evidence_id = record["evidence_id"] if record is not None else None
         return answer(MessageSent(message_id, evidence_id), status_code=201)
+
+    @router.post("/review/{item_id}/answer")
+    def answer_review(request: Request, item_id: str, body: ReviewAnswerBody):
+        """The operator's answer to a review item: one of its options, a note
+        and marks on one of its pictures. It reaches the agent as a message
+        naming the item."""
+        session = request.app.state.auth.agent_session or {}
+        session_id = session.get("session_id")
+        store = agent_review.store_of(request, agent.experiment_path)
+        item = agent_review.open_item(store, session_id, item_id)
+        if body.choice not in item["options"]:
+            raise refusal_error(422, "invalid", f"choice is one of {item['options']}.")
+        note = body.note.strip()
+        if len(note) > agent_review.MAX_NOTE:
+            raise refusal_error(
+                422,
+                "too_long",
+                f"A note is at most {agent_review.MAX_NOTE} characters.",
+            )
+        record = None
+        if body.evidence is not None:
+            marked = asdict(body.evidence)
+            try:
+                record = evidence.save(
+                    agent.experiment_path,
+                    image=marked.get("image"),
+                    marks=marked.get("marks"),
+                    channels=marked.get("channels"),
+                    by=evidence.OPERATOR,
+                )
+            except evidence.EvidenceRefused as refusal:
+                raise HTTPException(
+                    status_code=refusal.status_code, detail=refusal.detail
+                )
+        # Accepting finished work, with nothing to add, is kept on the list
+        # but not told: the agent has nothing to do with it.
+        quiet = (
+            item["level"] == "done"
+            and body.choice == "Accept"
+            and not note
+            and record is None
+        )
+        message_id = None
+        if not quiet:
+            text = agent_review.answered_text(item, body.choice, note)
+            message_id = agent.message(text, evidence=record)
+        answered = store.answer(
+            session_id,
+            item_id,
+            {
+                "choice": body.choice,
+                "note": note,
+                "evidence": record["evidence_id"] if record else None,
+                "message_id": message_id,
+                "at": agent_review.now(),
+            },
+        )
+        return {**store.view(answered), "told": message_id is not None}
+
+    @router.post("/messages/{message_id}/interrupt", response_model=MessageInterrupted)
+    def interrupt_for_message(message_id: str):
+        """Interrupt now: cut the agent's turn short so it reads the message
+        *message_id* now instead of when the turn ends."""
+        if not agent.interrupt(message_id):
+            raise refusal_error(
+                409,
+                "not_recording",
+                "Nothing is recording, so the agent can't hear it.",
+            )
+        return answer(MessageInterrupted(message_id))
 
     @router.put("/level", response_model=LevelSet)
     def set_level(body: LevelBody):

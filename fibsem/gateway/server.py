@@ -1,50 +1,69 @@
 """The gateway's routes, on its own port, localhost only.
 
-``GET /gateway`` and ``/gateway/history`` for anyone paired; ``POST
-/gateway/start`` and ``/gateway/stop`` for the operator, or a hub the operator
-granted "may start and stop apps" (`SWITCH_MODES`); forcing past a running
-workflow, and ``/gateway/claim`` (a desktop launch on this PC), for the
-operator only. ``/gateway/microscope/...`` connects and disconnects the
-running host's microscope, ``/gateway/app/agent-page`` links the operator to
+``GET /gateway``, ``/gateway/health`` and ``/gateway/history`` for anyone
+paired; ``POST /gateway/start`` and ``/gateway/stop`` for the operator, or a
+hub the operator granted "may start and stop apps" (`SWITCH_MODES`); forcing
+past a running workflow, and ``/gateway/claim`` (a desktop launch on this
+PC), for the operator only. ``/gateway/microscope/...`` connects and
+disconnects the running host's microscope, ``/gateway/app/agent-page`` links the operator to
 its Agent page, ``/gateway/show`` brings the gateway's window to the front,
 ``/gateway/quit`` stops (or restarts) the gateway for the
 operator, and ``/gateway/agent`` reads, starts and ends this
 PC's agent (`fibsem.gateway.agent`), resuming an ended session too, with
 the same rules as starting the app. ``/gateway/defaults`` is what the page
 fills in for the next start (the operator saves it), and ``/gateway/secrets``
-says which keys this PC has, never what they are. A hub is another program
-on another PC (`fibsem.hub`): the gateway serves it what a paired hub may read
-and do here, and holds no list of instruments itself.
-Pairing is the App Server's (`fibsem.server.pairing_routes`), with the hub
-role, and the page is the web app's ``/ui/gateway``.
+says which keys this PC has, never what they are.
+With *passthrough*, the App Server's ``/app``, ``/microscope``, ``/services``
+and ``/capabilities`` are served on the gateway's port too
+(`fibsem.gateway.passthrough`), its token checks as ever.
+The gateway alone pairs, for every server on this PC: the pairing routes
+(`fibsem.server.pairing_routes`) with the operator, agent and hub roles, an
+agent on this PC asking to connect (``POST /connect``, with ``gateway.json``'s
+token) and ``/gateway/connections``, where the operator allows or denies it.
+It serves the web app (``/ui``); the page is ``/ui/gateway``.
 """
 
 from __future__ import annotations
 
+import logging
 import os
+import secrets
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.requests import HTTPConnection
 from fastapi.responses import RedirectResponse
 
 from fibsem import keystore
 from fibsem.ai.agent.playbooks import DEFAULT as DEFAULT_PLAYBOOK
-from fibsem.gateway.agent import AgentState, GatewayAgent
+from fibsem.gateway.agent import (
+    SESSIONS_MAX,
+    SESSIONS_PAGE,
+    AgentState,
+    GatewayAgent,
+    SessionsPage,
+)
 from fibsem.gateway.defaults import GatewayDefaults, read_defaults, save_defaults
 from fibsem.gateway.gateway import (
+    HISTORY_MAX,
+    HISTORY_SHOWN,
     Gateway,
     GatewayRefused,
     GatewayState,
     History,
 )
+from fibsem.gateway.health import ServersHealth
 from fibsem.gateway.host import HostMicroscope
+from fibsem.gateway.passthrough import PassThrough
 from fibsem.server.auth import _bearer_token, _matches
 from fibsem.server.bodies import refuse_invalid_requests
+from fibsem.server.hosting import agent_connections
 from fibsem.server.operator_token import load_operator_token
 from fibsem.server.pairing import (
+    AGENT,
     HUB,
     OPERATOR,
     SWITCH_MODES,
@@ -55,20 +74,24 @@ from fibsem.server.pairing import (
 from fibsem.server.pairing_routes import build_pairing_router
 from fibsem.server.web_app import web_app_router
 
+logger = logging.getLogger(__name__)
+
 __all__ = ["GatewayAuth", "build_gateway_app"]
 
 
 @dataclass
 class GatewayAuth:
-    """The install's operator token and this PC's paired computers, the App
-    Server's file (hubs are listed with its browsers and agents). Shaped
-    as the App Server's `AuthConfig` where the pairing routes look: no agents,
-    no connect asks."""
+    """The install's operator token and this PC's paired computers: the one
+    ``paired.json`` every server here checks tokens against. The gateway alone
+    pairs: browsers and other computers as the operator, agents, and hubs; and
+    an agent on this PC asks to connect with *connect_token* (in
+    ``gateway.json``), which the operator allows (*connections*). Shaped as the
+    App Server's `AuthConfig` where the pairing routes look."""
 
     token: str
     pairing: Pairing
-    dashboard_token: Optional[str] = None
     connections: Any = None
+    connect_token: Optional[str] = None
 
     def is_operator(self, token: Optional[str]) -> bool:
         return self.operator(token) is not None
@@ -91,18 +114,22 @@ class GatewayAuth:
         return False
 
     def is_connect(self, token: Optional[str]) -> bool:
-        return False
+        """Whether *token* is ``gateway.json``'s, which only asks to connect."""
+        return self.connect_token is not None and _matches(token, self.connect_token)
 
     @classmethod
     def from_disk(
         cls, token_file: Optional[Path] = None, paired_file: Optional[Path] = None
     ) -> "GatewayAuth":
+        """The install's tokens, and asks to connect with a fresh connect
+        token, allowed at once from this PC while the operator's setting says
+        so (``install.app_server.allow_local_agents``)."""
+        tokens = PairedTokens(paired_file)
         return cls(
             token=load_operator_token(token_file),
-            pairing=Pairing(
-                PairedTokens(paired_file),
-                roles=(OPERATOR, HUB),
-            ),
+            pairing=Pairing(tokens, roles=(OPERATOR, AGENT, HUB)),
+            connections=agent_connections(tokens, lambda: None),
+            connect_token=secrets.token_urlsafe(32),
         )
 
 
@@ -111,6 +138,33 @@ class Caller:
     who: str
     operator: bool
     may_switch: bool
+
+
+def _settings(body: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """A start's app settings, ``{name: value}``; refused when not a dict."""
+    settings = body.get("settings")
+    if settings is None:
+        return None
+    if not isinstance(settings, dict):
+        raise _refused(422, "bad_setting", "settings is {name: value}.")
+    return settings
+
+
+def _ask_view(ask, connections, own: Optional[str] = None) -> dict:
+    """An ask to connect as the Allow card shows it: who asks, from where, and
+    what allowing it means. *own*: the agent the gateway started, running,
+    which allowing ends."""
+    replaced = connections.tokens.agent()
+    replaces = own or (replaced.name if replaced is not None else None)
+    words = (
+        "It can read the session, and acts only at the agent level set on the "
+        "Agent page. It stays allowed until you unpair it in Pairing."
+    )
+    if own:
+        words += f" It replaces {own}, which is running: allowing ends it."
+    elif replaces:
+        words += f" It replaces {replaces}, which is unpaired."
+    return {**ask.to_dict(), "replaces": replaces, "if_allowed": words}
 
 
 def _refused(status: int, error_type: str, message: str) -> HTTPException:
@@ -125,8 +179,15 @@ def build_gateway_app(
     on_quit: Optional[Callable[[bool], None]] = None,
     on_show: Optional[Callable[[], bool]] = None,
     defaults_file: Optional[Path] = None,
+    passthrough: Optional[PassThrough] = None,
 ) -> FastAPI:
-    app = FastAPI(title="fibsem gateway")
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        yield
+        if passthrough is not None:
+            await passthrough.close()
+
+    app = FastAPI(title="fibsem gateway", lifespan=lifespan)
     refuse_invalid_requests(app)
     app.state.auth = auth
 
@@ -177,16 +238,24 @@ def build_gateway_app(
         gateway didn't start, and the last exit."""
         return gateway.state()
 
+    @app.get("/gateway/health", response_model=ServersHealth)
+    def get_health(found: Caller = Depends(caller)):
+        """How the App Server and its microscope are, as last asked."""
+        return gateway.health.state()
+
     @app.get("/gateway/history", response_model=History)
-    def get_history(found: Caller = Depends(caller)):
-        """The latest starts and stops first, each with who made it and from
-        where."""
-        return gateway.history()
+    def get_history(
+        limit: int = Query(HISTORY_SHOWN, ge=1, le=HISTORY_MAX),
+        found: Caller = Depends(caller),
+    ):
+        """The latest *limit* starts and stops first, each with who made it
+        and from where; ``more`` says whether older ones are kept."""
+        return gateway.history(limit)
 
     @app.post("/gateway/start", response_model=GatewayState)
     def start(body: Dict[str, Any], found: Caller = Depends(switcher)):
         """``{app, window, experiment | last, create, force, connect,
-        configuration}``:
+        configuration, settings}``:
         stop the running app and start this one, with its window at this PC
         (the default) or without, connecting *configuration* (the default one)
         as it starts when *connect*."""
@@ -204,6 +273,7 @@ def build_gateway_app(
                 connect=None if body.get("connect") is None else bool(body["connect"]),
                 configuration=body.get("configuration"),
                 create=bool(body.get("create", False)),
+                settings=_settings(body),
             ),
         )
 
@@ -276,6 +346,16 @@ def build_gateway_app(
         def get_agent(found: Caller = Depends(caller)):
             """The running agent, or none, and the latest sessions."""
             return agent.state()
+
+        @app.get("/gateway/agent/sessions", response_model=SessionsPage)
+        def get_sessions(
+            limit: int = Query(SESSIONS_PAGE, ge=1, le=SESSIONS_MAX),
+            found: Caller = Depends(caller),
+        ):
+            """This PC's newest *limit* agent sessions, newest first, each
+            as `/gateway/agent` lists one; ``more`` says whether older ones
+            are kept."""
+            return agent.sessions(limit)
 
         @app.get("/gateway/agent/playbooks")
         def get_playbooks(found: Caller = Depends(caller)) -> List[dict]:
@@ -381,13 +461,15 @@ def build_gateway_app(
     @app.put("/gateway/defaults", response_model=GatewayDefaults)
     def put_defaults(body: Dict[str, Any], found: Caller = Depends(caller)):
         """``{configuration, connect, app, window, playbook, level,
-        budget_usd}``: the operator only."""
+        budget_usd, settings, apps}``: the operator only. Saved as
+        *app*'s own choices too (`apps`), the other apps' kept."""
         if not found.operator:
             raise _refused(403, "operator_only", "Only the operator sets defaults.")
         try:
             defaults = GatewayDefaults.checked(body)
         except GatewayRefused as refusal:
             raise _refused(refusal.status, refusal.error_type, str(refusal)) from None
+        defaults = defaults.merged(read_defaults(defaults_file))
         save_defaults(defaults, defaults_file)
         return defaults
 
@@ -422,6 +504,97 @@ def build_gateway_app(
             raise _refused(403, "operator_only", "Only the operator shows the window.")
         return {"shown": bool(on_show and on_show())}
 
+    def _connections():
+        if auth.connections is None:
+            raise _refused(404, "connect_off", "This gateway doesn't take asks.")
+        return auth.connections
+
+    def _operator(found: Caller) -> None:
+        if not found.operator:
+            raise _refused(
+                403, "operator_only", "Only the operator allows an agent in."
+            )
+
+    def _own() -> Optional[str]:
+        return agent.own_running() if agent is not None else None
+
+    if agent is not None and auth.connections is not None:
+        # One agent per instrument: always allowing never replaces one in use.
+        auth.connections.in_use = agent.in_use
+
+        def always_allowed(computer, replaced) -> None:
+            gateway.record_access(
+                "always allow",
+                "setting",
+                f"Allowed {computer.name}"
+                + (f", replacing {replaced}" if replaced else ""),
+            )
+
+        auth.connections.on_allowed_always(always_allowed)
+
+    @app.get("/gateway/connections")
+    def get_connections(found: Caller = Depends(caller)) -> dict:
+        """``{asking, always_allow_local}``: the agent on this PC asking to
+        connect, as its card shows it, or none."""
+        _operator(found)
+        connections = _connections()
+        asks = connections.asking()
+        return {
+            "asking": _ask_view(asks[0], connections, _own()) if asks else None,
+            "always_allow_local": bool(connections.always_allow),
+        }
+
+    @app.post("/gateway/connections/{ask_id}/allow")
+    def allow_connection(ask_id: str, found: Caller = Depends(caller)) -> dict:
+        """Allow the agent asking to connect: a token of its own, in the one
+        paired list with Unpair. One agent per instrument: it replaces the
+        agent paired before, and ends the gateway's own agent if it runs."""
+        _operator(found)
+        connections = _connections()
+        if not any(ask.id == ask_id for ask in connections.asking()):
+            raise _refused(404, "not_found", "No agent is asking with that id.")
+        # The agent the gateway started stops first, as its End does: the
+        # card said allowing ends it.
+        own = _own()
+        if own is not None:
+            agent.end(found.who, "page")
+        replaced = connections.tokens.agent()
+        try:
+            computer = connections.allow(ask_id)
+        except LookupError as exc:
+            raise _refused(404, "not_found", str(exc)) from None
+        replacing = own or (replaced.name if replaced else None)
+        allowed = f"Allowed {computer.name}" + (
+            f", replacing {replacing}" if replacing else ""
+        )
+        logger.info("%s: %s", found.who, allowed)
+        gateway.record_access(found.who, "page", allowed)
+        return {"id": ask_id, "allowed": True, "name": computer.name}
+
+    @app.post("/gateway/connections/{ask_id}/deny")
+    def deny_connection(
+        ask_id: str,
+        body: Optional[Dict[str, Any]] = None,
+        found: Caller = Depends(caller),
+    ) -> dict:
+        """Refuse the agent asking to connect, with the operator's reason; its
+        next ask waits a minute."""
+        _operator(found)
+        reason = str((body or {}).get("reason") or "")[:500]
+        try:
+            ask = _connections().deny(ask_id, reason)
+        except LookupError as exc:
+            raise _refused(404, "not_found", str(exc)) from None
+        logger.info("%s denied %s", found.who, ask.name)
+        gateway.record_access(
+            found.who, "page", f"Denied {ask.name}" + (f": {reason}" if reason else "")
+        )
+        return {"id": ask_id, "allowed": False, "name": None}
+
     app.include_router(build_pairing_router(auth))
     app.include_router(web_app_router())
+    if passthrough is not None:
+        # Last: the gateway's own routes are found first.
+        app.include_router(passthrough.router())
+
     return app

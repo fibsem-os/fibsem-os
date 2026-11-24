@@ -115,6 +115,53 @@ def test_the_chamber_is_read_but_never_pumped_or_vented(read_client, armed_clien
         assert resp.json()["detail"]["error_type"] == "not_allowed"
 
 
+@pytest.fixture
+def blank_is_safety(microscope, monkeypatch):
+    """A FIB/SEM declares no safety action (Stop is enough there): mark the
+    beam's blank as one, as another instrument would mark its own."""
+    blank = type(microscope.beams[BeamType.ION]).blank
+    monkeypatch.setattr(blank, "__device_safety__", True, raising=False)
+    monkeypatch.setattr(blank, "__device_label__", "Blank beam", raising=False)
+
+
+def test_the_listing_names_a_safety_action(read_client, blank_is_safety):
+    """The page's safety buttons come from the listing: a safety command
+    with a ``label`` names its button, any other has none."""
+    commands = read_client.get("/microscope/devices").json()["ion"]["commands"]
+    assert commands["blank"]["safety"] is True
+    assert commands["blank"]["label"] == "Blank beam"
+    assert commands["unblank"]["safety"] is False
+    assert commands["unblank"]["label"] == ""
+
+
+def test_a_fibsem_declares_no_safety_action(read_client):
+    for spec in read_client.get("/microscope/devices").json().values():
+        assert not any(c["label"] for c in spec["commands"].values()), spec["name"]
+
+
+def test_a_safety_action_runs_whoever_is_in_control(
+    read_client, microscope, blank_is_safety
+):
+    # A safety action must reach its device while a run holds control, as a
+    # stop does, and the agent may make things safe only at Drive.
+    blank = "/microscope/devices/ion/commands/blank"
+    beam = microscope.beams[BeamType.ION]
+    beam.unblank()
+    assert read_client.post(blank, json={}).status_code == 403
+    for level in ("watch", "assist"):
+        app = build_server(
+            microscope, auth=AuthConfig.generate(level=level, token=TOKEN)
+        )
+        with TestClient(app, raise_server_exceptions=False) as client:
+            assert client.post(blank, headers=AUTH, json={}).status_code == 403, level
+    app = build_server(microscope, auth=AuthConfig.generate(level="drive", token=TOKEN))
+    with TestClient(app, raise_server_exceptions=False) as client:
+        with microscope.control.take("workflow", "a lamellae run"):
+            resp = client.post(blank, headers=AUTH, json={})
+    assert resp.status_code == 200, resp.text
+    assert beam.blanked.get_value() is True
+
+
 def test_a_stop_reaches_a_device_whoever_is_in_control(read_client, microscope):
     # A stop must reach a device whoever is in control; one the agent didn't
     # start needs Drive, and every stop a reason.

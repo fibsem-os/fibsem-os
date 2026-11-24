@@ -16,10 +16,11 @@ Register with Claude Code:
 
     claude mcp add -s user fibsem -- fibsem-mcp
 
-From another computer, pair once with the code Connect an agent shows (the url
-defaults to the SSH tunnel's end, http://localhost:8001):
+From another computer, pair once with the code the gateway's Pairing shows for
+an agent (the url defaults to the SSH tunnel's end, the gateway's port,
+http://localhost:8010):
 
-    fibsem-mcp pair 1234 [--url http://microscope-pc:8001]
+    fibsem-mcp pair 1234 [--url http://microscope-pc:8010]
 
 Requires the [mcp] extra (Python 3.10+): pip install fibsem[mcp]
 
@@ -33,6 +34,7 @@ import json
 import os
 import re
 import sys
+import time
 from contextvars import ContextVar
 from typing import Annotated, Dict, List, Optional, Tuple, Union
 from urllib.parse import quote, unquote
@@ -44,8 +46,11 @@ from fibsem.ai.agent.catalog import (
     CATALOG,
     EVIDENCE_PARAM,
     INSTRUMENT_ENV,
+    RECORD_TOOLS,
     tools_for_capabilities,
 )
+from fibsem.ai.agent.catalog.spec import lenient
+from fibsem.ai.agent.mcp import agent_view
 from fibsem.client import tools
 from fibsem.client.transport import ServerUnreachable, Transport
 from fibsem.extras import missing_extra_message
@@ -55,6 +60,9 @@ from fibsem.unreleased import refuse
 # How long start-up looks for the server before answering the MCP client anyway:
 # a client gives a server only so long to start.
 _PROBE_S = 2.0
+# How often an image answer naming a path outside the known experiment asks
+# the app which experiment is open.
+_ROOT_RECHECK_S = 10.0
 
 
 _NO_SERVER_MSG = (
@@ -376,7 +384,12 @@ def _devices(kind):
     return instruments.devices(kind, sources.find_root())
 
 
-def build_sidecar(client, capabilities, instrument=None):
+# A tool's _meta key that has Claude Code load it from the first turn, where
+# it otherwise defers MCP tools until the agent searches for them.
+ALWAYS_LOAD = "anthropic/alwaysLoad"
+
+
+def build_sidecar(client, capabilities, instrument=None, record=None, always_load=()):
     """Build the MCP server over an httpx-compatible client.
 
     ``capabilities`` is the full /capabilities payload; a tool registers when
@@ -384,18 +397,34 @@ def build_sidecar(client, capabilities, instrument=None):
     application), whatever the agent's level. The server enforces the level.
     None (no server answered at start-up) registers every tool's router.
     *instrument*, an instrument kind, offers only the tools on what it has
-    (its ``devices.yaml``).
+    (its ``devices.yaml``). *record* True offers the agent's record tools
+    (`RECORD_TOOLS`), and the image and file tools when the host serves a
+    data folder, for an agent host; False offers every tool but
+    those, for an instrument whose agent keeps its record on a host.
+    *always_load* names tools Claude Code loads from the first turn rather
+    than deferring them behind its tool search (``anthropic/alwaysLoad``).
     """
     from mcp.server.mcpserver import Image, MCPServer
     from mcp.types import ToolAnnotations
 
     every = {"routers": {"app": True, "services": True}}
-    offered = {
-        t.name
-        for t in tools_for_capabilities(
-            capabilities or every, _devices(instrument) if instrument else None
-        )
-    }
+    if record is True:
+        # The host has no devices: the instrument kind is not read. A host
+        # serving a data folder adds the image tools and file reads over it.
+        offered = set(RECORD_TOOLS) | {
+            t.name
+            for t in tools_for_capabilities(capabilities or {})
+            if t.router in ("analysis", "files")
+        }
+    else:
+        offered = {
+            t.name
+            for t in tools_for_capabilities(
+                capabilities or every, _devices(instrument) if instrument else None
+            )
+        }
+    if record is False:
+        offered -= RECORD_TOOLS
     by_name = {t.name: t for t in CATALOG}
     # The open experiment's files as resources, beside the tools that read them.
     files_offered = "experiment_read_file" in offered
@@ -464,7 +493,39 @@ def build_sidecar(client, capabilities, instrument=None):
         images = [Image(data=jpeg, format="jpeg") for jpeg in _pop_previews(data)]
         if not images:
             return data
-        return [json.dumps(data), *images]
+        return [_viewed(data), *images]
+
+    def _viewed(data):
+        """*data*, the calling tool's answer, as JSON text the agent reads
+        (`agent_view`): an image tool's cut to what it acts on."""
+        calling = _calling.get()
+        tool = calling[0] if calling else None
+        if tool not in agent_view.VIEWED:
+            return json.dumps(data)
+        return agent_view.dumps(agent_view.view(data, tool, _experiment_root(data)))
+
+    # The open experiment's folder, as the app last said, and when it was asked.
+    known_root = {"root": None, "asked": None}
+
+    def _experiment_root(data):
+        """The open experiment's folder, for *data*'s paths: asked of the app
+        again when *data* names a path outside the one known (another
+        experiment was opened), at most every `_ROOT_RECHECK_S`."""
+        root = known_root["root"]
+        if not agent_view.outside(data, root):
+            return root
+        now = time.monotonic()
+        asked = known_root["asked"]
+        if asked is not None and now - asked < _ROOT_RECHECK_S:
+            return root
+        known_root["asked"] = now
+        try:
+            status, err = _answer(tools.send(client, "app_get_status", {}))
+        except Exception:  # noqa: BLE001 - no app, or no server: paths stay whole
+            return root
+        experiment = (status or {}).get("experiment") if not err else None
+        known_root["root"] = (experiment or {}).get("path")
+        return known_root["root"]
 
     def server_report_session(
         session_id: Optional[str] = None,
@@ -626,7 +687,7 @@ def build_sidecar(client, capabilities, instrument=None):
         if resp.status_code >= 400:
             return _refusal(resp)
         meta = {"item_name": item_name, "filename": filename, **_image_header(resp)}
-        return [json.dumps(meta), Image(data=resp.content, format="jpeg")]
+        return [_viewed(meta), Image(data=resp.content, format="jpeg")]
 
     def item_measure_thickness(
         item_name: str,
@@ -646,7 +707,7 @@ def build_sidecar(client, capabilities, instrument=None):
             ),
         )
 
-    def experiment_get_image_stage_position(
+    def analysis_map_pixel_to_stage(
         path: str,
         x: Optional[float] = None,
         y: Optional[float] = None,
@@ -657,7 +718,7 @@ def build_sidecar(client, capabilities, instrument=None):
         if isinstance(crop, (list, tuple)):
             crop = ",".join(str(v) for v in crop)
         return _tool(
-            "experiment_get_image_stage_position",
+            "analysis_map_pixel_to_stage",
             path=path,
             x=x,
             y=y,
@@ -678,7 +739,7 @@ def build_sidecar(client, capabilities, instrument=None):
             **_given(grid_name=grid_name, fov=fov, current=current),
         )
 
-    def experiment_draw_image(
+    def analysis_draw_image(
         path: str,
         marks: Optional[dict] = None,
         crosshair: Optional[bool] = None,
@@ -689,7 +750,7 @@ def build_sidecar(client, capabilities, instrument=None):
         box: Optional[List[float]] = None,
     ):
         return _routed(
-            "experiment_draw_image",
+            "analysis_draw_image",
             path=path,
             **_given(
                 marks=dict(marks) if marks is not None else None,
@@ -702,7 +763,7 @@ def build_sidecar(client, capabilities, instrument=None):
             ),
         )
 
-    def experiment_draw_pair(
+    def analysis_draw_pair(
         before: str,
         after: str,
         marks: Optional[dict] = None,
@@ -715,7 +776,7 @@ def build_sidecar(client, capabilities, instrument=None):
         share_looks: Optional[bool] = None,
     ):
         return _routed(
-            "experiment_draw_pair",
+            "analysis_draw_pair",
             before=before,
             after=after,
             **_given(
@@ -754,9 +815,9 @@ def build_sidecar(client, capabilities, instrument=None):
             ),
         )
 
-    def experiment_get_image_pixels(path: str, stage_positions: list):
+    def analysis_map_stage_to_pixel(path: str, stage_positions: list):
         return _tool(
-            "experiment_get_image_pixels",
+            "analysis_map_stage_to_pixel",
             path=path,
             stage_positions=[dict(p) for p in stage_positions],
         )
@@ -802,7 +863,7 @@ def build_sidecar(client, capabilities, instrument=None):
         )
         return err if err else _with_images(data)
 
-    def experiment_crop_image(
+    def analysis_crop_image(
         path: str,
         box: Optional[list] = None,
         fraction: Optional[list] = None,
@@ -895,7 +956,7 @@ def build_sidecar(client, capabilities, instrument=None):
         if resp.status_code >= 400:
             return _refusal(resp)
         meta = {"grid_name": grid_name, "filename": filename, **_image_header(resp)}
-        return [json.dumps(meta), Image(data=resp.content, format="jpeg")]
+        return [_viewed(meta), Image(data=resp.content, format="jpeg")]
 
     def experiment_add_note(text: str, item_name: Optional[str] = None):
         return _tool("experiment_add_note", text=str(text), item_name=item_name)
@@ -1176,14 +1237,21 @@ def build_sidecar(client, capabilities, instrument=None):
 
     def _answered(spec):
         """A tool that answers its route's answer as it stands, or its
-        ``result`` under `ToolSpec.result_key`; a preview in it as an image."""
+        ``result`` under `ToolSpec.result_key`, as `ToolSpec.shape` shapes
+        it; a preview in it as an image."""
 
         def tool(**arguments):
             data, err = _route(spec.name, **arguments)
             if err:
                 return err
             key = spec.result_key
-            return _with_images({key: data["result"]} if key else data)
+            answer = {key: data["result"]} if key else data
+            if spec.shape is not None:
+                try:
+                    answer = spec.shape(answer, arguments)
+                except ValueError as exc:
+                    return _Failure(f"refused: {exc}")
+            return _with_images(answer)
 
         tool.__name__ = spec.name
         tool.__signature__ = spec.signature
@@ -1200,12 +1268,12 @@ def build_sidecar(client, capabilities, instrument=None):
             correlation_correlate,
             correlation_find_spot_burns,
             microscope_set_state,
-            experiment_get_image_stage_position,
+            analysis_map_pixel_to_stage,
             experiment_render_markers,
-            experiment_draw_image,
-            experiment_draw_pair,
+            analysis_draw_image,
+            analysis_draw_pair,
             item_draw_milling,
-            experiment_get_image_pixels,
+            analysis_map_stage_to_pixel,
             protocol_reorder_tasks,
             protocol_set_task_requirements,
             protocol_set_lamella_defaults,
@@ -1223,7 +1291,7 @@ def build_sidecar(client, capabilities, instrument=None):
             item_get_output_image,
             item_measure_thickness,
             experiment_read_file,
-            experiment_crop_image,
+            analysis_crop_image,
             experiment_fetch_file,
             grid_get_output_image,
             item_update_task_config,
@@ -1279,6 +1347,7 @@ def build_sidecar(client, capabilities, instrument=None):
                     idempotent_hint=spec.idempotent,
                     open_world_hint=False,
                 ),
+                meta={ALWAYS_LOAD: True} if name in always_load else None,
             )
     return mcp
 
@@ -1328,7 +1397,8 @@ def _described(fn, params):
         parameters=[
             parameter.replace(
                 annotation=Annotated[
-                    parameter.annotation, Field(description=params[parameter.name])
+                    lenient(parameter.annotation),
+                    Field(description=params[parameter.name]),
                 ]
             )
             if parameter.name in params
@@ -1522,7 +1592,7 @@ def main(argv=None):
         "this computer's agent (fibsem-mcp pair --help).",
     )
     parser.add_argument(
-        "--url", default=None, help="Server URL, e.g. http://127.0.0.1:8001"
+        "--url", default=None, help="Server URL, e.g. http://127.0.0.1:8010"
     )
     parser.add_argument(
         "--token", default=None, help="Bearer token (from the server log or dialog)"
@@ -1540,12 +1610,45 @@ def main(argv=None):
         help="offer only the tools on this instrument kind's devices (default every "
         "tool; fibsem-agent sets it from its playbook)",
     )
+    record = parser.add_mutually_exclusive_group()
+    record.add_argument(
+        "--record-only",
+        dest="record",
+        action="store_const",
+        const=True,
+        help="offer only the agent's record tools (plan, notes, messages): for "
+        "an agent host",
+    )
+    record.add_argument(
+        "--no-record",
+        dest="record",
+        action="store_const",
+        const=False,
+        help="offer every tool but the record tools: for an instrument whose "
+        "agent keeps its record on an agent host",
+    )
+    parser.add_argument(
+        "--always-load",
+        default="",
+        metavar="TOOL,...",
+        help="tools Claude Code loads from the first turn rather than finding "
+        "them with its tool search (fibsem-agent sets them from its playbook)",
+    )
+    parser.add_argument(
+        "--token-env",
+        default=None,
+        metavar="NAME",
+        help="read the token from this environment variable, not --token: "
+        "for a second server, its token kept off the command line",
+    )
     parser.add_argument(
         "--check",
         action="store_true",
         help="print connection status and exit (does not start the MCP server)",
     )
     args = parser.parse_args(argv)
+    if args.token_env:
+        args.token = os.environ.get(args.token_env) or None
 
     if args.check:
         try:
@@ -1570,7 +1673,8 @@ def main(argv=None):
             args.url, args.token, wait_s, user_agent=client.named_user_agent
         )
     )
-    build_sidecar(client, capabilities, args.instrument).run()
+    always_load = {n.strip() for n in args.always_load.split(",") if n.strip()}
+    build_sidecar(client, capabilities, args.instrument, args.record, always_load).run()
 
 
 if __name__ == "__main__":

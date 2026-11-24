@@ -868,7 +868,11 @@ class Milling(Service):
         warnings = [w for w in (_unlisted(asked, used, parameter), ignored) if w]
         return {"milling_current": used, "warning": " ".join(warnings) or None}
 
-    @command(line=_said("Start milling what is drawn"))
+    @command(
+        line=_said("Start milling what is drawn"),
+        operator_only="it returns at once, holding no control while it mills; mill with "
+        "milling_run_stage or milling_run_task, which hold control until the mill ends",
+    )
     def start(self) -> None:
         """Start milling what is drawn, and return at once. Nothing follows it:
         no ``progress`` and no ``milling`` event, so an agent mills with ``run``."""

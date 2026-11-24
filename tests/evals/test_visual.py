@@ -8,11 +8,12 @@ import pytest
 import tifffile
 import yaml
 
-from fibsem.ai.evals import tasks, visual
+from fibsem.ai.evals import tasks
 from fibsem.ai.evals.__main__ import main
-from fibsem.ai.evals.cases import load_case
-from fibsem.ai.evals.scoring import score_case, score_live
-from fibsem.ai.evals.tasks import correlation
+from fibsem.ai.evals.core import visual
+from fibsem.ai.evals.core.cases import load_case
+from fibsem.ai.evals.core.scoring import score_case, score_live
+from fibsem.ai.evals.tasks.correlation import task as correlation
 
 rng = np.random.default_rng(0)
 

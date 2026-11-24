@@ -19,7 +19,7 @@ import json
 import os
 import tempfile
 from dataclasses import asdict
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -28,38 +28,42 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.routing import APIRoute
 
 from fibsem.ai.agent.calls import current_call
+from fibsem.analysis.tools import ImageRefused, ImageTools
 from fibsem.server import exports, files, planes
+from fibsem.server.agent.record import build_record_router, cited_evidence
+from fibsem.server.agent.record import described as _with_text
 from fibsem.server.auth import (
     refusal_error,
-    refuse_dashboard,
     require_operator,
     take_control,
 )
 from fibsem.server.bodies import (
     AnimationExportBody,
     ApplyProtocolBody,
+    CoincidenceOffsetBody,
     CorrelationRunBody,
     DecideBody,
     DrawBody,
     DrawOptions,
-    EvidenceBody,
     ExperimentPathBody,
+    GridItemsBody,
     GridNoteBody,
     GridPlanBody,
     GridQualityBody,
     GridRequirementsBody,
     GridRunBody,
+    GridSquaresBody,
+    HistogramBody,
     ImageExportBody,
     ImagePairBody,
     IntensityBody,
     MarkersBody,
     MillingDrawnBody,
+    MillingOverviewBody,
     NameBody,
     NewExperimentBody,
     NewItemBody,
     NewTaskBody,
-    NoteBody,
-    OperatorMessageBody,
     PatchBody,
     PixelsBody,
     PlaceBody,
@@ -74,6 +78,8 @@ from fibsem.server.bodies import (
     RunPlanBody,
     SaveProtocolBody,
     ScheduleBody,
+    ShiftBody,
+    SpectrumBody,
     StageOrderBody,
     StopBody,
     StopTaskBody,
@@ -99,7 +105,6 @@ from fibsem.server.responses import (
     Decided,
     DisplayImages,
     EventHistory,
-    Events,
     ExperimentOpened,
     ExperimentSummary,
     FileEntry,
@@ -115,6 +120,7 @@ from fibsem.server.responses import (
     ImageExportForm,
     ImageMeasured,
     ImagePairDrawn,
+    ImageShift,
     ItemDetail,
     ItemEdit,
     ItemHistory,
@@ -123,6 +129,7 @@ from fibsem.server.responses import (
     LamellaDefaultsSet,
     LogRead,
     MarkersDrawn,
+    MillingOnOverview,
     OptionsSet,
     OverviewStagePosition,
     Proposals,
@@ -133,7 +140,6 @@ from fibsem.server.responses import (
     Queue,
     QueueEdited,
     RecentExperiments,
-    Recorded,
     Refusal,
     ReplayTimeline,
     ReplayView,
@@ -153,11 +159,10 @@ from fibsem.server.responses import (
     TaskOutputs,
     Thickness,
     answer,
+    refused,
 )
 from fibsem.tools import bug_report
 from fibsem.util.timestamps import to_datetime
-from fibsem.workflows import evidence
-from fibsem.workflows.events.text import note_asked, with_text
 from fibsem.workflows.history_rows import (
     HistoryDecidedBy,
     HistoryOrder,
@@ -230,14 +235,6 @@ def _missing_field(message: str) -> HTTPException:
     """The 422 for a request missing what a route needs, *message* saying what
     to pass."""
     return refusal_error(422, "missing_field", message)
-
-
-def _note_body(body: NoteBody) -> Tuple[str, Optional[str]]:
-    """A note's or a message's text and item name, or the 422 when the text
-    is blank or too long."""
-    if not body.text.strip() or len(body.text) > 4000:
-        raise _missing_field("Pass text (a non-empty string, at most 4000 characters).")
-    return body.text, body.item_name
 
 
 def _required_text(body: Any, key: str, what: str) -> str:
@@ -363,8 +360,332 @@ def _download(content: bytes, name: str) -> Response:
     )
 
 
+def _image_answer(call: Callable[[], Any]) -> Response:
+    """An image tool's answer (`_typed`), or its `ImageRefused` as the HTTP
+    error."""
+    try:
+        return _typed(call())
+    except ImageRefused as refusal:
+        raise _refusal_error(refused(refusal.error_type, refusal.message)) from None
+
+
+def _draw_options(body: DrawOptions, *planes: str) -> Dict[str, Any]:
+    options = _given(body, "crosshair", "metadata_bar", "channels", "looks", *planes)
+    if body.box is not None:
+        if body.box[2] <= 0 or body.box[3] <= 0:
+            raise _missing_field("box is [x, y, width, height] in pixels.")
+        options["box"] = list(body.box)
+    return options
+
+
+def build_analysis_router(tools: ImageTools) -> APIRouter:
+    """The image tools' routes (`fibsem.analysis.tools`), over *tools*' root:
+    a saved image's metadata, a point on it as a stage position and back, a
+    drawing of it, two side by side, and measurements on it. Read routes:
+    each saves its picture beside the image, and acts on nothing."""
+    router = APIRouter(route_class=_AsSentRoute)
+    saved_image = "a saved image inside the experiment"
+
+    @router.get("/experiment/images/metadata", response_model=SavedImageMetadata)
+    def image_metadata(path: str):
+        return _image_answer(lambda: tools.metadata(path))
+
+    @router.get("/experiment/images/stage_position", response_model=SavedImagePosition)
+    def image_stage_position(
+        path: str,
+        x: Optional[float] = None,
+        y: Optional[float] = None,
+        fx: Optional[float] = None,
+        fy: Optional[float] = None,
+        crop: Optional[str] = None,
+    ):
+        # crop: the point is read off a crop's picture, a cell's name (B3) or
+        # "x,y,width,height".
+        px = None if x is None or y is None else [x, y]
+        fraction = None if fx is None or fy is None else [fx, fy]
+        if crop is not None and "," in crop:
+            crop = _numbers(crop)
+        return _image_answer(lambda: tools.pixel_to_stage(path, px, fraction, crop))
+
+    @router.post("/experiment/images/pixels", response_model=SavedImagePixels)
+    def image_pixels(body: PixelsBody):
+        # A POST because it takes a list a GET could not carry.
+        path = _required_text(body, "path", saved_image)
+        positions = body.stage_positions
+        if not positions:
+            raise _missing_field(
+                "Pass stage_positions: a non-empty list of stage positions "
+                "({x, y, z, r, t, coordinate_system})."
+            )
+        return _image_answer(lambda: tools.stage_to_pixel(path, positions))
+
+    @router.post("/experiment/images/drawn", response_model=ImageDrawn)
+    def draw_image(body: DrawBody):
+        # A POST because the picture is saved beside the image.
+        path = _required_text(body, "path", saved_image)
+        options = _draw_options(body, "plane")
+        return _image_answer(lambda: tools.draw_image(path, body.marks, **options))
+
+    @router.post("/experiment/images/pair", response_model=ImagePairDrawn)
+    def draw_pair(body: ImagePairBody):
+        before = _required_text(body, "before", saved_image)
+        after = _required_text(body, "after", saved_image)
+        options = _draw_options(body, "before_plane", "after_plane")
+        options.pop("crosshair", None)
+        options.update(_given(body, "share_looks"))
+        return _image_answer(
+            lambda: tools.draw_pair(before, after, body.marks, **options)
+        )
+
+    @router.post("/experiment/analysis/intensity", response_model=ImageMeasured)
+    def measure_intensity(body: IntensityBody):
+        # A POST because its figure is saved beside the image.
+        path = _required_text(body, "path", saved_image)
+        if not body.points:
+            raise _missing_field("Pass points: a list of [x, y] in the image's pixels.")
+        points = [list(p) for p in body.points]
+        options = _given(body, "radius_px", "channel", "reference", "planes")
+        return _image_answer(lambda: tools.measure_intensity(path, points, **options))
+
+    @router.post("/experiment/analysis/profile", response_model=ImageMeasured)
+    def line_profile(body: ProfileBody):
+        path = _required_text(body, "path", saved_image)
+        options = _given(body, "width_px", "channel", "plane", "dip", "points")
+        start, end = list(body.start), list(body.end)
+        return _image_answer(lambda: tools.line_profile(path, start, end, **options))
+
+    @router.post("/experiment/analysis/coincidence", response_model=ImageMeasured)
+    def coincidence_offset(body: CoincidenceOffsetBody):
+        # A POST because its picture is saved beside the SEM image.
+        sem_path = _required_text(body, "sem_path", saved_image)
+        fib_path = _required_text(body, "fib_path", saved_image)
+        if (body.pairs is None) == (body.sem_point is None or body.fib_point is None):
+            raise _missing_field(
+                "Pass sem_point and fib_point, or pairs: [{sem: [x, y], "
+                "fib: [x, y], label?}, ...], not both."
+            )
+        options = {
+            name: crop if isinstance(crop, str) else list(crop)
+            for name, crop in (("sem_crop", body.sem_crop), ("fib_crop", body.fib_crop))
+            if crop is not None
+        }
+        if body.tolerance_um is not None:
+            options["tolerance_um"] = body.tolerance_um
+        if body.pairs is not None:
+            options["pairs"] = [
+                {"sem": list(p.sem), "fib": list(p.fib), "label": p.label}
+                for p in body.pairs
+            ]
+        sem_point = None if body.sem_point is None else list(body.sem_point)
+        fib_point = None if body.fib_point is None else list(body.fib_point)
+        return _image_answer(
+            lambda: tools.coincidence_offset(
+                sem_path, sem_point, fib_path, fib_point, **options
+            )
+        )
+
+    @router.post("/experiment/analysis/histogram", response_model=ImageMeasured)
+    def histogram(body: HistogramBody):
+        path = _required_text(body, "path", saved_image)
+        options = _given(body, "channel", "plane", "bins")
+        box = list(body.box) if body.box is not None else None
+        return _image_answer(lambda: tools.histogram(path, box=box, **options))
+
+    @router.post("/experiment/analysis/spectrum", response_model=ImageMeasured)
+    def power_spectrum(body: SpectrumBody):
+        path = _required_text(body, "path", saved_image)
+        options = _given(body, "channel", "plane", "points")
+        box = list(body.box) if body.box is not None else None
+        return _image_answer(lambda: tools.power_spectrum(path, box=box, **options))
+
+    @router.post("/experiment/analysis/grid_squares", response_model=ImageMeasured)
+    def grid_squares(body: GridSquaresBody):
+        path = _required_text(body, "path", saved_image)
+        points = [list(p) for p in body.points] if body.points else None
+        options = _given(body, "limit", "pitch_um")
+        if body.box is not None:
+            options["box"] = list(body.box)
+        return _image_answer(
+            lambda: tools.find_grid_squares(path, points=points, **options)
+        )
+
+    @router.post("/experiment/analysis/thickness", response_model=Thickness)
+    def measure_thickness(body: ThicknessBody):
+        # A POST because the result is saved beside the image.
+        path = _required_text(body, "path", saved_image)
+        options = _given(body, "width_um", "height_um")
+        if body.centre is not None:
+            options["centre"] = list(body.centre)
+        return _image_answer(lambda: tools.measure_thickness(path, **options))
+
+    @router.post("/experiment/analysis/shift", response_model=ImageShift)
+    def measure_shift(body: ShiftBody):
+        # A POST to match the other measurements; it saves nothing.
+        reference = _required_text(body, "reference", saved_image)
+        image = _required_text(body, "image", saved_image)
+        options = _given(body, "method", "compare", "agreement_px")
+        return _image_answer(lambda: tools.measure_shift(reference, image, **options))
+
+    @router.get("/experiment/analysis/quality", response_model=ImageMeasured)
+    def image_quality(
+        path: str, channel: Optional[str] = None, plane: Optional[int] = None
+    ):
+        return _image_answer(lambda: tools.image_quality(path, channel, plane))
+
+    return router
+
+
+def _files_over(root: Callable[[Optional[str]], Optional[str]]):
+    """A call of a `fibsem.server.files` read over the folder *root* answers
+    for an experiment (None: the open one), its refusal as the HTTP error."""
+
+    def answer(experiment, read, *args, **kwargs):
+        try:
+            return read(root(experiment), *args, **kwargs)
+        except files.FileRefusal as refusal:
+            raise HTTPException(status_code=refusal.status, detail=refusal.detail)
+
+    return answer
+
+
+def build_files_router(
+    root: Callable[[Optional[str]], Optional[str]],
+    record: Callable[[str, Dict[str, Any]], None],
+) -> APIRouter:
+    """The read-only file routes over the folder *root* answers: listing a
+    folder, reading a file (a preview, a crop, or the file as it is) and an
+    image's raw planes. *root* takes a past experiment's path, or None for
+    the open one, and raises ``FileRefusal`` for one it won't read; *record*
+    puts a past experiment's reads, and every raw file, on the record. The
+    App Server mounts them over its experiments; the agent host over its data
+    folder."""
+    router = APIRouter(route_class=_AsSentRoute)
+    _files_answer = _files_over(root)
+
+    def _record_read(experiment, path, raw):
+        # A past experiment's every read, and every raw file, go on the record.
+        if experiment is not None or raw:
+            payload = {"path": path, "raw": raw}
+            if experiment is not None:
+                payload["experiment"] = experiment
+            record("experiment_file_read", payload)
+
+    @router.get("/experiment/files", response_model=FolderListing)
+    def list_files(dir: str = "", experiment: Optional[str] = None):
+        listing = _files_answer(experiment, files.list_folder, dir)
+        _record_read(experiment, dir, False)
+        # As listed: a file has no images count, rather than a null one.
+        return JSONResponse(listing)
+
+    @router.get(
+        "/experiment/files/{path:path}", response_model=FileRead, responses=_RAW_FILE
+    )
+    def read_file(
+        request: Request,
+        path: str,
+        box: Optional[str] = None,
+        fraction: Optional[str] = None,
+        width: Optional[int] = None,
+        z: Optional[int] = None,
+        channels: Optional[str] = None,
+        cells: Optional[str] = None,
+        raw: bool = False,
+        experiment: Optional[str] = None,
+    ):
+        if raw:
+            # The file as it is, its experiment's folder name and its path in
+            # it in the headers: where a fetch keeps it.
+            root = _files_answer(experiment, lambda root: root)
+            target, relative = _files_answer(experiment, files.raw_file, path)
+            _record_read(experiment, relative, True)
+            return FileResponse(
+                target,
+                headers={
+                    "X-Experiment": quote(os.path.basename(os.path.normpath(root))),
+                    "X-Experiment-Path": quote(relative),
+                },
+            )
+        # A region is "x,y,width,height": source pixels (box) or 0-1 (fraction).
+        # width: the preview's at most, for a thumbnail or a full-size view.
+        # A fluorescence stack: plane z (0 the first; none, the max projection)
+        # in channels, comma-separated names (none, all).
+        # cells: "true" draws the image's named cells on the preview; names,
+        # comma-separated ("B3,C4"), crop those cells.
+        show_cells = (cells or "").strip().lower() == "true"
+        crops = None if show_cells or not cells else [c for c in cells.split(",") if c]
+        tag = _files_answer(
+            experiment, files.read_etag, path, box, fraction, width, z, channels, cells
+        )
+        # kept by the browser, but asked about each time: an unchanged file answers 304
+        cache = {"ETag": tag, "Cache-Control": "no-cache"} if tag else {}
+        if tag is not None and request.headers.get("if-none-match") == tag:
+            _record_read(experiment, path, False)
+            return Response(status_code=304, headers=cache)
+        answer = _files_answer(
+            experiment,
+            files.read,
+            path,
+            box=_numbers(box),
+            fraction=_numbers(fraction),
+            max_width=files.preview_width(width),
+            z=z,
+            channels=[c for c in (channels or "").split(",") if c] or None,
+            cells=show_cells,
+            crops=crops,
+        )
+        _record_read(experiment, path, False)
+        return JSONResponse(jsonable_encoder(answer), headers=cache)
+
+    @router.get("/experiment/planes/{path:path}", responses=_PLANES)
+    def read_planes(
+        request: Request,
+        path: str,
+        factor: int = 1,
+        z: Optional[str] = None,
+        first: Optional[int] = None,
+        last: Optional[int] = None,
+        channels: Optional[str] = None,
+        box: Optional[str] = None,
+        experiment: Optional[str] = None,
+    ):
+        # An image's raw planes for the web viewer, which draws them itself: the
+        # values as stored, gzipped, C-order, little-endian; X-Planes says their
+        # (C, Z, Y, X) shape, dtype and channels. factor 1, 4 or 8; z a plane
+        # (0 the first), "all", or max/mean/min over first..last; box x,y,w,h
+        # a region at full size.
+        picked = [c for c in (channels or "").split(",") if c] or None
+        plane = int(z) if z is not None and z.lstrip("-").isdigit() else z
+        region = None
+        if box is not None:
+            try:
+                region = [int(n) for n in box.split(",")]
+            except ValueError:
+                raise _missing_field("box is x,y,width,height in pixels.") from None
+        query = ("planes", factor, z, first, last, channels, box)
+        tag = _files_answer(experiment, files.read_etag, path, *query)
+        cache = {"ETag": tag, "Cache-Control": "no-cache"} if tag else {}
+        if tag is not None and request.headers.get("if-none-match") == tag:
+            return Response(status_code=304, headers=cache)
+        header, data = _files_answer(
+            experiment, planes.read, path, factor, plane, first, last, picked, region
+        )
+        _record_read(experiment, path, False)
+        return Response(
+            gzip.compress(data.tobytes(), compresslevel=1),
+            media_type="application/octet-stream",
+            headers={
+                **cache,
+                "Content-Encoding": "gzip",
+                "X-Planes": json.dumps(header),
+            },
+        )
+
+    return router
+
+
 def build_app_router(context: "AppContext") -> APIRouter:
     router = _router()
+    router.include_router(build_analysis_router(context.images))
 
     @router.get("/workflow/status", response_model=AppStatus)
     def app_status():
@@ -600,28 +921,6 @@ def build_app_router(context: "AppContext") -> APIRouter:
     def display_images():
         return _typed(context.display_images())
 
-    @router.get("/experiment/images/metadata", response_model=SavedImageMetadata)
-    def image_metadata(path: str):
-        return _typed(context.image_metadata(path))
-
-    @router.get("/experiment/images/stage_position", response_model=SavedImagePosition)
-    def image_stage_position(
-        path: str,
-        x: Optional[float] = None,
-        y: Optional[float] = None,
-        fx: Optional[float] = None,
-        fy: Optional[float] = None,
-        crop: Optional[str] = None,
-    ):
-        # Any saved image in the experiment, beam or FM: a point on it as a
-        # stage position, from the image's own metadata. crop: the point is
-        # read off a crop's picture, a cell's name (B3) or "x,y,width,height".
-        px = None if x is None or y is None else [x, y]
-        fraction = None if fx is None or fy is None else [fx, fy]
-        if crop is not None and "," in crop:
-            crop = _numbers(crop)
-        return _typed(context.image_stage_position(path, px, fraction, crop))
-
     @router.post(
         "/experiment/images/markers", response_model=MarkersDrawn, tags=[LAMELLAE]
     )
@@ -635,57 +934,6 @@ def build_app_router(context: "AppContext") -> APIRouter:
                 body.path, body.grid_name, **_given(body, "fov", "current")
             )
         )
-
-    def _draw_options(body: DrawOptions, *planes: str) -> Dict[str, Any]:
-        options = _given(
-            body, "crosshair", "metadata_bar", "channels", "looks", *planes
-        )
-        if body.box is not None:
-            if body.box[2] <= 0 or body.box[3] <= 0:
-                raise _missing_field("box is [x, y, width, height] in pixels.")
-            options["box"] = list(body.box)
-        return options
-
-    @router.post("/experiment/images/drawn", response_model=ImageDrawn)
-    def draw_image(body: DrawBody):
-        # A POST because the picture is saved beside the image, as markers are.
-        path = _required_text(body, "path", "a saved image inside the experiment")
-        return _typed(
-            context.draw_image(path, body.marks, **_draw_options(body, "plane"))
-        )
-
-    @router.post("/experiment/images/pair", response_model=ImagePairDrawn)
-    def draw_pair(body: ImagePairBody):
-        before = _required_text(body, "before", "a saved image inside the experiment")
-        after = _required_text(body, "after", "a saved image inside the experiment")
-        options = _draw_options(body, "before_plane", "after_plane")
-        options.pop("crosshair", None)
-        options.update(_given(body, "share_looks"))
-        return _typed(context.draw_pair(before, after, body.marks, **options))
-
-    @router.post("/experiment/analysis/intensity", response_model=ImageMeasured)
-    def measure_intensity(body: IntensityBody):
-        # A POST because its figure is saved beside the image, as a drawing is.
-        path = _required_text(body, "path", "a saved image inside the experiment")
-        if not body.points:
-            raise _missing_field("Pass points: a list of [x, y] in the image's pixels.")
-        points = [list(p) for p in body.points]
-        options = _given(body, "radius_px", "channel", "reference", "planes")
-        return _typed(context.measure_intensity(path, points, **options))
-
-    @router.post("/experiment/analysis/profile", response_model=ImageMeasured)
-    def line_profile(body: ProfileBody):
-        path = _required_text(body, "path", "a saved image inside the experiment")
-        options = _given(body, "width_px", "channel", "plane", "dip")
-        return _typed(
-            context.line_profile(path, list(body.start), list(body.end), **options)
-        )
-
-    @router.get("/experiment/analysis/quality", response_model=ImageMeasured)
-    def image_quality(
-        path: str, channel: Optional[str] = None, plane: Optional[int] = None
-    ):
-        return _typed(context.image_quality(path, channel, plane))
 
     @router.post(
         "/experiment/items/{item_name}/milling/drawn",
@@ -709,101 +957,36 @@ def build_app_router(context: "AppContext") -> APIRouter:
             )
         )
 
-    @router.post("/experiment/images/pixels", response_model=SavedImagePixels)
-    def image_pixels(body: PixelsBody):
-        # A POST on the read router because it computes, never acts: stage
-        # positions as points on a saved image, a list a GET could not carry.
-        path = _required_text(body, "path", "a saved image inside the experiment")
-        positions = body.stage_positions
-        if not positions:
+    @router.post(
+        "/experiment/images/milling",
+        response_model=MillingOnOverview,
+        tags=[LAMELLAE],
+    )
+    def draw_milling_on_overview(body: MillingOverviewBody):
+        # A POST because the picture is saved beside the overview.
+        def listed(value):
+            return [value] if isinstance(value, str) else value
+
+        item_names = listed(body.item_names)
+        if not item_names and not body.grid_name:
             raise _missing_field(
-                "Pass stage_positions: a non-empty list of stage positions "
-                "({x, y, z, r, t, coordinate_system})."
+                "Pass item_names, or grid_name to draw every item on that grid."
             )
-        return _typed(context.image_pixels(path, positions))
+        return _typed(
+            context.draw_milling_on_overview(
+                item_names=item_names,
+                grid_name=body.grid_name,
+                path=body.path,
+                task_names=listed(body.task_names),
+                box=list(body.box) if body.box is not None else None,
+            )
+        )
 
     # -- an experiment's files: the open one's, or a past one's, read only ------
-
-    def _files_answer(experiment, read, *args, **kwargs):
-        try:
-            return read(context.experiment_root(experiment), *args, **kwargs)
-        except files.FileRefusal as refusal:
-            raise HTTPException(status_code=refusal.status, detail=refusal.detail)
-
-    def _record_read(experiment, path, raw):
-        # A past experiment's every read, and every raw file, go on the record.
-        if experiment is not None or raw:
-            payload = {"path": path, "raw": raw}
-            if experiment is not None:
-                payload["experiment"] = experiment
-            context.record_event("experiment_file_read", payload)
-
-    @router.get("/experiment/files", response_model=FolderListing)
-    def list_files(dir: str = "", experiment: Optional[str] = None):
-        listing = _files_answer(experiment, files.list_folder, dir)
-        _record_read(experiment, dir, False)
-        # As listed: a file has no images count, rather than a null one.
-        return JSONResponse(listing)
-
-    @router.get(
-        "/experiment/files/{path:path}", response_model=FileRead, responses=_RAW_FILE
+    router.include_router(
+        build_files_router(context.experiment_root, context.record_event)
     )
-    def read_file(
-        request: Request,
-        path: str,
-        box: Optional[str] = None,
-        fraction: Optional[str] = None,
-        width: Optional[int] = None,
-        z: Optional[int] = None,
-        channels: Optional[str] = None,
-        cells: Optional[str] = None,
-        raw: bool = False,
-        experiment: Optional[str] = None,
-    ):
-        if raw:
-            refuse_dashboard(request)
-            # The file as it is, its experiment's folder name and its path in
-            # it in the headers: where a fetch keeps it.
-            root = _files_answer(experiment, lambda root: root)
-            target, relative = _files_answer(experiment, files.raw_file, path)
-            _record_read(experiment, relative, True)
-            return FileResponse(
-                target,
-                headers={
-                    "X-Experiment": quote(os.path.basename(os.path.normpath(root))),
-                    "X-Experiment-Path": quote(relative),
-                },
-            )
-        # A region is "x,y,width,height": source pixels (box) or 0-1 (fraction).
-        # width: the preview's at most, for a thumbnail or a full-size view.
-        # A fluorescence stack: plane z (0 the first; none, the max projection)
-        # in channels, comma-separated names (none, all).
-        # cells: "true" draws the image's named cells on the preview; names,
-        # comma-separated ("B3,C4"), crop those cells.
-        show_cells = (cells or "").strip().lower() == "true"
-        crops = None if show_cells or not cells else [c for c in cells.split(",") if c]
-        tag = _files_answer(
-            experiment, files.read_etag, path, box, fraction, width, z, channels, cells
-        )
-        # kept by the browser, but asked about each time: an unchanged file answers 304
-        cache = {"ETag": tag, "Cache-Control": "no-cache"} if tag else {}
-        if tag is not None and request.headers.get("if-none-match") == tag:
-            _record_read(experiment, path, False)
-            return Response(status_code=304, headers=cache)
-        answer = _files_answer(
-            experiment,
-            files.read,
-            path,
-            box=_numbers(box),
-            fraction=_numbers(fraction),
-            max_width=files.preview_width(width),
-            z=z,
-            channels=[c for c in (channels or "").split(",") if c] or None,
-            cells=show_cells,
-            crops=crops,
-        )
-        _record_read(experiment, path, False)
-        return JSONResponse(jsonable_encoder(answer), headers=cache)
+    _files_answer = _files_over(context.experiment_root)
 
     @router.post(
         "/report",
@@ -857,50 +1040,6 @@ def build_app_router(context: "AppContext") -> APIRouter:
             "experiment_file_added", {"path": entry["path"], "size": entry["size"]}
         )
         return JSONResponse(entry)
-
-    @router.get("/experiment/planes/{path:path}", responses=_PLANES)
-    def read_planes(
-        request: Request,
-        path: str,
-        factor: int = 1,
-        z: Optional[str] = None,
-        first: Optional[int] = None,
-        last: Optional[int] = None,
-        channels: Optional[str] = None,
-        box: Optional[str] = None,
-        experiment: Optional[str] = None,
-    ):
-        # An image's raw planes for the web viewer, which draws them itself: the
-        # values as stored, gzipped, C-order, little-endian; X-Planes says their
-        # (C, Z, Y, X) shape, dtype and channels. factor 1, 4 or 8; z a plane
-        # (0 the first), "all", or max/mean/min over first..last; box x,y,w,h
-        # a region at full size.
-        picked = [c for c in (channels or "").split(",") if c] or None
-        plane = int(z) if z is not None and z.lstrip("-").isdigit() else z
-        region = None
-        if box is not None:
-            try:
-                region = [int(n) for n in box.split(",")]
-            except ValueError:
-                raise _missing_field("box is x,y,width,height in pixels.") from None
-        query = ("planes", factor, z, first, last, channels, box)
-        tag = _files_answer(experiment, files.read_etag, path, *query)
-        cache = {"ETag": tag, "Cache-Control": "no-cache"} if tag else {}
-        if tag is not None and request.headers.get("if-none-match") == tag:
-            return Response(status_code=304, headers=cache)
-        header, data = _files_answer(
-            experiment, planes.read, path, factor, plane, first, last, picked, region
-        )
-        _record_read(experiment, path, False)
-        return Response(
-            gzip.compress(data.tobytes(), compresslevel=1),
-            media_type="application/octet-stream",
-            headers={
-                **cache,
-                "Content-Encoding": "gzip",
-                "X-Planes": json.dumps(header),
-            },
-        )
 
     # -- exports: the Qt export dialogs' files, for a person to download ---------
     # Each renders, so a POST computes and changes nothing; FastAPI runs these
@@ -963,76 +1102,9 @@ def build_app_router(context: "AppContext") -> APIRouter:
         task_names, grid_names, screen_all = _grid_run_body(body)
         return context.grid_workflow_plan(task_names, grid_names, screen_all)
 
-    @router.post("/experiment/notes", response_model=Recorded)
-    def add_note(body: NoteBody):
-        # Observations for the record — event stream + experiment log. On the
-        # read router, a POST the dashboard token is refused: a watching agent
-        # notes what it sees, and a note changes nothing.
-        text, item_name = _note_body(body)
-        cited = cited_evidence(context)
-        result = context.add_note(
-            text,
-            item_name,
-            **({"evidence": cited["evidence_id"]} if cited else {}),
-        )
-        return _answer_or_refusal(result)
-
-    @router.post("/experiment/messages", response_model=Recorded)
-    def add_message(body: OperatorMessageBody):
-        # The agent's message to the operator, on the record as a note to them.
-        # Like a note, it changes nothing.
-        text, item_name = _note_body(body)
-        reply_to = body.reply_to
-        cited = cited_evidence(context)
-        result = context.add_message(
-            text,
-            item_name,
-            reply_to,
-            **({"evidence": cited["evidence_id"]} if cited else {}),
-        )
-        return _answer_or_refusal(result)
-
-    @router.post("/experiment/evidence", response_model=Recorded)
-    def add_evidence(body: EvidenceBody):
-        # What the agent judged from, kept in the experiment: an image of the
-        # experiment's or one it made (uploaded, saved here), with marks on it.
-        # Changes nothing, like a note.
-        item_name = body.item_name
-
-        def save() -> Dict[str, Any]:
-            return evidence.save(
-                lambda: context.experiment_path,
-                image=body.image,
-                upload=body.upload,
-                marks=body.marks,
-                source=body.source,
-                item_name=item_name,
-            )
-
-        try:
-            result = context.add_evidence(item_name, save)
-        except evidence.EvidenceRefused as refusal:
-            raise _evidence_refused(refusal)
-        return _answer_or_refusal(result)
-
-    @router.get("/events", response_model=Events)
-    def events(
-        since: int = 0,
-        timeout: float = 0.0,
-        after: Optional[str] = None,
-        text: bool = False,
-    ):
-        # A long-poll: parks up to `timeout` seconds waiting for news. Capped
-        # here because the park occupies a threadpool worker — a transport
-        # concern, so the transport owns the ceiling. `after` is an event id,
-        # in place of `since`, and reaches back past a restart. `text` adds
-        # what each record says, in words, for a page to show.
-        timeout = min(max(timeout, 0.0), 30.0)
-        if after:
-            answer = context.events(since=since, timeout=timeout, after=after)
-        else:
-            answer = context.events(since=since, timeout=timeout)
-        return _with_text(answer) if text else answer
+    # The agent's record: the events long-poll, its notes, messages and
+    # evidence, shared with the agent host (`fibsem.server.agent.record`).
+    router.include_router(build_record_router(context, _AsSentRoute))
 
     @router.get("/events/history", response_model=EventHistory)
     def event_history(
@@ -1044,35 +1116,6 @@ def build_app_router(context: "AppContext") -> APIRouter:
         return _with_text(answer) if text else answer
 
     return _served(router, context)
-
-
-def _with_text(answer: Dict[str, Any]) -> Dict[str, Any]:
-    """*answer* with each record's ``text`` and ``group`` (`events.text`)."""
-    events = answer.get("events")
-    if not isinstance(events, list):
-        return answer
-    asked: Dict[str, Any] = {}
-    described = []
-    for record in events:
-        note_asked(asked, record)
-        described.append(with_text(record, asked))
-    return {**answer, "events": described}
-
-
-def _evidence_refused(refusal: evidence.EvidenceRefused) -> HTTPException:
-    return HTTPException(status_code=refusal.status_code, detail=refusal.detail)
-
-
-def cited_evidence(context: "AppContext") -> Optional[Dict[str, Any]]:
-    """The record of the evidence the agent's call cites
-    (`calls.EVIDENCE_HEADER`); None when it cites none."""
-    call = current_call()
-    if call is None or not call.evidence:
-        return None
-    try:
-        return evidence.load(lambda: context.experiment_path, call.evidence)
-    except evidence.EvidenceRefused as refusal:
-        raise _evidence_refused(refusal)
 
 
 def build_app_control_router(context: "AppContext") -> APIRouter:
@@ -1485,6 +1528,16 @@ def build_app_config_router(context: "AppContext") -> APIRouter:
     )
     def remove_grid(grid_name: str):
         return _answer_or_refusal(context.remove_grid(grid_name))
+
+    @router.post(
+        "/experiment/grids/{grid_name}/items", response_model=GridEdit, tags=[GRIDS]
+    )
+    def assign_items_to_grid(grid_name: str, body: GridItemsBody):
+        if not body.item_names:
+            raise _missing_field("Pass item_names: the lamellae to put on the grid.")
+        return _answer_or_refusal(
+            context.assign_items_to_grid(grid_name, list(body.item_names))
+        )
 
     # -- lamella positions: the Lamella tab's buttons ---------------------------
 

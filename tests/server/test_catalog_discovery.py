@@ -35,6 +35,7 @@ def app():
         microscope,
         app_context=AutoLamellaAppContext(AppSession()),
         auth=AuthConfig(token="t"),
+        pairs=True,  # as the microscope server, so its pairing routes are listed too
     )
 
 
@@ -126,7 +127,12 @@ def test_tools_are_offered_for_the_instrument_kinds_devices():
     assert {"stage_get_position", "fm_save_focus_position"} <= cryo
     assert not {"milling_run_stage", "beam_acquire_image", "grid_load"} & cryo
     assert not {"stage_move_relative", "beam_turn_on", "microscope_get_state"} & cryo
-    for generic in ("device_list", "device_call_command", "service_call_command"):
+    for generic in (
+        "device_list",
+        "device_describe",
+        "device_call_command",
+        "service_call_command",
+    ):
         assert generic in cryo
     assert {"app_get_status", "knowledge_get", "plan_get"} <= cryo
     # Any kind with a stage gets the stage's tool; with nothing, the generic ones.

@@ -89,7 +89,6 @@ from fibsem.server.responses import (
     Status,
     answer,
 )
-from fibsem.server.web_app import web_app_router
 from fibsem.structures.settings import BeamType, MicroscopeState
 from fibsem.workflows.actions import ACTION, action_record
 
@@ -195,11 +194,26 @@ def _blocked_route(served: ServedInstrument) -> Callable[[str, str], Optional[st
     return why
 
 
+def _safety_action(request: Request, command: str) -> bool:
+    """Whether *command* on the route's device or service makes the instrument
+    safe (``command(safety=True)``)."""
+    part = "services" if f"{MICROSCOPE}/services/" in request.url.path else "devices"
+    found = request.app.state.served.find(part, request.path_params.get("device", ""))
+    info = getattr(found, "commands", {}).get(command) if found is not None else None
+    return bool(info is not None and info.safety)
+
+
 def _device_command_gate(request: Request, command: str):
     """A device command's gate: a stop, a pause or a resume by the stop rule
-    (:func:`_stop_gate`), anything else Drive and control of the microscope."""
+    (:func:`_stop_gate`); a safety action at Drive with no control, so it runs
+    while a mill or a move holds it; anything else Drive and control of the
+    microscope."""
     if command in STOP_COMMANDS or command in HOLD_COMMANDS:
         _stop_gate(request)
+        yield
+        return
+    if _safety_action(request, command):
+        _drive(request)
         yield
         return
     _drive(request)
@@ -541,6 +555,7 @@ def build_server(
     operator=None,
     session=None,
     instruments: Sequence[Instrument] = (),
+    pairs: bool = False,
 ) -> FastAPI:
     """Build the server app around a connected microscope, or around
     ``session`` (an ``AppSession``), whose microscope every route reads when it
@@ -567,6 +582,12 @@ def build_server(
 
     ``operator`` is the session's ``AgentControl``: passing one mounts the
     operator's routes (`fibsem.server.agent.operator`), behind the operator token.
+
+    ``pairs`` serves pairing's own routes (`fibsem.server.pairing_routes`): the
+    microscope server's, until the gateway pairs for it. The App Server pairs
+    nothing and serves no pages: the gateway pairs every computer and agent into
+    the ``paired.json`` the App Server checks tokens against, and serves the web
+    app on its own port (`fibsem.gateway`).
     """
     if auth is None:
         auth = AuthConfig.generate()
@@ -619,16 +640,6 @@ def build_server(
         # Unauthenticated liveness probe; everything informative lives in /capabilities.
         return {"status": "ok"}
 
-    @app.get("/chat")
-    def chat():
-        # The chat is the web app's Agent page; a browser keeps the URL
-        # fragment (the token) across the redirect.
-        from fastapi.responses import RedirectResponse
-
-        return RedirectResponse("/ui/agent")
-
-    app.include_router(web_app_router())
-
     @base.get("/capabilities")
     def capabilities(request: Request):
         # this PC's operator only: a paired computer can't reach 127.0.0.1
@@ -641,6 +652,9 @@ def build_server(
                 "microscope": serve_microscope,
                 "services": True,
                 "app": app_context is not None,
+                # The image tools and file reads, over the open experiment.
+                "analysis": app_context is not None,
+                "files": app_context is not None,
             },
             # The app the operator works in: where they set the level and
             # decide requests.
@@ -811,7 +825,8 @@ def build_server(
         return answer(Status())
 
     app.include_router(base)
-    app.include_router(build_pairing_router(auth))
+    if pairs:
+        app.include_router(build_pairing_router(auth))
     if session is not None:
         # Before the /microscope routes: connecting is the operator's whether
         # or not the microscope is served.
@@ -886,7 +901,7 @@ def build_server(
     if app_context is not None:
         # The gate applied here so auth stays in one place; the router itself
         # is a thin pass-through over the context's JSON-able snapshots. These
-        # are the monitoring routes, so the dashboard token may GET them too.
+        # are the monitoring routes.
         app.include_router(
             build_app_router(app_context),
             dependencies=[Depends(require_monitoring())],

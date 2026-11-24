@@ -69,11 +69,11 @@ def _every_event_kind_is_registered(monkeypatch):
     untyped = set()
     append = EventBuffer.append
 
-    def checked(self, kind, payload, actor=None):
+    def checked(self, kind, payload, actor=None, envelope=None):
         if kind not in KINDS and kind not in _MADE_UP_KINDS:
             unregistered.append(kind)
         untyped.update(f"{kind}.{name}" for name in unknown_fields(kind, payload))
-        return append(self, kind, payload, actor)
+        return append(self, kind, payload, actor, envelope)
 
     monkeypatch.setattr(EventBuffer, "append", checked)
     yield
@@ -445,3 +445,13 @@ def pytest_unconfigure(config):
     sys.stdout.flush()
     sys.stderr.flush()
     os._exit(config.stash[_EXIT_STATUS])
+
+
+@pytest.fixture(autouse=True)
+def _agent_sessions_of_the_test(tmp_path_factory, monkeypatch):
+    """Each test's agent sessions keep their own record in a folder of its own:
+    tests reuse session ids ("s1"), which would find another test's folder."""
+    import fibsem.server.agent.files as agent_files
+
+    root = tmp_path_factory.mktemp("agent-sessions")
+    monkeypatch.setattr(agent_files, "sessions_root", lambda: root)

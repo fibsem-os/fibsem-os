@@ -41,7 +41,11 @@ haven't used this session (every read here works at Watch):
 
 - `microscope_get_info`: which microscope it is (manufacturer, model,
   software version, the optional hardware fitted).
-- `device_list`: what it has (beams, detectors, stage, an FM).
+- `device_list`: what it has (beams, detectors, stage, an FM), by name.
+  Before you use a parameter or command you haven't used, read it with
+  `device_describe` (`service_describe` for a service): its unit, limits,
+  choices and signature. Never write a value to find out what a parameter
+  takes; a write changes the instrument.
 - `device_get_parameter` `on` for the electron and ion beams. If one is off,
   turn it on with `beam_turn_on` (at Assist, ask first) and say so. Turn a
   beam off (`beam_turn_off`) only when the work is done or the operator asks.
@@ -57,7 +61,10 @@ haven't used this session (every read here works at Watch):
   you, and nothing moves to an uncalibrated slot.
 - `grid_get_inventory` and `grid_get_current`: which grid is on the stage and
   whether the stage is at a slot. With no grids loaded in the app, ask the
-  operator which sample is under the beam if the goal doesn't say.
+  operator which sample is under the beam if the goal doesn't say. After the
+  app restarts, check them against the grid you know is there; if they
+  disagree, ask the operator, and never run loader commands to find out
+  (screen-grids, *After the app restarts*).
 - `microscope_get_state`: each beam's voltage, current, working distance and
   scan rotation, the detectors' type and mode, the stage position. Say what
   you read, and anything that looks wrong for the task (a milling current on
@@ -128,9 +135,9 @@ Use it only when the operator gives you stage coordinates. Before a large
 stable move, `service_call_query` `project_stable_move` with the same offset
 answers where the stage would go without moving it.
 
-Measure on a preview with its own scale: `hfw / width` per preview pixel. The
-`pixelsize` in an image answer is per pixel of the full image, which is
-larger than the preview.
+Measure on a preview with its own scale: its `preview_pixelsize` (metres per
+preview pixel). The summary's `pixel_size` is per pixel of the full image,
+which is larger than the preview.
 
 The other moves, by when to use them:
 
@@ -145,7 +152,8 @@ The other moves, by when to use them:
 - `stage_move_absolute`: go back to a position you read. It tilts flat
   before a large rotation.
 - Named positions the operator keeps in the Saved Positions panel:
-  `stage_get_saved_positions`, `stage_move_to_saved_position`, and
+  `stage_get_saved_positions` (their names; with `names`, those in full),
+  `stage_move_to_saved_position`, and
   `stage_save_position` and `stage_remove_saved_position` to change them.
 
 Insert the FM objective with `fm_insert_objective` and its `tilt` (0 or
@@ -170,20 +178,38 @@ each.
 
 **Coincidence: do it yourself.** To bring the beams onto the same feature,
 centre it in one beam with `stage_stable_move`, find it in the other beam's
-image, and `stage_vertical_move` by its offset there (`beam_type` = the beam
-you measured in). Take both images again and repeat until it is centred in
+image, and `stage_vertical_move` by the offset the tool converts for you
+(below). Take both images again and repeat until it is centred in
 both; cap each step to a few µm, or use `relaxation` below 1 if it
 overshoots. Work from whichever beam has it centred already. Do it before
 any overview, and again at each site on a bent grid: on one grid the
 coincident height ran from +20.8 to +33.6 µm between sites. Use this loop,
 not the coincidence commands: it worked better on a real instrument. Fix it
 with the stage, never with a beam shift: a site made coincident by beam
-shift is not ready.
+shift is not ready. `beam_acquire_pair_preview` takes both beams at one field of view in one
+call (coarse at 150-200 µm, then 50 µm, saved in the item's folder) and
+answers one side-by-side picture, each half's origin and scale to take the
+feature you pick there back to that image's pixels, and each image's
+contrast and focus measures. It moves nothing and judges nothing: whether
+the pair is good enough, the offset and the move stay yours. Take the beams
+one at a time (`beam_acquire_image`) when they need different fields of
+view or settings.
 
-- *Measure, don't eyeball.* Find the feature's pixel position in the other
-  image, take its offset from the centre, and convert with that image's
-  pixel size. Pass the offset as measured: `stage_vertical_move` allows for
-  the FIB's tilted view, so don't scale it yourself.
+- *Pick it yourself; the tool converts.* Find the same feature in the
+  saved SEM and FIB images (full-resolution pixels, or as read off an
+  `analysis_crop_image` picture with its crop) and give the points to
+  `analysis_measure_coincidence_offset`: it answers the `dy` for
+  `stage_vertical_move` (`beam_type` ION) and where each point lands
+  (`after_fib_px`), and its picture shows what it took you to mean. Where
+  the scene allows, give 2-3 features as `pairs`, above all on repeating
+  debris where one match can be the wrong copy. A pair marked `disagrees`
+  is information, not a verdict: it may be a wrong match, or the sample
+  may not be flat there. Look again and decide which to trust; each
+  pair's own `dy` is given. Its numbers are a check on your reading of
+  the images, and yours on them: if the move it gives does not fit what
+  you see, say so and work it out from the images (an offset from the
+  centre, by that image's pixel size, passed as measured with the
+  `beam_type` you measured in).
 - *Match a sharp landmark.* At the SEM orientation the FIB sees the sample
   at a glancing angle: its image is squashed top to bottom (to about 0.6),
   and a cell that is a bright blob in the SEM can show only as an arc of
@@ -194,9 +220,11 @@ shift is not ready.
   alignment, not height: a vertical move can't fix it, so don't chase it.
   Judge the vertical offset alone and say in a note how big the sideways
   one was.
-- *The tolerance is in the image.* "Within 5 µm, aim for 2-3 µm" means as
-  measured in the FIB image at a 50 µm field of view, the feature against
-  the image centre.
+- *The tolerance is in the image, and it is a guide.* "Within 5 µm, 2-3 µm
+  where the scene allows" means as measured in the FIB image at about a
+  50 µm field of view, the feature against the image centre. A bent grid,
+  a featureless site or a large lamella can make more or less the right
+  answer: say what you reached and why it is enough for what comes next.
 
 The one exception is `alignment_check_coincidence`, experimental, and only
 when the operator asks you to try it. Start from the SEM when the error may
@@ -285,9 +313,9 @@ your placement. When you place or move patterns on a new ion image, save that
 image (`beam_acquire_image` with a path) and `alignment_align_to_reference` to
 it right before the mill, so the patterns land where you put them.
 
-**Aligning to a reference.** `alignment_measure_shift` first to see how far
-off you are, then `alignment_align_to_reference`: beam shift for a small
-offset, `stage` when it is beyond the beam shift's range. If the methods
+**Aligning to a reference.** `analysis_measure_shift` (with compare, to see
+whether the methods agree) first to see how far off you are, then
+`alignment_align_to_reference`: beam shift for a small offset, `stage` when it is beyond the beam shift's range. If the methods
 don't agree on what is left, or the score stays low, the view has changed
 (milled, drifted out of frame): stop and tell the operator rather than
 aligning again.
@@ -335,6 +363,13 @@ it doesn't list to one it does, so a square 2048 × 2048 came back as
   and comes back, takes longer and saves a stitch you don't need. For a wider
   view, take one image at a larger field of view; reach for a tile set only
   when one field can't cover what you need at the detail you need.
+
+**Give every `beam_acquire_image` a `path`.** Without one the image is shown
+to you and then lost: it isn't saved and isn't on the record, so nobody can
+later see what you saw when you decided. Save it in the item's folder when
+it is about one lamella or site (`Lam-01/checks`), else in `agent/images`,
+and name it for what it shows (`after-move-sem`). A quick look you act on is
+an image you decided on, so it gets a path too.
 
 A point picked on an overview is only as good as the stitch. The tiles are
 placed where the stage was told to go, and a stage that overshoots puts

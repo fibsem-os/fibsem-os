@@ -1,12 +1,12 @@
 """Edits to a grid's record that the Grids tab and the App Server both make:
-a note and a removal, each saved. Renaming is :mod:`fibsem.workflows.grid.naming`'s;
+a note, the lamellae on it and a removal, each saved. Renaming is :mod:`fibsem.workflows.grid.naming`'s;
 a verdict is saved by ``Experiment.save_verdict``."""
 
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-__all__ = ["keep_grid_note", "remove_grid_record"]
+__all__ = ["assign_lamellae_to_grid", "keep_grid_note", "remove_grid_record"]
 
 
 def keep_grid_note(
@@ -27,3 +27,14 @@ def remove_grid_record(experiment, grid) -> List[str]:
     experiment.remove_grid(grid.name)
     experiment.save()
     return orphaned
+
+
+def assign_lamellae_to_grid(experiment, grid, lamellae) -> List[str]:
+    """Record *lamellae* as on *grid*, the grid record every grid view and a
+    run's on-the-stage check read. Saved. The names of those that were not on
+    it before."""
+    moved = [p.name for p in lamellae if p.grid_id != grid.id]
+    for lamella in lamellae:
+        lamella.grid_id = grid.id
+    experiment.save()
+    return moved

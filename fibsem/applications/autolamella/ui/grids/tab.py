@@ -25,6 +25,7 @@ from qtpy.QtCore import QSize, Qt, QUrl, Signal
 from qtpy.QtGui import QDesktopServices
 from qtpy.QtWidgets import (
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QMessageBox,
     QPushButton,
@@ -42,7 +43,7 @@ from fibsem.applications.autolamella.structures import Experiment, Lamella
 from fibsem.applications.autolamella.ui.grids.card import GridCardContainer
 from fibsem.applications.autolamella.ui.grids.overview import GridPositionsWidget
 from fibsem.applications.autolamella.ui.grids.results import GridResultsWidget
-from fibsem.structures.settings import GridInventoryEntry
+from fibsem.structures.settings import GridInventoryEntry, GridSlotState
 from fibsem.theme import tokens
 from fibsem.theme.tokens import ERROR_COLOR, PANEL_COLOR, TEXT_MUTED_COLOR
 from fibsem.ui.control import control_of
@@ -131,6 +132,7 @@ class GridsTabWidget(QWidget):
         self.cards.quality_changed.connect(self._on_quality_changed)
         self.cards.load_requested.connect(self._on_load)
         self.cards.unload_requested.connect(self._on_unload)
+        self.cards.on_stage_requested.connect(self._on_on_stage)
         self.cards.rename_requested.connect(self._on_rename)
         self.cards.note_requested.connect(self._on_note)
         self.cards.remove_requested.connect(self._on_remove)
@@ -490,6 +492,44 @@ class GridsTabWidget(QWidget):
             job,
             f"Unloading {grid.name}…",
             f"{grid.name} returned to the magazine.",
+            acts=True,
+        )
+
+    def _on_on_stage(self, grid: GridRecord) -> None:
+        """The grid is on the stage already: name it there, nothing moves. Asks
+        which magazine slot it came from, where it goes back on unload."""
+        stage = self.stage
+        if stage is None:
+            return
+        empty = [
+            e.slot_name
+            for e in stage.grid_inventory()
+            if e.state is GridSlotState.EMPTY
+        ]
+        home: Optional[str] = None
+        if not self._synchronous:
+            not_known = "Not known"
+            choice, ok = QInputDialog.getItem(
+                self,
+                "Is on the stage",
+                f"Record {grid.name} as the grid on the stage. Nothing moves, "
+                "so be sure it is the one there.\n\nWhich magazine slot did it "
+                "come from? It goes back there on unload.",
+                [not_known, *empty],
+                0,
+                False,
+            )
+            if not ok:
+                return
+            home = None if choice == not_known else choice
+
+        def job() -> None:
+            stage.set_current(grid.name, home)
+
+        self._start(
+            job,
+            f"Naming {grid.name} on the stage…",
+            f"{grid.name} is loaded.",
             acts=True,
         )
 

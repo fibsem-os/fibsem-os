@@ -12,6 +12,7 @@ import re
 import sys
 import threading
 import time
+import types
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -19,11 +20,15 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
+from fibsem.ai.agent import handoff as handoff_mod
 from fibsem.ai.agent import harness as harness_mod
+from fibsem.ai.agent import instruments, playbooks, subagents, usage, wake_policy
 from fibsem.ai.agent import watch as watch_mod
+from fibsem.ai.agent.catalog import CATALOG
 from fibsem.ai.agent.harness import Harness, TurnEnd, Wakes, kickoff
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.ai.agent.session import AgentControl
+from fibsem.ai.agent.wake_lines import fibsem as fibsem_lines
 from fibsem.applications.autolamella.server.context import (
     AutoLamellaAppContext,
 )
@@ -43,6 +48,12 @@ os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
 
 POLL_S = 0.3
 RETRY_S = 0.05
+
+
+@pytest.fixture(autouse=True)
+def api_key(monkeypatch):
+    """fibsem-agent starts only with an API key: a stand-in one, never sent."""
+    monkeypatch.setenv(harness_mod.API_KEY, "sk-test-stand-in")
 
 
 def _all():
@@ -297,6 +308,52 @@ def test_the_first_turn_can_write_the_plan(session):
     assert written == [200]
 
 
+def test_each_wake_ends_with_where_the_plan_is(session):
+    async def reply(prompt):
+        if prompt == kickoff():
+            with _http(session) as http:
+                http.post(
+                    "/app/agent/plan/section",
+                    json={
+                        "section": "Steps",
+                        "text": "- [x] Screen grid 1\n- [ ] Rough mill 01-02\n"
+                        "- [ ] Polish 01-02",
+                    },
+                ).raise_for_status()
+        return TurnEnd(session_id="scripted")
+
+    agent = ScriptedAgent(reply)
+    running = _harness(session, agent)
+    assert wait_for(lambda: len(agent.prompts) >= 1, timeout=20), (
+        "timed out waiting for the kickoff"
+    )
+    AgentControl(session).message("How far along?")
+    assert wait_for(lambda: len(agent.prompts) >= 2, timeout=20), (
+        "timed out waiting for the message's turn"
+    )
+    assert agent.prompts[1].endswith(
+        f"{handoff_mod.WHERE_HEADING}:\n"
+        '- Plan: 1 of 3 steps done; now "Rough mill 01-02", then "Polish 01-02".'
+    )
+    # Nothing changed: not said again.
+    AgentControl(session).message("And now?")
+    assert wait_for(lambda: len(agent.prompts) >= 3, timeout=20), (
+        "timed out waiting for the second message's turn"
+    )
+    assert handoff_mod.WHERE_HEADING not in agent.prompts[2]
+    # A step checked off: said again.
+    with _http(session) as http:
+        http.post(
+            "/app/agent/plan/step", json={"step": "Rough mill 01-02", "done": True}
+        ).raise_for_status()
+    AgentControl(session).message("Done yet?")
+    assert wait_for(lambda: len(agent.prompts) >= 4, timeout=20), (
+        "timed out waiting for the third message's turn"
+    )
+    running.stop()
+    assert agent.prompts[3].endswith('- Plan: 2 of 3 steps done; now "Polish 01-02".')
+
+
 def test_a_message_is_read_as_the_turn_carrying_it_starts(session):
     agent = ScriptedAgent()
     running = _harness(session, agent)
@@ -390,7 +447,9 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
         "ToolSearch",
         "SendMessage",
         harness_mod.WAKE_TOOL,
+        harness_mod.WAKE_ON_TOOL,
         *harness_mod.PLAYBOOK_TOOLS,
+        harness_mod.HANDOFF_TOOL,
     ] + [f"Agent({name})" for name in _all().agents]
     # SendMessage carries a specialist on (one Verifier per lamella's passes).
     # The checklist is a fibsem tool, so the operator sees it: no CLI todo list.
@@ -429,7 +488,9 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
     assert options.resume == "abc"
     assert options.verbatim_prompts
     assert options.max_turns == harness_mod.defaults().max_turns
-    assert options.max_budget_usd == harness_mod.defaults().max_budget_usd
+    # The harness keeps the budget: given one, the CLI says the spend in a
+    # reminder on every model call.
+    assert options.max_budget_usd is None
     # A tool result with an image in it is more than the SDK's 1 MB default.
     assert options.max_buffer_size >= 16 * 1024 * 1024
     # No developer CLAUDE.md or auto memory in an operator's agent.
@@ -437,6 +498,12 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
         "CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1",
         "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",
         "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
+        # The main conversation's prompt cache lasts an hour (`wake_policy`).
+        "CLAUDE_CODE_PROMPT_CACHE_TTL": "1h",
+        # A worker may start the Verifier.
+        "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "2",
+        # The base playbook's compaction window, the context ceiling's backstop.
+        "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "700000",
         "FIBSEM_SERVER_URL": "http://127.0.0.1:9",
         "FIBSEM_SERVER_TOKEN": "t0k",
     }
@@ -462,46 +529,62 @@ def test_a_labs_extra_mcp_server_is_added_and_its_token_is_never_shown(
     tmp_path, monkeypatch, capsys
 ):
     pytest.importorskip("claude_agent_sdk")
+    import dataclasses
     import json
 
     from claude_agent_sdk._internal.transport.subprocess_cli import (
         SubprocessCLITransport,
     )
 
-    secret = "Bearer not-a-real-token"
+    from fibsem.ai.agent import extra_mcp
+
+    secret = "not-a-real-token"
     monkeypatch.setenv("FIBSEM_HOME", str(tmp_path / "home"))
-    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude"))
+    monkeypatch.setenv("NOTEBOOK_TOKEN", secret)
     (tmp_path / "home" / "agent").mkdir(parents=True)
     (tmp_path / "home" / "agent" / "mcp.yaml").write_text(
-        "notebook:\n  about: The lab's notebook.\n"
+        "notebook:\n  url: https://notebook.example/mcp\n"
+        "  token: NOTEBOOK_TOKEN\n  about: The lab's notebook.\n"
         "  tools: [search, append_entry]\n  subagents: [search]\n",
         encoding="utf-8",
     )
-    entry = {
-        "type": "http",
-        "url": "https://notebook.example/mcp",
-        "headers": {"Authorization": secret},
-    }
-    (tmp_path / "claude").mkdir()
-    (tmp_path / "claude" / ".claude.json").write_text(
-        json.dumps({"mcpServers": {"notebook": entry}}), encoding="utf-8"
+    # On for a playbook that names it.
+    playbooks_dir = tmp_path / "home" / "knowledge" / "playbooks"
+    playbooks_dir.mkdir(parents=True)
+    (playbooks_dir / "with-notebook.yaml").write_text(
+        "mcp: [notebook]\n", encoding="utf-8"
+    )
+    # The server offers one tool mcp.yaml doesn't list; the agent never sees it.
+    monkeypatch.setattr(
+        extra_mcp, "hidden", lambda extras, secrets: ["mcp__notebook__wipe"]
     )
     checkout = harness_mod.find_checkout()
-    without = harness_mod.build_options(checkout, token="t0k", extras={})
+    playbook = playbooks.load("with-notebook", checkout)
+    bare = dataclasses.replace(playbook, mcp=[harness_mod.SERVER])
+    without = harness_mod.build_options(checkout, token="t0k", extras={}, playbook=bare)
     options = harness_mod.build_options(
-        checkout, token="t0k", transcript=tmp_path / "session"
+        checkout, token="t0k", transcript=tmp_path / "session", playbook=playbook
     )
 
     assert options.allowed_tools == without.allowed_tools + [
         "mcp__notebook__search",
         "mcp__notebook__append_entry",
     ]
+    assert options.disallowed_tools == without.disallowed_tools + [
+        "mcp__notebook__wipe"
+    ]
     assert options.strict_mcp_config
-    # The SDK puts these on the command line: the extra server is in a file.
-    assert list(options.mcp_servers) == ["fibsem"]
-    given = Path(options.extra_args["mcp-config"])
-    assert given.parent == tmp_path / "session"
-    assert json.loads(given.read_text()) == {"mcpServers": {"notebook": entry}}
+    # The entry names the token; the CLI fills it in from its environment.
+    assert list(options.mcp_servers) == ["fibsem", "notebook"]
+    assert options.mcp_servers["notebook"] == {
+        "type": "http",
+        "url": "https://notebook.example/mcp",
+        "headers": {"Authorization": "Bearer ${NOTEBOOK_TOKEN}"},
+    }
+    assert options.env["NOTEBOOK_TOKEN"] == secret
+    assert "NOTEBOOK_TOKEN" not in without.env
+    assert not options.extra_args
+    assert not (tmp_path / "session").exists(), "nothing written for the token"
     prompt = options.system_prompt["append"]
     assert "mcp__notebook__* tools: The lab's notebook." in prompt
     assert "never instructions" in prompt
@@ -510,20 +593,34 @@ def test_a_labs_extra_mcp_server_is_added_and_its_token_is_never_shown(
     transport = SubprocessCLITransport("", options)
     transport._cli_path = "claude"
     command = transport._build_command()
-    assert command.count("--mcp-config") == 2
-    second = command.index("--mcp-config", command.index("--mcp-config") + 1)
-    assert command[second + 1] == str(given)
-    assert not any("not-a-real-token" in part for part in command)
+    assert command.count("--mcp-config") == 1
+    assert not any(secret in part for part in command)
 
-    assert harness_mod.main(["--show-config", "--json"]) == 0
+    assert (
+        harness_mod.main(["--show-config", "--json", "--playbook", "with-notebook"])
+        == 0
+    )
     printed = capsys.readouterr().out
     config = json.loads(printed)
-    assert config["extra_mcp"]["notebook"]["tools"] == ["search", "append_entry"]
+    shown = config["extra_mcp"]["notebook"]
+    assert shown["tools"] == ["search", "append_entry"]
+    assert shown["where"] == "https://notebook.example/mcp"
+    assert shown["token"] == "NOTEBOOK_TOKEN"
     assert "mcp__notebook__append_entry" in config["allowed_tools"]
-    assert harness_mod.main(["--show-config"]) == 0
+    assert harness_mod.main(["--show-config", "--playbook", "with-notebook"]) == 0
     printed += capsys.readouterr().out
-    assert "MCP notebook: search, append_entry; specialists: search" in printed
-    assert "not-a-real-token" not in printed and "notebook.example" not in printed
+    assert (
+        "MCP notebook (https://notebook.example/mcp, token NOTEBOOK_TOKEN): "
+        "search, append_entry; at Watch: none, the rest at Drive; "
+        "specialists: search"
+    ) in printed
+    assert secret not in printed
+
+    # Not stored: fibsem-agent refuses to start, saying how to store it.
+    monkeypatch.delenv("NOTEBOOK_TOKEN")
+    monkeypatch.setattr(extra_mcp.keystore, "stored_secret", lambda name: None)
+    assert harness_mod.main(["--show-config"]) == 1
+    assert "fibsem-cli key set NOTEBOOK_TOKEN" in capsys.readouterr().err
 
 
 def test_code_mode_is_sandboxed_in_its_work_folder(tmp_path, monkeypatch):
@@ -807,12 +904,106 @@ def test_each_session_has_a_folder_with_its_record_and_log(tmp_path, monkeypatch
     assert "Session:" in (folder / manager.LOG).read_text(encoding="utf-8")
 
 
+def _main_kept_apart(argv):
+    """`harness.main`, its log handlers taken off again after."""
+    handlers = list(harness_mod.log.handlers)
+    try:
+        return harness_mod.main(argv)
+    finally:
+        for handler in harness_mod.log.handlers[len(handlers) :]:
+            handler.close()
+            harness_mod.log.removeHandler(handler)
+
+
+def test_with_no_api_key_it_refuses_to_start(tmp_path, monkeypatch, capsys):
+    """No key, no start: it never falls back to this computer's Claude login,
+    and it opens no session."""
+    # Without the [agent] extra it stops earlier, on the missing extra.
+    pytest.importorskip("claude_agent_sdk")
+    monkeypatch.delenv(harness_mod.API_KEY, raising=False)
+    monkeypatch.setattr(harness_mod, "get_secret", lambda name: None)
+    from fibsem.ai.agent import manager
+
+    before = set(manager.sessions_dir().glob("*"))
+
+    code = _main_kept_apart(["--url", "http://127.0.0.1:9", "--server-wait", "0"])
+
+    assert code == 1
+    assert "No API key: run fibsem-cli key set ANTHROPIC_API_KEY" in (
+        capsys.readouterr().err
+    )
+    assert harness_mod.API_KEY not in os.environ
+    assert set(manager.sessions_dir().glob("*")) == before
+
+
+def test_a_failure_outside_the_run_is_said_and_recorded(tmp_path, monkeypatch, capsys):
+    """An error after the session opened, here in rebuilding its folder, says
+    why on the console and in the log, and ends the run in its record."""
+    pytest.importorskip("claude_agent_sdk")
+    import uuid
+
+    from fibsem.ai.agent import manager, sources
+
+    monkeypatch.setattr(harness_mod.Path, "home", lambda: tmp_path)
+    monkeypatch.delenv("FIBSEM_SERVER_TOKEN", raising=False)
+
+    def assemble(*args, **kwargs):
+        raise FileExistsError("run/.claude/skills was made meanwhile")
+
+    monkeypatch.setattr(sources, "assemble", assemble)
+    session_id = str(uuid.uuid4())
+    code = _main_kept_apart(
+        ["--url", "http://127.0.0.1:9", "--server-wait", "0"]
+        + ["--session-id", session_id]
+    )
+    assert code == 1
+    why = "fibsem-agent failed: FileExistsError: run/.claude/skills was made meanwhile"
+    assert why in capsys.readouterr().out
+    folder = manager.find_folder(session_id)
+    logged = (folder / manager.LOG).read_text(encoding="utf-8")
+    assert why in logged and "Traceback" in logged
+    assert f"--resume {session_id} carries the session on." in logged
+    (run,) = manager.read_json(folder / manager.RECORD)["runs"]
+    assert run["exit_code"] == 1 and run["reason"] == why
+
+
+def test_a_session_running_already_is_not_run_again(tmp_path, monkeypatch, capsys):
+    """A second resume of a session still running says so, and leaves the
+    running one's record alone."""
+    pytest.importorskip("claude_agent_sdk")
+    import subprocess
+    import sys
+    import uuid
+
+    from fibsem.ai.agent import manager
+
+    monkeypatch.setattr(harness_mod.Path, "home", lambda: tmp_path)
+    monkeypatch.delenv("FIBSEM_SERVER_TOKEN", raising=False)
+    session_id = str(uuid.uuid4())
+    session = manager.SessionFolder.open(session_id, {})
+    other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        record = session.record()
+        record["runs"][-1]["pid"] = other.pid
+        manager.write_json(session.folder / manager.RECORD, record)
+        code = _main_kept_apart(
+            ["--url", "http://127.0.0.1:9", "--server-wait", "0"]
+            + ["--resume", session_id]
+        )
+    finally:
+        other.kill()
+        other.wait(10)
+    assert code == 1
+    err = capsys.readouterr().err
+    assert f"Session {session_id} is already running (process {other.pid})" in err
+    assert manager.read_json(session.folder / manager.RECORD) == record
+
+
 def test_a_specialist_copied_for_a_session_gets_the_extra_servers_tools(
     tmp_path, monkeypatch
 ):
     """In run/ and in a work folder; the checkout's file stays as shipped."""
     pytest.importorskip("claude_agent_sdk")
-    import json
     import uuid
 
     from fibsem.ai.agent import manager, sources, subagents
@@ -820,20 +1011,17 @@ def test_a_specialist_copied_for_a_session_gets_the_extra_servers_tools(
     monkeypatch.setattr(harness_mod.Path, "home", lambda: tmp_path)
     monkeypatch.delenv("FIBSEM_SERVER_TOKEN", raising=False)
     monkeypatch.setenv("FIBSEM_HOME", str(tmp_path / "home"))
-    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude"))
     (tmp_path / "home" / "agent").mkdir(parents=True)
     (tmp_path / "home" / "agent" / "mcp.yaml").write_text(
-        "notebook:\n  tools: [search]\n  subagents: [search]\n", encoding="utf-8"
-    )
-    (tmp_path / "claude").mkdir()
-    entry = {"type": "http", "url": "https://notebook.example/mcp"}
-    (tmp_path / "claude" / ".claude.json").write_text(
-        json.dumps({"mcpServers": {"notebook": entry}}), encoding="utf-8"
+        "notebook:\n  url: https://notebook.example/mcp\n"
+        "  tools: [search]\n  subagents: [search]\n",
+        encoding="utf-8",
     )
     # No file tools: the session runs in its run/.
     (tmp_path / "home" / "knowledge" / "playbooks").mkdir(parents=True)
     (tmp_path / "home" / "knowledge" / "playbooks" / "plain.yaml").write_text(
-        "agents: [autolamella-verifier]\nsession:\n  mode: none\n", encoding="utf-8"
+        "agents: [autolamella-verifier]\nmcp: [notebook]\nsession:\n  mode: none\n",
+        encoding="utf-8",
     )
     shipped = sources.agent_file("autolamella-verifier", harness_mod.find_checkout())
     before = shipped.read_bytes()
@@ -841,7 +1029,9 @@ def test_a_specialist_copied_for_a_session_gets_the_extra_servers_tools(
     run_id = str(uuid.uuid4())
     plain = ["--session-id", run_id, "--playbook", "plain"]
     try:
-        for more in (plain, ["--files", str(tmp_path / "w")]):
+        # The playbook names the notebook: its specialists get its tools.
+        named = ["--playbook", "plain", "--files", str(tmp_path / "w")]
+        for more in (plain, named):
             code = harness_mod.main(
                 ["--url", "http://127.0.0.1:9", "--server-wait", "0"] + more
             )
@@ -882,8 +1072,17 @@ def test_a_given_folder_is_resolved(tmp_path, monkeypatch):
 
 # --- the specialists ------------------------------------------------------------
 
-# Read-only, but it saves its result beside the image it measured.
-MEASURES = {"item_measure_thickness"}
+# Read-only, but each saves its result, figure or drawing beside the image it
+# measured or drew on.
+MEASURES = {
+    "item_measure_thickness",
+    "analysis_draw_image",
+    "analysis_draw_pair",
+    "analysis_measure_profile",
+    "analysis_find_grid_squares",
+    "analysis_measure_coincidence_offset",
+    "grid_draw_milling",
+}
 # Only the Run Lead decides, starts, stops, mills, edits and keeps the record.
 LEAD_ONLY = {
     "proposal_decide",
@@ -898,6 +1097,9 @@ LEAD_ONLY = {
     "milling_stop",
     "milling_end",
 }
+# The Verifier puts its own answer on the record, so the review needn't trust the
+# Run Lead's copy of it.
+NOTES_ITS_ANSWER = {"autolamella-verifier": {"experiment_add_note"}}
 
 
 def _specialists():
@@ -906,7 +1108,7 @@ def _specialists():
 
     checkout = harness_mod.find_checkout()
     agents = {}
-    for path in sorted((checkout / ".claude" / "agents").glob("autolamella-*.md")):
+    for path in sorted((checkout / ".claude" / "agents").glob("*.md")):
         _, front, _ = path.read_text(encoding="utf-8").split("---\n", 2)
         agents[path.stem] = yaml.safe_load(front)
     return agents
@@ -932,6 +1134,12 @@ def test_a_specialist_has_only_tools_that_exist_and_the_harness_can_refuse():
         for tool in _tools(front):
             if tool.startswith("mcp__fibsem__"):
                 assert tool.removeprefix("mcp__fibsem__") in catalog, (name, tool)
+            elif tool in ("Skill", "ToolSearch"):
+                # The lead's own built-ins: reading a skill, finding a tool.
+                assert tool in harness_mod.BUILT_IN_TOOLS, (name, tool)
+            elif tool.startswith("Agent("):
+                # Only the subagents it names, each one of the checkout's.
+                assert tool[len("Agent(") : -1] in _specialists(), (name, tool)
             else:
                 # An agent gets a tool it lists unless the harness denies it.
                 assert tool in harness_mod.DENIED_TOOLS, (name, tool)
@@ -942,16 +1150,38 @@ def test_only_the_run_lead_decides_and_its_agents_only_read():
 
     read_only = {spec.name for spec in CATALOG if spec.read_only}
     for name, front in _specialists().items():
+        if name == subagents.WORKER:
+            # The worker acts on the microscope; its limits are
+            # tests/agent/test_agent_subagents.py's.
+            continue
         fibsem = {
             tool.removeprefix("mcp__fibsem__")
             for tool in _tools(front)
             if tool.startswith("mcp__fibsem__")
-        }
+        } - NOTES_ITS_ANSWER.get(name, set())
         assert not fibsem & LEAD_ONLY, (name, fibsem & LEAD_ONLY)
         assert not {t for t in fibsem if t.startswith(("workflow_", "protocol_"))} - (
             read_only
         ), name
         assert fibsem <= read_only | MEASURES, (name, fibsem - read_only)
+
+
+def test_the_site_finder_only_looks_and_the_lead_keeps_the_record():
+    finder = _specialists()["autolamella-site-finder"]
+    fibsem = {
+        tool.removeprefix("mcp__fibsem__")
+        for tool in _tools(finder)
+        if tool.startswith("mcp__fibsem__")
+    }
+    specs = {spec.name: spec for spec in CATALOG if spec.name in fibsem}
+    assert set(specs) == fibsem
+    kind = instruments.devices("fibsem", harness_mod.find_checkout())
+    assert all(kind.offers(spec) for spec in specs.values())
+    # It saves drawings and figures beside images, and nothing else.
+    assert {n for n, spec in specs.items() if not spec.read_only} <= MEASURES
+    assert "autolamella-site-finder" not in NOTES_ITS_ANSWER
+    assert not {t for t in fibsem if t.startswith(("proposal_", "plan_"))}
+    assert not {"grid_set_note", "grid_set_quality", "knowledge_write"} & fibsem
 
 
 # --- turning lines into turns -------------------------------------------------
@@ -1052,6 +1282,86 @@ def test_an_operator_message_wakes_the_agent_and_it_answers(session):
     assert [n["payload"].get("reply_to") for n in notes] == [message_id]
 
 
+class AsideAgent(ScriptedAgent):
+    """The scripted agent with the CLI's side question stood in: it keeps
+    each question and answers it."""
+
+    def __init__(self, reply=None):
+        super().__init__(reply)
+        self.side_questions = []
+
+    async def side_question(self, question, history, timeout_s):
+        self.side_questions.append(question)
+        return "The ion beam was at 30 pA at the last image."
+
+
+def test_a_side_question_is_answered_beside_a_long_turn_and_never_reaches_it(
+    session,
+):
+    def notes():
+        return [
+            e
+            for e in session.recorder.buffer.events_since(0)["events"]
+            if e["kind"] == "note"
+        ]
+
+    async def reply(prompt):
+        if prompt != kickoff():
+            return None
+        # A long turn: it goes on until the side answer is on the record.
+        while not any(n.get("actor") != "operator" for n in notes()):
+            await asyncio.sleep(0.05)
+
+    agent = AsideAgent(reply)
+    running = _harness(session, agent)
+    assert wait_for(lambda: agent.prompts, timeout=20), "no kickoff"
+    side_id = AgentControl(session).message("/btw what current is the ion beam at?")
+    assert wait_for(
+        lambda: any(n.get("actor") != "operator" for n in notes()), timeout=20
+    ), "no side answer"
+    # Its turn sees the answer and ends.
+    time.sleep(0.5)
+    # An ordinary message after it still reaches the agent, as its next turn.
+    message_id = AgentControl(session).message("is 01 ok?")
+    assert wait_for(lambda: len(agent.prompts) >= 2, timeout=20), "no second turn"
+    time.sleep(2 * POLL_S)
+    assert running.stop() == 0
+
+    assert agent.interrupts == 0, "the side question cut the turn short"
+    assert agent.side_questions == [
+        harness_mod.aside.FRAME + "what current is the ion beam at?"
+    ]
+    assert len(agent.prompts) == 2
+    assert agent.prompts[1].startswith(
+        f"The watcher printed:\nMESSAGE id={message_id} from the operator: is 01 ok?"
+    )
+    for prompt in agent.prompts:
+        assert side_id not in prompt and "ion beam" not in prompt
+    # Both on the record: the question marked, the answer replying to it.
+    question, ordinary = [n for n in notes() if n.get("actor") == "operator"]
+    (answer,) = [n for n in notes() if n.get("actor") != "operator"]
+    assert question["payload"]["id"] == side_id
+    assert question["payload"][harness_mod.aside.MARK] is True
+    assert harness_mod.aside.MARK not in ordinary["payload"]
+    assert answer["payload"]["reply_to"] == side_id
+    assert answer["payload"]["text"] == (
+        harness_mod.aside.LEAD + "The ion beam was at 30 pA at the last image."
+    )
+
+
+def test_a_side_question_sent_before_the_agent_started_is_answered_beside_it(
+    session,
+):
+    side_id = AgentControl(session).message("/btw where is the report?")
+    agent = AsideAgent()
+    running = _harness(session, agent)
+    assert wait_for(lambda: agent.side_questions, timeout=20), "not answered"
+    time.sleep(2 * POLL_S)
+    assert running.stop() == 0
+    assert agent.prompts == [kickoff()]
+    assert all(side_id not in prompt for prompt in agent.prompts)
+
+
 def test_an_event_id_after_lines_already_taken_is_the_current_turn_s():
     # The watch says a poll's lines, then the id of its newest event: two
     # items. A turn can take the lines before the id arrives.
@@ -1108,6 +1418,41 @@ def test_a_resumed_session_hears_what_it_missed_while_it_was_down(session):
     assert running.stop() == 0
     assert missed in again.prompts[1]
     assert first not in again.prompts[1], "a message it had already heard came again"
+
+
+def test_a_cursor_that_comes_after_its_turn_ended_is_kept(session, monkeypatch):
+    # On a busy machine the watcher's cursor can come after the turn carrying
+    # its lines is over: it is still that turn's, kept without a next turn.
+    watch = watch_mod.watch
+
+    def late(client, *args, on_cursor=None, **kwargs):
+        def later(event_id):
+            time.sleep(0.5)
+            on_cursor(event_id)
+
+        return watch(client, *args, on_cursor=later, **kwargs)
+
+    monkeypatch.setattr(harness_mod.watch_mod, "watch", late)
+    kept = []
+
+    async def reply(prompt):
+        return None
+
+    agent = ScriptedAgent(reply)
+    running = _harness(session, agent, keep_cursor=kept.append)
+    assert wait_for(lambda: agent.prompts, timeout=20), "no kickoff"
+    first = AgentControl(session).message("is 01 ok?")
+    assert wait_for(lambda: len(agent.prompts) >= 2, timeout=20), "no second turn"
+    (sent,) = [
+        e
+        for e in session.recorder.buffer.events_since(0)["events"]
+        if (e.get("payload") or {}).get("id") == first
+    ]
+    assert wait_for(
+        lambda: any(split_event_id(k)[1] >= sent["seq"] for k in kept), timeout=20
+    ), "the message's event id was not kept after its turn"
+    assert running.stop() == 0
+    assert len(agent.prompts) == 2
 
 
 def test_lines_that_arrive_during_a_turn_are_the_next_turn(session, caplog):
@@ -1245,6 +1590,64 @@ def test_the_session_is_reported_to_the_app_after_each_turn_and_at_the_end(sessi
     assert kinds.count("agent_session_ended") == 1
 
 
+def test_a_long_turn_reports_its_tokens_and_the_context_while_it_goes_on(session):
+    """The spend is known only as a turn ends, but its tokens and how full
+    the context is are reported while it runs: a turn can last an hour."""
+    finish = threading.Event()
+
+    async def reply(prompt):
+        if len(agent.prompts) > 1:
+            return TurnEnd(cost_usd=0.5, session_id="scripted")
+        agent.calls.seen(
+            "call-1", "a-model", {"input_tokens": 10, "output_tokens": 5}, []
+        )
+        agent.calls.seen(
+            "call-2",
+            "a-model",
+            {"input_tokens": 20, "cache_read_input_tokens": 4000},
+            [],
+        )
+        while not finish.is_set():
+            await asyncio.sleep(0.05)
+        agent.calls.end_turn()
+        return TurnEnd(
+            cost_usd=0.25,
+            session_id="scripted",
+            tokens={"input": 30, "output": 5, "cache_read": 4000, "cache_write": 0},
+            context={"used": 4100, "window": 1000000},
+        )
+
+    agent = ScriptedAgent(reply)
+    agent.calls = usage.Calls()
+    running = _harness(session, agent, budget_usd=5.0, report_every_s=0.1)
+    control = AgentControl(session)
+    assert wait_for(
+        lambda: (
+            ((control.reported_session() or {}).get("context") or {}).get("used")
+            == 4020
+        ),
+        timeout=20,
+    ), "timed out waiting for a report from inside the turn"
+    reported = control.reported_session()
+    assert reported["tokens"] == {
+        "input": 30,
+        "output": 5,
+        "cache_read": 4000,
+        "cache_write": 0,
+    }
+    assert reported.get("turns", 0) == 0 and "spent_usd" not in reported
+
+    finish.set()
+    assert wait_for(
+        lambda: (control.reported_session() or {}).get("turns") == 1, timeout=20
+    ), "timed out waiting for the turn's end"
+    reported = control.reported_session()
+    assert reported["spent_usd"] == 0.25
+    assert reported["context"] == {"used": 4100, "window": 1000000}
+    assert reported["tokens"]["cache_read"] == 4000
+    assert running.stop() == 0
+
+
 def test_the_harness_reports_the_goal_once_and_leaves_later_ones_to_the_agent():
     class Client:
         def __init__(self):
@@ -1365,6 +1768,120 @@ def test_a_step_that_answers_is_done_and_says_how_long_it_took():
     assert printed == [1, 2], "each line tells the harness at once"
 
 
+def test_a_subagent_s_lines_are_kept_under_the_call_that_started_it():
+    pytest.importorskip("claude_agent_sdk")
+    from claude_agent_sdk import (
+        AssistantMessage,
+        TextBlock,
+        ToolResultBlock,
+        ToolUseBlock,
+        UserMessage,
+    )
+
+    from fibsem.ai.agent.harness import SdkAgent, _show
+
+    agent = SdkAgent(harness_mod.build_options(harness_mod.find_checkout()))
+    asked = {
+        "subagent_type": "autolamella-verifier",
+        "description": "Check lamella 02's polishing pass",
+        "prompt": "...",
+    }
+    _show(
+        AssistantMessage(content=[ToolUseBlock("a1", "Agent", asked)], model="m"),
+        agent,
+    )
+    _show(
+        AssistantMessage(
+            content=[
+                TextBlock("Reading the last image."),
+                ToolUseBlock("v1", "mcp__fibsem__item_get", {"name": "02"}),
+            ],
+            model="m",
+            parent_tool_use_id="a1",
+        ),
+        agent,
+    )
+    _show(
+        UserMessage(
+            content=[ToolResultBlock("v1", "ok", False)], parent_tool_use_id="a1"
+        ),
+        agent,
+    )
+    answer = [{"type": "text", "text": "Concern: the left edge.\n\nagentId: x1"}]
+    _show(UserMessage(content=[ToolResultBlock("a1", answer, False)]), agent)
+
+    call, said, read, read_done, done = agent.transcript
+    assert (call["verb"], call["text"]) == ("Asked", asked["description"])
+    assert call["subagent"] == "autolamella-verifier" and "run" not in call
+    for line in (said, read, read_done):
+        assert line["run"] == call["seq"], line
+    assert said["kind"] == "said" and read_done["step"] == read["seq"]
+    # The run's answer stays on its call's done line, without the CLI's footer.
+    assert done["step"] == call["seq"] and "run" not in done
+    assert done["text"] == "Concern: the left edge."
+
+
+def test_a_run_that_ends_says_its_open_steps_ended():
+    """Stopped mid subagent run: the Agent call and the subagent's own step get
+    failed lines, so the web page shows them stopped, not running for ever."""
+    pytest.importorskip("claude_agent_sdk")
+    from claude_agent_sdk import AssistantMessage, ToolUseBlock
+
+    from fibsem.ai.agent.harness import STEP_ENDED, SdkAgent, _show
+
+    agent = SdkAgent(harness_mod.build_options(harness_mod.find_checkout()))
+    asked = {"subagent_type": "autolamella-auditor", "description": "Audit"}
+    _show(
+        AssistantMessage(content=[ToolUseBlock("a1", "Agent", asked)], model="m"),
+        agent,
+    )
+    _show(
+        AssistantMessage(
+            content=[ToolUseBlock("v1", "mcp__fibsem__app_get_log", {})],
+            model="m",
+            parent_tool_use_id="a1",
+        ),
+        agent,
+    )
+    call, read = agent.transcript
+    agent.end_open_steps(STEP_ENDED)
+    ended = agent.transcript[2:]
+    assert sorted(line["step"] for line in ended) == [call["seq"], read["seq"]]
+    assert all(line["kind"] == "failed" for line in ended)
+    assert {line.get("run") for line in ended} == {None, call["seq"]}
+    # Said once: nothing is open now.
+    agent.end_open_steps(STEP_ENDED)
+    assert len(agent.transcript) == 4
+
+
+def test_a_subagent_s_json_answer_gives_its_card_a_verdict_or_attention():
+    from fibsem.ai.agent.harness import _answer
+
+    def said(body):
+        return [{"type": "text", "text": body + "\n\nagentId: x1"}]
+
+    no = '{"decision": "polishing pass", "agree": false, "concern": "left edge"}'
+    text, verdict = _answer(said(f"Checked it.\n\n```json\n{no}\n```"))
+    assert (text, verdict) == ("left edge", {"verdict": "concern"})
+    yes = '{"agree": true, "concern": ""}'
+    text, verdict = _answer(said(f"The pass is safe.\n```json\n{yes}\n```"))
+    assert (text, verdict) == ("The pass is safe.", {"verdict": "agree"})
+    looked = '{"cause": "x", "summary": "Move the area and retry.", "attention": true}'
+    text, flags = _answer(said(f"Found it.\n```json\n{looked}\n```"))
+    assert (text, flags) == ("Move the area and retry.", {"attention": True})
+    # Any other answer, a JSON block without agree or attention included,
+    # stays as it is.
+    assert _answer(said("Six sites.")) == ("Six sites.", {})
+    plain = 'Sites:\n```json\n{"sites": [1]}\n```'
+    assert _answer(said(plain)) == (plain, {})
+
+
+def test_the_session_asks_for_the_subagents_words_too():
+    pytest.importorskip("claude_agent_sdk")
+    options = harness_mod.build_options(harness_mod.find_checkout())
+    assert options.forward_subagent_text is True
+
+
 def test_the_skills_the_agent_reads_are_reported_when_it_reads_one():
     pytest.importorskip("claude_agent_sdk")
     from claude_agent_sdk import AssistantMessage, ToolUseBlock
@@ -1424,6 +1941,46 @@ def test_the_transcript_is_sent_and_kept_while_the_server_cant_take_it():
     assert entry["verb"] == "Ran" and "at" not in entry and entry["age_s"] >= 0
 
 
+def test_a_line_the_server_refuses_does_not_lose_a_subagent_runs_end():
+    """A subagent's long last words once made the server refuse the whole
+    send, its run's end with it, and the page showed the run running."""
+    from fibsem.server.agent import transcript as transcript_route
+
+    assert harness_mod.TRANSCRIPT_TEXT == transcript_route.MAX_TEXT
+    options = types.SimpleNamespace(resume=None, session_id="s1", model=None, cwd=None)
+    agent = harness_mod.SdkAgent(options)
+    call = agent.line("step", "Find sites", verb="Asked", subagent="site-finder")
+    agent.line("said", "x" * 5000, run=call)
+    assert len(agent.transcript[-1]["text"]) == harness_mod.TRANSCRIPT_TEXT
+
+    class Response:
+        def __init__(self, status_code):
+            self.status_code = status_code
+
+    class Client:
+        def __init__(self):
+            self.kept = []
+
+        def request(self, method, path, json=None, timeout=None):
+            entries = json["entries"]
+            if any(e["kind"] not in transcript_route.KINDS for e in entries):
+                return Response(422)
+            self.kept += entries
+            return Response(200)
+
+    now = time.monotonic()
+    agent = ScriptedAgent()
+    agent.transcript = [
+        {"seq": 2, "kind": "nonsense", "text": "x", "at": now},
+        {"seq": 3, "kind": "done", "text": "6 sites", "step": 1, "at": now},
+    ]
+    harness = Harness(agent, lambda: None)
+    harness._client = client = Client()
+    asyncio.run(harness._send_transcript())
+    assert [e["seq"] for e in client.kept] == [3]
+    assert agent.transcript == []
+
+
 def test_the_transcript_goes_soon_after_a_line_not_on_the_ten_second_clock(
     monkeypatch,
 ):
@@ -1480,8 +2037,8 @@ def test_the_transcript_goes_soon_after_a_line_not_on_the_ten_second_clock(
 
 def test_the_urgent_lines_are_the_four_the_operator_chose():
     assert harness_mod.URGENT == {
-        # an operator message
-        watch_mod.MESSAGE,
+        # the operator interrupted for a message (a plain one waits)
+        watch_mod.INTERRUPT,
         # the level lowered, or control taken back
         watch_mod.LEVEL_LOWERED,
         watch_mod.AGENT_OFF,
@@ -1490,9 +2047,9 @@ def test_the_urgent_lines_are_the_four_the_operator_chose():
         watch_mod.WORKFLOW_FAILED,
         "task_failed",
         watch_mod.COMMAND_FAILED,
-        watch_mod.MILL_FAILED,
+        fibsem_lines.MILL_FAILED,
         # a stop rule firing
-        watch_mod.STOP_RULE,
+        fibsem_lines.STOP_RULE,
     }
     assert harness_mod.is_urgent(watch_mod.NO_END_EVENT_LINE)
     for line in (
@@ -1502,8 +2059,13 @@ def test_the_urgent_lines_are_the_four_the_operator_chose():
         watch_mod.Wake(watch_mod.PROPOSAL, "PROPOSAL item=01"),
         watch_mod.Wake(harness_mod.ALARM, "WAKE check drift"),
         "MESSAGE id=ab12 from the operator: a plain string is never urgent",
+        watch_mod.Wake(watch_mod.MESSAGE, "MESSAGE id=ab12 from the operator: hi"),
     ):
         assert not harness_mod.is_urgent(line), line
+    # Sent with /now, it cuts the turn short.
+    assert harness_mod.is_urgent(
+        watch_mod.Wake(watch_mod.MESSAGE, "MESSAGE id=ab12 ...", interrupt=True)
+    )
 
 
 def test_a_lowered_level_or_a_stop_asks_the_agent_to_re_read_its_level():
@@ -1523,7 +2085,7 @@ def test_an_urgent_line_cuts_the_turn_short_and_others_wait(session, caplog):
                 await asyncio.sleep(0.05)
             await asyncio.sleep(3 * POLL_S)
             assert agent.interrupts == 0
-            operator.message("stop and look at 01")
+            operator.message("/now look at 01")
             return await agent.until_interrupted()
 
     agent = ScriptedAgent(reply)
@@ -1537,7 +2099,82 @@ def test_an_urgent_line_cuts_the_turn_short_and_others_wait(session, caplog):
     after = agent.prompts[1]
     assert after.startswith(harness_mod.INTERRUPTED + "\n\nThe watcher printed:\n")
     assert "LEVEL assist (was watch)" in after
-    assert "from the operator: stop and look at 01" in after
+    assert "from the operator, who stopped your turn to say this: look at 01" in after
+
+
+def test_a_note_for_the_record_wakes_nothing_and_comes_with_the_next_turn():
+    wakes = Wakes()
+    note = watch_mod.Wake(
+        watch_mod.RECORD_NOTE, "NOTE from the operator, for the record: thin film"
+    )
+    assert wakes.add([note]) is None
+    prompt = wakes.add([watch_mod.Wake(watch_mod.LEVEL, "LEVEL drive (was watch)")])
+    assert "for the record: thin film" in prompt and "LEVEL drive" in prompt
+
+
+def test_a_note_for_the_record_goes_on_the_record_not_to_the_agent(session):
+    operator = AgentControl(session)
+    assert operator.message("/note film thin on grid 2") is not None
+    notes = [
+        e
+        for e in session.recorder.buffer.events_since(0)["events"]
+        if e["kind"] == "note" and e["actor"] == "operator"
+    ]
+    assert notes[-1]["payload"] == {"text": "film thin on grid 2", "for_record": True}
+
+
+def test_a_plain_message_waits_for_the_turn_to_end(session, caplog):
+    operator = AgentControl(session)
+    sent = []
+
+    async def reply(prompt):
+        if prompt.startswith("You are"):
+            sent.append(operator.message("how is 01?"))
+            while not _heard(caplog, f"MESSAGE id={sent[0]}"):
+                await asyncio.sleep(0.05)
+            await asyncio.sleep(3 * POLL_S)
+
+    agent = ScriptedAgent(reply)
+    running = _harness(session, agent)
+    assert wait_for(lambda: len(agent.prompts) >= 2, timeout=20), (
+        "timed out waiting for the turn after the message"
+    )
+    assert running.stop() == 0
+
+    assert agent.interrupts == 0, "a plain message cut the turn short"
+    assert f"MESSAGE id={sent[0]} from the operator: how is 01?" in agent.prompts[1]
+    assert not agent.prompts[1].startswith(harness_mod.INTERRUPTED)
+
+
+def test_interrupt_now_cuts_the_turn_short_for_a_waiting_message(session, caplog):
+    operator = AgentControl(session)
+    sent = []
+
+    async def reply(prompt):
+        if prompt.startswith("You are"):
+            sent.append(operator.message("look at 01 first"))
+            while not _heard(caplog, f"MESSAGE id={sent[0]}"):
+                await asyncio.sleep(0.05)
+            await asyncio.sleep(2 * POLL_S)
+            assert agent.interrupts == 0, "the message cut the turn short itself"
+            assert operator.interrupt(sent[0])
+            return await agent.until_interrupted()
+
+    agent = ScriptedAgent(reply)
+    running = _harness(session, agent)
+    assert wait_for(lambda: len(agent.prompts) >= 2, timeout=20), (
+        "timed out waiting for the turn after the interrupt"
+    )
+    assert running.stop() == 0
+
+    assert agent.interrupts == 1
+    after = agent.prompts[1]
+    assert after.startswith(harness_mod.INTERRUPTED)
+    assert f"MESSAGE id={sent[0]} from the operator: look at 01 first" in after
+    assert (
+        f"INTERRUPT the operator stopped your turn so you read their message id={sent[0]}"
+        in after
+    )
 
 
 def test_a_stage_move_cut_short_finishes_once_and_lets_go_of_control(session):
@@ -1624,13 +2261,82 @@ def test_stopping_interrupts_the_turn_and_closes_the_session(session):
     assert agent.closed
 
 
-def test_a_spent_budget_ends_the_run(session):
+def test_a_spent_budget_ends_the_run_at_the_end_of_its_turn(session, caplog):
     async def reply(prompt):
-        return TurnEnd("error_max_budget_usd", 5.01, "scripted")
+        return TurnEnd(cost_usd=5.01, session_id="scripted")
 
     agent = ScriptedAgent(reply)
-    assert _harness(session, agent).ended() == 2
+    running = _harness(session, agent, budget_usd=5.0)
+    assert running.ended() == 2
     assert agent.closed and len(agent.prompts) == 1
+    assert running.harness.outcome()["reason"] == "its budget is spent"
+    assert any("The budget is spent ($5.01 of $5 " in m for m in caplog.messages)
+    ended = AgentControl(session).reported_session()
+    assert ended["ended"] and ended["reason"] == "its budget is spent"
+    assert (ended["budget_usd"], ended["spent_usd"]) == (5.0, 5.01)
+
+
+def test_a_budget_the_operator_raises_keeps_the_run_going(session):
+    session.agent_auth.operator_token = "op-token"
+    spent = iter([1.0, 4.5, 5.5, 12.0])
+
+    async def reply(prompt):
+        cost = next(spent)
+        if cost == 5.5:
+            # The operator raises it while the turn that spends it goes on.
+            with httpx.Client(
+                base_url=session.app_server.url,
+                headers={"Authorization": "Bearer op-token"},
+                timeout=30,
+            ) as http:
+                raised = http.put("/app/agent/budget", json={"budget_usd": 10})
+            assert raised.status_code == 200, raised.text
+        return TurnEnd(cost_usd=cost, session_id="scripted")
+
+    agent = ScriptedAgent(reply)
+    running = _harness(session, agent, budget_usd=5.0)
+    control = AgentControl(session)
+    for turn in range(1, 4):
+        assert wait_for(lambda: len(agent.prompts) == turn, timeout=20)
+        control.message(f"carry on {turn}")
+    assert running.ended() == 2
+    assert len(agent.prompts) == 4
+    # Said once, in the turn after the spend first reached 80% of the budget.
+    said = [harness_mod.BUDGET_LOW[:8] in prompt for prompt in agent.prompts]
+    assert said == [False, False, True, False]
+    assert "$4.50 of this run's $5 is spent (90%)" in agent.prompts[2]
+    ended = control.reported_session()
+    assert (ended["budget_usd"], ended["budget_set_usd"]) == (10.0, 10.0)
+
+
+def test_a_resumed_run_counts_its_own_spend_against_the_budget():
+    def resumed(before=None):
+        return Harness(
+            ScriptedAgent(),
+            lambda: None,
+            resumed=True,
+            budget_usd=5.0,
+            spent_before_usd=before,
+        )
+
+    # The CLI's running total carries the earlier runs on.
+    harness = resumed(40.0)
+    harness._count_spend(44.0)
+    assert harness._run_spent() == 4.0 and not harness._over_budget()
+    harness._count_spend(45.5)
+    assert harness._over_budget()
+    # A total that did not carry them on is all this run's.
+    harness = resumed(40.0)
+    harness._count_spend(3.0)
+    assert harness._run_spent() == 3.0
+    # Not known: the run's first turn is not counted.
+    harness = resumed()
+    harness._count_spend(44.0)
+    harness._count_spend(46.0)
+    assert harness._run_spent() == 2.0
+    record = {"runs": [{"spent_usd": 12.5}, {"spent_usd": 40.0}, {}]}
+    assert harness_mod._spent_before(record) == 40.0
+    assert harness_mod._spent_before({"runs": [{"spent_usd": 3.0}]}) is None
 
 
 def test_a_model_that_cannot_sign_in_ends_the_run(session):
@@ -1750,6 +2456,39 @@ def test_a_server_of_another_api_version_ends_the_agent_at_once(caplog):
     assert running.harness._resumable is False
 
 
+def test_compacting_shows_as_a_running_step_until_it_ends():
+    """The CLI's "compacting" status opens a step, so the page shows the
+    agent at work rather than frozen; the boundary closes it and says so."""
+    pytest.importorskip("claude_agent_sdk")
+    from claude_agent_sdk import SystemMessage
+
+    from fibsem.ai.agent.harness import SdkAgent, _show
+
+    agent = SdkAgent(harness_mod.build_options(harness_mod.find_checkout()))
+    status = SystemMessage(subtype="status", data={"status": "compacting"})
+    _show(status, agent)
+    _show(status, agent)  # said twice, one step
+    (step,) = agent.transcript
+    assert (step["kind"], step["verb"], step["text"]) == (
+        "step",
+        "Compacted",
+        "the context",
+    )
+    _show(
+        SystemMessage(
+            subtype="compact_boundary",
+            data={"compact_metadata": {"trigger": "auto", "pre_tokens": 812000}},
+        ),
+        agent,
+    )
+    _show(SystemMessage(subtype="status", data={"status": None}), agent)
+    done, said = agent.transcript[1:]
+    assert done["kind"] == "done" and done["step"] == step["seq"]
+    assert said["kind"] == "context"
+    assert said["text"] == "Context compacted: 812k tokens before, automatically"
+    assert agent._compacting is None
+
+
 def test_a_compacted_context_asks_for_the_plan_on_the_next_turn():
     pytest.importorskip("claude_agent_sdk")
     from claude_agent_sdk import SystemMessage
@@ -1787,3 +2526,107 @@ def test_a_compacted_context_asks_for_the_plan_on_the_next_turn():
         "Your context was compacted. " + harness_mod.texts().reread_plan
     )
     assert "compacted" not in second
+
+
+def test_a_lab_tool_s_picture_goes_on_the_transcript_under_its_step():
+    pytest.importorskip("claude_agent_sdk")
+    from claude_agent_sdk import (
+        AssistantMessage,
+        ToolResultBlock,
+        ToolUseBlock,
+        UserMessage,
+    )
+
+    from fibsem.ai.agent.harness import (
+        PICTURES_WAITING,
+        SdkAgent,
+        _one_picture,
+        _show,
+    )
+
+    agent = SdkAgent(harness_mod.build_options(harness_mod.find_checkout()))
+    image = {
+        "type": "image",
+        "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw=="},
+    }
+    for call, tool in (("t1", "mcp__notebook__read_page"), ("t2", "mcp__fibsem__x")):
+        _show(
+            AssistantMessage(content=[ToolUseBlock(call, tool, {})], model="m"), agent
+        )
+        result = [{"type": "text", "text": "a page"}, image]
+        _show(UserMessage(content=[ToolResultBlock(call, result, False)]), agent)
+    lab, picture = agent.transcript[0], agent.transcript[2]
+    # The lab's picture follows its step's done line; ours shows none.
+    assert [line["kind"] for line in agent.transcript] == [
+        "step",
+        "done",
+        "picture",
+        "step",
+        "done",
+    ]
+    assert picture["step"] == lab["seq"]
+    assert (picture["media_type"], picture["image"]) == ("image/png", "iVBORw==")
+
+    # An image as MCP gives it, a kind the server won't keep, and one too many.
+    agent.transcript.clear()
+    mcp = {"type": "image", "data": "R0lG", "mimeType": "image/gif"}
+    svg = {"type": "image", "data": "PHN2Zz4=", "mimeType": "image/svg+xml"}
+    for n in range(PICTURES_WAITING + 1):
+        call = f"m{n}"
+        _show(
+            AssistantMessage(
+                content=[ToolUseBlock(call, "mcp__notebook__plot", {})], model="m"
+            ),
+            agent,
+        )
+        _show(UserMessage(content=[ToolResultBlock(call, [mcp, svg], False)]), agent)
+    pictures = [line for line in agent.transcript if line["kind"] == "picture"]
+    assert len(pictures) == PICTURES_WAITING
+    assert {line["media_type"] for line in pictures} == {"image/gif"}
+    # A send carries one picture at most.
+    sent = _one_picture(agent.transcript)
+    assert sum(line["kind"] == "picture" for line in sent) == 1
+
+
+# --- what wakes the agent (wake_on) ---------------------------------------------
+
+
+def test_at_watch_routine_lines_wait_for_a_line_that_wakes_the_agent(session, caplog):
+    """The real watch on the real App Server: at Watch, under digest, a task's
+    start and end wait, and come at the top of the turn an operator's message
+    starts. Raised to Drive, every line wakes the agent again."""
+    policy = wake_policy.WakeOn(
+        wake_policy.Settings(watch="digest", every_min=60, after_lines=0)
+    )
+    agent = ScriptedAgent()
+    running = _harness(session, agent, wake_on=policy)
+    assert wait_for(lambda: agent.prompts, timeout=20), "no kickoff"
+    # The level, read as the watch started.
+    assert policy.level == "watch" and policy.mode == "digest"
+
+    buffer = session.recorder.buffer
+    buffer.append("task_started", {"item_name": "01-a", "task_name": "Setup"})
+    buffer.append("task_completed", {"item_name": "01-a", "task_name": "Setup"})
+    assert wait_for(lambda: len(_heard(caplog, "EVENT")) >= 2, timeout=20)
+    time.sleep(4 * POLL_S)
+    assert len(agent.prompts) == 1, "a routine line woke the agent at Watch"
+    assert len(policy.held) == 2
+
+    message_id = AgentControl(session).message("how is it going?")
+    assert wait_for(lambda: len(agent.prompts) >= 2, timeout=20), "no turn"
+    digest, lines = agent.prompts[1].split("\n\nThe watcher printed:\n")
+    assert digest.splitlines()[1:] == [
+        "EVENT task_started 01-a Setup",
+        "EVENT task_completed 01-a Setup",
+    ]
+    assert lines.startswith(f"MESSAGE id={message_id} from the operator")
+
+    assert AgentControl(session).set_level(AgentLevel.DRIVE) is None
+    assert wait_for(lambda: len(agent.prompts) >= 3, timeout=20), "no level turn"
+    assert (
+        "What wakes you now: wake_on all, the default at drive." in (agent.prompts[2])
+    )
+    buffer.append("task_started", {"item_name": "02-b", "task_name": "Setup"})
+    assert wait_for(lambda: len(agent.prompts) >= 4, timeout=20), "no task turn"
+    assert agent.prompts[3] == "The watcher printed:\nEVENT task_started 02-b Setup"
+    assert running.stop() == 0

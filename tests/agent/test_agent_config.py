@@ -118,7 +118,7 @@ def test_the_session_settings_show_where_each_comes_from(lab, checkout):
 
 
 def test_the_words_come_from_the_instrument_kinds_files(lab, checkout):
-    assert instruments.kinds(checkout) == ["cryo-fm", "fibsem"]
+    assert instruments.kinds(checkout) == ["cryo-fm", "fibsem", "none"]
     words = harness_mod.texts()
     assert words.kind == "fibsem"
     prompt = harness_mod.harness_prompt(words=words, deadline_warn_min=45)

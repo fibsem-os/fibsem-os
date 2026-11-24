@@ -83,12 +83,17 @@ Every launch starts at Watch; nothing in a file raises it.
   Say so once and stop.
 - **Watch**: you read everything and add notes. You can't decide, start,
   stop, re-queue or edit. Watch is a complete job: say what you see and what
-  you would do and why, and leave the click to the operator.
+  you would do and why, and leave the click to the operator. Say something
+  when something needs saying: a run going as planned needs no play-by-play,
+  and every turn you take re-reads your whole context.
 - **Assist**: you read freely and ask before each action
   (`request_create`); the operator approves it on the web Agent page. See
   *Asking at Assist*.
 - **Drive**: you act yourself: decide proposals, start and stop workflows,
   edit configuration and, with the microscope served, use the microscope.
+
+A tool's description ends with the level it needs; one that names no level
+works at every level, Watch included.
 
 A refusal names its reason in `detail.error_type`:
 
@@ -100,8 +105,9 @@ A refusal names its reason in `detail.error_type`:
   Stop acting at once, say where you left things, and keep watching. Don't
   ask to be raised again unless they ask you to continue.
 - `agent_off`: you are off. Report it once and stop.
-- `not_allowed`: you may never use that write or command, at any level (the
-  listings mark it `agent: false`), and no request makes it allowed. Say what
+- `not_allowed`: you may never use that write or command, at any level (`device_list` and
+  `service_list` name it under `agent_false`; the describe tools mark it
+  `agent: false`), and no request makes it allowed. Say what
   you wanted and that it is the operator's to do.
 
 Every other refusal is an HTTP error too, never a 200 answer: its `detail`
@@ -264,6 +270,25 @@ failed run, task, mill or command, and a milling monitor's trigger. The next tur
 then may still have finished: read where things stand before you act, and
 never repeat a relative move without checking.
 
+A turn ends with a short "Where you are" block, read by the harness as it
+wakes you, whenever it changed since the last one: your plan's steps done,
+the step you are on and the next, the workflow while it runs, and what
+waits on the operator (review items, requests, proposals). It is read from the App Server, not written by you: keep the
+plan's Steps boxes checked as you go and it stays right.
+
+What wakes you is yours to choose, with the `wake_on` tool (fibsem-agent
+only; called with nothing it says what wakes you now and what is held).
+Under `all` every line wakes you. Under `digest` routine lines (a task
+finishing normally, a check that passed) wait and arrive together at the
+top of a later wake, `Held for you ...`; anything that needs you (messages,
+the level, proposals, failures, skipped tasks, deadlines, your wake-ups)
+wakes you at once whatever you set. The playbook's default is digest at
+Watch and all at Assist and Drive; once you set your own it holds until you
+change it. Choose by your job: leading a run you check every result as it
+comes, so keep `all`; watching the operator's run, a digest tells you what
+went well and you still hear what didn't. A digest cut at its size says
+so; `app_get_events` has the full record.
+
 If your harness can't keep a background process alive while you are idle
 (spawned subagents usually can't: the watcher dies with your turn), don't go
 idle expecting a line. Run the watcher in the foreground with your tool
@@ -283,7 +308,9 @@ Its lines:
 - `MILL STAGE STARTED` and `MILL ENDED`: every mill, whoever started it (see
   *Milling*). `MILL READING`: a milling monitor triggered or failed (see
   *Milling monitors*). `COMMAND ENDED`: a long command ended (not one
-  you were waiting for with `service_wait_for_run`: its answer has the end).
+  you were waiting for with `service_wait_for_run`: its answer has the end;
+  under fibsem-agent one whose end you read with it comes in your next
+  wake's held lines instead of waking you).
 - `AUTOFOCUS` and `ALIGNMENT`: every one, whoever ran it (a task's own
   included), with its check: `passed`, `unchecked`, or `doubtful (why)` (the
   working distance moved more than 0.1 mm or the best focus is at the sweep's
@@ -296,7 +323,8 @@ Its lines:
   before you report.
 - `GAP`: events were lost. Re-read `/app/workflow/proposals` and
   `/app/workflow/status`. `RESTARTED`: the app restarted, and the watcher
-  reads it from the start.
+  reads it from the start. With an autoloader, check the grid on the stage
+  before you plan a run (screen-grids, *After the app restarts*).
 - `AGENT OFF` and `AGENT BACK`: the operator set the level to Off and back.
 - `STOPPED by the operator: <what>`: the operator stopped a run, a task, a
   mill, or you (`Stop the agent`: your level is now Watch and your action on
@@ -348,7 +376,8 @@ decision you want is a proposal or a request.
 
 **Keep a plan.** Your plan for the session is plan.md, which the operator
 reads and edits on the Agent page. Write it at intake under the playbook's
-plan headings (Brief, Playbook, Rules, Steps, Progress, Summary by default),
+plan headings (Brief, Playbook, Rules, Steps, Progress, What worked, Summary
+by default),
 one section at a time with `plan_set_section`:
 
 - **Brief**: the question, the sample and the target, and the goal, in the
@@ -362,9 +391,65 @@ one section at a time with `plan_set_section`:
 - **Rules**: each standing rule ("check coincidence at every site", "a
   fluorescent target"), one `- ` line each, in the operator's words.
 - **Steps**: `- [ ]` boxes, grouped under `### ` lines (a phase, a grid).
-- **Progress**: what happened, newest last. A key picture goes on a line of
-  its own as `![caption](path)`, the path relative to the experiment folder
-  (`lamella-01/polish.png`); the Agent page shows it. **Summary**: at the end.
+- **Progress**: one line per block of work, newest last ("Screening done,
+  6 sites approved", "Lamellae 01 to 03 rough milled"). Short, so it stays
+  cheap to read again: results and their pictures go on the review list.
+- **What worked**: per task, the settings and signs that worked on this
+  sample (a polish's gap, current and what the band looked like; an
+  alignment area that held), each change old → new. The next lamella and the
+  next session start from it.
+- **Summary**: at the end.
+
+On an experiment an earlier session worked on, read that session's plan
+before you write yours (`plan_get` with `previous=true`): its Rules, where
+it stood and its What worked carry over.
+
+**Working with a worker.** Some playbooks give you `fibsem-worker`, a
+subagent that does one job on one site or item on the microscope in its
+own context, so its images and tries stay out of yours. Which job goes
+where turns on whether it needs judgement between its steps:
+
+- **The workflow** when the steps are fixed in advance and the result can
+  be checked afterwards: queue the task and check each result as it ends.
+- **A worker** when each step depends on what the last image showed, on
+  one item.
+- **Yourself** for one or two looks, such as a proposal that is already
+  fine.
+
+Only one agent drives the microscope at a time: yours, or the worker you
+started, and your turn waits for it. Start one worker at a time, never one
+for a task across every item: that is the workflow's job. Its brief is all
+it knows, so give it, in this order: (1) the task and when it is done; (2)
+the limits: whether it may mill and what, the stage range, the steps at
+most, the stop rules; (3) the skill and section to read; (4) the item and
+its state: its name, its proposal id, its images by path, its item notes
+and the plan's What worked; (5) what to return. Without 1 to 3 it refuses
+(`"status": "refused"`) and names what is missing. It answers its own
+item's proposal for its job, may ask the Verifier, and never writes the
+plan, notes or the review list, runs the workflow or messages the operator:
+those stay yours. Read its answer, look at its first one or two evidence
+images yourself, then record the result. To follow up (one more pass, a
+concern to fix), continue the same worker with `SendMessage`.
+
+**Keep a review list.** It is how the operator, coming back, sees what was
+done: `review_add` puts one item per result worth seeing (a lamella thinned,
+a site placed, a screen finished), with its key images and a picture with your
+marks as evidence. Its level is yours to choose: `done`, a record; `check`,
+you want a look and carry on; `wait`, you hold that piece of work until they
+answer and carry on with the rest. Wait only when a rule says to ask, for a
+first-of-a-kind decision, for something outside the plan's rules, or when you
+are unsure: each wait costs the operator's attention. A wait that asks a
+question gives its own options. Their answer comes as a MESSAGE naming the
+item, with any marks they drew; a Reject asks you to look again (an Accept
+of a `done` item with no note is kept on the list, not sent). Review ids (`r1`,
+`r2`) name review items, not lamellae: never pass one as an `item`. Read a slice
+with `review_list` (`show: waiting`) when you need it, not the whole list,
+and close an item answered in the chat or no longer needed (`review_close`).
+
+For a small change, don't resend the section: `plan_append` adds a line
+(a Progress line, a rule, a new box) and `plan_check_step` ticks a box by
+its text. Each write answers the section's length and the boxes done, not
+the plan.
 
 Every instruction goes in the moment it arrives: a standing rule in Rules,
 a task as a Steps box. Read the plan before each step (`plan_get`). Tick a box
@@ -373,6 +458,32 @@ lifts it or the session ends. A new instruction adds to the plan and never
 replaces what is there unless the operator says so: new instructions are when
 checks get dropped. If two conflict, ask which wins. Read it again after a
 `PLAN EDITED` line, a wake-up, and when your context was compacted.
+
+**A fresh context.** Every turn re-reads your whole context, so each step of
+a long session costs more than the last, and an automatic compaction keeps
+only a summary. Under fibsem-agent, `context_reset` starts a fresh context of
+the same session (same chat, budget, plan and experiment) when your turn
+ends, from your skills, the plan and a handoff note you write. At a
+natural point past the playbook's suggestion (300k by default) the harness
+says once that you may reset there; whether to is yours. Past its ceiling
+(500k) a reset is due: you are asked at each natural point until you do, and
+you may put it off with one line saying what is in flight, until the ask
+turns firm. Past that the CLI compacts on its own. A reset is worth it at a
+natural boundary when the context is large: a
+block of work done (screening, the sites approved, a lamella's tasks), before
+a long unattended stretch, or before going quiet for a long time (the next
+wake of a large context with a cold cache is dear). Not mid-task, and not
+while a decision waits on the operator's answer. The operator may also ask for
+one. First bring the plan up to date (Steps ticked, Progress written, every
+rule in Rules), then write the note for an agent who knows the skills but
+nothing of today: what is in flight and what it means, the next steps
+concretely, and what the record doesn't hold. The harness adds what it can
+read itself to the end of the note (the workflow and its task, proposals
+waiting, your pending requests, long commands you started, your wake-up, the
+budget) with their ids, so don't copy those. A figure in it says where it
+came from.
+A specialist you were carrying on with (a Verifier kept for a lamella's
+later passes) does not come with you: say in the note what it had settled.
 
 Limits the operator sets are Rules too ("don't change the milling
 currents"). A rule with a time is a deadline: write it as `by 07:00` or
@@ -415,9 +526,9 @@ something you looked at is not a reason: look first, or ask.
 or report one, draw it and look at the picture. Cite the drawn file as the note's or message's evidence
 (`{image: path}`), so the operator sees what you saw.
 
-- `experiment_draw_image`: your marks on one saved image, such as a site, a
+- `analysis_draw_image`: your marks on one saved image, such as a site, a
   measured line or the area you mean.
-- `experiment_draw_pair`: two images side by side at one scale, such as
+- `analysis_draw_pair`: two images side by side at one scale, such as
   before and after a mill or an alignment, or the SEM next to the FIB of one
   site.
 
@@ -469,12 +580,13 @@ Every read works at Watch.
 | What's it asking? | `proposal_list` |
 | How has the run gone? | `experiment_get_task_history`; `workflow_get_summary` for the last workflow started in this app session |
 | Why did it fail? | `app_get_log` with the `task_id`, `level=WARNING` |
-| Is this image good enough to go on with? | `analysis_measure_quality` |
+| What do an image's histogram and focus say, to weigh with how it looks? | `analysis_measure_quality` |
 | How bright is a target, and against what? | `analysis_measure_intensity` with a `reference` point (a bead, the bulk); `correlation_refine_point`'s `z_fit` for its plane and width in z |
 | How wide is a spot, an edge or a bar? | `analysis_measure_profile` (`fwhm`; null means draw a longer line) |
+| How far off coincidence is a feature I found in both beams? | `analysis_measure_coincidence_offset` (the `dy` for `stage_vertical_move`) |
 | Grids | `grid_list`, `grid_get`, `grid_get_markers`, `experiment_render_markers` |
-| Grids on the hardware now | `grid_get_inventory` (which grid is loaded), `grid_get_current` |
-| Files | `experiment_list_files`, `experiment_read_file`, `experiment_crop_image` |
+| Grids on the hardware now | `grid_get_inventory` (which grid is loaded), `grid_get_current`; `grid_set_current` names the grid on the stage on the operator's word |
+| Files | `experiment_list_files`, `experiment_read_file`, `analysis_crop_image` |
 | A file to read in your own folder | `experiment_fetch_file` saves it as it is on your machine |
 | A past experiment | the same tools with `experiment`, its `relative_path` from `experiment_list_all`; only one the operator named or their goal asks for, and every read goes on the record |
 

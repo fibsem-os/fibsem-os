@@ -88,6 +88,55 @@ def test_the_agent_judges_notes_and_removes_a_grid(driving):
     assert experiment.get_grid_by_name("G2") is None
 
 
+def test_the_agent_puts_existing_lamellae_on_a_grid(driving):
+    _ok(_call(driving, "grid_add"))
+    _ok(_call(driving, "item_add"))
+    _ok(_call(driving, "item_add"))
+    experiment = driving.host.experiment
+    first, second = experiment.positions
+    first.grid_id = second.grid_id = None  # marked before the grid had a record
+    g2 = experiment.get_grid_by_name("G2")
+
+    answer = _ok(
+        _call(
+            driving,
+            "grid_assign_items",
+            grid_name="G2",
+            item_names=[first.name, second.name],
+        )
+    )
+    assert answer["assigned"] == [first.name, second.name]
+    assert experiment.get_lamellae_for_grid(g2) == [first, second]
+    # Saved: a reload has them on it.
+    from fibsem.applications.autolamella.structures import Experiment
+
+    reloaded = Experiment.load(os.path.join(experiment.path, "experiment.yaml"))
+    assert {p.grid_id for p in reloaded.positions} == {g2.id}
+
+    again = _ok(
+        _call(driving, "grid_assign_items", grid_name="G2", item_names=[first.name])
+    )
+    assert again["assigned"] == []
+
+    # The grid has to exist first; so does every lamella.
+    no_grid = _call(
+        driving, "grid_assign_items", grid_name="G9", item_names=[first.name]
+    )
+    assert no_grid.status_code == 404
+    no_item = _call(driving, "grid_assign_items", grid_name="G1", item_names=["nope"])
+    assert no_item.status_code == 404
+    assert experiment.get_lamellae_for_grid(g2) == [first, second]
+
+    from tests.run_state import run_working_on
+
+    with run_working_on(driving.host.runner, first.name):
+        busy = _call(
+            driving, "grid_assign_items", grid_name="G1", item_names=[first.name]
+        )
+    assert busy.status_code == 409
+    assert first.grid_id == g2.id
+
+
 def test_the_agent_s_grid_note_is_its_note_on_the_record(driving):
     from fibsem.acting import AGENT
     from fibsem.workflows.actions import ACTION, NOTE
@@ -432,7 +481,7 @@ def test_a_point_on_any_saved_image_is_a_stage_position_and_back(driving, arctis
     pixels = _ok(
         _call(
             driving,
-            "experiment_get_image_pixels",
+            "analysis_map_stage_to_pixel",
             path=path,
             stage_positions=[position],
         )
@@ -496,6 +545,10 @@ def test_the_agent_saves_and_returns_to_a_position(driving, arctis):  # noqa: F8
     _ok(_call(driving, "stage_save_position", name="cryo"))
     saved = _ok(_call(driving, "stage_get_saved_positions"))["result"]
     assert [p["name"] for p in saved] == ["cryo"]
+    named = _ok(_call(driving, "stage_get_saved_positions", names=["cryo"]))
+    assert named["result"] == saved
+    unknown = _call(driving, "stage_get_saved_positions", names=["warm"])
+    assert unknown.status_code in (409, 422)
     stage = arctis.get_stage_position()
     stage.x += 50e-6
     arctis.move_stage_absolute(stage)
@@ -560,13 +613,15 @@ def test_alignment_methods_are_compared_on_saved_images(driving, arctis):  # noq
     answer = _ok(
         _call(
             driving,
-            "alignment_compare_methods",
-            reference_path=first,
-            image_path=second,
+            "analysis_measure_shift",
+            reference=first,
+            image=second,
+            compare=True,
         )
     )
-    result = answer["result"]
+    result = answer["comparison"]
     assert set(result) >= {"shifts_px", "max_disagreement_px", "agreement"}
+    assert set(answer["shift"]) >= {"shift_px", "score", "success"}
 
 
 # --- what the operator reads ---------------------------------------------------------

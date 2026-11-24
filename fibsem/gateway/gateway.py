@@ -23,10 +23,17 @@ import threading
 import time
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import fibsem
-from fibsem.server.discovery import DISCOVERY_DIR, read_discovery_file
+from fibsem.gateway.health import HealthWatch, ServersHealth
+from fibsem.server.discovery import (
+    DISCOVERY_DIR,
+    GATEWAY_FILE,
+    GATEWAY_PORT,
+    read_discovery_file,
+    read_gateway_file,
+)
 from fibsem.tools.apps import App, apps
 from fibsem.update_check import Newer, check_newer
 from fibsem.util.process import kill_pid, pid_alive
@@ -43,6 +50,7 @@ __all__ = [
     "GatewayRefused",
     "GatewayState",
     "read_gateway_file",
+    "write_gateway_file",
 ]
 
 OFF = "off"
@@ -52,14 +60,14 @@ MODES = (OFF, RUNNING)
 STARTING = "starting"
 STOPPING = "stopping"
 
-GATEWAY_PORT = 8010
-GATEWAY_FILE = DISCOVERY_DIR / "gateway.json"
 # Set on a window the gateway started, so its launch doesn't ask the gateway.
 CHILD_ENV = "FIBSEM_GATEWAY"
 STOP_WAIT_S = 60.0
 POLL_S = 1.0
 NEWER_EVERY_S = 24 * 3600.0
 HISTORY_SHOWN = 50
+# The most starts and stops one read of the history gives.
+HISTORY_MAX = 5000
 # How often the facts read from disk (recent experiments, the experiments
 # folder, configurations, apps) are read again in the background: the page
 # gets the last values read and never waits on a slow or missing drive.
@@ -103,6 +111,14 @@ class GatewayApp:
     name: str
     headless: bool
     """Whether it can run with no window."""
+    opens_experiments: bool = True
+    """Whether it opens an experiment as it starts."""
+    connects_microscope: bool = True
+    """Whether it takes a microscope connection as it starts."""
+    has_window: bool = True
+    """Whether it has a desktop window; one that hasn't shows its pages."""
+    settings: List[Dict[str, str]] = field(default_factory=list)
+    """Its own start settings: ``{name, label, default}`` each."""
 
 
 @dataclass
@@ -144,6 +160,8 @@ class GatewayState:
     """A newer release, or commits on main, than the code this gateway runs."""
     app_url: Optional[str] = None
     """The running App Server's address, for the link to the app's pages."""
+    health: Optional[ServersHealth] = None
+    """How the App Server and its microscope are (`fibsem.gateway.health`)."""
 
 
 @dataclass
@@ -156,7 +174,8 @@ class GatewayConfiguration:
 
 @dataclass
 class Switch:
-    """One line of the gateway's history."""
+    """One line of the gateway's history: a start or stop of the app, or
+    (*kind* ``agent``) an agent the operator allowed or denied."""
 
     at: float
     to_mode: str
@@ -167,11 +186,14 @@ class Switch:
     app: Optional[str] = None
     experiment: Optional[str] = None
     window: Optional[bool] = None
+    kind: Optional[str] = None
 
 
 @dataclass
 class History:
     switches: List[Switch] = field(default_factory=list)
+    # Whether the file holds older starts and stops than these.
+    more: bool = False
 
 
 def close_file(pid: int, home: Path = DISCOVERY_DIR) -> Path:
@@ -180,16 +202,23 @@ def close_file(pid: int, home: Path = DISCOVERY_DIR) -> Path:
     return home / f"gateway-close-{pid}"
 
 
-def read_gateway_file(path: Optional[Path] = None) -> Optional[dict]:
-    """The running gateway's ``{"url", "pid"}``, or None when none runs."""
-    try:
-        with open(path or GATEWAY_FILE) as f:
-            data = json.load(f)
-    except (OSError, ValueError):
-        return None
-    if not isinstance(data, dict) or "url" not in data:
-        return None
-    return data if pid_alive(data.get("pid")) else None
+def write_gateway_file(
+    url: str, connect_token: Optional[str], path: Optional[Path] = None
+) -> Path:
+    """``{"url", "pid", "connect_token"}``, readable by this PC's user only:
+    the connect token lets a program here ask the operator to let it in."""
+    path = Path(path or GATEWAY_FILE)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"url": url, "pid": os.getpid()}
+    if connect_token is not None:
+        payload["connect_token"] = connect_token
+    # Written whole, then moved into place: a reader never sees it half written.
+    partial = path.with_name(path.name + ".partial")
+    with open(partial, "w") as f:
+        json.dump(payload, f, indent=2)
+    os.chmod(partial, 0o600)
+    os.replace(partial, path)
+    return path
 
 
 def saved_configurations() -> List[dict]:
@@ -197,6 +226,29 @@ def saved_configurations() -> List[dict]:
     from fibsem.config import saved_configurations
 
     return saved_configurations()
+
+
+def _setting_flags(app: App, settings: Optional[Dict[str, Any]]) -> List[str]:
+    """*app*'s own start settings as its flags, ``--<name> <value>``: the given
+    value, else its default; an empty one passes nothing. A name it doesn't
+    take is refused."""
+    given = dict(settings or {})
+    known = {setting.name: setting for setting in app.settings}
+    unknown = sorted(set(given) - set(known))
+    if unknown:
+        raise GatewayRefused(
+            422,
+            "bad_setting",
+            f"{app.name} takes no setting {', '.join(unknown)}"
+            + (f" (it takes {', '.join(known)})." if known else "."),
+        )
+    flags: List[str] = []
+    for name, setting in known.items():
+        value = given.get(name)
+        value = setting.default if value is None else str(value).strip()
+        if value:
+            flags += [f"--{name}", value]
+    return flags
 
 
 def _check_experiment(experiment: Optional[str], create: bool) -> None:
@@ -317,6 +369,7 @@ class Gateway:
         python: Optional[str] = None,
         stop_wait_s: float = STOP_WAIT_S,
         newer: Callable[[], Optional[Newer]] = check_newer,
+        health: Optional[HealthWatch] = None,
     ):
         self._connection = list(connection or [])
         self._home = Path(home) if home is not None else DISCOVERY_DIR
@@ -344,6 +397,8 @@ class Gateway:
         self._log: Optional[Path] = None
         self._state = GatewayState(mode=OFF, version=fibsem.__version__)
         self._watcher: Optional[threading.Thread] = None
+        # Asked on its own thread from `start`; the state carries its last.
+        self.health = health or HealthWatch(self.mode, discovery)
         self._closed = threading.Event()
         # Run before the app stops, once the stop is sure (the agent's end).
         self.before_stop: List[Callable[[], None]] = []
@@ -372,7 +427,18 @@ class Gateway:
         state.other_host = self._other_host()
         facts = self._facts if self._facts is not None else self.refresh_facts()
         state.apps = [
-            GatewayApp(key=key, name=app.name, headless=app.serve is not None)
+            GatewayApp(
+                key=key,
+                name=app.name,
+                headless=app.serve is not None,
+                opens_experiments=app.opens_experiments,
+                connects_microscope=app.connects_microscope,
+                has_window=app.has_window,
+                settings=[
+                    {"name": s.name, "label": s.label, "default": s.default}
+                    for s in app.settings
+                ],
+            )
             for key, app in facts["apps"].items()
         ]
         state.last_experiment = facts["last"]
@@ -386,6 +452,7 @@ class Gateway:
         state.newer = self._newer
         found = self._discovery()
         state.app_url = found["url"] if found else None
+        state.health = self.health.state()
         return state
 
     def refresh_facts(self) -> dict:
@@ -416,17 +483,20 @@ class Gateway:
             logger.debug("Update check failed", exc_info=True)
 
     def history(self, limit: int = HISTORY_SHOWN) -> History:
+        """The newest *limit* starts and stops, newest first."""
+        limit = max(1, min(int(limit), HISTORY_MAX))
         try:
-            lines = _tail(self.history_file, limit)
+            lines = _tail(self.history_file, limit + 1)
         except OSError:
             return History()
+        more = len(lines) > limit
         switches = []
         for line in reversed(lines[-limit:]):
             try:
                 switches.append(Switch(**json.loads(line)))
             except (ValueError, TypeError):
                 continue
-        return History(switches=switches)
+        return History(switches=switches, more=more)
 
     def _other_host(self) -> Optional[OtherHost]:
         found = self._discovery()
@@ -455,16 +525,27 @@ class Gateway:
         connect: Optional[bool] = None,
         configuration: Optional[str] = None,
         create: bool = False,
+        settings: Optional[Dict[str, Any]] = None,
     ) -> GatewayState:
         """Start *app*'s host, with its window at this PC or without, stopping
         the running one first. *experiment* is a folder to open, or with
         *create* a new one to make. *connect* connects *configuration* (the
         default one without) as it starts, or nothing when False; None keeps
-        the gateway's own connection flags. Raises `GatewayRefused` when it
-        can't."""
+        the gateway's own connection flags. *settings* are the app's own
+        (`App.settings`), by name. An app passes over what it doesn't take: an
+        experiment, a connection, or a window it hasn't (it then runs its
+        headless command). Raises `GatewayRefused` when it can't."""
         chosen = self._app(app, window)
+        window = window and chosen.has_window
+        flags = _setting_flags(chosen, settings)
+        if not chosen.opens_experiments:
+            experiment, last, create = None, False, False
         _check_experiment(experiment, create)
-        connection = self._start_connection(connect, configuration)
+        connection = (
+            self._start_connection(connect, configuration)
+            if chosen.connects_microscope
+            else []
+        )
         with self._take(who, via, RUNNING, app, experiment, window):
             if self._state.mode != OFF:
                 self._stop_current(force)
@@ -476,7 +557,9 @@ class Gateway:
                     f"Another fibsem host (pid {other.pid}) has control of the microscope: "
                     "close it at the PC first.",
                 )
-            self._start(app, chosen, window, experiment, last, connection, create)
+            self._start(
+                app, chosen, window, experiment, last, connection, create, flags
+            )
             self._record(OFF, RUNNING, who, via, "started", app, experiment, window)
             with self._lock:
                 self._state.who, self._state.via = who, via
@@ -600,7 +683,7 @@ class Gateway:
         found = self._apps().get(key or "")
         if found is None:
             raise GatewayRefused(422, "bad_app", f"No app {key!r}.")
-        if not window and found.serve is None:
+        if (not window or not found.has_window) and found.serve is None:
             raise GatewayRefused(
                 422, "no_headless", f"{found.name} runs only with its window."
             )
@@ -672,6 +755,7 @@ class Gateway:
         last: bool,
         connection: List[str],
         create: bool = False,
+        flags: Optional[List[str]] = None,
     ) -> None:
         stamp = time.strftime("%Y%m%d-%H%M%S")
         logs = self._home / "logs" / "gateway"
@@ -683,6 +767,7 @@ class Gateway:
         args = [experiment] if experiment else ["--last"] if last else []
         if experiment and create:
             args.append("--create")
+        args += flags or []
         if window:
             # An app with a headless command has the host's flags, and hosts
             # whatever the preference; others none.
@@ -699,7 +784,7 @@ class Gateway:
                 str(stop_file),
                 app.serve,
                 *args,
-                *(connection or ["--no-connect"]),
+                *(connection or ["--no-connect"] if app.connects_microscope else []),
             ]
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         with open(log, "w") as out:
@@ -825,28 +910,47 @@ class Gateway:
             self._claimed = None
         self.run_file.unlink(missing_ok=True)
 
+    def record_access(self, who: str, via: str, result: str) -> None:
+        """An agent let in or turned away (``allowed claude-code on
+        mac-mini``), in the history beside the starts and stops."""
+        self._write(
+            Switch(
+                at=time.time(),
+                to_mode="",
+                from_mode="",
+                who=who,
+                via=via,
+                result=result,
+                kind="agent",
+            )
+        )
+
     def _record(
         self, from_mode, to_mode, who, via, result, app, experiment, window=None
     ) -> None:
-        line = Switch(
-            at=time.time(),
-            to_mode=to_mode,
-            from_mode=from_mode,
-            who=who,
-            via=via,
-            result=result,
-            app=app,
-            experiment=experiment,
-            window=window,
+        self._write(
+            Switch(
+                at=time.time(),
+                to_mode=to_mode,
+                from_mode=from_mode,
+                who=who,
+                via=via,
+                result=result,
+                app=app,
+                experiment=experiment,
+                window=window,
+            )
         )
+        # the last experiment and the recent ones may have changed
+        self._facts_due.set()
+
+    def _write(self, line: Switch) -> None:
         try:
             self.history_file.parent.mkdir(parents=True, exist_ok=True)
             with open(self.history_file, "a") as f:
                 f.write(json.dumps(asdict(line)) + "\n")
         except OSError:
             logger.exception("Gateway history not written")
-        # the last experiment and the recent ones may have changed
-        self._facts_due.set()
 
     # -- watching ----------------------------------------------------------
 
@@ -903,8 +1007,10 @@ class Gateway:
         self._watcher.start()
         threading.Thread(target=facts, name="gateway-facts", daemon=True).start()
         threading.Thread(target=newer, name="gateway-newer", daemon=True).start()
+        self.health.start()
 
     def close(self) -> None:
         """Stop watching. The app keeps running; a new gateway takes it back."""
         self._closed.set()
         self._facts_due.set()
+        self.health.close()

@@ -174,24 +174,16 @@ class AgentChipHost(QObject):
         self.chip.set_now(self.activity.now)
 
     def _on_open_event_log(self) -> None:
-        """From the card: the App Server's event log in the browser."""
-        from fibsem.server.hosting import event_log_url
-        from fibsem.ui.agent.app_server_dialog import open_in_browser
+        """From the card: the event log, on the gateway's page."""
+        from fibsem.gateway.launch import open_page
 
-        host = self._agent.host
-        if host is None:
-            return
-        open_in_browser(event_log_url(host))
+        open_page("events")
 
     def _on_open_chat(self) -> None:
-        """From the card: the web Agent page in the browser."""
-        from fibsem.server.hosting import chat_url
-        from fibsem.ui.agent.app_server_dialog import open_in_browser
+        """From the card: the web Agent page, on the gateway's page."""
+        from fibsem.gateway.launch import open_page
 
-        host = self._agent.host
-        if host is None:
-            return
-        open_in_browser(chat_url(host))
+        open_page("agent")
 
     def _on_level_chosen(self, level: AgentLevel) -> None:
         """Set the agent's level, effective for its next request."""

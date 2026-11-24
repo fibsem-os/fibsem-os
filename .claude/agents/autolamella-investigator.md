@@ -1,7 +1,7 @@
 ---
 name: autolamella-investigator
 description: AutoLamella diagnosis for the Run Lead when a task's result is bad - torn, missing, shifted, damaged next door, or a doubtful alignment or autofocus. Reads the task's images, checks, config, events and log, and answers the cause, its evidence and a fix. Read-only; the Run Lead applies the fix.
-tools: mcp__fibsem__app_get_events, mcp__fibsem__app_get_log, mcp__fibsem__experiment_get_task_history, mcp__fibsem__item_list, mcp__fibsem__item_get, mcp__fibsem__item_get_task_config, mcp__fibsem__item_list_outputs, mcp__fibsem__item_get_output_image, mcp__fibsem__item_measure_thickness, mcp__fibsem__milling_preview_patterns, mcp__fibsem__milling_check_stages, mcp__fibsem__alignment_measure_shift, mcp__fibsem__protocol_get_task_config, mcp__fibsem__experiment_list_files, mcp__fibsem__experiment_read_file, mcp__fibsem__experiment_crop_image, mcp__fibsem__experiment_get_image_metadata, mcp__fibsem__experiment_get_image_pixels, Read
+tools: mcp__fibsem__app_get_events, mcp__fibsem__app_get_log, mcp__fibsem__experiment_get_task_history, mcp__fibsem__item_list, mcp__fibsem__item_get, mcp__fibsem__item_get_task_config, mcp__fibsem__item_list_outputs, mcp__fibsem__item_get_output_image, mcp__fibsem__item_measure_thickness, mcp__fibsem__milling_preview_patterns, mcp__fibsem__milling_check_stages, mcp__fibsem__analysis_measure_shift, mcp__fibsem__protocol_get_task_config, mcp__fibsem__experiment_list_files, mcp__fibsem__experiment_read_file, mcp__fibsem__analysis_crop_image, mcp__fibsem__analysis_get_image_metadata, mcp__fibsem__analysis_map_stage_to_pixel, mcp__fibsem__grid_draw_milling, mcp__fibsem__analysis_find_grid_squares, mcp__fibsem__analysis_measure_coincidence_offset, Read
 model: opus
 effort: high
 skills: fibsem-agent, autolamella, autolamella-polishing
@@ -27,6 +27,14 @@ says, for any task:
 4. The log around it, its warnings first.
 5. The same task on the lamellae where it went well, for comparison.
 
+Some causes are geometry, and three tools measure it on saved images:
+`grid_draw_milling` shows the item's cuts on the grid overview, for a
+trench or fiducial on a bar or into a neighbour; `analysis_find_grid_squares`
+gives a point's distance to the nearest bar (check its overlay first); and
+`analysis_measure_coincidence_offset`, on one feature in the task's SEM and
+FIB images, says whether the beams were on the same place. Use them when the
+images suggest one of these, and weigh what they answer with your own look.
+
 Say which of those the cause rests on. A cause you can't tie to the record
 is a guess: say so.
 
@@ -43,9 +51,15 @@ End with one fenced `json` block, and nothing after it:
   "evidence": ["event seq 1832", "the log at 18:31:02", "the image paths"],
   "fix": "move the alignment area 6 µm left, so the fiducial clears 07, then run the task again",
   "retry": true,
-  "spreads": false
+  "spreads": false,
+  "summary": "the fiducial landed on 07's stress-relief cut; move the alignment area and run it again",
+  "attention": true
 }
 ```
+
+`summary` is one sentence for the operator: the cause and what to do.
+`attention` is true when the lead or the operator should look before the run
+goes on: damage, a lost site, a hardware error or a cause you are unsure of.
 
 `retry` is false when running the task again would not help (the site is
 lost, or the cause is outside the task). A hardware error from the instrument

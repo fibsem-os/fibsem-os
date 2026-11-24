@@ -5,7 +5,8 @@ Every session has a folder, ``~/.fibsem/agent/sessions/<date>-<session id>/``:
 ``session.json`` (what it runs with, and each run's start and end, written by
 ``fibsem-agent``), its log, its model calls' tokens (``usage.jsonl``), the
 Claude Code transcript (``transcript.jsonl``, and ``transcript/`` for the
-specialists), and ``manager.json`` when a manager started it.
+specialists), the agent's handoff notes (``handoff.md``) once it has started
+a fresh context, and ``manager.json`` when a manager started it.
 A resumed session runs again in the same folder.
 
 The manager starts each agent detached, so agents keep running when the
@@ -21,6 +22,7 @@ import subprocess
 import sys
 import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
@@ -40,6 +42,13 @@ OUTPUT = "fibsem-agent-output.txt"
 STOP = "stop"
 # In the record: the newest event id the agent was given, for a resume.
 EVENT_AFTER = "event_after"
+# In the record: each fresh context after the session's first, oldest first:
+# its CLI conversation and the session's spend when it started.
+CONTEXTS = "contexts"
+# The agent's handoff notes (`handoff`), newest last.
+HANDOFF = "handoff.md"
+# The wake policy the agent set itself, in the record (`SessionFolder.keep_wake_on`).
+WAKE_ON = "wake_on"
 # The agent's own files, when it was given no folder.
 WORK = "work"
 # Without a work folder a session runs in run/, which holds only its skills.
@@ -116,6 +125,45 @@ def last_session(
     return None
 
 
+class SessionRunning(RuntimeError):
+    """The session is running in another process already."""
+
+
+# Held while a run opens the session's record; one older than this was left
+# by a process that died holding it.
+OPENING = ".opening"
+OPENING_STALE_S = 30.0
+OPENING_WAIT_S = 10.0
+
+
+@contextmanager
+def _opening(folder: Path, wait_s: float = OPENING_WAIT_S):
+    """Hold the session's opening lock: one run at a time reads its record
+    and adds itself. Raises `SessionRunning` if it isn't free within *wait_s*."""
+    lock = folder / OPENING
+    deadline = time.monotonic() + wait_s
+    while True:
+        try:
+            os.close(os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+            break
+        except FileExistsError:
+            try:
+                if time.time() - lock.stat().st_mtime > OPENING_STALE_S:
+                    lock.unlink(missing_ok=True)
+                    continue
+            except OSError:
+                continue
+            if time.monotonic() > deadline:
+                raise SessionRunning(
+                    f"Another run of this session is starting ({lock} is held)."
+                ) from None
+            time.sleep(0.05)
+    try:
+        yield
+    finally:
+        lock.unlink(missing_ok=True)
+
+
 class SessionFolder:
     """The record ``fibsem-agent`` keeps of one session, in its folder."""
 
@@ -135,16 +183,26 @@ class SessionFolder:
         runs with (cwd, url, goal, model...)."""
         folder = folder or session_folder(session_id, root)
         folder.mkdir(parents=True, exist_ok=True)
-        # A stop left from an earlier run is not for this one.
-        (folder / STOP).unlink(missing_ok=True)
         session = cls(folder)
-        record = session.record()
-        runs = record.get("runs", [])
-        runs.append({"pid": os.getpid(), "started": timestamps.now().isoformat()})
-        # A resumed run says only what it was given: the goal stays the first run's.
-        given = {key: value for key, value in about.items() if value is not None}
-        record.update({"session_id": session_id, **given, "runs": runs})
-        session._write(record)
+        # One run at a time: two starting together would both rebuild the
+        # session's folder and each take the record as the other wrote it.
+        with _opening(folder):
+            record = session.record()
+            runs = record.get("runs", [])
+            last = runs[-1] if runs else {}
+            pid = last.get("pid")
+            if "ended" not in last and pid != os.getpid() and pid_alive(pid):
+                raise SessionRunning(
+                    f"Session {session_id} is already running (process {pid}): "
+                    "stop it, or wait for it to end, before running it again."
+                )
+            # A stop left from an earlier run is not for this one.
+            (folder / STOP).unlink(missing_ok=True)
+            runs.append({"pid": os.getpid(), "started": timestamps.now().isoformat()})
+            # A resumed run says only what it was given: the goal stays the first run's.
+            given = {key: value for key, value in about.items() if value is not None}
+            record.update({"session_id": session_id, **given, "runs": runs})
+            session._write(record)
         return session
 
     @property
@@ -203,6 +261,16 @@ class SessionFolder:
             record.update(found)
             self._write(record)
 
+    def keep_wake_on(self, state: Optional[dict]) -> None:
+        """The wake policy the agent set itself (`wake_policy.WakeOn.state`),
+        so a resume keeps it; None for the playbook's default."""
+        record = self.record()
+        if state is None:
+            record.pop(WAKE_ON, None)
+        else:
+            record[WAKE_ON] = state
+        self._write(record)
+
     def keep_event_cursor(self, event_id: str) -> None:
         """The id of the newest event the agent has been given, so a resume
         watches from after it (`watch.watch` ``after``)."""
@@ -210,11 +278,47 @@ class SessionFolder:
         record[EVENT_AFTER] = event_id
         self._write(record)
 
+    def keep_context(self, conversation_id: str, spent_before_usd: float) -> None:
+        """A fresh context started (`handoff`): its CLI conversation, which a
+        resume carries on, and the session's spend before it."""
+        record = self.record()
+        record.setdefault(CONTEXTS, []).append(
+            {
+                "conversation_id": conversation_id,
+                "started": timestamps.now().isoformat(),
+                "spent_before_usd": spent_before_usd,
+            }
+        )
+        self._write(record)
+
+    def keep_handoff(self, text: str) -> None:
+        """A handoff note, after the earlier ones."""
+        with open(self.folder / HANDOFF, "a", encoding="utf-8") as file:
+            file.write(text if text.endswith("\n") else text + "\n")
+            file.write("\n")
+
     def _write(self, record: dict) -> None:
         try:
             write_json(self.folder / RECORD, record)
         except OSError as error:
             log.warning("Couldn't write %s: %s", self.folder / RECORD, error)
+
+
+def conversation(record: dict) -> Optional[str]:
+    """The CLI conversation a resume of the session carries on: its newest
+    fresh context's, else the session's own id."""
+    contexts = [c for c in record.get(CONTEXTS) or [] if isinstance(c, dict)]
+    if contexts and contexts[-1].get("conversation_id"):
+        return contexts[-1]["conversation_id"]
+    return record.get("session_id")
+
+
+def context_spend(record: dict) -> float:
+    """What the session had spent before its newest context: the CLI's total
+    for that conversation starts there."""
+    contexts = [c for c in record.get(CONTEXTS) or [] if isinstance(c, dict)]
+    spent = contexts[-1].get("spent_before_usd") if contexts else None
+    return float(spent) if isinstance(spent, (int, float)) else 0.0
 
 
 def watch_for_stop(

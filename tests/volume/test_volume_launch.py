@@ -6,9 +6,8 @@ import pytest
 
 from fibsem.applications.volume import launch
 from fibsem.applications.volume.experiment import VolumeExperiment
-from fibsem.server.operator_token import load_operator_token
 from tests.fixtures.headless import (
-    allowed_agent,
+    AGENT_TOKEN,
     confine_host,
     run_in_background,
     serving,
@@ -25,10 +24,9 @@ def test_a_new_experiment_is_served_until_stopped(discovery, tmp_path, capsys):
     stop, worker, result = run_in_background(launch.main, [str(folder), "--create"])
     try:
         found = serving(discovery)
-        operator_token = load_operator_token(discovery.parent / "operator-token.json")
         capabilities = httpx.get(
             f"{found['url']}/capabilities",
-            headers={"Authorization": f"Bearer {allowed_agent(found, operator_token)}"},
+            headers={"Authorization": f"Bearer {AGENT_TOKEN}"},
         ).json()
         assert capabilities["app_name"] == "Volume"
         assert capabilities["parts"] == ["items", "poses"]
@@ -40,7 +38,7 @@ def test_a_new_experiment_is_served_until_stopped(discovery, tmp_path, capsys):
     assert VolumeExperiment.load(folder).name == "vol"
     out = capsys.readouterr().out
     # The plain chat address: the token stays out of the terminal.
-    assert "/ui/agent (Pair this browser)" in out and "#token=" not in out
+    assert "/ui/agent (on the gateway)" in out and "#token=" not in out
 
 
 def test_an_experiment_must_exist_unless_created(tmp_path, capsys):

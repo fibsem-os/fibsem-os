@@ -4,8 +4,9 @@ and ended from the gateway's page or window, kept by an `AgentSessionManager`.
 Start needs the app running, with or without a microscope connected. It pairs the agent's
 token straight into the shared ``paired.json`` (the operator starting it is
 the Allow), sets the App Server's level, then starts
-``fibsem-agent --playbook NAME``. The token and the API key go only in the
-agent's environment. When the app comes back after a restart the manager
+``fibsem-agent --playbook NAME``, with the gateway's own address: the agent
+reaches the App Server through the gateway's port. The token and the API key
+go only in the agent's environment. When the app comes back after a restart the manager
 resumes the agent, and the gateway sets the Start level again: the App Server
 starts at Watch on every launch. End stops the agent and unpairs it.
 Resume carries an ended session on, whoever started it, as its record says.
@@ -44,13 +45,17 @@ from fibsem.util import timestamps
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["AGENT_NAME", "API_KEY", "GatewayAgent", "AgentState"]
+__all__ = ["AGENT_NAME", "API_KEY", "GatewayAgent", "AgentState", "SessionsPage"]
 
 API_KEY = "ANTHROPIC_API_KEY"
 KEY_KEPT_S = 30.0
 # The agent's pairing, as the App Server's list of paired computers shows it.
 AGENT_NAME = "fibsem-agent (gateway)"
 SESSIONS_SHOWN = 5
+# History pages through every session: this many at a time, at most this many
+# in one read.
+SESSIONS_PAGE = 20
+SESSIONS_MAX = 1000
 
 
 @dataclass
@@ -64,6 +69,15 @@ class AgentState:
     sessions: List[Dict[str, Any]] = field(default_factory=list)
     api_key: bool = False
     microscope: str = ""
+
+
+@dataclass
+class SessionsPage:
+    """The newest sessions run on this PC, newest first, and whether there
+    are older ones."""
+
+    sessions: List[Dict[str, Any]] = field(default_factory=list)
+    more: bool = False
 
 
 def read_playbooks() -> List[dict]:
@@ -214,8 +228,12 @@ class GatewayAgent:
         stored: Callable[[str], Optional[str]] = stored_secret,
         platform: str = sys.platform,
         microscope: Optional[str] = None,
+        own_url: Optional[str] = None,
     ) -> None:
         self._gateway = gateway
+        # The gateway's own address: the agent reaches the App Server through
+        # it (`fibsem.gateway.passthrough`), else directly.
+        self._own_url = own_url
         self._tokens = tokens
         self._discovery = discovery
         self._level = level
@@ -274,6 +292,14 @@ class GatewayAgent:
             microscope=self.microscope,
         )
 
+    def sessions(self, limit: int = SESSIONS_PAGE) -> SessionsPage:
+        """The newest *limit* sessions, the running one too, for History to
+        page through them all."""
+        limit = max(1, min(int(limit), SESSIONS_MAX))
+        records = self._manager.sessions(limit + 1)
+        rows = [_row(record, self._platform) for record in records[:limit]]
+        return SessionsPage(sessions=rows, more=len(records) > limit)
+
     def _connected(self) -> Optional[Dict[str, Any]]:
         """The agent paired with the app that the gateway didn't start, as
         the app last heard from it; None when there is none or the app isn't
@@ -293,6 +319,31 @@ class GatewayAgent:
             "last_heard_s": seconds,
             "quiet": quiet_note(seconds),
         }
+
+    def own_running(self) -> Optional[str]:
+        """The agent the gateway started, as the card names it while it runs
+        ("the agent started from the gateway at 17:30"), or None."""
+        agent = self._manager.agent(self.microscope)
+        if agent is None or agent.state == "ended":
+            return None
+        about = read_json(agent.folder / MANAGED).get("about") or {}
+        started = about.get("started")
+        at = f" at {started[11:16]}" if isinstance(started, str) else ""
+        return f"the agent started from the gateway{at}"
+
+    def in_use(self) -> Optional[str]:
+        """The agent holding this instrument's one slot and in use: the one
+        the gateway started while it runs, else one paired another way that
+        the app heard from in the last `AGENT_LISTENING_S`. None when the slot
+        is free or its agent has gone quiet."""
+        own = self.own_running()
+        if own is not None:
+            return own
+        connected = self._connected()
+        seconds = connected and connected.get("last_heard_s")
+        if seconds is not None and seconds < AGENT_LISTENING_S:
+            return connected["name"]
+        return None
 
     def playbooks(self) -> List[dict]:
         return self._read_playbooks()
@@ -322,7 +373,7 @@ class GatewayAgent:
             except GatewayRefused:
                 self._unpair()
                 raise
-            args = ["--playbook", playbook, "--url", url]
+            args = ["--playbook", playbook, "--url", self._own_url or url]
             if budget_usd is not None:
                 args += ["--max-budget-usd", f"{float(budget_usd):g}"]
             about = {
@@ -384,7 +435,10 @@ class GatewayAgent:
             except GatewayRefused:
                 self._unpair()
                 raise
-            args = (["--playbook", playbook] if playbook else []) + ["--url", url]
+            args = (["--playbook", playbook] if playbook else []) + [
+                "--url",
+                self._own_url or url,
+            ]
             cwd = record.get("cwd")
             if mode in ("code", "files"):
                 # Its own work/ is the flag alone; any other folder is named.

@@ -1,4 +1,5 @@
 # fibsem imports inside functions, per module: tests/test_local_imports.py
+fibsem/ai/agent/aside.py 1
 fibsem/ai/agent/calls.py 1
 fibsem/ai/agent/catalog/app.py 1
 fibsem/ai/agent/catalog/describe.py 2
@@ -20,6 +21,7 @@ fibsem/ai/evals/__main__.py 3
 fibsem/alignment/coincidence.py 10
 fibsem/alignment/methods.py 1
 fibsem/alignment/plotting.py 5
+fibsem/analysis/measure.py 2
 fibsem/applications/autolamella/config_edits.py 6
 fibsem/applications/autolamella/overview_figure.py 5
 fibsem/applications/autolamella/server/context.py 1
@@ -95,7 +97,6 @@ fibsem/geometry/projection.py 2
 fibsem/geometry/saved_images.py 10
 fibsem/guided_setup.py 6
 fibsem/image_format.py 2
-fibsem/imaging/analysis.py 2
 fibsem/imaging/cells.py 6
 fibsem/imaging/export.py 1
 fibsem/imaging/marks.py 1
@@ -149,6 +150,7 @@ fibsem/ui/FibsemImageSettingsWidget.py 1
 fibsem/ui/FibsemMovementWidget.py 1
 fibsem/ui/FibsemSystemSetupWidget.py 1
 fibsem/ui/agent/activity.py 1
+fibsem/ui/agent/app_server_dialog.py 2
 fibsem/ui/agent/chip_host.py 5
 fibsem/ui/app_window.py 1
 fibsem/ui/correlation/widgets/correlation_tab_widget.py 11

@@ -146,6 +146,9 @@ HOLE_UNDER = (0.12, 0.06)  # how much darker thin ice is with no film under it
 CRACK = 0.9  # um; how deep a crack in the film grooves the ice over it
 ORGANELLE_STEP = 0.5  # um; a view coarser than this shows no organelles
 BRIGHTNESS = (118.0, 168.0)  # grey of plain flat ice
+# patches of ice the FIB leaves charged: their sizes (um) and how strongly
+ICE_PATCH = (25.0, 9.0)
+ICE_CHARGE = 0.35
 # a top's fine texture: (um, share) of each size of roughness, how strongly it
 # shows (SEM, FIB), and the dark specks in it
 ROUGH = ((0.12, 0.35), (0.3, 0.3), (0.8, 0.2), (2.0, 0.15))
@@ -1523,6 +1526,13 @@ def canvas(scene: "SampleScene", beam: str, frame: ViewFrame, u, w, pix, charged
     # what charges in the SEM: what stands up off the film, less over a bar
     charge = np.clip((z_hit - 0.6) / 3.0, 0, 1) * top
     charge = (charge + 0.7 * (particle & top)) * (1 - 0.5 * bar)
+    if which == 1:
+        # the FIB also leaves patches of the ice charged, fixed to the sample
+        x, y = np.broadcast_arrays(hit["x"][None, :], hit["y"])
+        patch = sim_view.fbm(x, y, ICE_PATCH, (0.6, 0.4), int(scene.seed) + 977)
+        charge = charge + ICE_CHARGE * np.clip(3.0 * patch - 0.6, 0, 1) * top * (
+            1 - bar
+        )
     charge = sim_view.gauss(np.clip(charge, 0, 1).astype(np.float32), 1.0 / pix)
     charge[~top] = 0
     return shade, charge[::-1] if hit["flip"] else charge

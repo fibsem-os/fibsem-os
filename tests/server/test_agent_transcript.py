@@ -1,6 +1,7 @@
 """The agent's transcript, kept beside the experiment, and what the agent said
 it can do: ``/app/agent/transcript`` and the session's facts."""
 
+import base64
 import json
 import time
 from datetime import datetime
@@ -12,6 +13,7 @@ from fastapi.testclient import TestClient
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.ai.agent.session import session_facts, session_line
 from fibsem.server import AuthConfig
+from fibsem.server.agent.files import session_folder
 from fibsem.server.agent.session import report
 from fibsem.server.agent.transcript import build_agent_transcript_router
 
@@ -46,10 +48,11 @@ def test_the_lines_are_kept_in_their_own_file_and_read_back_in_order(server):
     _post(client, "s1", failed)
     _post(client, "s2", {"kind": "step", "verb": "Wrote", "text": "b.py"})
 
-    kept = (folder / "agent" / "transcript-s1.jsonl").read_text().splitlines()
+    kept = (session_folder("s1") / "transcript-s1.jsonl").read_text().splitlines()
     assert [json.loads(line)["kind"] for line in kept] == ["said", "step", "failed"]
-    # Not on the record: the experiment's events stay as they were.
+    # Not on the record, nor in the experiment: its data stays its own.
     assert not (folder / "events.jsonl").exists()
+    assert not (folder / "agent").exists()
 
     entries = client.get("/app/agent/transcript").json()["entries"]
     assert [e["text"] for e in entries] == [
@@ -65,7 +68,9 @@ def test_the_lines_are_kept_in_their_own_file_and_read_back_in_order(server):
     assert [e["text"] for e in since["entries"]] == ["python a.py", "no cv2", "b.py"]
 
 
-def test_with_no_experiment_open_it_waits_in_the_sessions_folder(server, tmp_path):
+def test_with_no_experiment_open_it_is_kept_in_the_sessions_folder_all_along(
+    server, tmp_path
+):
     client, experiment, folder = server
     experiment["path"] = None
     report(client.app.state.auth, {"session_id": "s1"})
@@ -73,10 +78,11 @@ def test_with_no_experiment_open_it_waits_in_the_sessions_folder(server, tmp_pat
     assert not (folder / "agent").exists()
     entries = client.get("/app/agent/transcript").json()["entries"]
     assert [e["text"] for e in entries] == ["before"]
-    # The first experiment that opens takes it, and what follows.
+    # The first experiment that opens is the session's; nothing moves.
     experiment["path"] = str(folder)
     _post(client, "s1", {"kind": "said", "text": "after"})
-    kept = (folder / "agent" / "transcript-s1.jsonl").read_text().splitlines()
+    assert not (folder / "agent").exists()
+    kept = (session_folder("s1") / "transcript-s1.jsonl").read_text().splitlines()
     assert [json.loads(line)["text"] for line in kept] == ["before", "after"]
     entries = client.get("/app/agent/transcript").json()["entries"]
     assert [e["text"] for e in entries] == ["before", "after"]
@@ -207,3 +213,174 @@ def test_a_done_line_names_its_step_and_each_post_is_an_event(tmp_path):
     from fibsem.workflows.events.kinds import LIVE_KINDS
 
     assert "agent_transcript" in LIVE_KINDS
+
+
+PNG = base64.b64encode(b"\x89PNG\r\n\x1a\n not really").decode()
+
+
+def test_a_picture_is_kept_beside_the_transcript_and_served(server):
+    client, _, folder = server
+    step = {"seq": 4, "kind": "step", "verb": "Called", "text": "notebook read_page"}
+    picture = {
+        "seq": 5,
+        "kind": "picture",
+        "text": "",
+        "step": 4,
+        "image": PNG,
+        "media_type": "image/png",
+    }
+    assert _post(client, "s1", step, picture).json() == {"kept": 2}
+    saved = session_folder("s1") / "pictures" / "s1-5.png"
+    assert saved.read_bytes() == base64.b64decode(PNG)
+    # The line keeps the picture's path, not the picture.
+    line = json.loads(
+        (session_folder("s1") / "transcript-s1.jsonl").read_text().splitlines()[-1]
+    )
+    assert line["path"] == "pictures/s1-5.png" and "image" not in line
+    entries = client.get("/app/agent/transcript").json()["entries"]
+    assert entries[-1]["path"] == "pictures/s1-5.png"
+
+    served = client.get("/app/agent/transcript/pictures/s1-5.png")
+    assert served.status_code == 200
+    assert served.headers["content-type"] == "image/png"
+    assert served.content == base64.b64decode(PNG)
+    for name in ("s1-6.png", "..%2Ftranscript-s1.jsonl", "s1-5.svg"):
+        missing = client.get(f"/app/agent/transcript/pictures/{name}")
+        assert missing.status_code == 404, name
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"media_type": "image/svg+xml"},
+        {"image": "not base64!"},
+        {"image": ""},
+        {"seq": None},
+    ],
+)
+def test_a_bad_picture_is_refused_and_keeps_nothing(server, change):
+    client, _, folder = server
+    picture = {"seq": 5, "kind": "picture", "text": "", "image": PNG}
+    picture["media_type"] = "image/png"
+    picture.update(change)
+    picture = {k: v for k, v in picture.items() if v is not None}
+    assert _post(client, "s1", picture).status_code == 422
+    assert not (session_folder("s1") / "pictures").exists()
+
+
+def test_a_picture_stays_in_the_sessions_folder_when_an_experiment_opens(server):
+    client, experiment, folder = server
+    experiment["path"] = None
+    report(client.app.state.auth, {"session_id": "s1"})
+    picture = {"seq": 2, "kind": "picture", "text": "", "image": PNG}
+    picture["media_type"] = "image/png"
+    assert _post(client, "s1", picture).status_code == 200
+    assert client.get("/app/agent/transcript/pictures/s1-2.png").status_code == 200
+    experiment["path"] = str(folder)
+    _post(client, "s1", {"kind": "said", "text": "after"})
+    assert (session_folder("s1") / "pictures" / "s1-2.png").is_file()
+    assert not (folder / "agent").exists()
+    assert client.get("/app/agent/transcript/pictures/s1-2.png").status_code == 200
+
+
+def test_a_subagent_s_lines_keep_their_run_and_its_call_names_the_subagent(server):
+    client, _, _ = server
+    call = {
+        "seq": 1,
+        "kind": "step",
+        "verb": "Asked",
+        "text": "Check 02",
+        "subagent": "autolamella-verifier",
+    }
+    said = {"seq": 2, "kind": "said", "text": "Reading.", "run": 1}
+    assert _post(client, "s1", call, said).json() == {"kept": 2}
+    first, second = client.get("/app/agent/transcript").json()["entries"]
+    assert first["subagent"] == "autolamella-verifier" and "run" not in first
+    assert second["run"] == 1
+    done = {"kind": "done", "text": "left edge", "step": 1, "verdict": "concern"}
+    _post(client, "s1", done)
+    assert (
+        client.get("/app/agent/transcript").json()["entries"][-1]["verdict"]
+        == "concern"
+    )
+    assert _post(client, "s1", {**done, "verdict": "maybe"}).status_code == 422
+    assert _post(client, "s1", {**done, "attention": "yes"}).status_code == 422
+    assert (
+        _post(client, "s1", {"kind": "said", "text": "x", "run": "1"}).status_code
+        == 422
+    )
+    assert (
+        _post(
+            client, "s1", {"kind": "step", "text": "x", "subagent": "a" * 61}
+        ).status_code
+        == 422
+    )
+
+
+def test_a_resumed_session_s_lines_follow_on_and_a_cut_step_has_ended(server):
+    """A resumed session numbers its lines from 1 again: read back, they follow
+    on from the run before, and that run's unanswered steps have ended (the page
+    would otherwise show an Auditor run from last week as running)."""
+    client, _, _ = server
+    call = {"seq": 1, "kind": "step", "text": "Audit", "subagent": "auditor"}
+    said = {"seq": 2, "kind": "said", "text": "Reading.", "run": 1}
+    read = {"seq": 3, "kind": "step", "text": "Read log", "run": 1}
+    _post(client, "s1", call, said, read)
+    # Resumed: the new run's own step 1, answered, and its step 2 still running.
+    again = {"seq": 1, "kind": "step", "text": "Read plan"}
+    done = {"seq": 2, "kind": "done", "text": "", "step": 1}
+    now = {"seq": 3, "kind": "step", "text": "Take image"}
+    _post(client, "s1", again, done, now)
+    lines = client.get("/app/agent/transcript").json()["entries"]
+    assert [line["seq"] for line in lines] == [1, 2, 3, 4, 5, 6]
+    assert lines[1]["run"] == 1 and lines[2]["run"] == 1
+    assert lines[4]["step"] == 4
+    assert [bool(line.get("ended")) for line in lines] == [
+        True,
+        False,
+        True,
+        False,
+        False,
+        False,
+    ]
+
+
+def test_every_subagent_run_is_listed_and_one_run_s_lines_read(server):
+    """The Subagents tab lists every run however old: each Agent call's line
+    and its answer; a run's own lines come on their own."""
+    client, _, _ = server
+    old = {"seq": 1, "kind": "step", "text": "Find sites", "subagent": "site-finder"}
+    said = {"seq": 2, "kind": "said", "text": "Looking.", "run": 1}
+    looked = {"seq": 3, "kind": "step", "text": "Read grid", "run": 1}
+    looked_done = {"seq": 4, "kind": "done", "text": "", "step": 3, "run": 1}
+    found = {"seq": 5, "kind": "done", "text": "Six sites.", "step": 1}
+    mine = {"seq": 6, "kind": "step", "text": "Move stage"}
+    _post(client, "s1", {**old, "age_s": 3600}, said, looked, looked_done, found, mine)
+    check = {"seq": 1, "kind": "step", "text": "Check", "subagent": "verifier"}
+    _post(client, "s2", check)
+    runs = client.get("/app/agent/transcript/runs").json()["entries"]
+    assert [(r["session_id"], r["seq"], r["kind"]) for r in runs] == [
+        ("s1", 1, "step"),
+        ("s1", 5, "done"),
+        ("s2", 1, "step"),
+    ]
+    lines = client.get("/app/agent/transcript/runs/s1/1").json()["entries"]
+    assert [line["seq"] for line in lines] == [2, 3, 4]
+    assert client.get("/app/agent/transcript/runs/s9/1").json() == {"entries": []}
+    assert client.get("/app/agent/transcript/runs/a.b/1").status_code == 422
+
+
+def test_a_transcript_file_is_read_once_then_only_what_was_added(tmp_path):
+    from fibsem.server.agent import transcript
+
+    path = tmp_path / "transcript-s1.jsonl"
+    line = {"t": "2026-11-23T10:00:00+11:00", "kind": "said", "text": "a", "seq": 1}
+    path.write_text(json.dumps(line) + "\n" + '{"t": "2026-11-23T10:0', "utf-8")
+    assert [e["seq"] for e in transcript.read(tmp_path)] == [1]
+    with open(path, "a", encoding="utf-8") as f:
+        f.write('1:00+11:00", "kind": "said", "text": "b", "seq": 2}\n')
+    assert [e["seq"] for e in transcript.read(tmp_path)] == [1, 2]
+    # Read back, the renumbering of one read never leaks into the next.
+    assert [e["seq"] for e in transcript.read(tmp_path)] == [1, 2]
+    path.write_text(json.dumps({**line, "seq": 7}) + "\n", "utf-8")
+    assert [e["seq"] for e in transcript.read(tmp_path)] == [7]

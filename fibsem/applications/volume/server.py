@@ -67,6 +67,7 @@ class VolumeAppContext(AppContext):
     """The App Server's view of a volume session."""
 
     app_name = "Volume"
+    experiment_app = "volume"
 
     # --- experiment record ------------------------------------------------------
 

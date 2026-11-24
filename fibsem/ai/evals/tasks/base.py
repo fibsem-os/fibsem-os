@@ -1,5 +1,5 @@
 """What an eval task is: everything the evals need to know about one task, in
-one place. Each module in this package defines one, as ``TASK``."""
+one place. Each ``task*.py`` in a task's folder defines one, as ``TASK``."""
 
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -48,3 +48,6 @@ class EvalTask:
     key_point: Optional[Callable[..., Optional[Tuple[float, float]]]] = None
     set_point: Optional[Callable[..., None]] = None
     sims: Tuple[Sim, ...] = field(default_factory=tuple)
+    # "module:function" of the task's scripted baseline for live cases,
+    # run(client, work) -> answer (``fibsem.ai.evals.sim.scripted``)
+    scripted: Optional[str] = None

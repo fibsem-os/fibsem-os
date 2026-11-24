@@ -13,16 +13,19 @@ it would block the agent from acting on what it prints.
 The lines: ``PROPOSAL``, ``PROPOSAL RELEASED``, ``SUGGESTION APPROVED`` and
 ``DECLINED``, ``REQUEST`` (the agent's request decided, finished or
 cancelled), ``COMMAND ENDED`` (unless a caller was waiting for it
-with ``service_wait_for_run``, so has the end), ``MILL STAGE STARTED`` and
-``MILL ENDED`` (every mill, whoever started it), ``MILL READING`` (a milling
-monitor's trigger or error), ``AUTOFOCUS`` and ``ALIGNMENT`` (every one, with
+with ``service_wait_for_run``, so has the end), the instrument kind's own
+(`wake_lines`: a FIB-SEM's ``MILL STAGE STARTED``, ``MILL ENDED`` and
+``MILL READING``), ``AUTOFOCUS`` and ``ALIGNMENT`` (every one, with
 its check: passed, doubtful and why, or unchecked), task ``EVENT`` lines,
 ``WORKFLOW STARTED``, ``WORKFLOW ENDED``, ``STOPPED`` (the operator stopped
-the agent, a run or a mill), ``QUIET`` (a workflow is running
+the agent, a run or a mill), ``INTERRUPT`` (the operator cut the agent's
+turn short for a message they had sent), ``QUIET`` (a workflow is running
 and nothing has been said for a while), ``MESSAGE`` (the operator wrote to
 the agent from its card; one still unanswered when the watch starts
-is said first), ``NOTE`` (the operator kept a note on a
-grid), ``GAP``, ``RESTARTED``, ``LEVEL`` (the operator
+is said first; a side question, sent with ``/btw``, says so, and
+fibsem-agent answers it outside the agent's turns; one sent with ``/now``
+cut the agent's turn short to be said), ``NOTE`` (the operator kept a note on a
+grid, or one for the record with ``/note``, which waits for the next turn), ``GAP``, ``RESTARTED``, ``LEVEL`` (the operator
 changed the agent level) and ``AGENT OFF``/``AGENT BACK``.
 
 It follows the whole session, not one workflow: the agent starts and stops
@@ -49,7 +52,10 @@ import sys
 import time
 from urllib.parse import quote
 
+from fibsem.ai.agent import aside, wake_lines
+from fibsem.ai.agent.aside import ASIDE
 from fibsem.ai.agent.levels import AgentLevel
+from fibsem.ai.agent.wake_lines import item_of
 from fibsem.client.transport import Transport
 from fibsem.workflows.actions import ACTION, is_message
 from fibsem.workflows.actions import OPERATOR_STOP as STOPPED_NO_REASON
@@ -78,15 +84,36 @@ INTERESTING = {
 class Wake(str):
     """One wake-up: the line the agent reads, with its ``kind`` and the ids of
     the operator's messages it carries, so nothing reads them back out of the
-    text. A task event's kind is the event's (``task_completed``)."""
+    text. A task event's kind is the event's (``task_completed``).
+
+    ``facts`` is what the line says that the harness's wake policy reads
+    (`wake_policy`): ``ok`` when it went as expected, ``level`` for a level
+    it sets, ``run_id`` and ``state`` for a long command's end."""
 
     kind: str
     message_ids: tuple
+    facts: dict
 
-    def __new__(cls, kind: str, text: str, message_ids=()):
+    def __new__(cls, kind: str, text: str, message_ids=(), **facts):
         wake = super().__new__(cls, text)
         wake.kind = kind
         wake.message_ids = tuple(message_ids)
+        wake.facts = facts
+        return wake
+
+
+class Aside(Wake):
+    """The operator's side question (``/btw``): a ``MESSAGE`` line for an agent
+    reading the watch's output, which fibsem-agent answers beside the agent's
+    conversation instead (`aside`). ``question`` is the text after ``/btw``."""
+
+    id: str
+    question: str
+
+    def __new__(cls, message_id: str, question: str, text: str):
+        wake = super().__new__(cls, ASIDE, text, [message_id] if message_id else ())
+        wake.id = message_id
+        wake.question = question
         return wake
 
 
@@ -101,21 +128,27 @@ SUGGESTION = "suggestion"
 REQUEST = "request"
 COMMAND_ENDED = "command_ended"
 COMMAND_FAILED = "command_failed"
-MILL_STAGE_STARTED = "mill_stage_started"
-MILL_ENDED = "mill_ended"
-MILL_FAILED = "mill_failed"
-MILL_READING = "mill_reading"
-# A milling monitor's stop rule fired (a MILL READING with a trigger).
-STOP_RULE = "stop_rule"
 AUTOFOCUS = "autofocus"
 ALIGNMENT = "alignment"
 NOTE = "note"
+# The operator's note for the record (/note): it wakes the agent for nothing.
+RECORD_NOTE = "record_note"
 MESSAGE = "message"
 PLAN_EDITED = "plan_edited"
+CONTEXT_RESET = "context_reset"
+# The operator asked for a fresh context (``POST /app/agent/context-reset``).
+CONTEXT_RESET_LINE = (
+    "CONTEXT RESET ASKED by the operator: at your next quiet moment (between "
+    "steps, never during a mill), bring the plan up to date and call "
+    "context_reset with your handoff note. Without that tool, tell the operator."
+)
 LEVEL = "level"
 LEVEL_LOWERED = "level_lowered"
 # The operator stopped the agent, a run or a mill.
 OPERATOR_STOP = "operator_stop"
+# The operator cut the agent's turn short for a message already sent
+# (*Interrupt now* on one not read yet).
+INTERRUPT = "interrupt"
 WORKFLOW_STARTED = "workflow_started"
 WORKFLOW_ENDED = "workflow_ended"
 # A workflow failed, or ended without an end event. One the operator stopped
@@ -220,18 +253,20 @@ def _error_type(response):
     return detail.get("error_type") if isinstance(detail, dict) else None
 
 
-def _print_events(events, since, say, marked=None):
+def _print_events(events, since, say, marked=None, lines=None):
     """Say the wake-ups (`Wake`) of *events*; returns (new_since, running).
 
     ``running`` is True when the last workflow event among them started one,
     False when it ended one, and None when there was neither. *marked* keeps
     the images the operator marked, by evidence id, for the messages citing
-    them, across calls."""
+    them, across calls. *lines* are the instrument kind's own
+    (`wake_lines.for_kind`), the FIB-SEM's when None."""
     running = None
     marked = {} if marked is None else marked
+    lines = wake_lines.for_kind(None) if lines is None else lines
 
-    def out(kind, line):
-        say(Wake(kind, line))
+    def out(kind, line, facts=None):
+        say(Wake(kind, line, **(facts or {})))
 
     for event in events:
         kind = event.get("kind", "")
@@ -249,12 +284,12 @@ def _print_events(events, since, say, marked=None):
             )
         elif kind == event_kinds.SUGGESTION_DECLINED:
             reason = " ".join(str(p.reason or "").split())
-            line = f"SUGGESTION DECLINED{_item_of(data)} task={p.task}"
+            line = f"SUGGESTION DECLINED{item_of(data)} task={p.task}"
             out(SUGGESTION, f"{line}: {reason}" if reason else line)
         elif kind == event_kinds.PROPOSAL_DECIDED and p.kind == "actions":
             out(REQUEST, _request_decided_line(p))
         elif kind == event_kinds.PROPOSAL_DECIDED and p.suggestion_id:
-            out(SUGGESTION, f"SUGGESTION APPROVED{_item_of(data)} task={p.task}")
+            out(SUGGESTION, f"SUGGESTION APPROVED{item_of(data)} task={p.task}")
         elif kind in (
             event_kinds.REQUEST_DECIDED,
             event_kinds.REQUEST_FINISHED,
@@ -268,26 +303,58 @@ def _print_events(events, since, say, marked=None):
             line = (
                 f"COMMAND ENDED {p.service}.{p.command} run={p.run_id} state={p.state}"
             )
+            # The agent's own (its call's labels name its level): it waits
+            # for that end, so it is not routine.
+            mine = str(event.get("actor") or "").startswith("agent") or (
+                "level" in data
+            )
             out(
                 COMMAND_FAILED if p.state == "failed" else COMMAND_ENDED,
                 f"{line} ({p.error})" if p.error else line,
+                {
+                    "run_id": p.run_id,
+                    "state": p.state,
+                    "ok": p.state == "done" and not mine,
+                },
             )
-        elif kind == event_kinds.MILLING_STAGE_STARTED:
-            out(MILL_STAGE_STARTED, _mill_stage_line(event, p))
-        elif kind == event_kinds.MILLING:
-            failed = p.status == "failed"
-            out(MILL_FAILED if failed else MILL_ENDED, _mill_ended_line(event, p))
-        elif kind == event_kinds.MILLING_READING:
-            line = _reading_line(data)
-            if line:
-                reading = data.get("reading") or {}
-                out(STOP_RULE if reading.get("trigger") else MILL_READING, line)
+        elif kind in lines:
+            # The instrument kind's own (`wake_lines`): the FIB-SEM's mills.
+            said = lines[kind](event)
+            if said is not None:
+                out(*said)
+        elif (
+            kind == ACTION
+            and event.get("actor") == "operator"
+            and data.get("interrupts")
+        ):
+            message_id = str(data["interrupts"])
+            out(
+                INTERRUPT,
+                f"INTERRUPT the operator stopped your turn so you read their "
+                f"message id={message_id} now",
+            )
         elif kind == ACTION and event.get("actor") == "operator" and data.get("stops"):
-            out(OPERATOR_STOP, _operator_stop_line(data))
+            stopped_agent = data.get("stops") == "agent" and data.get("level")
+            out(
+                OPERATOR_STOP,
+                _operator_stop_line(data),
+                {"level": str(data["level"])} if stopped_agent else None,
+            )
         elif kind == event_kinds.AUTOFOCUS:
-            out(AUTOFOCUS, _autofocus_line(event, data))
+            out(AUTOFOCUS, _autofocus_line(event, data), {"ok": _passed(data)})
         elif kind == event_kinds.ALIGNMENT:
-            out(ALIGNMENT, _alignment_line(event, data))
+            out(ALIGNMENT, _alignment_line(event, data), {"ok": _passed(data)})
+        elif (
+            kind == event_kinds.NOTE
+            and event.get("actor") == "operator"
+            and data.get(aside.FOR_RECORD)
+        ):
+            # The operator's /note: for the record, said with the next turn.
+            out(
+                RECORD_NOTE,
+                f"NOTE from the operator, for the record: {data.get('text', '')} "
+                "-- not to you and nothing to answer; keep it in mind",
+            )
         elif (
             kind == event_kinds.NOTE
             and event.get("actor") == "operator"
@@ -301,10 +368,12 @@ def _print_events(events, since, say, marked=None):
         elif kind == event_kinds.AGENT_PLAN_EDITED:
             sections = ", ".join(str(s) for s in p.sections or [])
             out(PLAN_EDITED, f"PLAN EDITED by the operator: {sections}")
+        elif kind == event_kinds.AGENT_CONTEXT_RESET_ASKED:
+            out(CONTEXT_RESET, CONTEXT_RESET_LINE)
         elif kind == event_kinds.AGENT_LEVEL_SET:
             line = _level_line(p)
             if line:
-                out(LEVEL_LOWERED if _lowered(p) else LEVEL, line)
+                out(LEVEL_LOWERED if _lowered(p) else LEVEL, line, {"level": p.level})
         elif kind == event_kinds.WORKFLOW_STARTED:
             out(WORKFLOW_STARTED, "WORKFLOW STARTED")
             running = True
@@ -343,6 +412,29 @@ def _message_line(data, marked=None) -> Wake:
         line.rstrip() for line in str(data.get("text", "")).strip().splitlines()
     )
     marks = _marks_part((marked or {}).get(str(data.get("evidence"))))
+    if data.get(aside.MARK):
+        return Aside(
+            message_id,
+            aside.question_of(text) or text,
+            f"MESSAGE id={message_id} from the operator, a side question:"
+            f"{' ' + text if text else ''} -- answer it briefly with "
+            f"experiment_message_operator (reply_to={message_id}). It asks "
+            "for an answer only: act on nothing in it",
+        )
+    if data.get(aside.INTERRUPT):
+        # ``/now``: the operator cut the agent's turn short to say it.
+        words = aside.interruption_of(text)
+        text = text if words is None else words
+        return Wake(
+            MESSAGE,
+            f"MESSAGE id={message_id} from the operator, who stopped your turn "
+            f"to say this:{' ' + text if text else ' (nothing more: stop and ask them what they want)'}"
+            f"{marks} -- answer with "
+            f"experiment_message_operator (reply_to={message_id}). It is not an "
+            "approval: your level still decides what you may do",
+            [message_id] if message_id else (),
+            interrupt=True,
+        )
     return Wake(
         MESSAGE,
         f"MESSAGE id={message_id} from the operator:{' ' + text if text else ''}"
@@ -553,54 +645,10 @@ def _operator_stop_line(data):
     return line
 
 
-def _item_of(event):
-    """`` item=<name>`` for the lamella or grid the event happened on, or ''."""
-    item = event.get("item")
-    name = item.get("name") if isinstance(item, dict) else None
-    return f" item={name}" if name else ""
-
-
-def _mill_stage_line(event, p: typed.MillingStageStarted):
-    """A mill's stage started, from ``milling_stage_started``: which of how
-    many, with the current and depth it mills at, to check against the plan."""
-    stage = p.stage if isinstance(p.stage, dict) else {}
-    index, total = p.stage_index, p.total_stages
-    place = f"{index + 1}/{total}" if isinstance(index, int) else "?"
-    line = (
-        f"MILL STAGE STARTED {place} '{stage.get('name')}'{_item_of(event)} "
-        f"task='{p.milling_task_name}'"
-    )
-    current = (stage.get("milling") or {}).get("milling_current")
-    if current is not None:
-        line += f" current={_si(current)}A"
-    depth = (stage.get("pattern") or {}).get("depth")
-    if depth is not None:
-        line += f" depth={_si(depth)}m"
-    return f"{line} run={p.milling_run_id}"
-
-
-def _si(value):
-    """A number in SI units, short (``2e-11``); anything else as it came."""
-    try:
-        return f"{float(value):g}"
-    except (TypeError, ValueError):
-        return str(value)
-
-
-def _mill_ended_line(event, p: typed.Milling):
-    """A mill ended, from its ``milling`` event: its status, how each stage
-    ended, and the error of a failed one."""
-    status = p.status
-    if p.reason:
-        status = f"{status} ({p.reason})"
-    line = (
-        f"MILL ENDED '{p.milling_task_name}'{_item_of(event)} "
-        f"status={status} run={p.milling_run_id}"
-    )
-    stages = [_stage_part(stage) for stage in p.stages or []]
-    if stages:
-        line += " stages: " + ", ".join(stages)
-    return f"{line} ({p.error})" if p.error else line
+def _passed(data) -> bool:
+    """Whether an auto function completed and its check passed."""
+    check = data.get("check") or {}
+    return data.get("status") == "completed" and check.get("verdict") == "passed"
 
 
 def _check_part(data):
@@ -619,7 +667,7 @@ def _check_part(data):
 def _autofocus_line(event, data):
     """An autofocus ended: the beam, the working distance it left and moved
     from, its score and its check, so a bad focus is seen, not trusted."""
-    line = f"AUTOFOCUS{_item_of(event)} beam={data.get('beam_type')}"
+    line = f"AUTOFOCUS{item_of(event)} beam={data.get('beam_type')}"
     start, wd = data.get("initial_working_distance"), data.get("working_distance")
     if isinstance(start, (int, float)) and isinstance(wd, (int, float)):
         line += f" wd={start * 1e3:.3f}->{wd * 1e3:.3f} mm"
@@ -633,7 +681,7 @@ def _alignment_line(event, data):
     """An alignment ended: its name, the beam, the last step's shift and
     score, and its check (the methods agree, every step moved)."""
     line = (
-        f"ALIGNMENT '{data.get('name')}'{_item_of(event)} beam={data.get('beam_type')}"
+        f"ALIGNMENT '{data.get('name')}'{item_of(event)} beam={data.get('beam_type')}"
     )
     steps = data.get("results") or []
     if steps:
@@ -646,41 +694,6 @@ def _alignment_line(event, data):
             line += f" score={last['score']:.2f}"
     line += _check_part(data)
     return f"{line} path={data['path']}" if data.get("path") else line
-
-
-def _stage_part(stage):
-    """A stage's part of the MILL ENDED line, with why it ended other than by
-    milling its patterns out: a skipped stage's reason, else its end's
-    (``ended by monitor:FM Intensity: intensity drop``). A current the beam
-    snapped to another it lists is said in brackets."""
-    part = f"{stage.get('name')}={stage.get('status')}"
-    if stage.get("current_warning"):
-        part += f" [{stage['current_warning']}]"
-    end = stage.get("end") or {}
-    if stage.get("reason"):
-        return f"{part} ({stage['reason']})"
-    if end.get("kind") in (None, "finished") or not end.get("reason"):
-        return part
-    by = f" by {end['by']}" if end.get("by") else ""
-    return f"{part} ({end['kind']}{by}: {end['reason']})"
-
-
-def _reading_line(data):
-    """A monitor's notable reading, from ``milling_reading``: a trigger (a
-    drop) or the monitor's error. A step's own pauses and end are left to the
-    MILL ENDED line."""
-    reading = data.get("reading") or {}
-    head = f"MILL READING monitor='{data.get('monitor')}' milled={data.get('milled_time')}s"
-    if reading.get("error"):
-        return f"{head} error: {reading['error']}"
-    if not reading.get("trigger"):
-        return None
-    line = (
-        f"{head} trigger='{reading['trigger']}' on_trigger={reading.get('on_trigger')}"
-    )
-    if reading.get("on_trigger") == "suggest":
-        line += " -- the mill goes on; milling_end ends the stage if you agree"
-    return line
 
 
 def _request_decided_line(p: typed.ProposalDecided):
@@ -784,6 +797,7 @@ def watch(
     on_seeded=None,
     after=None,
     on_cursor=None,
+    lines=None,
 ):
     """Watch until the server cannot be watched (1). Workflows starting and
     ending are lines along the way, not the end of the watch (FIB-1431).
@@ -810,6 +824,9 @@ def watch(
 
     ``on_cursor`` is called with the id of the newest event read, after the
     lines it made were said: a later ``after=`` that id picks up from there.
+
+    ``lines`` are the instrument kind's own (`wake_lines.for_kind`): the
+    FIB-SEM's mills when None, as the App Server serves a FIB-SEM.
     """
     say = out or _print_line
     sleep_fn = sleep_fn or time.sleep
@@ -876,7 +893,7 @@ def watch(
         # Everything after it is news, from whichever stream it was in.
         if not snapshot.get("resumed"):
             out(GAP_LINE)
-        _print_events(snapshot.get("events", []), 0, out, marked)
+        _print_events(snapshot.get("events", []), 0, out, marked, lines)
         since = snapshot.get("latest_seq") or 0
     elif since is None:
         since = snapshot.get("latest_seq") or 0
@@ -968,7 +985,7 @@ def watch(
             out(GAP_LINE)
 
         events = payload.get("events", [])
-        since, running = _print_events(events, since, out, marked)
+        since, running = _print_events(events, since, out, marked, lines)
         moved(events)
         since = max(since, latest)
         if running is not None:
@@ -985,7 +1002,7 @@ def watch(
                 running = None
                 if failure is None and last.get("available"):
                     since, running = _print_events(
-                        last.get("events", []), since, out, marked
+                        last.get("events", []), since, out, marked, lines
                     )
                     moved(last.get("events", []))
                 if running is None:

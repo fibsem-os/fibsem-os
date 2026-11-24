@@ -34,9 +34,10 @@ class FakeGateway:
     def state(self):
         return GatewayState(mode=OFF, version="test")
 
-    def history(self):
+    def history(self, limit=50):
         from fibsem.gateway.gateway import History
 
+        self.calls.append(("history", limit))
         return History()
 
     def _do(self, *call):
@@ -57,8 +58,9 @@ class FakeGateway:
         connect=None,
         configuration=None,
         create=False,
+        settings=None,
     ):
-        self.create = create
+        self.create, self.settings = create, settings
         return self._do(
             RUNNING,
             who,
@@ -100,6 +102,39 @@ def _pair_hub(client, grants):
     paired = client.post("/pair", json={"code": opened["code"], "name": "mac-mini"})
     assert paired.status_code == 200
     return paired.json()
+
+
+def test_the_web_app_is_served(setup):
+    # Every page path gets index.html; assets are served with their type.
+    client, _, _ = setup
+    for path in ("/ui", "/ui/", "/ui/microscope", "/ui/events"):
+        answer = client.get(path)
+        assert answer.status_code == 200
+        assert "/ui/assets/index.js" in answer.text
+    script = client.get("/ui/assets/index.js")
+    assert script.status_code == 200
+    assert "javascript" in script.headers["content-type"]
+    assert client.get("/ui/assets/missing.js").status_code == 404
+    outside = client.get("/ui/assets/..%2F..%2Fserver.py")
+    assert "def build_server" not in outside.text
+
+
+def test_the_history_takes_how_many_to_read(setup):
+    client, gateway, _ = setup
+    assert (
+        client.get("/gateway/history", headers=_as(OPERATOR_TOKEN)).status_code == 200
+    )
+    assert (
+        client.get("/gateway/history?limit=200", headers=_as(OPERATOR_TOKEN)).json()[
+            "more"
+        ]
+        is False
+    )
+    assert gateway.calls[-2:] == [("history", 50), ("history", 200)]
+    assert (
+        client.get("/gateway/history?limit=0", headers=_as(OPERATOR_TOKEN)).status_code
+        == 422
+    )
 
 
 def test_the_operator_starts_and_forces(setup):
@@ -393,11 +428,11 @@ def test_connecting_needs_the_app_running_and_the_grant(host_setup):
 
 
 def test_the_operator_opens_the_apps_agent_page_signed_in(host_setup):
-    # The page is the app's (8001), not the gateway's; the token rides in the
-    # fragment, as the window's own link carries it.
+    # The page is the gateway's own (its calls pass through to the app); the
+    # token rides in the fragment.
     client, host = host_setup
     r = client.get("/gateway/app/agent-page", headers=_as(OPERATOR_TOKEN))
-    assert r.json() == {"url": f"http://127.0.0.1:8001/ui/agent#token={OPERATOR_TOKEN}"}
+    assert r.json() == {"url": f"/ui/agent#token={OPERATOR_TOKEN}"}
     switcher = _pair_hub(client, [SWITCH_MODES])
     r = client.get("/gateway/app/agent-page", headers=_as(switcher["token"]))
     assert (r.status_code, r.json()["detail"]["error_type"]) == (403, "operator_only")
@@ -444,6 +479,12 @@ class FakeAgent:
         from fibsem.gateway.agent import AgentState
 
         return AgentState(microscope="arctis-pc")
+
+    def in_use(self):
+        return None
+
+    def own_running(self):
+        return None
 
     def playbooks(self):
         return [{"name": "default"}]
@@ -650,8 +691,33 @@ def test_the_operator_saves_the_pages_defaults(with_defaults):
     r = client.put("/gateway/defaults", json=saved, headers=_as(OPERATOR_TOKEN))
     assert r.status_code == 200 and r.json()["budget_usd"] == 20.0
     read = client.get("/gateway/defaults", headers=_as(OPERATOR_TOKEN)).json()
-    assert read == {**saved, "budget_usd": 20.0}
+    assert {k: read[k] for k in saved} == {**saved, "budget_usd": 20.0}
+    assert read["apps"]["autolamella"]["playbook"] == "autolamella-lead"
     assert json.loads(path.read_text())["level"] == "drive"
+
+
+def test_each_app_keeps_its_own_defaults(with_defaults):
+    """An app for another instrument keeps its playbook and settings apart."""
+    client, _ = with_defaults
+    put = lambda body: client.put(
+        "/gateway/defaults", json=body, headers=_as(OPERATOR_TOKEN)
+    )
+    assert (
+        put({"app": "autolamella", "playbook": "autolamella-lead"}).status_code == 200
+    )
+    r = put(
+        {
+            "app": "other",
+            "playbook": "other-playbook",
+            "window": False,
+            "settings": {"url": "http://127.0.0.1:9000"},
+        }
+    )
+    assert r.status_code == 200, r.text
+    read = client.get("/gateway/defaults", headers=_as(OPERATOR_TOKEN)).json()
+    assert read["app"] == "other"
+    assert read["apps"]["autolamella"]["playbook"] == "autolamella-lead"
+    assert read["apps"]["other"]["settings"] == {"url": "http://127.0.0.1:9000"}
 
 
 def test_defaults_refuse_what_the_page_could_not_use(with_defaults):

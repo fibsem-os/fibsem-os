@@ -41,7 +41,25 @@ observer with a doorbell, not a second driver.
    monitoring. Only the agent's level resets at every launch.
 4. The **Agent chip** in the status bar shows and sets the agent's level
    (below). Its card links to the web app's **Agent page**, where you answer
-   the agent, message it and connect one (*Connect an agent…*).
+   the agent, message it and connect one (*Connect an agent…*). A message
+   waits until the agent's current turn ends, marked *Not read yet* until
+   then. To have it read at once, press *Interrupt now* on the waiting
+   message, or start the message with `/now` ("/now wrong lamella, go
+   back to 02"): the agent's turn is cut short and it reads the message
+   straight away. That stops the turn, not the run, and leaves the level
+   as it is; the Stop button is still the brake. Type `/` in the message
+   box for the commands: `/now`, `/btw` and `/status` (a side question asking
+   where things stand), `/note` (a note on the session's record that wakes
+   the agent for nothing; it sees it with its next turn) and
+   `/level off|watch|assist|drive`. Start a
+   message with `/btw` to ask a quick side question ("/btw what does the 0.72
+   mean?"): the answer comes back in the same chat, marked *Side answer*,
+   without interrupting what the agent is doing, and neither the question nor
+   the answer joins the agent's conversation. It answers only from what the
+   agent already knows, so it can't look anything up or act; an instruction
+   sent with `/btw` is not acted on, so send instructions as ordinary messages.
+   Both go on the session's record. Side answers need `fibsem-agent`; an agent
+   run another way gets a `/btw` message as an ordinary one.
 
 ## The agent's level
 
@@ -214,16 +232,11 @@ app's Events page in your browser: what the agent, the operator and the run
 did, as one filterable table that follows the event stream live. The page is
 also under Events in the web app's rail.
 
-The web app is served by the App Server itself, so it exists wherever the
-server does — on this machine by default. The button hands the page its own
-token in the URL fragment, which stays in the browser (fragments are never
-sent over the network or written to server logs). That token is read-only:
-it reads the session's monitoring routes and nothing else, so the link can't
-be used to act on the session or reach the microscope (the web app's other
-pages open read-only with it), and it is never
-written to the discovery file the agent uses. *Copy link* beside the button
-copies the same link, to open the page in another browser. The agent's
-level doesn't affect it.
+The web app is served by the gateway (`fibsem-gateway`, on this PC's port 8010),
+which passes the page's calls to the App Server; the button starts the gateway
+first if it isn't running. It hands the page the operator's token in the URL
+fragment, which stays in the browser (fragments are never sent over the network
+or written to server logs). The agent's level doesn't affect it.
 
 ## Connecting an agent
 
@@ -231,21 +244,21 @@ level doesn't affect it.
 paste the text into Claude Code. The agent
 registers the sidecar by its absolute path, checks the connection with
 `fibsem-mcp --check`, and reports its level. For Claude Desktop the text says
-which entry to merge into `mcpServers` in its config file. The token isn't
-in the text: the running server writes a discovery file
-(`~/.fibsem/app-server.json`; `agent-server.json` before v0.6.0, still read)
-that the `fibsem-mcp` sidecar finds by itself. Its token only asks to connect:
-the first time, the Agent chip turns amber and the Agent page shows **Agent
-wants to connect**, naming the
+which entry to merge into `mcpServers` in its config file. The agent connects
+through the gateway (`fibsem-gateway`), which pairs every agent on this PC
+([Pairing](gateway.md#pairing)). The token isn't in the text: the gateway writes
+`~/.fibsem/gateway.json`, which the `fibsem-mcp` sidecar finds by itself. Its token
+only asks to connect: the first time, the gateway's Overview and the Agent page show
+**Agent wants to connect**, naming the
 client, where it connects from and the PC user it runs as. **Allow** gives it a
 token of its own, kept in `~/.fibsem/agent/`, so later connections don't ask;
-it is listed in the web app's *Settings → Paired computers* with Unpair. **Deny…**
+it is listed under **Pairing** on the gateway's page with Unpair. **Deny…**
 refuses it, with your reason, and it can ask again after a minute. With
-**Always allow agents logged in to the microscope PC** ticked in the web app's
-Settings, an ask that reaches the server from the PC itself, over SSH too, is
+**Always allow agents logged in to this PC** ticked under **Pairing**, an ask
+that reaches the gateway from the PC itself, over SSH too, is
 allowed without asking; it still acts only at the level you set. An ask from
 another computer's address still asks. One agent per microscope: allowing or
-pairing a new agent unpairs the one before, and the Agent page says which. By hand, registering the sidecar is:
+pairing a new agent unpairs the one before. By hand, registering the sidecar is:
 
 ```bash
 claude mcp add -s user fibsem -- fibsem-mcp
@@ -256,11 +269,11 @@ covers only the current directory's project.
 
 **From another machine**, go through an SSH tunnel to the microscope PC:
 [Running the agent on another computer](ssh-tunnel.md) sets it up. Show a code
-in the web app's *Settings → Paired computers*, run `fibsem-mcp pair <code>` on
-that machine, and point the sidecar at the tunnel's end:
+for an **Agent** under **Pairing** on the gateway's page, run `fibsem-mcp pair <code>`
+on that machine, and point the sidecar at the tunnel's end, the gateway's port:
 
 ```bash
-claude mcp add -s user fibsem -- fibsem-mcp --url http://localhost:8001
+claude mcp add -s user fibsem -- fibsem-mcp --url http://localhost:8010
 ```
 
 (Or set `FIBSEM_SERVER_URL`.) The server binds to localhost by default and
@@ -274,7 +287,7 @@ bearer token — the sidecar is convenience, not a requirement.
 
 - **A token per agent.** An agent on this PC asks to connect and you allow it;
   one on another computer pairs with a code. Either gets a token of its own,
-  listed with Unpair. The discovery file's token only asks. The event log has
+  listed with Unpair, all at the gateway. `gateway.json`'s token only asks. The event log has
   its own token, which reads the monitoring routes and nothing else. No
   token, no access.
 - **Access fails closed.** Reading needs a valid token and a level above Off;

@@ -4,7 +4,15 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { ImageInfoBar, ScaleBar } from "@/components/image-info";
 import { type ImageKeys, LayerImage } from "@/components/layer-image";
-import { MarkPanel, MarkToolbar, MarkingLayer, toolForKey, useMarkEditor, verdictForKey } from "@/components/mark-for-agent";
+import {
+  type MarkEditor,
+  MarkPanel,
+  MarkToolbar,
+  MarkingLayer,
+  toolForKey,
+  useMarkEditor,
+  verdictForKey,
+} from "@/components/mark-for-agent";
 import { MarkLayer } from "@/components/marks";
 import { Stepper } from "@/components/stepper";
 import { type StackView, useFileRead } from "@/lib/files";
@@ -239,20 +247,44 @@ export interface Reply {
   answers?: string;
 }
 
+/** A review item opened in the viewer: its title over the image, the agent's marks
+ * on the image it marked, and *panel*, the item and its answer, in the side
+ * panel; the operator's marks go with the answer. */
+export interface ReviewSlot {
+  title: string;
+  agentMarks?: (path: string) => Mark[] | undefined;
+  panel: (ctx: { editor: MarkEditor; path: string; channels: string[] | null }) => ReactNode;
+}
+
+/** Marks to draw over the image when it is only looked at: an operator's picture's. */
+export interface Shown {
+  marks: Mark[];
+  color: string;
+  plane?: number | null;
+}
+
 /** The viewer: one image large with its metadata, previous and next through *paths*.
  * The browser draws it from its raw planes (`LayerImage`); without WebGL2, the
  * server's JPEG with the legend and planes in the side panel. Given *reply*, it
- * opens marking, with the agent's marks drawn under the operator's. */
+ * opens marking, with the agent's marks drawn under the operator's; with
+ * *startMarking* false it opens with the agent's marks shown, and "Mark for the
+ * agent" starts marking. Given *shown*, those marks are drawn over it. */
 export function ImageViewer({
   paths,
   at,
   onClose,
   reply,
+  startMarking = true,
+  shown,
+  review,
 }: {
   paths: string[];
   at: number | null;
   onClose: () => void;
   reply?: Reply;
+  startMarking?: boolean;
+  shown?: Shown;
+  review?: ReviewSlot;
 }) {
   // The open image by its path, so images added to *paths* while it is open don't move it.
   const [path, setPath] = useState(at == null ? null : (paths[at] ?? null));
@@ -274,7 +306,7 @@ export function ImageViewer({
   if (path !== viewOf) {
     setViewOf(path);
     setView(WHOLE);
-    setMarking(!!reply);
+    setMarking(!!reply && startMarking);
     setShownChannels(null);
     editor.clear();
     editor.setPlane(undefined);
@@ -283,7 +315,9 @@ export function ImageViewer({
   const stack = fm && fm.z_planes > 1 ? fm : undefined;
   const pixelSize = read.data?.summary?.pixel_size as number | null | undefined;
   // in answer to the agent's picture: a beam image, an FM stack's planes or max projection, or the picture itself
-  const markable = !!reply && !!read.data?.preview;
+  const markable = (!!reply || !!review) && !!read.data?.preview;
+  // the agent's marks on this image: its picture's when it answers one, else the review item's
+  const agentMarks = reply?.marks ?? (path ? review?.agentMarks?.(path) : undefined);
   const keys = useRef<HTMLDivElement>(null);
   const imageKeys: ImageKeys = useRef(null);
   const mark = (on: boolean) => {
@@ -304,17 +338,17 @@ export function ImageViewer({
   const size = shape ? `${shape[1]} × ${shape[0]} px${bytes ? ` · ${fmt.bytes(bytes)}` : ""}` : "";
   const marks = (
     <>
-      {reply && !marking && (
+      {(agentMarks || shown) && !marking && (
         <MarkLayer
-          marks={reply.marks}
+          marks={agentMarks ?? shown!.marks}
           width={editor.width}
           height={editor.height}
-          color={AGENT_MARK}
+          color={agentMarks ? AGENT_MARK : shown!.color}
           pixelSize={pixelSize}
           plane={editor.plane}
         />
       )}
-      {marking && <MarkingLayer editor={editor} pixelSize={pixelSize} picks={reply?.marks} />}
+      {marking && <MarkingLayer editor={editor} pixelSize={pixelSize} picks={agentMarks} />}
     </>
   );
   // The viewer's keys, wherever focus is in the page while it is open, so they keep
@@ -357,7 +391,7 @@ export function ImageViewer({
   return (
     <Dialog open={at != null} onOpenChange={(open) => !open && onClose()}>
       <DialogContent
-        title={name}
+        title={review?.title ?? name}
         className="w-[min(1280px,calc(100vw-32px))]"
         onEscapeKeyDown={(e) => {
           if (!marking) return;
@@ -391,7 +425,7 @@ export function ImageViewer({
                 onVisible={(names) => setShownChannels(fm && names.length < fm.channels.length ? names : null)}
                 onPlane={editor.setPlane}
                 planeTo={editor.goTo}
-                plane={reply?.plane}
+                plane={reply?.plane ?? shown?.plane}
               />
             ) : gl ? (
               <div className="flex min-h-[300px] items-center justify-center bg-black text-[13px] text-muted-foreground">
@@ -404,7 +438,8 @@ export function ImageViewer({
           <div className="flex min-h-0 flex-col gap-3 overflow-y-auto px-4 pb-4 md:max-h-[calc(84vh-60px)] md:pt-2 md:pl-0">
             {!gl && fm && <Legend fm={fm} view={view} setView={setView} />}
             {!gl && stack && !marking && <Planes fm={stack} view={view} setView={setView} />}
-            {marking && path && (
+            {review && path && review.panel({ editor, path, channels: fm ? (channels ?? fm.channels.map((c) => c.name)) : null })}
+            {!review && marking && path && (
               <MarkPanel
                 editor={editor}
                 image={path}

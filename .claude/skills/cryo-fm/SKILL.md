@@ -7,8 +7,11 @@ description: Using a standalone cryo-FM (a fluorescence microscope and its x, y,
 
 The instrument is only devices: no FIB-SEM, so no beams, milling or
 FIB/SEM services. You reach each device through the device tools:
-`device_list` (each device, its parameters and commands), `device_get_parameter`,
-`device_set_parameter`, `device_call_command` and `device_call_query`.
+`device_list` (each device, the names of its parameters and commands),
+`device_describe` (one device's units, limits, choices and signatures: read
+it before a parameter or command you haven't used, never write a value to
+find out), `device_get_parameter`, `device_set_parameter`,
+`device_call_command` and `device_call_query`.
 `server_get_capabilities` lists what is served; a route that needs a FIB-SEM
 answers `not_connected` and says what is connected instead.
 
