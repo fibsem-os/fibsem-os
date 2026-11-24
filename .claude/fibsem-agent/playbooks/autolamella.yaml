@@ -3,7 +3,7 @@
 extends: fibsem-agent
 description: On-grid lamellae, not correlative.
 skills: [autolamella]
-tools: [item_list, item_get, item_get_output_image, workflow_get_summary, proposal_list, proposal_decide, experiment_add_note, analysis_crop_image, analysis_draw_image]
+tools: [item_list, item_get, item_get_output_image, workflow_get_summary, proposal_list, proposal_decide, experiment_add_note, analysis_crop_image, analysis_draw_image, review_add, item_draw_milling]
 optional:
   - skill: autolamella-lead
     when: the operator leaves you to run the workflow on your own (Drive)

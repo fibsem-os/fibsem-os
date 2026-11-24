@@ -235,6 +235,36 @@ def test_output_images_serve_jpeg_and_refuse_unknown_names(client, host):
     assert unknown.json()["detail"]["filenames"] == [fname]
 
 
+def test_an_item_s_output_image_takes_a_saved_image_by_its_path(client, host):
+    """A drawn picture in a task's run folder, by its path from the item's
+    folder or from the experiment's: the lead gave the second in the 24 Nov
+    rehearsal and got a bare 404 from the route."""
+    from urllib.parse import quote
+
+    import numpy as np
+    import tifffile
+
+    lamella = host.experiment.positions[0]
+    run = os.path.join(
+        lamella.path, "Setup Lamella Position", "20261124-154049", "drawn"
+    )
+    os.makedirs(run, exist_ok=True)
+    tifffile.imwrite(
+        os.path.join(run, "ref_final_ib-Rough Milling.tif"),
+        (np.random.rand(64, 96) * 65535).astype(np.uint16),
+    )
+    in_item = (
+        "Setup Lamella Position/20261124-154049/drawn/ref_final_ib-Rough Milling.tif"
+    )
+    in_experiment = f"{lamella.name}/{in_item}"
+    for sent in (in_item, in_experiment, quote(in_experiment, safe="")):
+        served = client.get(
+            f"/app/experiment/items/{lamella.name}/outputs/{sent}", headers=AUTH
+        )
+        assert served.status_code == 200, (sent, served.text)
+        assert served.content[:2] == b"\xff\xd8"
+
+
 def test_every_listed_output_is_served_and_only_completed_runs_count(client, host):
     # FIB-1330: start images are listed by get_task_outputs, so they are
     # served too; a cancelled run is listed with its status, not as completed.

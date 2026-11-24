@@ -343,9 +343,10 @@ class AutoLamellaAppContext(AppContext):
 
         The read side of :meth:`task_outputs` for clients that cannot touch the
         disk — the dashboard's thumbnails. ``filename`` is the basename of a
-        path :meth:`task_outputs` listed, or a path in the item's own folder
-        (an image the agent saved there); anything else is refused with the
-        valid names, and nothing outside the experiment is reached. Stacks
+        path :meth:`task_outputs` listed, or the path of a saved image: from
+        the item's own folder, or from the experiment's (as the agent's other
+        tools give paths); anything else is refused with the valid names, and
+        nothing outside the experiment is reached. Stacks
         and multi-channel images are max-projected to something viewable; this
         is a preview, not the data.
         """
@@ -357,6 +358,10 @@ class AutoLamellaAppContext(AppContext):
         if refusal:
             # else an image saved in the item's folder (one the agent took)
             match = saved_file(experiment, lamella.path, filename)
+        if match is None:
+            # or a path from the experiment's folder, as the agent's other
+            # tools give them (an image of the item's, or of its site's)
+            match = saved_file(experiment, experiment.path, filename)
         if match is None:
             return refusal
         return jpeg_preview(match, filename, max_width)
