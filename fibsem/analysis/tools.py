@@ -135,8 +135,14 @@ class ImageTools:
         _fibsem_file(target, path, "where a stage position falls")
         try:
             positions = [FibsemStagePosition.from_dict(p) for p in stage_positions]
-        except (TypeError, KeyError, AttributeError) as exc:
-            raise ImageRefused("invalid", f"Not a stage position: {exc}") from None
+        except (TypeError, KeyError, AttributeError, ValueError) as exc:
+            # A missing coordinate_system is a pydantic ValueError: refused
+            # as the caller's, never a server error.
+            raise ImageRefused(
+                "invalid",
+                "Not a stage position: give each as x, y, z, r, t and "
+                f"coordinate_system (RAW or SPECIMEN): {exc}",
+            ) from None
         block, project = stage_projector(target)
         points = []
         for position in positions:

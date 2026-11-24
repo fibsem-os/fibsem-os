@@ -1909,6 +1909,21 @@ def test_a_subagent_s_json_answer_gives_its_card_a_verdict_or_attention():
     assert _answer(said(plain)) == (plain, {})
 
 
+def test_a_subagent_s_card_shows_its_report_without_the_cli_s_frame():
+    from fibsem.ai.agent.harness import _answer
+
+    framed = (
+        "<tools-used-before-summary>Read, Bash</tools-used-before-summary>\n"
+        "[Subagent hand-back] The subagent ran out of context and was "
+        "summarised. The report follows:\n"
+        "  Two sites found.\n"
+        "    - square C4\n"
+        "\nagentId: a1\n<usage>total_tokens: 10</usage>"
+    )
+    text, flags = _answer([{"type": "text", "text": framed}])
+    assert (text, flags) == ("Two sites found.\n  - square C4", {})
+
+
 def test_the_session_asks_for_the_subagents_words_too():
     pytest.importorskip("claude_agent_sdk")
     options = harness_mod.build_options(harness_mod.find_checkout())

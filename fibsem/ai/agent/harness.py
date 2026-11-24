@@ -34,6 +34,7 @@ import shutil
 import signal
 import sys
 import sysconfig
+import textwrap
 import threading
 import time
 import traceback
@@ -2953,6 +2954,26 @@ def _run_of(agent, message) -> dict:
 _JSON_BLOCK = re.compile(r"```json\s*(\{.*?\})\s*```", re.DOTALL)
 
 
+_TOOLS_USED = re.compile(
+    r"<tools-used-before-summary>.*?</tools-used-before-summary>", re.DOTALL
+)
+_HAND_BACK = re.compile(
+    r"\[Subagent hand-back\].*?The report follows:[ \t]*\n?", re.DOTALL
+)
+
+
+def _unframed(text: str) -> str:
+    """A subagent's report without the frame the CLI puts round it: the list
+    of tools it used, the hand-back note before the report, and the two-space
+    indent the CLI gives each of the report's lines."""
+    text = _TOOLS_USED.sub("", text)
+    framed = _HAND_BACK.search(text)
+    if framed is None:
+        return text.strip()
+    report = text[framed.end() :]
+    return textwrap.dedent(report).strip()
+
+
 def _answer(content) -> tuple:
     """A subagent's answer, without the CLI's agentId footer, and what its
     closing JSON block says for the run's card: ``verdict`` (agree or concern)
@@ -2960,7 +2981,7 @@ def _answer(content) -> tuple:
     ``attention``. The answer is then the block's ``summary``, else its
     ``concern``, else the words before the block; any other answer is kept as
     it is."""
-    text = re.split(r"\s*agentId: ", _result_text(content))[0].strip()
+    text = _unframed(re.split(r"\s*agentId: ", _result_text(content))[0])
     blocks = _JSON_BLOCK.findall(text)
     try:
         said = json.loads(blocks[-1]) if blocks else None
