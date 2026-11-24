@@ -56,6 +56,10 @@ SESSIONS_SHOWN = 5
 # in one read.
 SESSIONS_PAGE = 20
 SESSIONS_MAX = 1000
+# While the agent runs, the App Server's level is noted this often, so a
+# resume never sets it back above what the operator last chose.
+LEVEL_READ_S = 5.0
+LEVEL_ORDER = [level.value for level in AgentLevel]
 
 
 @dataclass
@@ -258,6 +262,8 @@ class GatewayAgent:
         )
         gateway.before_stop.append(self._for_switch)
         gateway.watchers.append(self._manager.poll)
+        gateway.watchers.append(self._follow_level)
+        self._level_read = float("-inf")
 
     # -- reading -----------------------------------------------------------
 
@@ -384,6 +390,7 @@ class GatewayAgent:
                 "who": who,
                 "via": via,
                 "budget_usd": budget_usd,
+                "app_pid": self._app_pid(),
             }
             try:
                 self._manager.start(
@@ -462,6 +469,7 @@ class GatewayAgent:
                 "via": via,
                 "budget_usd": budget_usd,
                 "resumed": True,
+                "app_pid": self._app_pid(),
             }
             try:
                 self._manager.resume(
@@ -554,11 +562,52 @@ class GatewayAgent:
             self._manager.end(self.microscope)
             self._unpair()
 
-    def _again(self, about: dict) -> None:
-        """Before a resume: the restarted App Server is at Watch again."""
+    def left(self) -> None:
+        """The gateway is quitting on purpose: an agent it leaves running
+        waits for the operator's Resume, not the next gateway start."""
+        self._manager.left()
+
+    def _app_pid(self) -> Optional[int]:
+        found = self._discovery()
+        return found.get("pid") if found else None
+
+    def _follow_level(self) -> None:
+        """While the agent runs, note the App Server's level (every
+        `LEVEL_READ_S`), so a resume after an app restart never comes back
+        above what the operator last set."""
+        agent = self._manager.agent(self.microscope)
+        if agent is None or agent.state != "running":
+            return
+        if time.monotonic() - self._level_read < LEVEL_READ_S:
+            return
+        self._level_read = time.monotonic()
         url = self._url()
+        if url is None:
+            return
+        try:
+            level = call_host(url, "GET", "/capabilities").get("level")
+        except (GatewayRefused, AttributeError):
+            return
+        if level in LEVEL_ORDER:
+            self._manager.note(
+                self.microscope, level_now=level, app_pid=self._app_pid()
+            )
+
+    def _again(self, about: dict) -> None:
+        """Before a resume. An App Server that kept running holds the level
+        the operator last set (a lowering, a Stop agent): it stands. A
+        restarted one is at Watch again: the Start level is set back, but
+        never above the level last seen while the agent ran."""
+        url = self._url()
+        if url is None:
+            return
+        if about.get("app_pid") is not None and about["app_pid"] == self._app_pid():
+            return
         level = about.get("level")
-        if url is None or not level or level == AgentLevel.WATCH.value:
+        seen = about.get("level_now")
+        if level in LEVEL_ORDER and seen in LEVEL_ORDER:
+            level = min(level, seen, key=LEVEL_ORDER.index)
+        if not level or level in (AgentLevel.WATCH.value, AgentLevel.OFF.value):
             return
         try:
             self._level(url, level)

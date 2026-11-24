@@ -61,6 +61,10 @@ STOPPED, GONE, BUDGET = 0, 1, 2
 RESTARTS_PER_HOUR = {"app": 3, "crash": 1}
 HOUR_S = 3600.0
 END_WAIT_S = 60.0
+# A session found unfinished when a manager starts is resumed by itself only
+# if it was heard from this recently, and its manager wasn't stopped on
+# purpose; else it waits for the operator's Resume.
+RESUME_YOUNG_S = 15 * 60.0
 
 
 def sessions_dir() -> Path:
@@ -619,10 +623,58 @@ class AgentSessionManager:
         write_json(agent.folder / MANAGED, managed)
         log.info("The agent for %s ended: %s.", agent.microscope, why)
 
+    def left(self) -> None:
+        """This manager's host is being stopped on purpose: the agents it
+        leaves unfinished wait for the operator's Resume, not the next start."""
+        with self._lock:
+            for agent in self._agents.values():
+                if agent.state == "ended":
+                    continue
+                managed = read_json(agent.folder / MANAGED)
+                managed["left"] = self._clock()
+                write_json(agent.folder / MANAGED, managed)
+
+    def note(self, microscope: str, **about) -> None:
+        """Add *about* to the host's record of *microscope*'s running agent
+        (``manager.json``'s ``about``), which each resume is given."""
+        with self._lock:
+            agent = self._agents.get(microscope)
+            if agent is None or agent.state == "ended":
+                return
+            managed = read_json(agent.folder / MANAGED)
+            if all(managed.get("about", {}).get(k) == v for k, v in about.items()):
+                return
+            managed.setdefault("about", {}).update(about)
+            write_json(agent.folder / MANAGED, managed)
+
+    def _heard(self, folder: Path) -> float:
+        """When session *folder*'s agent last wrote its record or printed."""
+        times = []
+        for name in (RECORD, OUTPUT):
+            try:
+                times.append((folder / name).stat().st_mtime)
+            except OSError:
+                continue
+        return max(times, default=0.0)
+
+    def _stale(self, agent: Agent, managed: dict) -> Optional[str]:
+        """Why an unfinished session found at start, whose agent no longer
+        runs, must not resume by itself; None when it may."""
+        if managed.get("left") is not None:
+            return "did not finish (the gateway closed)"
+        quiet = self._clock() - self._heard(agent.folder)
+        if quiet > RESUME_YOUNG_S:
+            return (
+                f"did not finish (last heard {quiet / 60:.0f} min before the "
+                "gateway started)"
+            )
+        return None
+
     def _adopt(self) -> None:
         """Take back the agents a manager started that haven't ended: running
         ones are watched again; ones that exited while no manager ran are
-        dealt with by the next ``poll()``."""
+        dealt with by the next ``poll()``, if they may resume by themselves
+        (`_stale`); else they end, and the operator's Resume carries them on."""
         for folder in reversed(folders(self._root)):
             managed = read_json(folder / MANAGED)
             if not managed or "ended" in managed:
@@ -633,6 +685,15 @@ class AgentSessionManager:
                 continue
             agent = Agent(microscope, record["session_id"], folder)
             self._agents[microscope] = agent
+            if self._alive(agent):
+                if managed.pop("left", None) is not None:
+                    # Still running when its gateway came back: carry on.
+                    write_json(folder / MANAGED, managed)
+            else:
+                why = self._stale(agent, managed)
+                if why is not None:
+                    self._finish(agent, why)
+                    continue
             log.info(
                 "Took back the agent for %s (session %s).", microscope, agent.session_id
             )

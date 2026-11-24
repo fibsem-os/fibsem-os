@@ -238,6 +238,61 @@ def test_a_new_manager_resumes_an_agent_that_lost_its_app_while_none_ran(make):
     assert taken.state == "running"
 
 
+def test_an_agent_left_by_a_gateway_closed_on_purpose_waits_for_resume(make):
+    first, env = make("1,wait")
+    agent = start(first, env)
+    until(lambda: agent.process.poll() is not None)
+    first.left()
+
+    second, _ = make("1,wait")
+    taken = second.agent("arctis-1")
+    second.poll()
+    assert taken.state == "ended"
+    assert taken.ended == "did not finish (the gateway closed)"
+    assert len(runs(taken)) == 1, "never resumed by itself"
+    assert read_json(agent.folder / MANAGED)["ended"] == taken.ended
+
+
+def test_an_agent_quiet_too_long_before_the_gateway_started_waits_for_resume(make):
+    first, env = make("1,wait")
+    agent = start(first, env)
+    until(lambda: agent.process.poll() is not None)
+
+    later = Clock()
+    later.now += manager.RESUME_YOUNG_S + 60
+    second, _ = make("1,wait", clock=later)
+    taken = second.agent("arctis-1")
+    second.poll()
+    assert taken.state == "ended"
+    assert taken.ended.startswith("did not finish (last heard 16 min")
+    assert len(runs(taken)) == 1
+
+
+def test_an_agent_still_running_when_its_gateway_comes_back_carries_on(make):
+    first, env = make("wait")
+    agent = start(first, env)
+    until(lambda: len(runs(agent)) == 1)
+    first.left()
+
+    second, _ = make("wait")
+    taken = second.agent("arctis-1")
+    second.poll()
+    assert taken.state == "running"
+    assert "left" not in read_json(agent.folder / MANAGED)
+    threading.Thread(target=agent.process.wait, daemon=True).start()
+    second.end("arctis-1")
+    until(lambda: agent.process.poll() is not None)
+
+
+def test_a_note_joins_what_each_resume_is_given(make):
+    seen = []
+    mgr, env = make("1,wait", on_resume=lambda microscope, about: seen.append(about))
+    agent = start(mgr, env, about={"level": "drive"})
+    mgr.note("arctis-1", level_now="assist")
+    until(lambda: len(runs(agent)) == 2, mgr)
+    assert seen == [{"level": "drive", "level_now": "assist"}]
+
+
 def test_an_ended_session_is_not_taken_back(make):
     first, env = make("0")
     agent = start(first, env)

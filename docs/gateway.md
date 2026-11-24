@@ -178,7 +178,15 @@ app or has restarted.
 
 - **If the app restarts,** the agent waits for it and resumes the same session. That's at
   most 3 times an hour after the app restarts, and once an hour after a crash. The gateway
-  sets the Start level again each time, because the app starts at Watch.
+  sets the Start level again each time, because the app starts at Watch, but never above
+  the level last seen while the agent ran: a lowering or **Stop agent** stands. If the app
+  kept running, its level is left as it is.
+- **If the gateway closes,** the agent isn't started again by itself. A gateway that was
+  closed on purpose (Quit) leaves its unfinished session for the operator: the Agent card
+  shows "Last session ...: did not finish (the gateway closed) · Resume", and Resume
+  starts at Watch unless you pick another level. The same goes for a session not heard
+  from for more than 15 minutes before the gateway started. After a gateway crash or a
+  restart from its page, a session that was running a moment ago carries on.
 - **End** asks first, then stops the agent and keeps the app.
 - **Stopping the app** from the gateway (Stop, a new start, or Quit) ends the agent first.
 

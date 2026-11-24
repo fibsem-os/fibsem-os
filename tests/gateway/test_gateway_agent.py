@@ -55,6 +55,7 @@ class App:
 
     def __init__(self):
         self.up = True
+        self.pid = 1
         self.levels = []
         self.refuse = None
         self.last_heard_s = None
@@ -63,7 +64,7 @@ class App:
         return {"last_heard_s": self.last_heard_s}
 
     def discovery(self):
-        return {"url": URL, "pid": 1} if self.up else None
+        return {"url": URL, "pid": self.pid} if self.up else None
 
     def level(self, url, level):
         if self.refuse:
@@ -339,10 +340,48 @@ def test_the_level_is_set_again_when_the_agent_resumes(made, tmp_path, monkeypat
     monkeypatch.setenv("STAND_IN_PLAN", "1,wait")
     agent, _, app = made()
     agent.start("default", None, "drive", "operator", "page")
+    app.pid = 2  # the app restarted, back at Watch
     assert until(lambda: len(_record(tmp_path).get("runs", [])) == 2, agent)
     assert app.levels == [(URL, "drive"), (URL, "drive")]
     assert agent.state().running["state"] == "running"
     assert len(agent.state().running["restarts"]) == 1
+
+
+def test_a_resume_leaves_the_level_of_an_app_that_kept_running(
+    made, tmp_path, monkeypatch
+):
+    """The operator may have lowered it or pressed Stop agent: it stands."""
+    monkeypatch.setenv("STAND_IN_PLAN", "1,wait")
+    agent, _, app = made()
+    agent.start("default", None, "drive", "operator", "page")
+    assert until(lambda: len(_record(tmp_path).get("runs", [])) == 2, agent)
+    assert app.levels == [(URL, "drive")]
+
+
+def test_a_resume_after_an_app_restart_never_sets_a_level_above_the_last_seen(
+    made, tmp_path, monkeypatch
+):
+    monkeypatch.setenv("STAND_IN_PLAN", "wait")
+    agent, _, app = made()
+    monkeypatch.setattr(
+        "fibsem.gateway.agent.call_host", lambda url, method, path: {"level": "assist"}
+    )
+    agent.start("default", None, "drive", "operator", "page")
+    assert until(lambda: _record(tmp_path).get("runs"))
+    agent._follow_level()  # the operator lowered it to Assist
+    about = read_json(folders(tmp_path / "sessions")[0] / MANAGED)["about"]
+    assert about["level_now"] == "assist"
+
+    app.pid = 2
+    agent._again(about)
+    assert app.levels == [(URL, "drive"), (URL, "assist")]
+
+
+def test_a_resume_after_a_stop_agent_and_an_app_restart_stays_at_watch(made):
+    agent, _, app = made()
+    app.pid = 2
+    agent._again({"level": "drive", "level_now": "watch", "app_pid": 1})
+    assert app.levels == []
 
 
 def test_a_watch_agent_is_resumed_without_a_level_call(made, tmp_path, monkeypatch):

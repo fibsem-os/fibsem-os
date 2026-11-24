@@ -252,6 +252,8 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
     finally:
         # A restart leaves the app running for the next gateway to take back.
         if not again.is_set():
+            # Closed on purpose: an agent left unfinished waits for Resume.
+            agent.left()
             quit_gateway(gateway)
         gateway.close()
         server.should_exit = True
