@@ -124,7 +124,7 @@ def _playbook(record: dict) -> Optional[str]:
     return playbook.get("name") if isinstance(playbook, dict) else playbook
 
 
-def _spent(runs: List[dict]) -> Optional[float]:
+def session_spent(runs: List[dict]) -> Optional[float]:
     """The session's spend: each run writes the CLI's running total for the
     session, so the largest, as the harness counts it (``_spent_before``)."""
     spent = [
@@ -226,7 +226,7 @@ def list_sessions(
                 model=record.get("model"),
                 goal=record.get("goal"),
                 level=about.get("level_now") or about.get("level"),
-                spent_usd=_spent(runs),
+                spent_usd=session_spent(runs),
                 by_gateway=bool(managed),
                 experiment=(
                     ExperimentLink(link["path"], link.get("name"), link.get("id"))
