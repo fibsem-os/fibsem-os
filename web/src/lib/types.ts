@@ -283,10 +283,18 @@ export interface ReviewList {
     all: number;
     /** Per kind scored, one score per grid or lamella: its first answer passes
      * (Accept) or fails (Reject); later answers for it are after_help. A lamella
-     * the run took through the step with no item is missing, and a fail. */
+     * the run took through the step with no item is missing, and a fail; one
+     * whose items the agent closed unanswered is closed, and a fail too. */
     scores?: Record<
       string,
-      { passed: number; failed: number; open: number; after_help?: number; missing?: string[] }
+      {
+        passed: number;
+        failed: number;
+        open: number;
+        after_help?: number;
+        missing?: string[];
+        closed?: string[];
+      }
     >;
   };
 }

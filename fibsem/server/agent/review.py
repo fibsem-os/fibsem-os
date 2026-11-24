@@ -40,6 +40,7 @@ from fibsem.server.auth import (
     require_level,
 )
 from fibsem.server.bodies import ReviewAddBody, ReviewCloseBody
+from fibsem.util.timestamps import to_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -251,17 +252,33 @@ class ReviewStore:
 POLISHING_TASKS = ("MILL_POLISHING", "MILL_COINCIDENT")
 
 
-def reached_in(positions) -> Dict[str, List[str]]:
+def _instant(value: Any) -> Optional[datetime]:
+    """A recorded time as an aware datetime (a naive one read as this
+    machine's zone), or None."""
+    found = to_datetime(value)
+    return found.astimezone() if found is not None else None
+
+
+def reached_in(positions, since: Any = None) -> Dict[str, List[str]]:
     """Per kind scored, the lamellae of *positions* the run took through that
-    step: polishing, finished or failed. Sites and targets aren't read from
-    the record, so only an item filed for them counts."""
+    step since *since* (the session's start): polishing, finished or failed.
+    A lamella polished before the session, by an earlier one or by hand, isn't
+    this session's to score. Sites and targets aren't read from the record, so
+    only an item filed for them counts."""
+    start = _instant(since)
     polished = []
     for position in positions:
         for run in getattr(position, "task_history", None) or []:
             status = getattr(getattr(run, "status", None), "name", "")
-            if run.task_type in POLISHING_TASKS and status in ("Completed", "Failed"):
-                polished.append(position.name)
-                break
+            if run.task_type not in POLISHING_TASKS:
+                continue
+            if status not in ("Completed", "Failed"):
+                continue
+            began = _instant(getattr(run, "start_timestamp", None))
+            if start is not None and (began is None or began < start):
+                continue
+            polished.append(position.name)
+            break
     return {"polishing": polished}
 
 
@@ -278,11 +295,11 @@ def scores(
     lamella. Its first answered item is the score; a later item for the same
     one (a redo after a Reject) is counted as after_help, not again. A name in
     *reached* (per kind, the grids or lamellae the run took through that step)
-    with no item is missing, and counts as a fail. A closed item without an
-    answer is left out."""
+    with no item is missing, and counts as a fail. One whose items were all
+    closed by the agent unanswered is closed, and a fail too."""
     groups: Dict[tuple, List[Dict[str, Any]]] = {}
     for item in items:
-        if item.get("score") and not (item.get("closed") and not item.get("answer")):
+        if item.get("score"):
             groups.setdefault((item["score"], same(item.get("about", ""))), []).append(
                 item
             )
@@ -290,7 +307,15 @@ def scores(
 
     def tally(kind: str) -> Dict[str, Any]:
         return found.setdefault(
-            kind, {"passed": 0, "failed": 0, "open": 0, "after_help": 0, "missing": []}
+            kind,
+            {
+                "passed": 0,
+                "failed": 0,
+                "open": 0,
+                "after_help": 0,
+                "missing": [],
+                "closed": [],
+            },
         )
 
     for (kind, _), group in groups.items():
@@ -300,8 +325,11 @@ def scores(
             choice = answered[0]["answer"].get("choice")
             counts["passed" if choice == "Accept" else "failed"] += 1
             counts["after_help"] += len(answered) - 1
-        else:
+        elif any(not i.get("closed") for i in group):
             counts["open"] += 1
+        else:
+            counts["failed"] += 1
+            counts["closed"].append(group[0].get("about", ""))
     for kind, names in (reached or {}).items():
         for name in names:
             if (kind, same(name)) not in groups:
@@ -340,7 +368,8 @@ def open_item(store: ReviewStore, session_id: Optional[str], item_id: str):
 def build_agent_review_router(
     experiment_path: Callable[[], Optional[str]],
     emit: Optional[Callable[..., None]] = None,
-    reached: Optional[Callable[[], Dict[str, List[str]]]] = None,
+    reached: Optional[Callable[[Any], Dict[str, List[str]]]] = None,
+    names: Optional[Callable[[], List[str]]] = None,
 ) -> APIRouter:
     """``/app/agent/review``: the agent adds and closes items, both read
     them; the operator's answer is on the operator's router."""
@@ -371,30 +400,46 @@ def build_agent_review_router(
             )
         return found
 
-    def _reached() -> Dict[str, List[str]]:
+    def _reached(since: Any) -> Dict[str, List[str]]:
         if reached is None:
             return {}
         try:
-            return reached()
+            return reached(since)
         except Exception:  # noqa: BLE001 - the counts never cost the list
             logger.debug("could not read which lamellae were scored", exc_info=True)
             return {}
+
+    def _names() -> List[str]:
+        if names is None:
+            return []
+        try:
+            return list(names())
+        except Exception:  # noqa: BLE001 - an unread experiment checks nothing
+            logger.debug("could not read the lamellae's names", exc_info=True)
+            return []
+
+    def _since(session: Dict[str, Any], items: List[Dict[str, Any]]) -> Any:
+        """When the session's work began: its start, or its first item if
+        that is earlier (a resumed session reports a new start)."""
+        times = (session.get("started"), items[0]["at"] if items else None)
+        found = [t for t in map(_instant, times) if t is not None]
+        return min(found) if found else None
 
     @router.get("/review")
     def get_review(request: Request, show: str = "all", about: str = ""):
         session = request.app.state.auth.agent_session or {}
         store = store_of(request, experiment_path)
-        items = store.current(session.get("session_id"))
-        shown = [store.view(i) for i in items]
+        with store.lock:
+            items = store.current(session.get("session_id"))
+            shown = [store.view(i) for i in items]
+            since = _since(session, items)
+            counts = store.counts(_reached(since))
+            session_id = store.session_id
         if show != "all":
             shown = [i for i in shown if i["state"] == show]
         if about:
             shown = [i for i in shown if about.lower() in i.get("about", "").lower()]
-        return {
-            "session_id": store.session_id,
-            "items": shown,
-            "counts": store.counts(_reached()),
-        }
+        return {"session_id": session_id, "items": shown, "counts": counts}
 
     @router.post("/review")
     def add_review(request: Request, body: ReviewAddBody):
@@ -417,6 +462,12 @@ def build_agent_review_router(
                 raise _invalid(
                     "A scored item is answered Accept (pass) or Reject (fail): "
                     "leave options out."
+                )
+            known = _names() if score in ("target", "polishing") else []
+            if known and same(about) not in {same(n) for n in known}:
+                shown = ", ".join(known[:20]) + (", ..." if len(known) > 20 else "")
+                raise _invalid(
+                    f"about names the lamella as the experiment does: one of {shown}."
                 )
         cited = cited_evidence(
             SimpleNamespace(experiment_path=experiment_path()), request

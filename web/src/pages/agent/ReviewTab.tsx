@@ -52,7 +52,7 @@ function Scores({
   onOpen: (id: string) => void;
   onClose: () => void;
 }) {
-  const scored = items.filter((i) => i.score && !(i.closed && !i.answer));
+  const scored = items.filter((i) => i.score);
   // A later answer for the same lamella (a redo after a Reject) isn't its score.
   const first = new Set<string>();
   const redo = new Set<string>();
@@ -66,6 +66,16 @@ function Scores({
   const tally = KINDS.map((kind) => ({ kind, ...(counts[kind] ?? none) })).filter(
     (t) => t.passed + t.failed + t.open > 0,
   );
+  // A lamella whose items the agent closed unanswered fails as closed.
+  const closedFail = new Set(KINDS.flatMap((kind) => (counts[kind]?.closed ?? []).map((a) => `${kind}:${same(a)}`)));
+  const result = (i: ReviewItem) =>
+    i.answer
+      ? (RESULT[i.answer.choice] ?? i.answer.choice)
+      : !i.closed
+        ? "To score"
+        : closedFail.has(`${i.score}:${same(i.about)}`)
+          ? "Closed · Fail"
+          : "Closed";
   const missing = KINDS.flatMap((kind) => (counts[kind]?.missing ?? []).map((about) => ({ kind, about })));
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -105,7 +115,7 @@ function Scores({
                   {i.answer?.note && <span className="block text-[12px] text-muted-foreground">“{i.answer.note}”</span>}
                 </span>
                 <span className={cn("shrink-0", (!i.answer || redo.has(i.id)) && "text-muted-foreground")}>
-                  {i.answer ? (RESULT[i.answer.choice] ?? i.answer.choice) : "To score"}
+                  {result(i)}
                   {redo.has(i.id) && " after help"}
                 </span>
               </button>

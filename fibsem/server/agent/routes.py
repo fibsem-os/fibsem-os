@@ -66,13 +66,20 @@ def mount_agent_routes(
     app.include_router(build_agent_plan_router(experiment_path, emit))
 
     # Its review list: finished work, checks and waits for the operator.
-    def reached():
+    def positions():
         from fibsem.server.app_context import _positions
 
         experiment = app_context._experiment
-        return reached_in(_positions(experiment)) if experiment is not None else {}
+        return _positions(experiment) if experiment is not None else []
 
-    app.include_router(build_agent_review_router(experiment_path, emit, reached))
+    app.include_router(
+        build_agent_review_router(
+            experiment_path,
+            emit,
+            reached=lambda since: reached_in(positions(), since),
+            names=lambda: [p.name for p in positions()],
+        )
+    )
     # What fibsem-agent printed, and the agent's handoff notes.
     app.include_router(build_agent_transcript_router(experiment_path, emit))
     app.include_router(build_agent_handoff_router(experiment_path))

@@ -326,7 +326,12 @@ def build_operator_router(agent: AgentControl) -> APIRouter:
         message_id = None
         if not quiet:
             text = agent_review.answered_text(item, body.choice, note)
-            message_id = agent.message(text, evidence=record)
+            try:
+                message_id = agent.message(text, evidence=record)
+            except Exception:  # noqa: BLE001 - the answer is kept: say it wasn't told
+                logger.warning(
+                    "could not tell the agent of review %s", item_id, exc_info=True
+                )
             if message_id is not None:
                 try:
                     store.told(session_id, item_id, message_id)

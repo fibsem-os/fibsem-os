@@ -2142,7 +2142,12 @@ class Harness:
         sent = await asyncio.get_running_loop().run_in_executor(None, post)
         if sent:
             del lines[: len(batch)]
-        del lines[:-TRANSCRIPT_KEEP]
+        if len(lines) > TRANSCRIPT_KEEP:
+            log.warning(
+                "The App Server hasn't taken the transcript: %d older line(s) dropped.",
+                len(lines) - TRANSCRIPT_KEEP,
+            )
+            del lines[:-TRANSCRIPT_KEEP]
         return sent and bool(lines)
 
     async def _send_transcript_every(self) -> None:

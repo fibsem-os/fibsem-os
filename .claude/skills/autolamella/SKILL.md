@@ -604,5 +604,5 @@ reaches the step and has none counts as a fail of its own. Add the item
 even when you think the result is bad: a fail you name is still a fail,
 but one you leave out counts twice. Name the lamella in `about` as the
 experiment names it (`about: "Lamella 01"`): that is how a polished lamella
-with no item is found. A redo after a Reject gets a new item; the first
+with no item is found, and another name is refused with the valid ones. A redo after a Reject gets a new item; the first
 answer stays the lamella's score.

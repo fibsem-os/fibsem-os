@@ -32,6 +32,8 @@ class FakeAgent:
         self.path = path
         self.messages = []
         self.reached = {}
+        self.names = []
+        self.since = []
 
     def experiment_path(self):
         return self.path
@@ -59,7 +61,12 @@ def server(tmp_path):
 
     app.include_router(build_agent_session_router(lambda kind, data: None))
     app.include_router(
-        build_agent_review_router(lambda: str(experiment), emit, lambda: fake.reached)
+        build_agent_review_router(
+            lambda: str(experiment),
+            emit,
+            reached=lambda since: fake.since.append(since) or fake.reached,
+            names=lambda: fake.names,
+        )
     )
     app.include_router(build_operator_router(fake))
     agent = TestClient(app, headers={"Authorization": f"Bearer {app.state.auth.token}"})
@@ -254,14 +261,29 @@ def test_scored_items_count_a_pass_or_a_fail_per_kind(server):
     operator.post("/app/agent/review/r3/answer", json={"choice": "Accept"})
     counts = agent.get("/app/agent/review").json()["counts"]
     assert counts["scores"] == {
-        "sites": {"passed": 1, "failed": 0, "open": 0, "after_help": 0, "missing": []},
-        "target": {"passed": 1, "failed": 1, "open": 0, "after_help": 0, "missing": []},
+        "sites": {
+            "passed": 1,
+            "failed": 0,
+            "open": 0,
+            "after_help": 0,
+            "missing": [],
+            "closed": [],
+        },
+        "target": {
+            "passed": 1,
+            "failed": 1,
+            "open": 0,
+            "after_help": 0,
+            "missing": [],
+            "closed": [],
+        },
         "polishing": {
             "passed": 0,
             "failed": 0,
             "open": 1,
             "after_help": 0,
             "missing": [],
+            "closed": [],
         },
     }
 
@@ -291,8 +313,8 @@ def test_a_lamella_polished_with_no_scored_item_counts_as_a_fail(server):
 def test_which_lamellae_reached_polishing_is_read_from_their_tasks():
     from types import SimpleNamespace as NS
 
-    def run(task_type, status):
-        return NS(task_type=task_type, status=NS(name=status))
+    def run(task_type, status, at="2026-11-24T10:00:00+11:00"):
+        return NS(task_type=task_type, status=NS(name=status), start_timestamp=at)
 
     positions = [
         NS(name="L1", task_history=[run("MILL_POLISHING", "Completed")]),
@@ -300,8 +322,61 @@ def test_which_lamellae_reached_polishing_is_read_from_their_tasks():
         NS(name="L3", task_history=[run("MILL_POLISHING", "InProgress")]),
         NS(name="L4", task_history=[run("MILL_ROUGH", "Completed")]),
         NS(name="L5", task_history=None),
+        # Polished the day before: an earlier session's.
+        NS(
+            name="L6",
+            task_history=[
+                run("MILL_POLISHING", "Completed", "2026-11-23T10:00:00+11:00")
+            ],
+        ),
     ]
-    assert reached_in(positions) == {"polishing": ["L1", "L2"]}
+    since = "2026-11-24T09:00:00+11:00"
+    assert reached_in(positions, since) == {"polishing": ["L1", "L2"]}
+    assert reached_in(positions)["polishing"] == ["L1", "L2", "L6"]
+
+
+def test_missing_lamellae_are_counted_from_the_session_start(server):
+    agent, _, _, _, fake = server
+    agent.get("/app/agent/review")
+    assert fake.since[-1] is not None
+
+
+def test_a_scored_item_names_a_lamella_the_experiment_has(server):
+    agent, _, _, _, fake = server
+    fake.names = ["Lamella 01", "Lamella 02"]
+    refused = add(agent, title="x", score="polishing", about="Lamella 01 polishing")
+    assert refused.status_code == 422
+    assert "Lamella 01, Lamella 02" in refused.json()["detail"]["message"]
+    assert add(agent, title="x", score="polishing", about="lamella-01").is_success
+    # Grids aren't positions: sites aren't checked.
+    assert add(agent, title="x", score="sites", about="Grid 1").is_success
+
+
+def test_a_scored_item_the_agent_closed_unanswered_is_a_closed_fail(server):
+    agent, _, _, _, fake = server
+    fake.reached = {"polishing": ["Lamella 01"]}
+    add(agent, title="Polished", about="Lamella 01", score="polishing")
+    agent.post("/app/agent/review/r1/close", json={"reason": "Asked in the chat."})
+    polishing = agent.get("/app/agent/review").json()["counts"]["scores"]["polishing"]
+    assert polishing["failed"] == 1
+    assert polishing["closed"] == ["Lamella 01"]
+    assert polishing["missing"] == []
+
+
+def test_an_answer_kept_when_the_agent_cannot_be_told(server, monkeypatch):
+    agent, operator, _, _, fake = server
+    add(agent, title="Thinned", level="check")
+
+    def broken(text, evidence=None):
+        raise RuntimeError("no agent")
+
+    monkeypatch.setattr(fake, "message", broken)
+    answer = operator.post(
+        "/app/agent/review/r1/answer", json={"choice": "Reject", "note": "Too thick."}
+    )
+    assert answer.status_code == 200
+    assert answer.json()["told"] is False
+    assert answer.json()["state"] == "answered"
 
 
 def test_a_list_that_cannot_be_saved_refuses_and_tells_nobody(
