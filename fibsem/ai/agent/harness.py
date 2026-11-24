@@ -196,6 +196,8 @@ PICTURE_TYPES = ("image/png", "image/jpeg", "image/gif", "image/webp")
 SUBAGENT_TOOLS = ("Agent", "Task")
 # How much of a subagent's answer its run keeps.
 SUBAGENT_ANSWER = 1500
+# How much of a subagent's brief its run's card keeps.
+SUBAGENT_BRIEF = 8000
 # While a turn goes on, its tokens and the context's fill are reported this
 # often (when they changed), not only as it ends: a turn can run for an hour.
 REPORT_EVERY_S = 30.0
@@ -2897,6 +2899,14 @@ def _show(message, agent: SdkAgent) -> None:
                 extra = dict(run)
                 if block.name in SUBAGENT_TOOLS:
                     extra["subagent"] = _clip(block.input.get("subagent_type", ""), 60)
+                    # Its brief, for the operator to read on the run's card.
+                    brief = block.input.get("prompt")
+                    if isinstance(brief, str) and brief.strip():
+                        # Its lines kept: a brief is read as written.
+                        brief = brief.strip()
+                        if len(brief) > SUBAGENT_BRIEF:
+                            brief = brief[: SUBAGENT_BRIEF - 1] + "…"
+                        extra["brief"] = brief
                 seq = _line(agent, "step", text, verb=verb, **extra)
                 if seq is not None:
                     agent._steps[block.id] = (

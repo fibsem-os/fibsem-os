@@ -65,6 +65,7 @@ MAX_PICTURE_BYTES = 5 * 1024 * 1024
 _PICTURE_NAME = re.compile(r"^[A-Za-z0-9_-]{1,100}-\d{1,9}\.(png|jpg|gif|webp)$")
 MAX_ENTRIES = 200
 MAX_TEXT = 2000
+MAX_BRIEF = 8000
 MAX_AGE_S = 24 * 3600
 # What GET answers at most: the newest entries.
 READ_LIMIT = 500
@@ -79,7 +80,7 @@ def _entry(raw: Any, now: float) -> Dict[str, Any]:
     """One posted entry, checked, stamped with the server's time."""
     if not isinstance(raw, dict):
         raise _invalid(
-            "an entry is {kind, text, verb?, step?, run?, subagent?, verdict?, attention?, took_s?, age_s?}."
+            "an entry is {kind, text, verb?, step?, run?, subagent?, brief?, verdict?, attention?, took_s?, age_s?}."
         )
     kind = raw.get("kind")
     if kind not in KINDS:
@@ -127,6 +128,12 @@ def _entry(raw: Any, now: float) -> Dict[str, Any]:
         if not isinstance(subagent, str) or len(subagent) > 60:
             raise _invalid("subagent is the subagent's name, at most 60 characters.")
         entry["subagent"] = subagent
+    # brief: what an Agent call asked its subagent, for the run's card.
+    brief = raw.get("brief")
+    if brief is not None:
+        if not isinstance(brief, str) or len(brief) > MAX_BRIEF:
+            raise _invalid(f"brief is a string of at most {MAX_BRIEF} characters.")
+        entry["brief"] = brief
     if kind == "picture":
         entry["_image"] = _picture(raw)
         if "seq" not in entry:

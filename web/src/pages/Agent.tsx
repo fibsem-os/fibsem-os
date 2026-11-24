@@ -564,6 +564,14 @@ function RunCard({
           {answer.text}
         </div>
       )}
+      {call.brief && (
+        <details className="text-[12px] text-muted-foreground">
+          <summary className="w-fit cursor-pointer hover:text-foreground">Brief</summary>
+          <div className="mt-1 max-h-[320px] overflow-y-auto whitespace-pre-wrap break-words rounded-sm bg-muted/40 px-2 py-1.5 text-foreground">
+            {call.brief}
+          </div>
+        </details>
+      )}
       {!tab && (lines.length > 0 || shared.onOpen) && (
         <div className="flex items-center justify-between gap-3">
           {lines.length > 0 ? (

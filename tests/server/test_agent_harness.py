@@ -1817,7 +1817,7 @@ def test_a_subagent_s_lines_are_kept_under_the_call_that_started_it():
     asked = {
         "subagent_type": "autolamella-verifier",
         "description": "Check lamella 02's polishing pass",
-        "prompt": "...",
+        "prompt": "Decision: the next pass.\n\nBased on: final-ib.tif",
     }
     _show(
         AssistantMessage(content=[ToolUseBlock("a1", "Agent", asked)], model="m"),
@@ -1846,6 +1846,8 @@ def test_a_subagent_s_lines_are_kept_under_the_call_that_started_it():
     call, said, read, read_done, done = agent.transcript
     assert (call["verb"], call["text"]) == ("Asked", asked["description"])
     assert call["subagent"] == "autolamella-verifier" and "run" not in call
+    # Its brief, lines and all, for the operator to read on the card.
+    assert call["brief"] == asked["prompt"]
     for line in (said, read, read_done):
         assert line["run"] == call["seq"], line
     assert said["kind"] == "said" and read_done["step"] == read["seq"]
