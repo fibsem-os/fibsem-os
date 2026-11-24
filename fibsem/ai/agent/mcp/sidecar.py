@@ -962,11 +962,16 @@ def build_sidecar(client, capabilities, instrument=None, record=None, always_loa
         return _tool("experiment_add_note", text=str(text), item_name=item_name)
 
     def experiment_message_operator(
-        text: str, item_name: Optional[str] = None, reply_to: Optional[str] = None
+        text: str,
+        item_name: Optional[str] = None,
+        reply_to: Optional[str] = None,
+        waits: bool = False,
     ):
         body = {"text": str(text), "item_name": item_name}
         if reply_to:
             body["reply_to"] = str(reply_to)
+        if waits:
+            body["waits"] = True
         return _tool("experiment_message_operator", **body)
 
     def request_create(actions: list, reason: str):

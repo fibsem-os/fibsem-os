@@ -110,8 +110,10 @@ class AlertRules:
         if row.kind == MESSAGE:
             return Alert(
                 key,
-                AGENT_MESSAGE,
-                "Message from the agent",
+                ANSWER if row.waits else AGENT_MESSAGE,
+                "The agent is waiting for you"
+                if row.waits
+                else "Message from the agent",
                 [row.text],
                 self._context(row.level),
                 image=self._evidence_image(evidence),

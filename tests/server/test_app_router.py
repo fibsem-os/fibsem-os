@@ -718,6 +718,19 @@ def test_agent_notes_land_on_the_record(microscope, host, event_buffer):
             "/app/experiment/messages", headers=AUTH, json={"text": "x", "reply_to": 3}
         )
         assert bad.status_code == 422
+        # A message the agent stops on until the operator answers says so;
+        # the others don't carry the mark.
+        waits = client.post(
+            "/app/experiment/messages",
+            headers=AUTH,
+            json={"text": "Go ahead with Grid-01?", "waits": True},
+        )
+        assert waits.status_code == 200
+        events = client.get("/app/events?since=0", headers=AUTH).json()["events"]
+        assert [e for e in events if e["kind"] == "note"][-1]["payload"][
+            "waits"
+        ] is True
+        assert "waits" not in message
         # A note tells nobody: it is for the record.
         assert "to" not in note["payload"]
         # Each is on the record once, as itself: not again as an action.

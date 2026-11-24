@@ -122,6 +122,9 @@ class RecentRow:
     # the agent's answer to one: the page shows these in its side chat, not
     # in the conversation.
     aside: bool = False
+    # The agent's message that waits for the operator's answer: it has
+    # stopped until they reply.
+    waits: bool = False
 
     @property
     def conversation(self) -> bool:
@@ -545,6 +548,8 @@ class RecentActions:
         )
         if str(p.get("reply_to") or "") in self._asides:
             self._rows[key] = replace(self._rows[key], aside=True)
+        elif p.get("waits") and is_message(record):
+            self._rows[key] = replace(self._rows[key], waits=True)
         return True
 
     def _on_operator_message(self, record, p, agent):

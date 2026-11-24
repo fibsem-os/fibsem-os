@@ -342,6 +342,7 @@ class AgentHost:
         item_name: Optional[str] = None,
         reply_to: Optional[str] = None,
         evidence: Optional[str] = None,
+        waits: bool = False,
     ) -> Any:
         if item_name is not None:
             return _no_items()
@@ -349,7 +350,12 @@ class AgentHost:
         self.record(
             NOTE,
             note_record(
-                text, to=OPERATOR, id=message_id, reply_to=reply_to, evidence=evidence
+                text,
+                to=OPERATOR,
+                id=message_id,
+                reply_to=reply_to,
+                evidence=evidence,
+                waits=True if waits else None,
             ),
             actor=AGENT,
         )

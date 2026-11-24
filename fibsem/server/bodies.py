@@ -880,9 +880,11 @@ class NoteBody:
 @dataclass
 class OperatorMessageBody(NoteBody):
     """POST /app/experiment/messages: the agent's message to the operator,
-    ``reply_to`` the message it answers."""
+    ``reply_to`` the message it answers; ``waits``, it has stopped until the
+    operator answers."""
 
     reply_to: Optional[str] = None
+    waits: bool = False
 
 
 @dataclass

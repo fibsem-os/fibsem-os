@@ -7,7 +7,7 @@ One router over a *source*: the App Server's app context
 
 - ``events(since, timeout, after=None)``: the long-poll's answer;
 - ``add_note(text, item_name=None, evidence=None)``,
-  ``add_message(text, item_name=None, reply_to=None, evidence=None)`` and
+  ``add_message(text, item_name=None, reply_to=None, evidence=None, waits=False)`` and
   ``add_evidence(item_name, save)``: the record, or a `Refusal`;
 - ``experiment_path``: where evidence is kept and read from; None for none;
 - ``notes(tags, each)``: the newest notes of each tag (`notes.latest_notes`).
@@ -53,6 +53,7 @@ class RecordSource(Protocol):
         item_name: Optional[str] = None,
         reply_to: Optional[str] = None,
         evidence: Optional[str] = None,
+        waits: bool = False,
     ) -> Any: ...
 
     def add_evidence(
@@ -178,6 +179,7 @@ def build_record_router(
             item_name,
             body.reply_to,
             **({"evidence": cited["evidence_id"]} if cited else {}),
+            **({"waits": True} if body.waits else {}),
         )
         return _answered(result)
 

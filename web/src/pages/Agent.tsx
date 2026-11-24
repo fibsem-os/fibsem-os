@@ -53,6 +53,7 @@ import { Palette, PALETTE_KEY, type PaletteEntry, usePaletteKey } from "./agent/
 import { PlanDialog } from "./agent/PlanDialog";
 import { say, since } from "./agent/steps";
 import { asking, SideChat } from "./agent/SideChat";
+import { waitingOn } from "@/shell/Notices";
 import { ReviewTab, useReview } from "./agent/ReviewTab";
 import {
   type ColumnTab,
@@ -1354,6 +1355,8 @@ export function AgentPage() {
   const asides = (recent.data?.rows ?? []).filter((r) => r.aside);
   const rows = all.filter((r) => !(r.kind === "you" && r.message_id && !r.read));
   const unread = all.filter((r) => r.kind === "you" && r.message_id && !r.read);
+  // The agent's message that waits for an answer, until the operator writes.
+  const waits = waitingOn(all);
   const a = agent.data;
   // What fibsem-agent printed: shown from its first step, before any message.
   const lines = transcript.data?.entries ?? [];
@@ -1808,6 +1811,19 @@ export function AgentPage() {
         {a.asking && <ConnectCard key={a.asking.id} ask={a.asking} decide="/app/agent/connections" />}
         {request && <RequestCard key={request.request_id} request={request} agent={a} />}
         {!request && suggestion && <SuggestionCard key={suggestion.proposal_id} suggestion={suggestion} agent={a} />}
+        {waits && (
+          <div
+            role="status"
+            className="flex items-start gap-2 rounded-md border border-[var(--fibsem-warn-color)] bg-[color-mix(in_srgb,var(--fibsem-warn-color)_10%,transparent)] px-3 py-2 text-[13px]"
+          >
+            <span className="mt-[7px] block size-2 shrink-0 rounded-full bg-[var(--fibsem-warn-color)]" aria-hidden />
+            <span className="min-w-0">
+              <b className="font-semibold">Waiting on you</b>
+              <span className="text-muted-foreground"> · the agent has stopped until you answer</span>
+              <span className="line-clamp-2 break-words text-foreground">{waits.text}</span>
+            </span>
+          </div>
+        )}
         <div
           className={cn(
             "rounded-md",
