@@ -10,6 +10,7 @@ approve its own request or raise its own level.
 """
 
 import base64
+import logging
 import os
 from dataclasses import asdict
 from typing import Any, Dict, Optional, Tuple
@@ -62,6 +63,8 @@ from fibsem.server.responses import (
     answer,
 )
 from fibsem.workflows import evidence, examples
+
+logger = logging.getLogger(__name__)
 
 
 def _text(value: str, key: str, required: bool = True) -> str:
@@ -308,10 +311,7 @@ def build_operator_router(agent: AgentControl) -> APIRouter:
             and not note
             and record is None
         )
-        message_id = None
-        if not quiet:
-            text = agent_review.answered_text(item, body.choice, note)
-            message_id = agent.message(text, evidence=record)
+        # Saved first: an answer the list can't keep is refused, not told.
         answered = store.answer(
             session_id,
             item_id,
@@ -319,10 +319,24 @@ def build_operator_router(agent: AgentControl) -> APIRouter:
                 "choice": body.choice,
                 "note": note,
                 "evidence": record["evidence_id"] if record else None,
-                "message_id": message_id,
+                "message_id": None,
                 "at": agent_review.now(),
             },
         )
+        message_id = None
+        if not quiet:
+            text = agent_review.answered_text(item, body.choice, note)
+            try:
+                message_id = agent.message(text, evidence=record)
+            except Exception:  # noqa: BLE001 - the answer is kept: say it wasn't told
+                logger.warning(
+                    "could not tell the agent of review %s", item_id, exc_info=True
+                )
+            if message_id is not None:
+                try:
+                    store.told(session_id, item_id, message_id)
+                except HTTPException:  # the answer is kept; only its link is not
+                    logger.warning("could not note the message of review %s", item_id)
         return {**store.view(answered), "told": message_id is not None}
 
     @router.post("/messages/{message_id}/interrupt", response_model=MessageInterrupted)
