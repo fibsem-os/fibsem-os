@@ -54,26 +54,29 @@ function Scores({
 }) {
   const scored = items.filter((i) => i.score);
   // A later answer for the same lamella (a redo after a Reject) isn't its score.
+  // What an item scores, as the server groups it: its lamella's id, else its about.
+  const key = (i: ReviewItem) => `${i.score}:${i.item_id ?? same(i.about)}`;
   const first = new Set<string>();
   const redo = new Set<string>();
+  const unanswered = new Set<string>();
   for (const i of [...scored].reverse()) {
+    if (!i.closed && !i.answer) unanswered.add(key(i));
     if (!i.answer) continue;
-    const key = `${i.score}:${same(i.about)}`;
-    if (first.has(key)) redo.add(i.id);
-    else first.add(key);
+    if (first.has(key(i))) redo.add(i.id);
+    else first.add(key(i));
   }
   const none = { passed: 0, failed: 0, open: 0 };
   const tally = KINDS.map((kind) => ({ kind, ...(counts[kind] ?? none) })).filter(
     (t) => t.passed + t.failed + t.open > 0,
   );
-  // A lamella whose items the agent closed unanswered fails as closed.
-  const closedFail = new Set(KINDS.flatMap((kind) => (counts[kind]?.closed ?? []).map((a) => `${kind}:${same(a)}`)));
+  // A lamella whose items the agent all closed unanswered fails as closed.
+  const closedFail = (i: ReviewItem) => !first.has(key(i)) && !unanswered.has(key(i));
   const result = (i: ReviewItem) =>
     i.answer
       ? (RESULT[i.answer.choice] ?? i.answer.choice)
       : !i.closed
         ? "To score"
-        : closedFail.has(`${i.score}:${same(i.about)}`)
+        : closedFail(i)
           ? "Closed · Fail"
           : "Closed";
   const missing = KINDS.flatMap((kind) => (counts[kind]?.missing ?? []).map((about) => ({ kind, about })));

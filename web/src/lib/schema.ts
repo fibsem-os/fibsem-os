@@ -2169,11 +2169,15 @@ export interface components {
                 [key: string]: unknown;
             }[] | null;
             images?: string[] | null;
+            /** @default  */
+            item_name?: string;
             /** @default done */
             level?: string;
             options?: string[] | null;
             /** @default  */
             score?: string;
+            /** @default  */
+            task_name?: string;
             /** @default  */
             text?: string;
             title: string;

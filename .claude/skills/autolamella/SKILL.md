@@ -592,17 +592,20 @@ whether they went well or not: they are how the run is scored.
 - **sites**: each grid's site list, once you have it, about the grid
   (`about: "Grid 1"`), with the overview marked with your picks.
 - **target**: each lamella's FM target on a correlative run, once it is
-  chosen, about the lamella, with the FM image marked with the target.
-- **polishing**: each lamella's polishing, when it stops or fails, about
-  the lamella, with its final SEM and FIB images as a pair, the SEM
-  first.
+  chosen, with `item_name` the lamella, and the FM image marked with the
+  target.
+- **polishing**: each lamella's polishing, when it stops or fails, with
+  `item_name` the lamella, and its final SEM and FIB images as a pair, the
+  SEM first.
 
 The operator answers Accept (a pass) or Reject (a fail) with a note, and on a
 fail marks what was right: the target, or the good squares you missed.
 A lamella that fails before a scored step gets no item for it; one that
 reaches the step and has none counts as a fail of its own. Add the item
 even when you think the result is bad: a fail you name is still a fail,
-but one you leave out counts twice. Name the lamella in `about` as the
-experiment names it (`about: "Lamella 01"`): that is how a polished lamella
-with no item is found, and another name is refused with the valid ones. A redo after a Reject gets a new item; the first
-answer stays the lamella's score.
+but one you leave out counts twice. `item_name` is the lamella exactly as
+the experiment names it (`item_name: "Lamella 01"`); the server ties the
+item to the lamella and its polishing run, which is how a polished lamella
+with no item is found, and refuses another name, listing the valid ones. A
+redo after a Reject gets a new item; the first answer stays the lamella's
+score.

@@ -268,6 +268,11 @@ export interface ReviewItem {
   options: string[];
   /** The result it scores, when it is a scored item: Accept is a pass, Reject a fail. */
   score?: "sites" | "target" | "polishing";
+  /** The lamella and task run it is about, as the server resolved them from the names the agent gave. */
+  item_id?: string;
+  item_name?: string;
+  task_id?: string;
+  task_name?: string;
   answer?: { choice: string; note: string; evidence: string | null; at: string } | null;
   closed?: { reason: string; at: string } | null;
 }

@@ -9,7 +9,11 @@ from fibsem.server.agent.handoff import build_agent_handoff_router
 from fibsem.server.agent.library import build_library_router
 from fibsem.server.agent.plan import PlanStore, build_agent_plan_router
 from fibsem.server.agent.requests import RequestStore, build_request_router
-from fibsem.server.agent.review import build_agent_review_router, reached_in
+from fibsem.server.agent.review import (
+    build_agent_review_router,
+    reached_in,
+    resolve_review_item,
+)
 from fibsem.server.agent.session import build_agent_session_router
 from fibsem.server.agent.transcript import build_agent_transcript_router
 
@@ -77,7 +81,9 @@ def mount_agent_routes(
             experiment_path,
             emit,
             reached=lambda since: reached_in(positions(), since),
-            names=lambda: [p.name for p in positions()],
+            resolve=lambda item, task, score: resolve_review_item(
+                app_context._experiment, item, task, score
+            ),
         )
     )
     # What fibsem-agent printed, and the agent's handoff notes.
