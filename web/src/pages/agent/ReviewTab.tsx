@@ -246,7 +246,9 @@ function Answer({
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
-  const open = item.state === "waiting" || item.state === "to_check" || item.state === "done";
+  // An answer given may be changed: the new one counts, the one before is kept.
+  const [changing, setChanging] = useState(false);
+  const open = item.state === "waiting" || item.state === "to_check" || item.state === "done" || changing;
   const send = async () => {
     setError(null);
     setSending(true);
@@ -259,6 +261,7 @@ function Answer({
         body: JSON.stringify({ choice, note: note.trim(), ...marks }),
       });
       editor.clear();
+      setChanging(false);
       onDone();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -287,9 +290,19 @@ function Answer({
         </dl>
       )}
       {item.answer && (
-        <p className="m-0 border-t border-border pt-3">
-          You said <b className="font-semibold">{item.answer.choice}</b>
-          {item.answer.note ? `: “${item.answer.note}”` : ""}
+        <p className="m-0 flex items-baseline gap-2 border-t border-border pt-3">
+          <span className="flex-1">
+            You said <b className="font-semibold">{item.answer.choice}</b>
+            {item.answer.note ? `: “${item.answer.note}”` : ""}
+          </span>
+          {!item.closed && !changing && (
+            <button
+              className="cursor-pointer border-0 bg-transparent p-0 text-[12px] text-muted-foreground underline hover:text-foreground"
+              onClick={() => setChanging(true)}
+            >
+              Change
+            </button>
+          )}
         </p>
       )}
       {item.closed && <p className="m-0 text-muted-foreground">Closed by the agent: {item.closed.reason}</p>}
@@ -325,8 +338,13 @@ function Answer({
             <span className="flex-1 text-[12px] text-muted-foreground">
               {editor.marks.length ? `With ${editor.marks.length} mark${editor.marks.length > 1 ? "s" : ""}` : ""}
             </span>
+            {changing && (
+              <Button onClick={() => setChanging(false)} disabled={sending}>
+                Cancel
+              </Button>
+            )}
             <Button variant="primary" disabled={!choice || sending} onClick={send}>
-              Send
+              {changing ? "Change" : "Send"}
             </Button>
           </div>
         </div>
@@ -393,6 +411,14 @@ export function ReviewTab({ open }: { open?: { id: string } | null }) {
           {count} item{count === 1 ? "" : "s"}
           {show !== "all" && ` · ${SHOWS.find((s) => s.show === show)?.name.toLowerCase()}`}
         </span>
+        {anyScored && (
+          <button
+            className="cursor-pointer rounded border-0 bg-transparent px-1.5 py-0.5 text-[12.5px] text-muted-foreground hover:text-foreground"
+            onClick={() => setScores(true)}
+          >
+            Scores
+          </button>
+        )}
         <Popup
           label="Show"
           align="right"
@@ -427,17 +453,6 @@ export function ReviewTab({ open }: { open?: { id: string } | null }) {
                   {s.name}
                 </button>
               ))}
-              {anyScored && (
-                <button
-                  className="cursor-pointer border-0 border-t border-border bg-transparent px-3 py-1.5 text-left text-[13px] whitespace-nowrap hover:bg-muted"
-                  onClick={() => {
-                    setScores(true);
-                    close();
-                  }}
-                >
-                  Scores…
-                </button>
-              )}
             </div>
           )}
         </Popup>

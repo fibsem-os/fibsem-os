@@ -198,9 +198,18 @@ def test_the_operators_answer_reaches_the_agent_as_a_message_with_its_marks(
     )
     assert evidence["evidence_id"] == item["answer"]["evidence"]
     assert operator.get("/app/agent/review").json()["counts"]["rejected"] == 1
-    # Once answered it is not answered again, and the agent's token can't answer.
+    # The operator may change their answer: the new one counts, the one
+    # before is kept, and the agent, told the first, is told of the change.
     again = operator.post("/app/agent/review/r1/answer", json={"choice": "Accept"})
-    assert again.status_code == 409
+    assert again.status_code == 200
+    assert again.json()["answer"]["choice"] == "Accept"
+    assert again.json()["earlier"][0]["choice"] == "Reject"
+    assert again.json()["told"] is True
+    assert fake.messages[-1][0] == (
+        'Review r1 "Polished to 290 nm": changed to Accept (was Reject).'
+    )
+    assert operator.get("/app/agent/review").json()["counts"]["rejected"] == 0
+    # The agent's token can't answer.
     add(agent, title="Thinned", level="check")
     refused = agent.post("/app/agent/review/r2/answer", json={"choice": "Accept"})
     assert refused.status_code == 403
@@ -225,6 +234,9 @@ def test_the_agent_closes_an_item_it_no_longer_needs_answered(server):
         agent.post("/app/agent/review/r1/close", json={"reason": "again"}).status_code
         == 409
     )
+    # A closed item is no longer answered.
+    late = operator.post("/app/agent/review/r1/answer", json={"choice": "Accept"})
+    assert late.status_code == 409
     assert (
         agent.post("/app/agent/review/r9/close", json={"reason": "x"}).status_code
         == 404
@@ -305,6 +317,15 @@ def test_scored_items_count_a_pass_or_a_fail_per_kind(server):
             "closed": [],
         },
     }
+
+
+def test_a_changed_score_counts_its_new_answer(server):
+    agent, operator, *_ = server
+    add(agent, title="Target found", item_name="Lamella 01", score="target")
+    operator.post("/app/agent/review/r1/answer", json={"choice": "Reject"})
+    operator.post("/app/agent/review/r1/answer", json={"choice": "Accept"})
+    target = agent.get("/app/agent/review").json()["counts"]["scores"]["target"]
+    assert (target["passed"], target["failed"]) == (1, 0)
 
 
 def test_a_redo_after_a_reject_keeps_one_score_per_lamella(server):
