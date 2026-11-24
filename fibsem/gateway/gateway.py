@@ -33,10 +33,11 @@ from fibsem.server.discovery import (
     GATEWAY_PORT,
     read_discovery_file,
     read_gateway_file,
+    this_process,
 )
 from fibsem.tools.apps import App, apps
 from fibsem.update_check import Newer, check_newer
-from fibsem.util.process import kill_pid, pid_alive
+from fibsem.util.process import kill_pid, pid_alive, process_started, same_process
 
 logger = logging.getLogger(__name__)
 
@@ -209,7 +210,7 @@ def write_gateway_file(
     the connect token lets a program here ask the operator to let it in."""
     path = Path(path or GATEWAY_FILE)
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {"url": url, "pid": os.getpid()}
+    payload = {"url": url, **this_process()}
     if connect_token is not None:
         payload["connect_token"] = connect_token
     # Written whole, then moved into place: a reader never sees it half written.
@@ -638,6 +639,8 @@ class Gateway:
             state, stop_file, log = self._state, self._stop_file, self._log
         run = {
             "pid": state.pid,
+            # so a later gateway never takes another process with its pid
+            "pid_started": process_started(state.pid),
             "app": state.app,
             "window": state.window,
             "experiment": state.experiment,
@@ -664,7 +667,7 @@ class Gateway:
         with self._lock:
             if self._state.mode != OFF:
                 return self.state()
-        if not pid_alive(pid):
+        if not same_process(pid, run.get("pid_started")):
             self.run_file.unlink(missing_ok=True)
             return self.state()
         found = self._discovery()

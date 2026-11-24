@@ -30,7 +30,12 @@ from typing import Callable, Dict, List, Optional
 from fibsem import paths
 from fibsem.util import timestamps
 from fibsem.util.files import write_atomic
-from fibsem.util.process import kill_pid, pid_alive, watch_stop_file
+from fibsem.util.process import (
+    kill_pid,
+    process_started,
+    same_process,
+    watch_stop_file,
+)
 
 log = logging.getLogger("fibsem.agent.manager")
 
@@ -198,14 +203,21 @@ class SessionFolder:
             runs = record.get("runs", [])
             last = runs[-1] if runs else {}
             pid = last.get("pid")
-            if "ended" not in last and pid != os.getpid() and pid_alive(pid):
+            alive = same_process(pid, last.get("pid_started"))
+            if "ended" not in last and pid != os.getpid() and alive:
                 raise SessionRunning(
                     f"Session {session_id} is already running (process {pid}): "
                     "stop it, or wait for it to end, before running it again."
                 )
             # A stop left from an earlier run is not for this one.
             (folder / STOP).unlink(missing_ok=True)
-            runs.append({"pid": os.getpid(), "started": timestamps.now().isoformat()})
+            runs.append(
+                {
+                    "pid": os.getpid(),
+                    "pid_started": process_started(os.getpid()),
+                    "started": timestamps.now().isoformat(),
+                }
+            )
             # A resumed run says only what it was given: the goal stays the first run's.
             given = {key: value for key, value in about.items() if value is not None}
             # The playbook a session keeps (`keep_playbook`, with its optional
@@ -567,16 +579,19 @@ class AgentSessionManager:
         if agent.process is not None:
             return agent.process.poll() is None
         runs = read_json(agent.folder / RECORD).get("runs") or [{}]
-        return "ended" not in runs[-1] and pid_alive(runs[-1].get("pid"))
+        last = runs[-1]
+        return "ended" not in last and same_process(
+            last.get("pid"), last.get("pid_started")
+        )
 
     def _kill(self, agent: Agent) -> None:
         if agent.process is not None:
             agent.process.kill()
             agent.process.wait(10)
             return
-        pid = (read_json(agent.folder / RECORD).get("runs") or [{}])[-1].get("pid")
-        if pid_alive(pid):
-            kill_pid(pid)
+        last = (read_json(agent.folder / RECORD).get("runs") or [{}])[-1]
+        if same_process(last.get("pid"), last.get("pid_started")):
+            kill_pid(last["pid"])
 
     def _exited(self, agent: Agent) -> None:
         """The agent's process ended on its own: what its record says decides

@@ -11,7 +11,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Dict, Optional, Tuple
 
 STOP_POLL_S = 0.5
 
@@ -101,3 +101,86 @@ def watch_stop_file(
     thread = threading.Thread(target=run, name=name, daemon=True)
     thread.start()
     return thread
+
+
+# Two readings of one process's start differ by less than this; a pid that
+# now belongs to another process started later differs by more.
+STARTED_SLACK_S = 2.0
+
+
+PS_KEPT_S = 10.0
+_ps_seen: Dict[int, Tuple[float, float]] = {}
+
+
+def process_started(pid) -> Optional[float]:
+    """When process *pid* started, in epoch seconds; None when it isn't
+    running or this platform can't say."""
+    if not pid_alive(pid):
+        return None
+    try:
+        if sys.platform == "win32":
+            return _windows_started(pid)
+        if sys.platform.startswith("linux"):
+            return _linux_started(pid)
+        # ps is a process of its own: read again at most every PS_KEPT_S.
+        kept = _ps_seen.get(pid)
+        if kept is not None and time.monotonic() - kept[0] < PS_KEPT_S:
+            return kept[1]
+        started = _ps_started(pid)
+        _ps_seen[pid] = (time.monotonic(), started)
+        return started
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+
+
+def same_process(pid, started=None) -> bool:
+    """Whether *pid* is still the process that started at *started* (as
+    `process_started` gave it when its file was written): alive, and not a
+    reused pid. With no *started*, or none to compare, whether it is alive."""
+    if not pid_alive(pid):
+        return False
+    if not isinstance(started, (int, float)) or isinstance(started, bool):
+        return True
+    now = process_started(pid)
+    return now is None or abs(now - started) < STARTED_SLACK_S
+
+
+def _linux_started(pid: int) -> float:
+    with open(f"/proc/{pid}/stat") as f:
+        # the command may hold spaces and brackets: count after its last ")"
+        fields = f.read().rsplit(")", 1)[1].split()
+    ticks = int(fields[19])
+    with open("/proc/stat") as f:
+        boot = next(int(line.split()[1]) for line in f if line.startswith("btime"))
+    return boot + ticks / os.sysconf("SC_CLK_TCK")
+
+
+def _ps_started(pid: int) -> float:
+    said = subprocess.run(
+        ["ps", "-o", "lstart=", "-p", str(pid)],
+        capture_output=True,
+        text=True,
+        timeout=5,
+        env={**os.environ, "LC_ALL": "C"},
+    ).stdout.strip()
+    return time.mktime(time.strptime(said, "%a %b %d %H:%M:%S %Y"))
+
+
+def _windows_started(pid: int) -> Optional[float]:
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    handle = kernel32.OpenProcess(0x1000, False, pid)
+    if not handle:
+        return None
+    try:
+        times = [wintypes.FILETIME() for _ in range(4)]
+        if not kernel32.GetProcessTimes(handle, *(ctypes.byref(t) for t in times)):
+            return None
+        created = (times[0].dwHighDateTime << 32) | times[0].dwLowDateTime
+        # 100 ns steps since 1601
+        return created / 1e7 - 11644473600.0
+    finally:
+        kernel32.CloseHandle(handle)

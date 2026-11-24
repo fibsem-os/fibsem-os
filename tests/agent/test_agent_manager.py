@@ -21,6 +21,7 @@ from fibsem.ai.agent.manager import (
     SessionRunning,
     read_json,
 )
+from fibsem.util.process import process_started
 
 ROOT = Path(__file__).resolve().parents[2]
 STAND_IN = Path(__file__).with_name("stand_in.py")
@@ -379,6 +380,7 @@ def test_a_session_runs_in_one_process_at_a_time(tmp_path):
     try:
         record = session.record()
         record["runs"][-1]["pid"] = other.pid
+        record["runs"][-1]["pid_started"] = process_started(other.pid)
         manager.write_json(session.folder / RECORD, record)
         with pytest.raises(SessionRunning, match="already running"):
             SessionFolder.open("abc", {}, tmp_path)

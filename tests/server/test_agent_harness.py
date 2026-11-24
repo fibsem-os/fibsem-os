@@ -978,6 +978,7 @@ def test_a_session_running_already_is_not_run_again(tmp_path, monkeypatch, capsy
     import uuid
 
     from fibsem.ai.agent import manager
+    from fibsem.util.process import process_started
 
     monkeypatch.setattr(harness_mod.Path, "home", lambda: tmp_path)
     monkeypatch.delenv("FIBSEM_SERVER_TOKEN", raising=False)
@@ -987,6 +988,7 @@ def test_a_session_running_already_is_not_run_again(tmp_path, monkeypatch, capsy
     try:
         record = session.record()
         record["runs"][-1]["pid"] = other.pid
+        record["runs"][-1]["pid_started"] = process_started(other.pid)
         manager.write_json(session.folder / manager.RECORD, record)
         code = _main_kept_apart(
             ["--url", "http://127.0.0.1:9", "--server-wait", "0"]

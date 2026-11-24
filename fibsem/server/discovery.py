@@ -14,12 +14,13 @@ one owns the file.
 
 import json
 import os
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 import fibsem
 from fibsem import paths
-from fibsem.util.process import pid_alive
+from fibsem.util.process import process_started, same_process
 
 if TYPE_CHECKING:
     # Typing only: auth needs FastAPI, and the sidecar and ``fibsem-mcp watch``
@@ -50,6 +51,17 @@ GATEWAY_PORT = 8010
 # The agent token an App Server running alone takes, and its clients send (tests,
 # live evals, scripts): with no gateway in front, nothing pairs or asks there.
 SERVER_TOKEN_ENV = "FIBSEM_SERVER_TOKEN"
+
+
+def this_process() -> dict:
+    """This process, as a file it writes names it: its pid, when it started
+    (so a reader never takes another process with the same pid for it,
+    `same_process`) and its program."""
+    return {
+        "pid": os.getpid(),
+        "started": process_started(os.getpid()),
+        "program": Path(sys.argv[0]).name if sys.argv and sys.argv[0] else None,
+    }
 
 
 def gateway_port() -> int:
@@ -172,7 +184,7 @@ def write_discovery_file(
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "url": f"http://{_client_host(host)}:{port}",
-        "pid": os.getpid(),
+        **this_process(),
         # No level: it changes while the server runs and a file
         # would go stale. /capabilities is the live answer.
     }
@@ -214,7 +226,7 @@ def _read(path: Path) -> Optional[dict]:
         return None
     if not isinstance(data, dict) or "url" not in data:
         return None
-    if not pid_alive(data.get("pid")):
+    if not same_process(data.get("pid"), data.get("started")):
         return None
     return data
 
@@ -229,7 +241,7 @@ def read_gateway_file(path: Optional[Path] = None) -> Optional[dict]:
         return None
     if not isinstance(data, dict) or "url" not in data:
         return None
-    return data if pid_alive(data.get("pid")) else None
+    return data if same_process(data.get("pid"), data.get("started")) else None
 
 
 def remove_discovery_file(path: Optional[Path] = None) -> None:

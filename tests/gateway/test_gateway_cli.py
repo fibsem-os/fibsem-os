@@ -51,11 +51,17 @@ def test_the_gateway_file_is_this_users_alone(tmp_path):
 
     path = write_gateway_file("http://127.0.0.1:8010", "ask", tmp_path / "g.json")
     found = json.loads(path.read_text())
+    started = found.pop("started")
+    assert found.pop("program")
     assert found == {
         "url": "http://127.0.0.1:8010",
         "pid": os.getpid(),
         "connect_token": "ask",
     }
+    from fibsem.util.process import same_process
+
+    assert same_process(os.getpid(), started), "a reused pid isn't taken for it"
+    assert not same_process(os.getpid(), started - 3600)
     if os.name == "posix":
         assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert [p.name for p in tmp_path.iterdir()] == ["g.json"]
