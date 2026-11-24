@@ -209,6 +209,13 @@ While the gateway runs, an agent never goes to the App Server directly: an App S
 instead, so the one-agent slot, the Allow card and History apply to every agent. Without a
 gateway, a client still finds an App Server running alone (tests, scripts).
 
+The App Server enforces it too. As it starts it makes a secret and writes it into its
+`app-server.json` (this user's alone); the gateway adds it to every call it passes on. While
+a gateway runs, an agent's call without it is refused (`401 through_gateway`, naming the
+gateway). An app started by hand or by a desktop launch works the same way. The operator's
+token and the App Server's own (an App Server run alone: tests, evals, scripts) never need
+it, and giving control up is never refused.
+
 An agent with no App Server (no instrument, or an instrument served by something else) runs
 against `fibsem-agent-host`. It sits behind the gateway the same way: it serves no pages and
 pairs nothing, checks tokens against the gateway's `paired.json`, and the gateway passes calls

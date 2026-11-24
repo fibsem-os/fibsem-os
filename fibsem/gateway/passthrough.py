@@ -54,6 +54,8 @@ HOP_BY_HOP = frozenset(
         "upgrade",
         "host",
         "content-length",
+        # The gateway's own, added below: never a caller's.
+        "x-fibsem-gateway",
     }
 )
 
@@ -122,8 +124,12 @@ class PassThrough:
         upstream: Callable[[], Optional[str]],
         transport: Optional[httpx.AsyncBaseTransport] = None,
         is_connect: Callable[[Optional[str]], bool] = lambda token: False,
+        secret: Callable[[], Optional[str]] = lambda: None,
     ) -> None:
         self._upstream = upstream
+        # The App Server's secret (its discovery file's): every call passed on
+        # carries it, so the App Server knows it came through the gateway.
+        self._secret = secret
         # gateway.json's token only asks to connect: answered here, never sent on
         self._is_connect = is_connect
         timeout = httpx.Timeout(READ_TIMEOUT_S, connect=CONNECT_TIMEOUT_S)
@@ -175,13 +181,20 @@ class PassThrough:
             if client is self._stops
             else _timeout(request.headers.get(WAIT_HEADER))
         )
+        headers = _headers(
+            (k.decode("latin-1"), v.decode("latin-1")) for k, v in request.headers.raw
+        )
+        try:
+            secret = self._secret()
+        except Exception:  # noqa: BLE001 - no secret: the App Server says so
+            logger.debug("could not read the App Server's secret", exc_info=True)
+            secret = None
+        if secret:
+            headers.append(("X-Fibsem-Gateway", secret))
         sent = client.build_request(
             request.method,
             target,
-            headers=_headers(
-                (k.decode("latin-1"), v.decode("latin-1"))
-                for k, v in request.headers.raw
-            ),
+            headers=headers,
             content=request.stream(),
             timeout=wait,
         )

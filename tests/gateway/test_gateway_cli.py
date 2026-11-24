@@ -1,7 +1,11 @@
 """``fibsem-gateway pair``: a code for the operator's browser, an agent or a
 hub, from the gateway that runs here."""
 
+import json
+
+import httpx
 import pytest
+from fastapi.testclient import TestClient
 
 from fibsem.gateway import main as gateway_main
 
@@ -152,3 +156,73 @@ def test_a_refused_token_names_the_gateway_while_one_runs(monkeypatch):
     assert refused.status_code == 401
     assert refused.detail["error_type"] == "unauthorized"
     assert "through its gateway (http://127.0.0.1:8010)" in refused.detail["message"]
+
+
+def test_while_a_gateway_runs_an_agent_call_must_come_through_it(monkeypatch, tmp_path):
+    """The App Server's secret: the gateway adds it to each call it passes on;
+    an agent's call without it is refused while a gateway runs. The App
+    Server's own token (run alone: tests, evals) and the operator's pass."""
+    from types import SimpleNamespace
+
+    from fastapi import Depends, FastAPI
+    from fastapi.testclient import TestClient
+
+    from fibsem.ai.agent.levels import AgentLevel
+    from fibsem.server import auth
+    from fibsem.server.discovery import write_discovery_file
+    from fibsem.server.pairing import AGENT
+
+    config = auth.AuthConfig(token="own", operator_token="operator")
+    monkeypatch.setattr(
+        config,
+        "paired",
+        lambda token: (
+            SimpleNamespace(role=AGENT, name="claude-code")
+            if token == "paired"
+            else None
+        ),
+    )
+    written = write_discovery_file("127.0.0.1", 8001, config, tmp_path / "app.json")
+    secret = json.loads(written.read_text())["gateway_secret"]
+    assert secret == config.gateway_secret
+    app = FastAPI(dependencies=[Depends(auth.require_level(AgentLevel.WATCH))])
+    app.state.auth = config
+    app.get("/app/x")(lambda: {})
+    client = TestClient(app)
+
+    def call(token, through=False):
+        headers = {"Authorization": f"Bearer {token}"}
+        if through:
+            headers[auth.GATEWAY_HEADER] = secret
+        return client.get("/app/x", headers=headers)
+
+    monkeypatch.setattr(auth, "read_gateway_file", lambda: None)
+    assert call("paired").status_code == 200, "no gateway: as before"
+    monkeypatch.setattr(auth, "read_gateway_file", lambda: {"url": "http://g:8010"})
+    refused = call("paired")
+    assert refused.status_code == 401
+    assert refused.json()["detail"]["error_type"] == "through_gateway"
+    assert "http://g:8010" in refused.json()["detail"]["message"]
+    assert call("paired", through=True).status_code == 200
+    assert call("own").status_code == 200
+    assert call("operator").status_code == 200
+
+
+def test_the_pass_through_adds_the_secret_and_drops_a_callers(tmp_path):
+    from fibsem.gateway.passthrough import PassThrough
+    from tests.gateway.test_gateway_passthrough import AGENT, _as, _gateway_app
+
+    seen = []
+
+    def answer(request):
+        seen.append(request.headers.get_list("x-fibsem-gateway"))
+        return httpx.Response(200, stream=httpx.ByteStream(b"{}"))
+
+    passthrough = PassThrough(
+        lambda: "http://app.test",
+        transport=httpx.MockTransport(answer),
+        secret=lambda: "s3cret",
+    )
+    through = TestClient(_gateway_app(tmp_path, None, passthrough))
+    through.get("/app/x", headers={**_as(AGENT), "X-Fibsem-Gateway": "forged"})
+    assert seen == [["s3cret"]]

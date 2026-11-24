@@ -14,6 +14,7 @@ one owns the file.
 
 import json
 import os
+import secrets
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
@@ -188,6 +189,12 @@ def write_discovery_file(
         # No level: it changes while the server runs and a file
         # would go stale. /capabilities is the live answer.
     }
+    if auth.gateway_secret is None:
+        auth.gateway_secret = secrets.token_urlsafe(32)
+    # For this PC's gateway alone (the file is this user's): it adds it to
+    # each call it passes on, and an agent's call without it is refused
+    # while the gateway runs (`fibsem.server.auth`).
+    payload["gateway_secret"] = auth.gateway_secret
     if auth.connect_token is not None:
         # Only asks to connect: the operator allows an agent on this PC
         # (fibsem.server.connections). Never the agent's own token. The App
