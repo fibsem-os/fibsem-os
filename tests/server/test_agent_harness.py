@@ -13,6 +13,7 @@ import sys
 import threading
 import time
 import types
+import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -23,6 +24,7 @@ import pytest
 from fibsem.ai.agent import handoff as handoff_mod
 from fibsem.ai.agent import harness as harness_mod
 from fibsem.ai.agent import instruments, playbooks, subagents, usage, wake_policy
+from fibsem.ai.agent import manager as sessions
 from fibsem.ai.agent import watch as watch_mod
 from fibsem.ai.agent.catalog import CATALOG
 from fibsem.ai.agent.harness import Harness, TurnEnd, Wakes, kickoff
@@ -2630,3 +2632,22 @@ def test_at_watch_routine_lines_wait_for_a_line_that_wakes_the_agent(session, ca
     assert wait_for(lambda: len(agent.prompts) >= 4, timeout=20), "no task turn"
     assert agent.prompts[3] == "The watcher printed:\nEVENT task_started 02-b Setup"
     assert running.stop() == 0
+
+
+def test_a_resume_carries_on_as_the_session_is_not_as_launched():
+    session_id = str(uuid.uuid4())
+    about = {"cwd": "/w", "playbook": "autolamella", "goal": "mill 01"}
+    session = sessions.SessionFolder.open(session_id, {**about, "max_turns": 40})
+    session.keep_playbook({"playbook": {"name": "autolamella-lead", "skills": []}})
+    session.end(1, "the app went away")
+
+    args = harness_mod._parser().parse_args(
+        ["--resume", session_id, "--playbook", "autolamella", "--max-turns", "9"]
+    )
+    harness_mod._from_record(args)
+    assert args.playbook == "autolamella-lead", "the playbook it changed to"
+    assert args.goal == "mill 01" and args.max_turns == 40
+
+    new = harness_mod._parser().parse_args(["--playbook", "autolamella"])
+    harness_mod._from_record(new)
+    assert new.playbook == "autolamella" and new.goal is None

@@ -3482,6 +3482,7 @@ class Setup:
 def _setup(args, checkout: Path) -> Setup:
     """Read the playbook and settle the session's folders; fills what *args*
     left out from the playbook. Raises `SetupRefused`."""
+    _from_record(args)
     try:
         playbook = playbooks.load(args.playbook or playbooks.DEFAULT, checkout, EFFORTS)
     except playbooks.PlaybookError as error:
@@ -3949,6 +3950,48 @@ REQUIRED = (
     "digest_min",
     "digest_lines",
 )
+
+
+# What a resume takes from the session's record, not from its command line.
+FROM_RECORD = ("goal", "model", "effort", "max_turns")
+
+
+def _from_record(args) -> None:
+    """A resume of a known session carries on as the session is: its playbook
+    as it keeps it (a change mid-session included) and what it started with
+    (`FROM_RECORD`), whatever the command line says, which is only where to
+    connect. A launch value that differs is logged and not used."""
+    if not args.resume or args.resume == LAST:
+        return
+    folder = sessions.find_folder(args.resume)
+    record = sessions.read_json(folder / sessions.RECORD) if folder else {}
+    if not record:
+        return
+    kept = record.get("playbook")
+    name = kept.get("name") if isinstance(kept, dict) else kept
+    if "playbook" in record:
+        if args.playbook and args.playbook != name:
+            log.warning(
+                "--playbook %s is not used: session %s carries on with %s.",
+                args.playbook,
+                args.resume,
+                name or "no playbook",
+            )
+        args.playbook = name
+    for key in FROM_RECORD:
+        value = record.get(key)
+        if value is None:
+            continue
+        given = getattr(args, key, None)
+        if given is not None and given != value:
+            log.warning(
+                "--%s %s is not used: session %s carries on with %s.",
+                key.replace("_", "-"),
+                given,
+                args.resume,
+                value,
+            )
+        setattr(args, key, value)
 
 
 def _resolve(args, given: playbooks.SessionSettings) -> None:
