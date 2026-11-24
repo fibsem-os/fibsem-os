@@ -757,7 +757,11 @@ class GatewayAgent:
         elif held.get("state") != slot_mod.ENDED:
             self.slot.change(
                 state=slot_mod.ENDED,
-                why=f"not heard from for {AGENT_LISTENING_S / 60:.0f} min",
+                why=(
+                    f"not heard from for {AGENT_LISTENING_S / 60:.0f} min"
+                    if self._url() is not None
+                    else "the app is not answering"
+                ),
             )
 
     def _after_end(self) -> None:
