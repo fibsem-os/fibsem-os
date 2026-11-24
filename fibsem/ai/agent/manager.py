@@ -205,6 +205,11 @@ class SessionFolder:
             runs.append({"pid": os.getpid(), "started": timestamps.now().isoformat()})
             # A resumed run says only what it was given: the goal stays the first run's.
             given = {key: value for key, value in about.items() if value is not None}
+            # The playbook a session keeps (`keep_playbook`, with its optional
+            # skills' state) is never written over by the one it is launched with.
+            if "playbook" in record:
+                given.pop("playbook", None)
+                given.pop("playbook_hash", None)
             record.update({"session_id": session_id, **given, "runs": runs})
             session._write(record)
         return session

@@ -326,6 +326,24 @@ def test_the_last_session_is_the_newest_run_in_the_same_folder(tmp_path):
     assert manager.last_session(other, tmp_path) == "elsewhere"
 
 
+def test_a_resume_keeps_the_sessions_playbook_and_its_skills(tmp_path):
+    about = {"cwd": "/w", "playbook": "autolamella", "playbook_hash": "h1"}
+    session = SessionFolder.open("abc", about, tmp_path)
+    kept = {
+        "name": "autolamella-lead",
+        "hash": "h2",
+        "chosen_by": "the agent",
+        "skills": [{"skill": "screen-grids", "state": "done", "summary": "ok"}],
+    }
+    session.keep_playbook({"playbook": kept})
+    session.end(0, "stopped")
+
+    again = SessionFolder.open("abc", {**about, "playbook": "default"}, tmp_path)
+    record = again.record()
+    assert record["playbook"] == kept
+    assert record["playbook_hash"] == "h1", "the launch's hash isn't written either"
+
+
 def test_a_session_folder_records_each_run_and_how_it_ended(tmp_path):
     session = SessionFolder.open("abc", {"cwd": "/w", "goal": "mill 01"}, tmp_path)
     session.end(
