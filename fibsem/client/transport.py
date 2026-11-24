@@ -33,6 +33,8 @@ from fibsem.devices.wire import (
     frames_from_bytes,
 )
 from fibsem.server.discovery import (
+    DISCOVERY_DIR,
+    DISCOVERY_FILE_ENV,
     SERVER_TOKEN_ENV,
     read_discovery_file,
     read_gateway_file,
@@ -45,6 +47,8 @@ from fibsem.server.images import (
 from fibsem.server.leases import LEASE_HEADER
 from fibsem.server.operator_token import read_operator_token
 from fibsem.structures.image import FibsemImage
+
+logger = logging.getLogger(__name__)
 
 TIMEOUT = httpx.Timeout(120.0, connect=5.0)  # moves and acquisitions are slow
 
@@ -138,8 +142,12 @@ def server_env() -> Tuple[Optional[str], Optional[str]]:
 
 
 def _is_app_server(url: str) -> bool:
-    """Whether *url* is the App Server running on this PC."""
-    found = read_discovery_file()
+    """Whether *url* is the App Server this PC's gateway is in front of: the
+    one ``app-server.json`` names. Never with another App Server's file named
+    (`DISCOVERY_FILE_ENV`: an eval run, a second host beside the gateway)."""
+    if os.environ.get(DISCOVERY_FILE_ENV):
+        return False
+    found = read_discovery_file(DISCOVERY_DIR / "app-server.json")
     if found is None:
         return False
     a, b = urlsplit(url), urlsplit(found["url"])
@@ -172,6 +180,9 @@ def resolve(
     if url and gateway is not None and _is_app_server(url):
         # While this PC's gateway runs it is the one way in: an address of the
         # App Server behind it (an old setting, a kept 8001) goes through it.
+        logger.info(
+            "%s is the App Server behind the gateway: using %s.", url, gateway["url"]
+        )
         url = gateway["url"]
         token = token or agent_token(url) or gateway.get("connect_token")
     if url and not token:
