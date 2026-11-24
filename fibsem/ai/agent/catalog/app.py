@@ -516,7 +516,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "item_name": "the item's name",
             "task_names": arg(
-                "the milling tasks to draw, e.g. [mill_rough, mill_polishing]: the first in colour, the rest behind it",
+                'the milling tasks to draw, by task name, e.g. ["Rough Milling", "Polishing"]: the first in colour, the rest behind it',
                 List[str],
             ),
             "image_path": "optional: an ion image inside the experiment to draw on (default the item's latest FIB image)",
