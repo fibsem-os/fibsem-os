@@ -2788,6 +2788,7 @@ export interface components {
             queue_version: number | null;
             running: boolean;
             step: string | null;
+            task_started: string | null;
             waiting_on: string | null;
             waiting_since: string | null;
         };

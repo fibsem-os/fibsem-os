@@ -518,10 +518,12 @@ function RunCard({
   ...shared
 }: { call: TranscriptLine; answer?: TranscriptLine; live: boolean; tab?: boolean } & Shared) {
   const [open, setOpen] = useState(false);
-  const clock = useClock(live);
   const lines = shared.runs.get(stepKey(call.session_id, call.seq)) ?? [];
   const steps = lines.filter((l) => l.kind === "step").length;
   const runs = !answer && shared.running(call);
+  // Its own clock ticks while it runs, whether or not the turn around it is
+  // still live: a card in a finished group showed a frozen time.
+  const clock = useClock(live || runs);
   const state = runState(call, answer, runs, clock);
   const shown = tab || open;
   return (
@@ -874,10 +876,13 @@ function LiveLine({ agent, heard, hide }: { agent: AgentState; heard: boolean; h
     .filter(Boolean)
     .join(" · ");
   const running = !!(task || progress);
-  // Counted from when this page first saw it run: the line has no start time.
+  // A task counts from when it started, as the status says; the agent's own
+  // mill has no start time, so it counts from when this page first saw it.
   const key = task ?? progress?.label ?? null;
   const since = useRef<{ key: string | null; at: number }>({ key: null, at: 0 });
   if (since.current.key !== key) since.current = { key, at: Date.now() };
+  const started = task && workflow?.task_started ? Date.parse(workflow.task_started) : NaN;
+  const from = Number.isNaN(started) ? since.current.at : started;
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     if (!running) return;
@@ -895,8 +900,8 @@ function LiveLine({ agent, heard, hide }: { agent: AgentState; heard: boolean; h
         <span className="min-w-0 truncate" title={text}>
           {text}
         </span>
-        <span className="ml-auto shrink-0 tabular-nums" title="How long it has run, since this page saw it start">
-          {elapsed((now - since.current.at) / 1000)}
+        <span className="ml-auto shrink-0 tabular-nums" title="How long it has run">
+          {elapsed((now - from) / 1000)}
         </span>
         {heard && (
           <span className="shrink-0" title="The agent waits on the microscope's events and wakes on the next one">

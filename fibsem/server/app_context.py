@@ -329,6 +329,8 @@ class AppContext:
             if active is not None:
                 status.workflow.current_task = active.task_name
                 status.workflow.current_item = active.item_name
+                if active.started_at is not None:
+                    status.workflow.task_started = iso_time(active.started_at)
         self._run_line(status.workflow)
         status.progress = self._progress_now()
         control = getattr(self._microscope, "control", None)
