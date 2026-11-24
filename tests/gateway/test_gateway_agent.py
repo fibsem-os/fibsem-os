@@ -339,12 +339,25 @@ def test_end_and_stop_the_app(made, tmp_path):
     assert agent.state().running is None
 
 
-def test_stopping_the_app_ends_the_agent_first(made, tmp_path):
-    agent, gateway, _ = made()
+def test_stopping_the_app_leaves_the_agent_waiting_for_the_next_one(made, tmp_path):
+    agent, gateway, app = made()
     agent.start("default", None, "watch", "operator", "page")
     # Started, so the stop is not taken for a stale one and cleared.
     assert until(lambda: _record(tmp_path).get("runs"))
     gateway.stop("hub-mac", "hub")
+    assert agent.state().running["state"] == "waiting"
+    # Still paired: it carries on as itself.
+    assert PairedTokens(tmp_path / "paired.json").agent() is not None
+    # Never on the app that was being stopped, however long it answers.
+    for _ in range(3):
+        agent._unpark()
+        agent._manager.poll()
+    assert agent.state().running["state"] == "waiting"
+    assert len(_record(tmp_path)["runs"]) == 1
+    app.pid = 2  # a new app
+    agent._unpark()
+    assert until(lambda: len(_record(tmp_path).get("runs", [])) == 2, agent)
+    agent.end("operator", "page")
     assert agent.state().running is None
     assert PairedTokens(tmp_path / "paired.json").agent() is None
 

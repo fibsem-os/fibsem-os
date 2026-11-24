@@ -200,7 +200,9 @@ app or has restarted.
 - **End** asks first, then stops the agent and keeps the app, back at Watch. The app goes
   back to Watch whenever the gateway's agent ends: End, replaced by an **Allow**, or
   restarts used up. The session keeps the level you last set, for its Resume.
-- **Stopping the app** from the gateway (Stop, a new start, or Quit) ends the agent first.
+- **Stopping the app** from the gateway (Stop or a new start) stops the agent first and leaves
+  it waiting, still paired: it carries on, at the level you last set, once the next app
+  answers, never on the app being stopped. End ends it. Quit leaves it for Resume, as above.
 
 The page has **End** while one runs. A hub with "may start and stop apps" can start and
 end the agent too. Each session's record and log are in

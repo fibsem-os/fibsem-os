@@ -295,6 +295,7 @@ class GatewayAgent:
             on_resume=lambda _, about: self._again(about),
         )
         gateway.before_stop.append(self._for_switch)
+        gateway.watchers.append(self._unpark)
         gateway.watchers.append(self._manager.poll)
         gateway.watchers.append(self._follow_level)
         gateway.watchers.append(self._after_end)
@@ -302,6 +303,8 @@ class GatewayAgent:
         self._level_read = float("-inf")
         # The session this gateway saw running, until its end sets Watch.
         self._ran: Optional[str] = None
+        # The app a parked agent waits out (`_for_switch`).
+        self._parked_pid: Optional[int] = None
 
     # -- reading -----------------------------------------------------------
 
@@ -625,11 +628,22 @@ class GatewayAgent:
     # -- the manager's and the gateway's calls -------------------------------
 
     def _for_switch(self) -> None:
-        """The app is about to stop: the agent it serves ends first."""
+        """The app is about to stop: the agent it serves stops first and
+        waits, carrying on once a new app answers (`_unpark`). End ends it."""
         agent = self._manager.agent(self.microscope)
         if agent is not None and agent.state != "ended":
-            self._manager.end(self.microscope)
-            self._unpair()
+            self._parked_pid = self._app_pid()
+            self._manager.park(self.microscope)
+
+    def _unpark(self) -> None:
+        """A parked agent carries on once the app it waited out is gone and
+        another answers: never on the app that was being stopped."""
+        agent = self._manager.agent(self.microscope)
+        if agent is None or not agent.parked:
+            return
+        pid = self._app_pid()
+        if pid is not None and pid != self._parked_pid:
+            self._manager.unpark(self.microscope)
 
     def left(self) -> None:
         """The gateway is quitting on purpose: an agent it leaves running
