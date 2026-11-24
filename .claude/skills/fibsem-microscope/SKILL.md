@@ -329,9 +329,14 @@ fluorescent target or correlate.
 the scanning, so a 3 × 3 that scans for seconds still takes minutes. Use
 `beam_acquire_focus_stack` for a tilted view one focus can't hold. For
 `fm_acquire_overview`, or any FM image, the objective must be in and near its
-focus: inserted is not enough. Go to the item's stored objective position
-(`item_move_to_objective_position`) or run `fm_auto_focus` first. Focus in
-reflection, not in a fluorescence channel. Once it is in focus,
+focus: inserted is not enough. Inserting leaves the objective at its insert
+position, which can be millimetres short of focus, too far for `fm_auto_focus`
+to find. Go to the item's stored objective position
+(`item_move_to_objective_position`), or, for an item with none, the saved focus
+position (`device_get_parameter` objective `focus_position`, then
+`device_call_command` objective `move_absolute` there), and only then run
+`fm_auto_focus`. Flat scores mean you are still too far: never judge a stack
+taken there. Focus in reflection, not in a fluorescence channel. Once it is in focus,
 `fm_save_focus_position` saves it for an overview's `objective_start`
 `focus`.
 

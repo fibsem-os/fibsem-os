@@ -101,7 +101,18 @@ class ImageTools:
         """A saved beam image's full metadata, as its file records it."""
         target = self.image(path)
         _fibsem_file(target, path, "the image's metadata")
-        image = FibsemImage.load(target)
+        if is_fluorescence_image(target):
+            raise ImageRefused(
+                "invalid",
+                f"{path} is a fluorescence stack, not a beam image: its channels, "
+                "planes and objective positions come with experiment_read_file.",
+            )
+        try:
+            image = FibsemImage.load(target)
+        except Exception:  # noqa: BLE001 - a file this reader can't take is refused
+            raise ImageRefused(
+                "invalid", f"{path} can't be read as a beam image."
+            ) from None
         if image.metadata is None:
             raise ImageRefused("not_found", f"{path} carries no beam image metadata.")
         return SavedImageMetadata(path, image.metadata)

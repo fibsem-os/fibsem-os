@@ -983,6 +983,22 @@ def test_image_metadata_reads_files_inside_the_experiment_only(
     assert client.get(url, params={"path": missing}, headers=AUTH).status_code == 404
 
 
+def test_image_metadata_refuses_a_fluorescence_stack_plainly(client, host):
+    """A stack has no beam metadata: refused as the caller's, naming where its
+    channels and planes come from, never a server error."""
+    from tests.fixtures.fm_stacks import planes_stack
+
+    path = str(Path(host.experiment.path) / "stack.ome.tiff")
+    planes_stack(path)
+    resp = client.get(
+        "/app/experiment/images/metadata", params={"path": path}, headers=AUTH
+    )
+    assert resp.status_code == 422, resp.text
+    detail = resp.json()["detail"]
+    assert detail["error_type"] == "invalid"
+    assert "experiment_read_file" in detail["message"]
+
+
 def test_grid_markers_place_items_in_source_pixels(client, host, grid_with_overview):
     body = client.get(
         "/app/experiment/grids/grid-aspen/outputs/overview.tif/markers", headers=AUTH
