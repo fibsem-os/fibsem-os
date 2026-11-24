@@ -142,7 +142,8 @@ def test_a_query_and_a_long_poll_pass_through(app_server, gateways):
 def test_the_gateways_own_routes_stay_its_own(app_server, gateways):
     url, _ = app_server
     gateway = gateways(lambda: url)
-    assert gateway.get("/health").json() == {"status": "ok"}
+    health = gateway.get("/health").json()
+    assert (health["status"], health["program"]) == ("ok", "fibsem-gateway")
     assert gateway.get("/gateway", headers=_as(OPERATOR_TOKEN)).status_code == 200
 
 
@@ -224,3 +225,32 @@ def _answers(port):
         return httpx.get(f"http://127.0.0.1:{port}/health", timeout=1).is_success
     except httpx.HTTPError:
         return False
+
+
+def test_a_call_that_says_how_long_it_waits_is_waited_for(tmp_path):
+    """A long acquisition says how long it waits: the gateway waits that
+    long and a margin, not its usual 300 s; a stop keeps its short wait."""
+    from fibsem.client.transport import WAIT_HEADER, _read_s
+
+    waited = {}
+
+    def answer(request):
+        waited[request.url.path] = request.extensions["timeout"]["read"]
+        return httpx.Response(200, stream=httpx.ByteStream(b"{}"))
+
+    passthrough = PassThrough(
+        lambda: "http://app.test", transport=httpx.MockTransport(answer)
+    )
+    through = TestClient(_gateway_app(tmp_path, None, passthrough))
+    through.get("/microscope/acquire", headers={**_as(AGENT), WAIT_HEADER: "1000"})
+    through.get("/app/workflow/status", headers=_as(AGENT))
+    through.get("/app/agent/stop", headers={**_as(AGENT), WAIT_HEADER: "1000"})
+    through.get("/microscope/huge", headers={**_as(AGENT), WAIT_HEADER: "1e9"})
+    assert waited == {
+        "/microscope/acquire": 1030.0,
+        "/app/workflow/status": 300.0,
+        "/app/agent/stop": 30.0,
+        "/microscope/huge": 3 * 3600.0,
+    }
+    assert _read_s(httpx.Timeout(10.0, read=400.0)) == 400.0
+    assert _read_s(None) is None

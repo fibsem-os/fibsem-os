@@ -1,7 +1,7 @@
 """The gateway's routes, on its own port, localhost only.
 
 ``GET /gateway``, ``/gateway/health`` and ``/gateway/history`` for anyone
-paired; ``POST /gateway/start`` and ``/gateway/stop`` for the operator, or a
+paired but an agent (an agent's token is refused on the gateway's own routes); ``POST /gateway/start`` and ``/gateway/stop`` for the operator, or a
 hub the operator granted "may start and stop apps" (`SWITCH_MODES`); forcing
 past a running workflow, and ``/gateway/claim`` (a desktop launch on this
 PC), for the operator only. ``/gateway/microscope/...`` connects and
@@ -60,6 +60,7 @@ from fibsem.gateway.host import HostMicroscope
 from fibsem.gateway.passthrough import PassThrough
 from fibsem.server.auth import _bearer_token, _matches
 from fibsem.server.bodies import refuse_invalid_requests
+from fibsem.server.discovery import health_answer
 from fibsem.server.hosting import agent_connections
 from fibsem.server.operator_token import load_operator_token
 from fibsem.server.pairing import (
@@ -167,6 +168,12 @@ def _ask_view(ask, connections, own: Optional[str] = None) -> dict:
     return {**ask.to_dict(), "replaces": replaces, "if_allowed": words}
 
 
+# The version of the gateway's own routes (/gateway, /agent, pairing), which a
+# hub checks: a change an older hub can't work with raises the minor number, one
+# it can ignore the patch. The App Server's routes it passes on have their own.
+GATEWAY_API_VERSION = "0.1.0"
+
+
 def _refused(status: int, error_type: str, message: str) -> HTTPException:
     return HTTPException(status, detail={"error_type": error_type, "message": message})
 
@@ -187,7 +194,9 @@ def build_gateway_app(
         if passthrough is not None:
             await passthrough.close()
 
-    app = FastAPI(title="fibsem gateway", lifespan=lifespan)
+    app = FastAPI(
+        title="fibsem gateway", version=GATEWAY_API_VERSION, lifespan=lifespan
+    )
     refuse_invalid_requests(app)
     app.state.auth = auth
 
@@ -230,7 +239,9 @@ def build_gateway_app(
 
     @app.get("/health")
     def health():
-        return {"status": "ok"}
+        """Open to anyone: the program, its version and its routes' version,
+        the same shape as the App Server's and the agent host's."""
+        return health_answer("fibsem-gateway", GATEWAY_API_VERSION)
 
     @app.get("/gateway", response_model=GatewayState)
     def get_gateway(found: Caller = Depends(caller)):
@@ -529,6 +540,7 @@ def build_gateway_app(
                 f"Allowed {computer.name}"
                 + (f", replacing {replaced}" if replaced else ""),
             )
+            agent.allowed(computer.name, "always allow", replaced)
 
         auth.connections.on_allowed_always(always_allowed)
 
@@ -553,22 +565,25 @@ def build_gateway_app(
         connections = _connections()
         if not any(ask.id == ask_id for ask in connections.asking()):
             raise _refused(404, "not_found", "No agent is asking with that id.")
-        # The agent the gateway started stops first, as its End does: the
-        # card said allowing ends it.
         own = _own()
-        if own is not None:
-            agent.end(found.who, "page")
         replaced = connections.tokens.agent()
+        # The Allow first: one that fails (the ask expired) leaves the agent
+        # running as it was. Then the agent the gateway started ends, as its
+        # End does (the card said allowing ends it); its token is gone already.
         try:
             computer = connections.allow(ask_id)
         except LookupError as exc:
             raise _refused(404, "not_found", str(exc)) from None
+        if own is not None:
+            agent.end(found.who, "page")
         replacing = own or (replaced.name if replaced else None)
         allowed = f"Allowed {computer.name}" + (
             f", replacing {replacing}" if replacing else ""
         )
         logger.info("%s: %s", found.who, allowed)
         gateway.record_access(found.who, "page", allowed)
+        if agent is not None:
+            agent.allowed(computer.name, found.who, replacing)
         return {"id": ask_id, "allowed": True, "name": computer.name}
 
     @app.post("/gateway/connections/{ask_id}/deny")

@@ -22,6 +22,10 @@ export interface Session {
   output?: string | null;
   // Started by the gateway, not by hand.
   gateway?: boolean;
+  // The level last set while it ran (Stop agent as Watch), else its start level.
+  last_level?: string | null;
+  // The budget it last ran with, else its start budget.
+  last_budget_usd?: number | null;
 }
 
 export interface Running extends Session {
@@ -47,6 +51,35 @@ export interface AgentState {
   sessions: Session[];
   api_key: boolean;
   microscope: string;
+  // Who holds the instrument's one agent slot, as the gateway wrote it down.
+  slot?: Slot;
+}
+
+export interface Slot {
+  holder?: string;
+  came_in?: "start" | "resume" | "allow";
+  since?: string;
+  level?: string | null;
+  state?: "running" | "waiting" | "ended";
+  why?: string;
+}
+
+const CAME_IN = { start: "started here", resume: "resumed here", allow: "allowed" };
+
+/** Who holds this instrument's agent slot, while someone does. */
+function Holder({ slot }: { slot?: Slot }) {
+  if (!slot?.holder || slot.state === "ended") return null;
+  const since = slot.since ? ` since ${slot.since.slice(11, 16)}` : "";
+  const how = slot.came_in ? `, ${CAME_IN[slot.came_in]}` : "";
+  const level = slot.level ? `, at ${slot.level}` : "";
+  return (
+    <p className="m-0 text-[13px] text-muted-foreground">
+      Holds this instrument: {slot.holder}
+      {how}
+      {since}
+      {level}
+    </p>
+  );
 }
 
 export interface Playbook {
@@ -652,6 +685,7 @@ export function AgentCard({
             : "No agent is running"}
         </CardTitle>
       </div>
+      <Holder slot={state?.slot} />
       {agent.error && (
         <p className="m-0 text-[13px] text-destructive">
           {(agent.error as Error).message}
@@ -691,9 +725,11 @@ export function ResumeForm({
   onDone: () => void;
 }) {
   const client = useQueryClient();
-  const [level, setLevel] = useState("watch");
-  // Typed here, or else the playbook's own budget.
-  const [budget, setBudget] = useState<string | null>(null);
+  const [level, setLevel] = useState(session.last_level ?? "watch");
+  // Typed here, or else the session's last budget, or the playbook's own.
+  const [budget, setBudget] = useState<string | null>(
+    session.last_budget_usd != null ? String(session.last_budget_usd) : null,
+  );
   const config = useQuery({
     queryKey: ["gateway/agent/playbooks", session.playbook],
     queryFn: () =>

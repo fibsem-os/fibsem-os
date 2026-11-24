@@ -21,6 +21,7 @@ def main() -> int:
     parser.add_argument("--session-id")
     parser.add_argument("--resume")
     parser.add_argument("--goal")
+    parser.add_argument("--carry-on", action="store_true")
     args, rest = parser.parse_known_args()
     session_id = args.resume or args.session_id or str(uuid.uuid4())
     root = Path(os.environ["STAND_IN_ROOT"])

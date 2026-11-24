@@ -139,6 +139,16 @@ app doesn't answer), why in a line, how long the answer took, and since when. A 
 the same. A piece that isn't well turns its dot amber on Overview, with the reason and for
 how long under its row. The gateway only reports: it restarts nothing.
 
+An app the gateway started is `starting` from its launch until its App Server first
+answers (up to 3 minutes, for a slow first start), not `stopped` or `not_answering`; an
+agent's Start in that time says the app is still starting.
+
+Every fibsem program answers `GET /health` the same way, open to anyone: `{"status": "ok",
+"program", "version", "api_version", "state"}`. The program is `fibsem-gateway`,
+`fibsem-app-server` or `fibsem-agent-host`; `version` is fibsemOS's; `api_version` is the
+version of that program's own routes (the gateway's are versioned apart from the App
+Server's it passes on), so a hub can tell a gateway it is too old or too new for.
+
 The bottom of the list says when there is newer code: "fibsemOS 0.6.3 available" when a
 newer release is on PyPI, or "Update available" for a source checkout behind GitHub's
 `main` (hover it for how many changes). The gateway asks when it starts and once a day after. Offline, or with a commit that
@@ -178,8 +188,18 @@ app or has restarted.
 
 - **If the app restarts,** the agent waits for it and resumes the same session. That's at
   most 3 times an hour after the app restarts, and once an hour after a crash. The gateway
-  sets the Start level again each time, because the app starts at Watch.
-- **End** asks first, then stops the agent and keeps the app.
+  sets the level again each time, because the app starts at Watch: the level you last set
+  while the agent ran (**Stop agent** counts as Watch), else the Start level. If the app
+  kept running, its level is left as it is.
+- **If the gateway closes,** the agent isn't started again by itself. A gateway that was
+  closed on purpose (Quit) leaves its unfinished session for the operator: the Agent card
+  shows "Last session ...: did not finish (the gateway closed) · Resume", and Resume
+  offers the level you last set in that session. The same goes for a session not heard
+  from for more than 15 minutes before the gateway started. After a gateway crash or a
+  restart from its page, a session that was running a moment ago carries on.
+- **End** asks first, then stops the agent and keeps the app, back at Watch. The app goes
+  back to Watch whenever the gateway's agent ends: End, replaced by an **Allow**, or
+  restarts used up. The session keeps the level you last set, for its Resume.
 - **Stopping the app** from the gateway (Stop, a new start, or Quit) ends the agent first.
 
 The page has **End** while one runs. A hub with "may start and stop apps" can start and
@@ -193,6 +213,22 @@ Agent card shows the last one with **Resume**.
 
 Running `fibsem-agent` by hand still works as before. The gateway doesn't need to be running
 for it.
+
+While the gateway runs, an agent never goes to the App Server directly: an App Server address
+(an old `FIBSEM_SERVER_URL`, an MCP setting, a token kept for port 8001) is sent to the gateway
+instead, so the one-agent slot, the Allow card and History apply to every agent. Without a
+gateway, a client still finds an App Server running alone (tests, scripts).
+
+The App Server enforces it too. As it starts it makes a secret and writes it into its
+`app-server.json` (this user's alone); the gateway adds it to every call it passes on. While
+a gateway runs, an agent's call without it is refused (`401 through_gateway`, naming the
+gateway). An app started by hand or by a desktop launch works the same way. The operator's
+token and the App Server's own (an App Server run alone: tests, evals, scripts) never need
+it, and giving control up is never refused. Only the App Server with this PC's usual
+`app-server.json` makes one, so a second App Server with its own file (an eval) is never
+refused, and websockets (which the gateway doesn't pass on yet) aren't checked. Any program
+running as this user can read the file, so the secret guards against a mistake (an old
+address or token), not against a program set on getting around the gateway.
 
 An agent with no App Server (no instrument, or an instrument served by something else) runs
 against `fibsem-agent-host`. It sits behind the gateway the same way: it serves no pages and

@@ -146,6 +146,13 @@ def session_facts(session: Optional[Dict[str, Any]]) -> List[Tuple[str, str]]:
     return facts
 
 
+# Asks to connect are allowed on this PC's gateway page, not by the App Server.
+NOT_HERE = (
+    "Agents are allowed on the gateway's page (port 8010), not by the App "
+    "Server: no ask waits here."
+)
+
+
 class AgentControl:
     """The agent as the operator meets it, over one :class:`AppSession`: the
     App Server it reaches the session through, its level and its requests."""
@@ -436,7 +443,7 @@ class AgentControl:
         ``LookupError`` when nothing asks with that id."""
         connections = self.connections
         if connections is None:
-            raise LookupError("The App Server isn't running.")
+            raise LookupError(NOT_HERE)
         replaces = self._paired_agent()
         computer = connections.allow(ask_id)
         logger.info("Operator allowed %s to connect", computer.name)
@@ -451,7 +458,7 @@ class AgentControl:
         ``LookupError`` when nothing asks with that id."""
         connections = self.connections
         if connections is None:
-            raise LookupError("The App Server isn't running.")
+            raise LookupError(NOT_HERE)
         ask = connections.deny(ask_id, reason)
         logger.info("Operator denied %s", ask.name)
         self._record_connection(f"Deny {ask.name}", reason=reason.strip())

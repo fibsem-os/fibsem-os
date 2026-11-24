@@ -30,7 +30,12 @@ from typing import Callable, Dict, List, Optional
 from fibsem import paths
 from fibsem.util import timestamps
 from fibsem.util.files import write_atomic
-from fibsem.util.process import kill_pid, pid_alive, watch_stop_file
+from fibsem.util.process import (
+    kill_pid,
+    process_started,
+    same_process,
+    watch_stop_file,
+)
 
 log = logging.getLogger("fibsem.agent.manager")
 
@@ -49,6 +54,9 @@ CONTEXTS = "contexts"
 HANDOFF = "handoff.md"
 # The wake policy the agent set itself, in the record (`SessionFolder.keep_wake_on`).
 WAKE_ON = "wake_on"
+# The run's budget, {"usd", "spent_before_usd"}: what it may spend from what
+# the session had spent when it was given. An automatic resume keeps it.
+RUN_BUDGET = "budget"
 # The agent's own files, when it was given no folder.
 WORK = "work"
 # Without a work folder a session runs in run/, which holds only its skills.
@@ -61,6 +69,10 @@ STOPPED, GONE, BUDGET = 0, 1, 2
 RESTARTS_PER_HOUR = {"app": 3, "crash": 1}
 HOUR_S = 3600.0
 END_WAIT_S = 60.0
+# A session found unfinished when a manager starts is resumed by itself only
+# if it was heard from this recently, and its manager wasn't stopped on
+# purpose; else it waits for the operator's Resume.
+RESUME_YOUNG_S = 15 * 60.0
 
 
 def sessions_dir() -> Path:
@@ -191,16 +203,28 @@ class SessionFolder:
             runs = record.get("runs", [])
             last = runs[-1] if runs else {}
             pid = last.get("pid")
-            if "ended" not in last and pid != os.getpid() and pid_alive(pid):
+            alive = same_process(pid, last.get("pid_started"))
+            if "ended" not in last and pid != os.getpid() and alive:
                 raise SessionRunning(
                     f"Session {session_id} is already running (process {pid}): "
                     "stop it, or wait for it to end, before running it again."
                 )
             # A stop left from an earlier run is not for this one.
             (folder / STOP).unlink(missing_ok=True)
-            runs.append({"pid": os.getpid(), "started": timestamps.now().isoformat()})
+            runs.append(
+                {
+                    "pid": os.getpid(),
+                    "pid_started": process_started(os.getpid()),
+                    "started": timestamps.now().isoformat(),
+                }
+            )
             # A resumed run says only what it was given: the goal stays the first run's.
             given = {key: value for key, value in about.items() if value is not None}
+            # The playbook a session keeps (`keep_playbook`, with its optional
+            # skills' state) is never written over by the one it is launched with.
+            if "playbook" in record:
+                given.pop("playbook", None)
+                given.pop("playbook_hash", None)
             record.update({"session_id": session_id, **given, "runs": runs})
             session._write(record)
         return session
@@ -269,6 +293,13 @@ class SessionFolder:
             record.pop(WAKE_ON, None)
         else:
             record[WAKE_ON] = state
+        self._write(record)
+
+    def keep_budget(self, **budget) -> None:
+        """The run's budget (`RUN_BUDGET`): set at start, and again when the
+        operator sets a new one, so an automatic resume carries it on."""
+        record = self.record()
+        record[RUN_BUDGET] = {**(record.get(RUN_BUDGET) or {}), **budget}
         self._write(record)
 
     def keep_event_cursor(self, event_id: str) -> None:
@@ -548,16 +579,19 @@ class AgentSessionManager:
         if agent.process is not None:
             return agent.process.poll() is None
         runs = read_json(agent.folder / RECORD).get("runs") or [{}]
-        return "ended" not in runs[-1] and pid_alive(runs[-1].get("pid"))
+        last = runs[-1]
+        return "ended" not in last and same_process(
+            last.get("pid"), last.get("pid_started")
+        )
 
     def _kill(self, agent: Agent) -> None:
         if agent.process is not None:
             agent.process.kill()
             agent.process.wait(10)
             return
-        pid = (read_json(agent.folder / RECORD).get("runs") or [{}])[-1].get("pid")
-        if pid_alive(pid):
-            kill_pid(pid)
+        last = (read_json(agent.folder / RECORD).get("runs") or [{}])[-1]
+        if same_process(last.get("pid"), last.get("pid_started")):
+            kill_pid(last["pid"])
 
     def _exited(self, agent: Agent) -> None:
         """The agent's process ended on its own: what its record says decides
@@ -597,7 +631,12 @@ class AgentSessionManager:
 
     def _resume(self, agent: Agent) -> None:
         managed = read_json(agent.folder / MANAGED)
-        args = list(managed.get("args", [])) + ["--resume", agent.session_id]
+        # Carrying on the run it continues: its budget, not a fresh one.
+        args = list(managed.get("args", [])) + [
+            "--resume",
+            agent.session_id,
+            "--carry-on",
+        ]
         env = agent.env if agent.env is not None else self._env_for(agent.microscope)
         try:
             self._on_resume(agent.microscope, managed.get("about") or {})
@@ -619,10 +658,58 @@ class AgentSessionManager:
         write_json(agent.folder / MANAGED, managed)
         log.info("The agent for %s ended: %s.", agent.microscope, why)
 
+    def left(self) -> None:
+        """This manager's host is being stopped on purpose: the agents it
+        leaves unfinished wait for the operator's Resume, not the next start."""
+        with self._lock:
+            for agent in self._agents.values():
+                if agent.state == "ended":
+                    continue
+                managed = read_json(agent.folder / MANAGED)
+                managed["left"] = self._clock()
+                write_json(agent.folder / MANAGED, managed)
+
+    def note(self, microscope: str, **about) -> None:
+        """Add *about* to the host's record of *microscope*'s running agent
+        (``manager.json``'s ``about``), which each resume is given."""
+        with self._lock:
+            agent = self._agents.get(microscope)
+            if agent is None or agent.state == "ended":
+                return
+            managed = read_json(agent.folder / MANAGED)
+            if all(managed.get("about", {}).get(k) == v for k, v in about.items()):
+                return
+            managed.setdefault("about", {}).update(about)
+            write_json(agent.folder / MANAGED, managed)
+
+    def _heard(self, folder: Path) -> float:
+        """When session *folder*'s agent last wrote its record or printed."""
+        times = []
+        for name in (RECORD, OUTPUT):
+            try:
+                times.append((folder / name).stat().st_mtime)
+            except OSError:
+                continue
+        return max(times, default=0.0)
+
+    def _stale(self, agent: Agent, managed: dict) -> Optional[str]:
+        """Why an unfinished session found at start, whose agent no longer
+        runs, must not resume by itself; None when it may."""
+        if managed.get("left") is not None:
+            return "did not finish (the gateway closed)"
+        quiet = self._clock() - self._heard(agent.folder)
+        if quiet > RESUME_YOUNG_S:
+            return (
+                f"did not finish (last heard {quiet / 60:.0f} min before the "
+                "gateway started)"
+            )
+        return None
+
     def _adopt(self) -> None:
         """Take back the agents a manager started that haven't ended: running
         ones are watched again; ones that exited while no manager ran are
-        dealt with by the next ``poll()``."""
+        dealt with by the next ``poll()``, if they may resume by themselves
+        (`_stale`); else they end, and the operator's Resume carries them on."""
         for folder in reversed(folders(self._root)):
             managed = read_json(folder / MANAGED)
             if not managed or "ended" in managed:
@@ -633,6 +720,15 @@ class AgentSessionManager:
                 continue
             agent = Agent(microscope, record["session_id"], folder)
             self._agents[microscope] = agent
+            if self._alive(agent):
+                if managed.pop("left", None) is not None:
+                    # Still running when its gateway came back: carry on.
+                    write_json(folder / MANAGED, managed)
+            else:
+                why = self._stale(agent, managed)
+                if why is not None:
+                    self._finish(agent, why)
+                    continue
             log.info(
                 "Took back the agent for %s (session %s).", microscope, agent.session_id
             )

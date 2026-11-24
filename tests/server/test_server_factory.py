@@ -5,8 +5,10 @@
 import pytest
 from fastapi.testclient import TestClient
 
+import fibsem
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.server import AuthConfig, build_server
+from fibsem.server.discovery import API_VERSION
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -46,7 +48,13 @@ def armed_client(microscope):
 def test_health_is_open(read_client):
     resp = read_client.get("/health")
     assert resp.status_code == 200
-    assert resp.json() == {"status": "ok"}
+    assert resp.json() == {
+        "status": "ok",
+        "program": "fibsem-app-server",
+        "version": fibsem.__version__,
+        "api_version": API_VERSION,
+        "state": "ready",
+    }
 
 
 def test_the_old_event_log_page_is_gone(read_client):

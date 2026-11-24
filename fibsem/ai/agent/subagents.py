@@ -220,6 +220,8 @@ def add_tools(folder: Path, agents: Iterable[str], tools: Iterable[str]) -> None
         return
     for name in agents:
         path = folder / sources.CLAUDE / "agents" / f"{name}.md"
+        if not path.is_file():
+            continue  # not in the skills the session started with
         data, body = front_matter(path.read_text(encoding="utf-8"))
         listed = names(data.get("tools")) if data else []
         more = [tool for tool in tools if tool not in listed]

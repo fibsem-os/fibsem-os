@@ -976,7 +976,7 @@ App Server, with its token, by name and from the server's own descriptions:
 ```python
 from fibsem.client import FibsemClient
 
-with FibsemClient("http://localhost:8001", "...") as client:
+with FibsemClient("http://localhost:8010", "...") as client:  # the gateway
     client.devices["ion"].get("current")         # a live read through the App Server
     client.services["milling"].estimate_time()
 ```

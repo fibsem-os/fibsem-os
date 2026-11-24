@@ -8,6 +8,7 @@ import json
 import sys
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -55,6 +56,7 @@ class App:
 
     def __init__(self):
         self.up = True
+        self.pid = 1
         self.levels = []
         self.refuse = None
         self.last_heard_s = None
@@ -63,7 +65,7 @@ class App:
         return {"last_heard_s": self.last_heard_s}
 
     def discovery(self):
-        return {"url": URL, "pid": 1} if self.up else None
+        return {"url": URL, "pid": self.pid} if self.up else None
 
     def level(self, url, level):
         if self.refuse:
@@ -229,6 +231,18 @@ def test_start_needs_the_app_server_to_answer(made):
     assert refused.value.error_type == "no_app"
 
 
+def test_start_waits_for_an_app_that_is_starting(made):
+    gateway = FakeGateway()
+    gateway.health = SimpleNamespace(
+        state=lambda: SimpleNamespace(app=SimpleNamespace(status="starting"))
+    )
+    agent, _, app = made(gateway=gateway)
+    with pytest.raises(GatewayRefused) as refused:
+        agent.start("default", None, "watch", "operator", "page")
+    assert refused.value.error_type == "app_starting"
+    assert app.levels == []
+
+
 def test_start_needs_no_microscope(made):
     # The App Server answers with no microscope connected: an agent can work on
     # an experiment, or on devices served without a microscope.
@@ -339,10 +353,119 @@ def test_the_level_is_set_again_when_the_agent_resumes(made, tmp_path, monkeypat
     monkeypatch.setenv("STAND_IN_PLAN", "1,wait")
     agent, _, app = made()
     agent.start("default", None, "drive", "operator", "page")
+    app.pid = 2  # the app restarted, back at Watch
     assert until(lambda: len(_record(tmp_path).get("runs", [])) == 2, agent)
     assert app.levels == [(URL, "drive"), (URL, "drive")]
     assert agent.state().running["state"] == "running"
     assert len(agent.state().running["restarts"]) == 1
+
+
+def test_a_resume_leaves_the_level_of_an_app_that_kept_running(
+    made, tmp_path, monkeypatch
+):
+    """The operator may have lowered it or pressed Stop agent: it stands."""
+    monkeypatch.setenv("STAND_IN_PLAN", "1,wait")
+    agent, _, app = made()
+    agent.start("default", None, "drive", "operator", "page")
+    assert until(lambda: len(_record(tmp_path).get("runs", [])) == 2, agent)
+    assert app.levels == [(URL, "drive")]
+
+
+@pytest.mark.parametrize("last", ["assist", "drive"])
+def test_a_resume_after_an_app_restart_comes_back_at_the_level_last_set(
+    made, tmp_path, monkeypatch, last
+):
+    monkeypatch.setenv("STAND_IN_PLAN", "wait")
+    agent, _, app = made()
+    monkeypatch.setattr(
+        "fibsem.gateway.agent.call_host", lambda url, method, path: {"level": last}
+    )
+    agent.start("default", None, "assist", "operator", "page")
+    assert until(lambda: _record(tmp_path).get("runs"))
+    agent._follow_level()  # the operator set *last*
+    about = read_json(folders(tmp_path / "sessions")[0] / MANAGED)["about"]
+    assert about["level_now"] == last
+
+    app.pid = 2
+    agent._again(about)
+    assert app.levels == [(URL, "assist"), (URL, last)]
+
+
+def test_an_app_restarted_under_a_running_agent_gets_the_level_back(
+    made, tmp_path, monkeypatch
+):
+    agent, _, app = made()
+    monkeypatch.setattr(
+        "fibsem.gateway.agent.call_host", lambda url, method, path: {"level": "assist"}
+    )
+    agent.start("default", None, "drive", "operator", "page")
+    assert until(lambda: _record(tmp_path).get("runs"))
+    agent._follow_level()  # the operator lowered it to Assist
+    app.pid = 2  # the app restarted; the agent waited for it
+    agent._level_read = float("-inf")
+    agent._follow_level()
+    assert app.levels == [(URL, "drive"), (URL, "assist")]
+    about = read_json(folders(tmp_path / "sessions")[0] / MANAGED)["about"]
+    assert about["app_pid"] == 2 and about["level_now"] == "assist"
+
+
+def test_a_resume_after_a_stop_agent_and_an_app_restart_stays_at_watch(made):
+    agent, _, app = made()
+    app.pid = 2
+    agent._again({"level": "drive", "level_now": "watch", "app_pid": 1})
+    assert app.levels == []
+
+
+def test_end_sets_the_app_to_watch_but_the_record_keeps_the_level_set(
+    made, tmp_path, monkeypatch
+):
+    agent, _, app = made()
+    monkeypatch.setattr(
+        "fibsem.gateway.agent.call_host", lambda url, method, path: {"level": "drive"}
+    )
+    agent.start("default", None, "drive", "operator", "page")
+    assert until(lambda: _record(tmp_path).get("runs"))
+    agent._after_end()
+    agent._follow_level()
+    agent.end("operator", "page")
+    assert app.levels == [(URL, "drive"), (URL, "watch")]
+    managed = read_json(folders(tmp_path / "sessions")[0] / MANAGED)
+    assert managed["about"]["level_now"] == "drive", "Resume comes back at Drive"
+
+
+def test_an_agent_that_ends_by_itself_sets_the_app_to_watch_once(
+    made, tmp_path, monkeypatch
+):
+    monkeypatch.setenv("STAND_IN_PLAN", "0")
+    agent, _, app = made()
+    agent.start("default", None, "assist", "operator", "page")
+    agent._after_end()  # seen running
+    assert until(lambda: agent._manager.agent("arctis-pc").state == "ended", agent)
+    agent._after_end()
+    agent._after_end()
+    assert app.levels == [(URL, "assist"), (URL, "watch")]
+
+
+def test_an_old_ended_session_never_sets_the_level(made, tmp_path, monkeypatch):
+    """Another agent may hold the slot: only an end this gateway saw."""
+    monkeypatch.setenv("STAND_IN_PLAN", "0")
+    first, _, app = made()
+    first.start("default", None, "assist", "operator", "page")
+    assert until(lambda: first._manager.agent("arctis-pc").state == "ended", first)
+    again, _, _ = made(gateway=FakeGateway(), app=app)
+    again._after_end()
+    assert app.levels == [(URL, "assist")]
+
+
+def test_resume_is_offered_at_the_level_last_set():
+    from fibsem.gateway.agent import _row
+
+    def row(about):
+        return _row({"session_id": "s1", "manager": {"about": about}})
+
+    assert row({"level": "drive", "level_now": "assist"})["last_level"] == "assist"
+    assert row({"level": "drive"})["last_level"] == "drive"
+    assert row({})["last_level"] is None
 
 
 def test_a_watch_agent_is_resumed_without_a_level_call(made, tmp_path, monkeypatch):
@@ -644,6 +767,25 @@ def test_allowing_an_agent_ends_the_one_the_gateway_started(made, tmp_path):
     assert result.startswith("Allowed claude-code on this PC, replacing the agent")
 
 
+def test_an_allow_that_fails_leaves_the_gateways_agent_running(
+    made, tmp_path, monkeypatch
+):
+    """The Allow before the end (L3): an ask that expired ends nothing."""
+    agent, gateway, _ = made()
+    agent.start("default", None, "watch", "operator", "page")
+    assert until(lambda: _record(tmp_path).get("runs"))
+    client, connections = _allowing(agent, gateway, tmp_path)
+    connections.ask("claude-code 2.1", "this PC", "lab", wait_s=0)
+    card = client.get("/gateway/connections").json()["asking"]
+
+    def expired(ask_id):
+        raise LookupError("That ask has expired.")
+
+    monkeypatch.setattr(connections, "allow", expired)
+    assert client.post(f"/gateway/connections/{card['id']}/allow").status_code == 404
+    assert agent.state().running["state"] == "running"
+
+
 def test_always_allow_never_replaces_an_agent_in_use(made, tmp_path):
     agent, gateway, _ = made()
     agent.start("default", None, "watch", "operator", "page")
@@ -666,3 +808,55 @@ def test_always_allow_takes_a_free_slot_and_says_so_on_the_history(made, tmp_pat
     assert gateway.access == [
         ("always allow", "setting", "Allowed claude-code on this PC")
     ]
+
+
+# --- the slot record ------------------------------------------------------------
+
+
+def test_the_slot_record_follows_the_gateways_agent(made, tmp_path, monkeypatch):
+    agent, _, _ = made()
+    monkeypatch.setattr(
+        "fibsem.gateway.agent.call_host", lambda url, method, path: {"level": "assist"}
+    )
+    agent.start("default", None, "drive", "operator", "page")
+    slot = agent.state().slot
+    assert slot["holder"] == AGENT_NAME and slot["came_in"] == "start"
+    assert slot["state"] == "running" and slot["level"] == "drive"
+    assert slot["why"] == "started by operator (page)"
+    assert until(lambda: _record(tmp_path).get("runs"))
+    agent._follow_level()
+    assert agent.slot.read()["level"] == "assist"
+    agent.end("operator", "page")
+    slot = agent.slot.read()
+    assert slot["state"] == "ended" and slot["why"] == "ended by the operator"
+    assert (tmp_path / "slot.json").is_file(), "written down, beside the sessions"
+
+
+def test_an_allowed_agent_takes_the_slot(made, tmp_path):
+    agent, gateway, _ = made()
+    agent.start("default", None, "watch", "operator", "page")
+    assert until(lambda: _record(tmp_path).get("runs"))
+    client, connections = _allowing(agent, gateway, tmp_path)
+    connections.ask("claude-code 2.1", "this PC", "lab", wait_s=0)
+    card = client.get("/gateway/connections").json()["asking"]
+    client.post(f"/gateway/connections/{card['id']}/allow")
+    agent._follow_slot()  # the old agent's end never overwrites the new holder
+    slot = agent.slot.read()
+    assert slot["holder"] == "claude-code on this PC"
+    assert slot["came_in"] == "allow" and slot["state"] == "running"
+    assert slot["why"].startswith("allowed by operator, replacing the agent")
+
+
+def test_resume_is_offered_with_the_budget_it_last_ran_with():
+    from fibsem.gateway.agent import _row
+
+    def row(about, kept=None):
+        record = {"session_id": "s1", "manager": {"about": about}}
+        if kept is not None:
+            record["budget"] = kept
+        return _row(record)["last_budget_usd"]
+
+    assert row({"budget_usd": 5}) == 5.0
+    # One the operator changed while it ran wins over the start budget.
+    assert row({"budget_usd": 5}, {"usd": 8, "spent_before_usd": 0.5}) == 8.0
+    assert row({}) is None
