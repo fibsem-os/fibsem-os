@@ -42,7 +42,9 @@ class FakeGateway:
         self.access.append((who, via, result))
 
     def state(self):
-        return GatewayState(mode=self.mode, version="test")
+        return GatewayState(
+            mode=self.mode, version="test", experiment=getattr(self, "experiment", None)
+        )
 
     def stop(self, who, via, force=False, window=False):
         for hook in self.before_stop:
@@ -339,12 +341,25 @@ def test_end_and_stop_the_app(made, tmp_path):
     assert agent.state().running is None
 
 
-def test_stopping_the_app_ends_the_agent_first(made, tmp_path):
-    agent, gateway, _ = made()
+def test_stopping_the_app_leaves_the_agent_waiting_for_the_next_one(made, tmp_path):
+    agent, gateway, app = made()
     agent.start("default", None, "watch", "operator", "page")
     # Started, so the stop is not taken for a stale one and cleared.
     assert until(lambda: _record(tmp_path).get("runs"))
     gateway.stop("hub-mac", "hub")
+    assert agent.state().running["state"] == "waiting"
+    # Still paired: it carries on as itself.
+    assert PairedTokens(tmp_path / "paired.json").agent() is not None
+    # Never on the app that was being stopped, however long it answers.
+    for _ in range(3):
+        agent._unpark()
+        agent._manager.poll()
+    assert agent.state().running["state"] == "waiting"
+    assert len(_record(tmp_path)["runs"]) == 1
+    app.pid = 2  # a new app
+    agent._unpark()
+    assert until(lambda: len(_record(tmp_path).get("runs", [])) == 2, agent)
+    agent.end("operator", "page")
     assert agent.state().running is None
     assert PairedTokens(tmp_path / "paired.json").agent() is None
 
@@ -860,3 +875,75 @@ def test_resume_is_offered_with_the_budget_it_last_ran_with():
     # One the operator changed while it ran wins over the start budget.
     assert row({"budget_usd": 5}, {"usd": 8, "spent_before_usd": 0.5}) == 8.0
     assert row({}) is None
+
+
+def test_a_parked_agent_stopping_is_not_taken_for_an_end(made, tmp_path):
+    # The manager's poll may see the stopped agent before park does.
+    agent, _, _ = made()
+    agent.start("default", None, "watch", "operator", "page")
+    assert until(lambda: _record(tmp_path).get("runs"))
+    managed = agent._manager.agent(agent.microscope)
+    managed.parked = True
+    (managed.folder / "stop").touch()
+    assert until(lambda: not agent._manager._alive(managed))
+    agent._manager.poll()
+    assert managed.state == "waiting"
+    assert "ended" not in read_json(managed.folder / MANAGED)
+    agent.end("operator", "page")
+
+
+def test_a_parked_agent_ends_when_the_next_app_opens_another_experiment(made, tmp_path):
+    agent, gateway, app = made()
+    agent.start("default", None, "watch", "operator", "page")
+    assert until(lambda: _record(tmp_path).get("runs"))
+    gateway.stop("operator", "page")
+    assert agent.state().running["state"] == "waiting"
+    gateway.experiment = "another"
+    app.pid = 2
+    agent._unpark()
+    assert agent.state().running is None
+    assert len(_record(tmp_path)["runs"]) == 1
+    assert PairedTokens(tmp_path / "paired.json").agent() is None
+
+
+def test_start_with_no_app_waits_and_starts_at_its_level_when_the_app_answers(
+    made, tmp_path
+):
+    app = App()
+    app.up = False
+    agent, _, _ = made(
+        gateway=FakeGateway(OFF), app=app, own_url="http://127.0.0.1:8010"
+    )
+    state = agent.start("default", "Mill 01", "assist", "operator", "page")
+    assert state.running["state"] == "waiting"
+    assert app.levels == []
+    agent._manager.poll()
+    assert not _record(tmp_path).get("runs"), "nothing runs before the app"
+    app.up = True
+    assert until(lambda: _record(tmp_path).get("args"), agent)
+    assert app.levels == [(URL, "assist")]
+    assert _record(tmp_path)["args"][-2:] == ["--url", "http://127.0.0.1:8010"]
+    assert agent.state().running["state"] == "running"
+    agent.end("operator", "page")
+
+
+def test_start_with_no_app_and_no_gateway_address_is_refused(made):
+    agent, _, _ = made(gateway=FakeGateway(OFF))
+    with pytest.raises(GatewayRefused) as refused:
+        agent.start("default", None, "watch", "operator", "page")
+    assert refused.value.error_type == "no_app"
+
+
+def test_a_start_waiting_for_its_app_ends_when_the_gateway_quits(made, tmp_path):
+    app = App()
+    app.up = False
+    agent, _, _ = made(
+        gateway=FakeGateway(OFF), app=app, own_url="http://127.0.0.1:8010"
+    )
+    agent.start("default", None, "assist", "operator", "page")
+    folder = agent._manager.agent(agent.microscope).folder
+    agent.left()
+    assert agent.state().running is None
+    assert PairedTokens(tmp_path / "paired.json").agent() is None
+    managed = read_json(folder / MANAGED)
+    assert managed["ended"] == "did not start (the gateway closed first)"

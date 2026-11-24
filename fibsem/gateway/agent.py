@@ -295,6 +295,7 @@ class GatewayAgent:
             on_resume=lambda _, about: self._again(about),
         )
         gateway.before_stop.append(self._for_switch)
+        gateway.watchers.append(self._unpark)
         gateway.watchers.append(self._manager.poll)
         gateway.watchers.append(self._follow_level)
         gateway.watchers.append(self._after_end)
@@ -302,6 +303,25 @@ class GatewayAgent:
         self._level_read = float("-inf")
         # The session this gateway saw running, until its end sets Watch.
         self._ran: Optional[str] = None
+        # The app a parked agent waits out (`_for_switch`).
+        self._parked_pid: Optional[int] = None
+        self._parked_on: Tuple[Optional[str], Optional[str]] = (None, None)
+        # Whether no app answered since it was parked (its pid unread then).
+        self._parked_gone = False
+        self._lost_holder()
+
+    def _lost_holder(self) -> None:
+        """A gateway agent the slot names that no session carries on (a
+        start that waited for its app when the last gateway stopped): the
+        slot is free again."""
+        held = self.slot.read()
+        if held.get("holder") != AGENT_NAME or held.get("state") == slot_mod.ENDED:
+            return
+        agent = self._manager.agent(self.microscope)
+        if agent is None or agent.state == "ended":
+            self.slot.change(
+                state=slot_mod.ENDED, why="did not carry on (the gateway closed)"
+            )
 
     # -- reading -----------------------------------------------------------
 
@@ -411,13 +431,15 @@ class GatewayAgent:
         """Pair, set the level, start ``fibsem-agent``; each failure undoes
         what came before it. Raises `GatewayRefused`."""
         with self._lock:
-            level, url = self._ready(level, playbook, replace)
+            level, url = self._ready(level, playbook, replace, wait=True)
             env = self._pair()
-            try:
-                self._level(url, level)
-            except GatewayRefused:
-                self._unpair()
-                raise
+            # With no app yet, the agent waits; its level is set as it starts.
+            if url is not None:
+                try:
+                    self._level(url, level)
+                except GatewayRefused:
+                    self._unpair()
+                    raise
             args = ["--playbook", playbook, "--url", self._own_url or url]
             if budget_usd is not None:
                 args += ["--max-budget-usd", f"{float(budget_usd):g}"]
@@ -439,6 +461,7 @@ class GatewayAgent:
                     goal=goal or None,
                     env=env,
                     about=about,
+                    wait=url is None,
                 )
             except (AgentRunning, OSError) as error:
                 self._undo(url)
@@ -550,26 +573,32 @@ class GatewayAgent:
         playbook: Optional[str],
         replace: bool,
         mode: Optional[str] = None,
-    ) -> Tuple[str, str]:
+        wait: bool = False,
+    ) -> Tuple[str, Optional[str]]:
         """Start's and Resume's checks, before anything is done: the level
-        and the App Server's url. *mode* is a resumed session's own."""
+        and the App Server's url. *mode* is a resumed session's own. With
+        *wait* (Start), no app is no refusal: the url is None and the agent
+        waits for the app."""
         try:
             level = AgentLevel(str(level).lower()).value
         except ValueError:
             names = ", ".join(lvl.value for lvl in AgentLevel)
             raise GatewayRefused(422, "bad_level", f"The level is one of {names}.")
-        if self._gateway.state().mode != RUNNING:
+        waits = wait and self._own_url is not None
+        if self._gateway.state().mode != RUNNING and not waits:
             raise GatewayRefused(
                 409, "no_app", "Run the app first: the agent acts through it."
             )
         url = self._url()
-        if self._app_starting():
+        if waits and (url is None or self._app_starting()):
+            url = None
+        elif self._app_starting():
             raise GatewayRefused(
                 409,
                 "app_starting",
                 "The app is still starting: try again when its health shows ok.",
             )
-        if url is None:
+        elif url is None:
             raise GatewayRefused(
                 409, "no_app", "The app's server isn't up yet: try again shortly."
             )
@@ -625,16 +654,51 @@ class GatewayAgent:
     # -- the manager's and the gateway's calls -------------------------------
 
     def _for_switch(self) -> None:
-        """The app is about to stop: the agent it serves ends first."""
+        """The app is about to stop: the agent it serves stops first and
+        waits, carrying on once a new app answers (`_unpark`). End ends it."""
         agent = self._manager.agent(self.microscope)
         if agent is not None and agent.state != "ended":
-            self._manager.end(self.microscope)
-            self._unpair()
+            self._parked_pid = self._app_pid()
+            self._parked_on = self._app_and_experiment()
+            self._parked_gone = False
+            parked = self._manager.park(self.microscope)
+            if parked is not None and parked.state == "ended":
+                # It didn't stop and was killed: it no longer holds the slot.
+                self._unpair()
+
+    def _app_and_experiment(self) -> Tuple[Optional[str], Optional[str]]:
+        state = self._gateway.state()
+        return state.app, state.experiment
+
+    def _unpark(self) -> None:
+        """A parked agent carries on once the app it waited out is gone and
+        another answers: never on the app that was being stopped. A new app
+        or experiment ends it instead: a session is one experiment's."""
+        agent = self._manager.agent(self.microscope)
+        if agent is None or not agent.parked or agent.state == "ended":
+            return
+        pid = self._app_pid()
+        if pid is None:
+            self._parked_gone = True
+            return
+        if pid == self._parked_pid or (
+            self._parked_pid is None and not self._parked_gone
+        ):
+            return
+        if self._app_and_experiment() != self._parked_on:
+            self.end("gateway", "gateway")
+            return
+        self._manager.unpark(self.microscope)
 
     def left(self) -> None:
         """The gateway is quitting on purpose: an agent it leaves running
-        waits for the operator's Resume, not the next gateway start."""
+        waits for the operator's Resume, not the next gateway start. A start
+        still waiting for its app ends: it never ran."""
         self._manager.left()
+        agent = self._manager.agent(self.microscope)
+        if agent is not None and agent.state == "ended":
+            self._unpair()
+            self._follow_slot()
 
     def _app_pid(self) -> Optional[int]:
         found = self._discovery()
@@ -759,8 +823,10 @@ class GatewayAgent:
         if paired is not None and paired.name == AGENT_NAME:
             self._tokens.remove(paired.id)
 
-    def _undo(self, url: str) -> None:
+    def _undo(self, url: Optional[str]) -> None:
         self._unpair()
+        if url is None:
+            return
         try:
             self._level(url, AgentLevel.WATCH.value)
         except GatewayRefused:

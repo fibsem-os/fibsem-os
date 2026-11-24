@@ -380,6 +380,11 @@ class Agent:
     process: Optional[subprocess.Popen] = None
     # Added to the manager's environment for each run; not written down.
     env: Optional[Dict[str, str]] = None
+    # Waiting because the operator stopped its app: not resumed until the
+    # host says the app was replaced (`unpark`), never while the old one runs.
+    parked: bool = False
+    # A start waiting for its app: the first run's command, not yet run.
+    launch: Optional[List[str]] = None
 
 
 def _detached() -> dict:
@@ -448,8 +453,10 @@ class AgentSessionManager:
         goal: Optional[str] = None,
         env: Optional[Dict[str, str]] = None,
         about: Optional[dict] = None,
+        wait: bool = False,
     ) -> Agent:
-        """Start a new session *session_id* for *microscope*. *args* are
+        """Start a new session *session_id* for *microscope*. With *wait* (no
+        app yet) it waits, and starts once the app answers. *args* are
         ``fibsem-agent``'s flags (``--url``, ``--playbook``, ...), passed again
         on each resume; *env* is added to this process's environment (the
         server token: never on the command line); *about* is the host's own
@@ -470,8 +477,16 @@ class AgentSessionManager:
             if goal:
                 launch += ["--goal", goal]
             agent = Agent(microscope, session_id, folder, env=dict(env or {}))
-            agent.process = self._spawn(launch, env, folder)
             self._agents[microscope] = agent
+            if wait:
+                agent.state, agent.launch = "waiting", launch
+                log.info(
+                    "The agent for %s (session %s) waits for its app.",
+                    microscope,
+                    session_id,
+                )
+                return agent
+            agent.process = self._spawn(launch, env, folder)
             log.info("Started the agent for %s (session %s).", microscope, session_id)
             return agent
 
@@ -505,6 +520,39 @@ class AgentSessionManager:
             self._agents[microscope] = agent
             log.info("Resumed session %s for %s.", session_id, microscope)
             return agent
+
+    def park(self, microscope: str) -> Optional[Agent]:
+        """Stop *microscope*'s agent because its app is being stopped: it
+        waits, and carries on once `unpark` says a new app is there. Ended
+        only if it doesn't stop. Returns the agent, or None when there was none."""
+        with self._lock:
+            agent = self._agents.get(microscope)
+            if agent is None or agent.state == "ended":
+                return agent
+            agent.parked = True
+            if agent.state == "waiting":
+                return agent
+            (agent.folder / STOP).touch()
+        deadline = time.monotonic() + self._end_wait_s
+        while time.monotonic() < deadline and self._alive(agent):
+            time.sleep(0.2)
+        with self._lock:
+            if self._alive(agent):
+                log.warning("The agent for %s didn't stop; killing it.", microscope)
+                self._kill(agent)
+                self._finish(agent, "killed: it didn't stop")
+                return agent
+            (agent.folder / STOP).unlink(missing_ok=True)
+            agent.state = "waiting"
+            log.info("The agent for %s waits for its app to start again.", microscope)
+            return agent
+
+    def unpark(self, microscope: str) -> None:
+        """A new app is there: a parked agent resumes on the next poll."""
+        with self._lock:
+            agent = self._agents.get(microscope)
+            if agent is not None:
+                agent.parked = False
 
     def end(self, microscope: str) -> Optional[Agent]:
         """Stop *microscope*'s agent: its stop file, then a kill once it has
@@ -544,8 +592,16 @@ class AgentSessionManager:
         with self._lock:
             for agent in list(self._agents.values()):
                 if agent.state == "running" and not self._alive(agent):
-                    self._exited(agent)
-                if agent.state == "waiting" and self._reachable(agent.microscope):
+                    if agent.parked:
+                        # Stopped by `park`, not ended: it waits.
+                        agent.state = "waiting"
+                    else:
+                        self._exited(agent)
+                if (
+                    agent.state == "waiting"
+                    and not agent.parked
+                    and self._reachable(agent.microscope)
+                ):
                     self._resume(agent)
 
     def sessions(self, limit: int = 20) -> List[dict]:
@@ -631,6 +687,23 @@ class AgentSessionManager:
 
     def _resume(self, agent: Agent) -> None:
         managed = read_json(agent.folder / MANAGED)
+        if agent.launch is not None:
+            # A start that waited for its app: its first run, at its level.
+            env = (
+                agent.env if agent.env is not None else self._env_for(agent.microscope)
+            )
+            try:
+                self._on_resume(agent.microscope, managed.get("about") or {})
+            except Exception:  # noqa: BLE001 - the host's step never stops the start
+                log.exception("Before starting the agent for %s", agent.microscope)
+            agent.process = self._spawn(agent.launch, env, agent.folder)
+            agent.state, agent.launch = "running", None
+            log.info(
+                "Started the agent for %s (session %s): its app answers.",
+                agent.microscope,
+                agent.session_id,
+            )
+            return
         # Carrying on the run it continues: its budget, not a fresh one.
         args = list(managed.get("args", [])) + [
             "--resume",
@@ -664,6 +737,10 @@ class AgentSessionManager:
         with self._lock:
             for agent in self._agents.values():
                 if agent.state == "ended":
+                    continue
+                if agent.launch is not None:
+                    # Never ran: nothing to resume.
+                    self._finish(agent, "did not start (the gateway closed first)")
                     continue
                 managed = read_json(agent.folder / MANAGED)
                 managed["left"] = self._clock()
