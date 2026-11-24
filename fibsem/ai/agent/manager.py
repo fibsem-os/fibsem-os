@@ -738,6 +738,10 @@ class AgentSessionManager:
             for agent in self._agents.values():
                 if agent.state == "ended":
                     continue
+                if agent.launch is not None:
+                    # Never ran: nothing to resume.
+                    self._finish(agent, "did not start (the gateway closed first)")
+                    continue
                 managed = read_json(agent.folder / MANAGED)
                 managed["left"] = self._clock()
                 write_json(agent.folder / MANAGED, managed)

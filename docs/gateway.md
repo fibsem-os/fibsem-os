@@ -204,7 +204,10 @@ app or has restarted.
   at the level you picked, once the app answers.
 - **Stopping the app** from the gateway (Stop or a new start) stops the agent first and leaves
   it waiting, still paired: it carries on, at the level you last set, once the next app
-  answers, never on the app being stopped. End ends it. Quit leaves it for Resume, as above.
+  answers, never on the app being stopped. A new start of another app or experiment ends it
+  instead (the gateway compares the app and experiment it started; one opened by hand in the
+  app isn't seen). End ends it. Quit leaves it for Resume, as above; a start still waiting
+  for its app ends, since it never ran.
 
 The page has **End** while one runs. A hub with "may start and stop apps" can start and
 end the agent too. Each session's record and log are in

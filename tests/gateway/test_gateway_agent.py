@@ -932,3 +932,18 @@ def test_start_with_no_app_and_no_gateway_address_is_refused(made):
     with pytest.raises(GatewayRefused) as refused:
         agent.start("default", None, "watch", "operator", "page")
     assert refused.value.error_type == "no_app"
+
+
+def test_a_start_waiting_for_its_app_ends_when_the_gateway_quits(made, tmp_path):
+    app = App()
+    app.up = False
+    agent, _, _ = made(
+        gateway=FakeGateway(OFF), app=app, own_url="http://127.0.0.1:8010"
+    )
+    agent.start("default", None, "assist", "operator", "page")
+    folder = agent._manager.agent(agent.microscope).folder
+    agent.left()
+    assert agent.state().running is None
+    assert PairedTokens(tmp_path / "paired.json").agent() is None
+    managed = read_json(folder / MANAGED)
+    assert managed["ended"] == "did not start (the gateway closed first)"

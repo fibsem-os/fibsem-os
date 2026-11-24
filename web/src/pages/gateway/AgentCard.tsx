@@ -505,7 +505,8 @@ function Run({ running }: { running: Running }) {
       </div>
       {running.state === "waiting" && (
         <p className="m-0 text-[13px] text-[var(--fibsem-semantic-warning-color)]">
-          Waiting for the app to come back, then it resumes.
+          Waiting for the app: it carries on
+          {running.level ? ` at ${title(running.level)}` : ""} once the app answers.
         </p>
       )}
       {lastRestart && (

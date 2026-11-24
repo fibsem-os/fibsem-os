@@ -308,6 +308,20 @@ class GatewayAgent:
         self._parked_on: Tuple[Optional[str], Optional[str]] = (None, None)
         # Whether no app answered since it was parked (its pid unread then).
         self._parked_gone = False
+        self._lost_holder()
+
+    def _lost_holder(self) -> None:
+        """A gateway agent the slot names that no session carries on (a
+        start that waited for its app when the last gateway stopped): the
+        slot is free again."""
+        held = self.slot.read()
+        if held.get("holder") != AGENT_NAME or held.get("state") == slot_mod.ENDED:
+            return
+        agent = self._manager.agent(self.microscope)
+        if agent is None or agent.state == "ended":
+            self.slot.change(
+                state=slot_mod.ENDED, why="did not carry on (the gateway closed)"
+            )
 
     # -- reading -----------------------------------------------------------
 
@@ -678,8 +692,13 @@ class GatewayAgent:
 
     def left(self) -> None:
         """The gateway is quitting on purpose: an agent it leaves running
-        waits for the operator's Resume, not the next gateway start."""
+        waits for the operator's Resume, not the next gateway start. A start
+        still waiting for its app ends: it never ran."""
         self._manager.left()
+        agent = self._manager.agent(self.microscope)
+        if agent is not None and agent.state == "ended":
+            self._unpair()
+            self._follow_slot()
 
     def _app_pid(self) -> Optional[int]:
         found = self._discovery()
