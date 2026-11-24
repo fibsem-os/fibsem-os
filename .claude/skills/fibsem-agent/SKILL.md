@@ -375,6 +375,12 @@ a note (*Write down why*): messages about what
 can wait teach the operator to ignore them. A message decides nothing: a
 decision you want is a proposal or a request.
 
+When you stop until the operator answers (a question, a go-ahead, an error
+only they can clear), set `waits: true` on that message: the page shows
+"Waiting on you" until they reply, and Slack tells them. Say what you'll do
+once they answer. To carry on by yourself if they don't, set `wake_after`
+first and say so only once it answers that the wake-up is set.
+
 **Keep a plan.** Your plan for the session is plan.md, which the operator
 reads and edits on the Agent page. Write it at intake under the playbook's
 plan headings (Brief, Playbook, Rules, Steps, Progress, What worked, Summary

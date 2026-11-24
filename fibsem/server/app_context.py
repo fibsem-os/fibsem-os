@@ -1028,10 +1028,12 @@ class AppContext:
         item_name: Optional[str] = None,
         reply_to: Optional[str] = None,
         evidence: Optional[str] = None,
+        waits: bool = False,
     ) -> Dict[str, Any]:
         """Put the agent's message to the operator on the record: something they
         should read now, or its answer to their message (``reply_to``, the
-        message's id). It changes nothing."""
+        message's id). ``waits``: the agent has stopped until the operator
+        answers. It changes nothing."""
         message_id = uuid.uuid4().hex[:8]
         result = self._note(
             text,
@@ -1040,6 +1042,7 @@ class AppContext:
             to=OPERATOR,
             id=message_id,
             reply_to=reply_to,
+            waits=True if waits else None,
         )
         if not isinstance(result, Refusal):
             result["id"] = message_id

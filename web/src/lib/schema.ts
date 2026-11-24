@@ -1627,11 +1627,14 @@ export interface components {
             channel_id: string;
         };
         /** @description POST /app/experiment/messages: the agent's message to the operator,
-         *     ``reply_to`` the message it answers. */
+         *     ``reply_to`` the message it answers; ``waits``, it has stopped until the
+         *     operator answers. */
         OperatorMessageBody: {
             item_name?: string | null;
             reply_to?: string | null;
             text: string;
+            /** @default false */
+            waits?: boolean;
         };
         /** @description What the playbook and subagent forms offer to pick from. */
         Options: {
@@ -1994,6 +1997,8 @@ export interface components {
             read: string;
             text: string;
             tone: string;
+            /** @default false */
+            waits: boolean;
             when: string;
             /** @default  */
             why: string;

@@ -274,7 +274,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         part=ITEMS,
         params={
             "item_name": "the item (lamella) name",
-            "filename": "a basename from item_list_outputs",
+            "filename": "a basename from item_list_outputs, or a saved image's path in the experiment (as other tools give it)",
         },
     ),
     ToolSpec(

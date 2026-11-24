@@ -386,6 +386,22 @@ def test_the_agent_s_message_and_note_are_told_apart():
     assert [row.kind for row in recent.rows] == ["note", "message", "you"]
 
 
+def test_a_message_the_agent_stops_on_is_marked_as_waiting():
+    recent = RecentActions()
+    recent.add(_record("agent_level_set", {"level": "drive"}, actor=OPERATOR))
+    recent.add(_record("note", {"text": "Loaded", "to": "operator", "id": "c1"}))
+    recent.add(
+        _record("note", {"text": "Go?", "to": "operator", "id": "c2", "waits": True})
+    )
+    # A note can't wait: only a message to the operator does.
+    recent.add(_record("note", {"text": "for the record", "waits": True}))
+    assert [(row.kind, row.waits) for row in recent.rows] == [
+        ("message", False),
+        ("message", True),
+        ("note", False),
+    ]
+
+
 def test_a_request_on_the_record_as_a_proposal_is_one_row():
     recent = RecentActions()
     actions = [{"tool": "stage_move_relative", "arguments": {"dx": 5e-6}}]

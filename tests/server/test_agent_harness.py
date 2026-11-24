@@ -906,6 +906,31 @@ def test_each_session_has_a_folder_with_its_record_and_log(tmp_path, monkeypatch
     assert "Session:" in (folder / manager.LOG).read_text(encoding="utf-8")
 
 
+def test_the_agent_s_wake_up_timer_is_the_one_its_run_binds(tmp_path, monkeypatch):
+    """The wake_after tool and the run share one timer: launched by main, a
+    wake-up the agent sets rings (it answered "can't wake you yet" in the
+    24 Nov rehearsal, because the run never got the timer)."""
+    pytest.importorskip("claude_agent_sdk")
+    import uuid
+
+    made = {}
+    real = harness_mod.Harness
+
+    class Kept(real):
+        def __init__(self, *args, **kwargs):
+            made.update(kwargs)
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(harness_mod, "Harness", Kept)
+    monkeypatch.setattr(harness_mod.Path, "home", lambda: tmp_path)
+    monkeypatch.delenv("FIBSEM_SERVER_TOKEN", raising=False)
+    _main_kept_apart(
+        ["--url", "http://127.0.0.1:9", "--server-wait", "0"]
+        + ["--session-id", str(uuid.uuid4()), "--goal", "mill 01"]
+    )
+    assert isinstance(made.get("alarm"), harness_mod.Alarm)
+
+
 def _main_kept_apart(argv):
     """`harness.main`, its log handlers taken off again after."""
     handlers = list(harness_mod.log.handlers)

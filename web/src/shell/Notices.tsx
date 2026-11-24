@@ -34,7 +34,8 @@ const rowId = (row: RecentRow) => `${row.kind}|${row.at}|${row.text}`;
 /** The rows that make a notice: the agent's messages, and actions that failed
  * (a refusal is the agent's to handle, not the operator's). */
 function rowNotice(row: RecentRow): Notice | null {
-  if (row.kind === "message")
+  // A message that waits on the operator is an ask (`waitingOn`), not news.
+  if (row.kind === "message" && !row.waits)
     return { id: rowId(row), kind: "message", title: "Agent", text: plain(row.text), link: "Reply in Agent page" };
   if (row.kind === "action" && row.outcome === "failed")
     return {
@@ -47,8 +48,29 @@ function rowNotice(row: RecentRow): Notice | null {
   return null;
 }
 
-function askNotices(a: AgentState | undefined): Notice[] {
+/** The agent's message that waits for the operator's answer, while it does:
+ * its newest one marked ``waits`` with no message of theirs after it. */
+export function waitingOn(rows: RecentRow[] | undefined): RecentRow | null {
+  let waits: RecentRow | null = null;
+  for (const row of rows ?? []) {
+    if (row.aside) continue;
+    if (row.kind === "you") waits = null;
+    else if (row.kind === "message") waits = row.waits ? row : null;
+  }
+  return waits;
+}
+
+function askNotices(a: AgentState | undefined, rows?: RecentRow[]): Notice[] {
   const out: Notice[] = [];
+  const waits = waitingOn(rows);
+  if (waits)
+    out.push({
+      id: `waits|${rowId(waits)}`,
+      kind: "ask",
+      title: "The agent is waiting for you",
+      text: plain(waits.text),
+      link: "Reply in Agent page",
+    });
   if (a?.request?.status === "pending")
     out.push({
       id: `request|${a.request.request_id}`,
@@ -96,7 +118,7 @@ export function Notices({ page, go }: { page: Page; go: Go }) {
   const news = rows
     .map(rowNotice)
     .filter((n): n is Notice => !!n && !closed.has(n.id) && (prefs.errors || n.kind !== "error"));
-  const asks = askNotices(agent.data).filter((n) => !closed.has(n.id));
+  const asks = askNotices(agent.data, recent.data?.rows).filter((n) => !closed.has(n.id));
   const onAgentPage = page === "agent";
   useEffect(() => {
     if (onAgentPage && news.length) close(news.map((n) => n.id));

@@ -778,15 +778,16 @@ def build_app_router(context: "AppContext") -> APIRouter:
         return context.item_task_config(item_name, task_name)
 
     @router.get(
-        "/experiment/items/{item_name}/outputs/{filename}",
+        "/experiment/items/{item_name}/outputs/{filename:path}",
         response_class=Response,
         responses=_JPEG,
         tags=[ITEMS],
     )
     def output_image(item_name: str, filename: str, width: Optional[int] = None):
         # Serves actual image/jpeg (not a JSON payload) so a browser <img>
-        # can consume it; filename must be a basename the item's own
-        # outputs listing names — the context refuses anything else.
+        # can consume it; filename is a basename the item's own outputs
+        # listing names, or a saved image's path (slashes and all) — the
+        # context refuses anything else.
         return _jpeg(
             context.output_image(item_name, filename, files.preview_width(width))
         )

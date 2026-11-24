@@ -56,6 +56,9 @@ context and the next session find it:
   (`item_draw_milling`), as the operator checks it at the microscope; the
   SEM overview drawing (`grid_draw_milling`) only when it shows a bar or a
   neighbour too close.
+  A site's first images are its wide SEM and FIB pair (100-150 µm, its
+  square, bars and neighbours in view; screen-grids), then the 50 µm pair.
+  Check each item's images are of that site before you add it.
   Each site, its Setup placement, its target and its polishing is a scored
   item of its own, and each grid's site list one more (autolamella,
   *Scored results*).

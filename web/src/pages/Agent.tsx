@@ -53,6 +53,7 @@ import { Palette, PALETTE_KEY, type PaletteEntry, usePaletteKey } from "./agent/
 import { PlanDialog } from "./agent/PlanDialog";
 import { say, since } from "./agent/steps";
 import { asking, SideChat } from "./agent/SideChat";
+import { waitingOn } from "@/shell/Notices";
 import { ReviewTab, useReview } from "./agent/ReviewTab";
 import {
   type ColumnTab,
@@ -502,6 +503,9 @@ function runState(call: TranscriptLine, answer: TranscriptLine | undefined, runs
   return { failed, badge, text };
 }
 
+/** A run's name in a line: its kind and what it was for. */
+const runTitle = (call: TranscriptLine) => `${agentName(call.subagent ?? "")}${call.text ? ` · ${call.text}` : ""}`;
+
 function RunBadge({ badge }: { badge: { text: string; warn: boolean } | null }) {
   if (!badge) return null;
   return (
@@ -525,8 +529,9 @@ function RunCard({
   answer,
   live,
   tab = false,
+  parent,
   ...shared
-}: { call: TranscriptLine; answer?: TranscriptLine; live: boolean; tab?: boolean } & Shared) {
+}: { call: TranscriptLine; answer?: TranscriptLine; live: boolean; tab?: boolean; parent?: TranscriptLine } & Shared) {
   const [open, setOpen] = useState(false);
   const lines = shared.runs.get(stepKey(call.session_id, call.seq)) ?? [];
   const steps = lines.filter((l) => l.kind === "step").length;
@@ -559,6 +564,22 @@ function RunCard({
           {state.text}
         </span>
       </div>
+      {tab && parent && (
+        <div className="text-[12px] text-muted-foreground">
+          Asked by{" "}
+          {shared.onOpen ? (
+            <button
+              className="cursor-pointer border-0 bg-transparent p-0 text-left text-[12px] text-primary underline underline-offset-2"
+              onClick={() => shared.onOpen?.(parent)}
+              title="Show the run that asked for this one"
+            >
+              {runTitle(parent)}
+            </button>
+          ) : (
+            runTitle(parent)
+          )}
+        </div>
+      )}
       {answer?.text && (
         <div className={cn("whitespace-pre-wrap break-words", state.failed ? "text-muted-foreground" : "text-foreground")}>
           {answer.text}
@@ -670,6 +691,8 @@ function SubagentList({
     return state.text.startsWith("Stopped") ? "Stopped" : "Done";
   };
   const kind = (c: TranscriptLine) => agentName(c.subagent ?? "");
+  const parentOf = (c: TranscriptLine) =>
+    calls.find((p) => p.session_id === c.session_id && c.run != null && p.seq === c.run);
   const started = (c: TranscriptLine) => time(c.t);
   const finished = (c: TranscriptLine) => {
     const answer = answerOf(c);
@@ -775,6 +798,11 @@ function SubagentList({
                     {state.text}
                     {!runs(c) && <span className="text-muted-foreground/70"> · {when(c.t, clock)}</span>}
                   </span>
+                  {c.run != null && (
+                    <span className="min-w-0 truncate text-[12px] text-muted-foreground">
+                      Asked by {parentOf(c) ? runTitle(parentOf(c)!) : "another run"}
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -875,11 +903,14 @@ function withAllRuns(idx: ReturnType<typeof indexLines>, all: TranscriptLine[], 
     } else if (l.kind === "picture" && l.step != null && l.path) {
       const key = stepKey(l.session_id, l.step);
       if (!idx.pictures.has(key)) pictures.set(key, [...(pictures.get(key) ?? []), l]);
-    } else if (l.run != null) {
-      const key = stepKey(l.session_id, l.run);
-      if (!idx.runs.has(key)) runs.set(key, [...(runs.get(key) ?? []), l]);
-    } else if (l.kind === "step" && l.subagent != null) {
-      byKey.set(stepKey(l.session_id, l.seq), l);
+    } else {
+      if (l.run != null) {
+        const key = stepKey(l.session_id, l.run);
+        if (!idx.runs.has(key)) runs.set(key, [...(runs.get(key) ?? []), l]);
+      }
+      // A run a subagent started (a worker asking the Verifier) is a line of
+      // its parent's run and a run of its own.
+      if (l.kind === "step" && l.subagent != null) byKey.set(stepKey(l.session_id, l.seq), l);
     }
   }
   // The loaded lines win: they are the newest read.
@@ -1324,6 +1355,8 @@ export function AgentPage() {
   const asides = (recent.data?.rows ?? []).filter((r) => r.aside);
   const rows = all.filter((r) => !(r.kind === "you" && r.message_id && !r.read));
   const unread = all.filter((r) => r.kind === "you" && r.message_id && !r.read);
+  // The agent's message that waits for an answer, until the operator writes.
+  const waits = waitingOn(all);
   const a = agent.data;
   // What fibsem-agent printed: shown from its first step, before any message.
   const lines = transcript.data?.entries ?? [];
@@ -1505,6 +1538,12 @@ export function AgentPage() {
               call={call}
               answer={answer}
               live={!answer && idx.running(call)}
+              parent={
+                call.run != null
+                  ? idx.calls.find((p) => stepKey(p.session_id, p.seq) === stepKey(call.session_id, call.run))
+                  : undefined
+              }
+              onOpen={openRun}
               answered={idx.answered}
               pictures={idx.pictures}
               runs={idx.runs}
@@ -1772,6 +1811,19 @@ export function AgentPage() {
         {a.asking && <ConnectCard key={a.asking.id} ask={a.asking} decide="/app/agent/connections" />}
         {request && <RequestCard key={request.request_id} request={request} agent={a} />}
         {!request && suggestion && <SuggestionCard key={suggestion.proposal_id} suggestion={suggestion} agent={a} />}
+        {waits && (
+          <div
+            role="status"
+            className="flex items-start gap-2 rounded-md border border-[var(--fibsem-warn-color)] bg-[color-mix(in_srgb,var(--fibsem-warn-color)_10%,transparent)] px-3 py-2 text-[13px]"
+          >
+            <span className="mt-[7px] block size-2 shrink-0 rounded-full bg-[var(--fibsem-warn-color)]" aria-hidden />
+            <span className="min-w-0">
+              <b className="font-semibold">Waiting on you</b>
+              <span className="text-muted-foreground"> · the agent has stopped until you answer</span>
+              <span className="line-clamp-2 break-words text-foreground">{waits.text}</span>
+            </span>
+          </div>
+        )}
         <div
           className={cn(
             "rounded-md",
