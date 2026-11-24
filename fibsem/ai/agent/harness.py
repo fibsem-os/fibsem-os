@@ -1284,6 +1284,8 @@ class Harness:
         self._sending: Optional[Tuple[Any, asyncio.Lock]] = None
         self._goal = goal
         self._goal_sent = False
+        # The kinds of answer a refused session report gave, each said once.
+        self._refusals_said: set = set()
         # The skills read, as last reported: sent again when the agent reads one.
         self._skills_sent: List[str] = []
         # What it can do (code mode, effort, skills), sent with the first report.
@@ -1887,9 +1889,23 @@ class Harness:
             body.update(ended=True, reason=self._end_reason)
         try:
             body = plain(decode(SessionReport, body, strict=True))
-        except ValueError:
-            log.warning("The session report did not read.", exc_info=True)
-            return
+        except ValueError as error:
+            # Never silent, and never the whole report: without it the App
+            # Server holds no session and refuses the plan. Sent again with
+            # only the fields that always read.
+            log.error(
+                "The session report did not read, sent without its extras: %s", error
+            )
+            body = {
+                key: body[key]
+                for key in ("session_id", "model", "budget_usd", "spent_usd", "ended")
+                if body.get(key) is not None
+            }
+            try:
+                body = plain(decode(SessionReport, body, strict=True))
+            except ValueError:
+                log.error("The session report did not read at all.", exc_info=True)
+                return
         self._goal_sent = True
 
         def post():
@@ -1899,7 +1915,13 @@ class Harness:
                 )
                 if response.status_code == 200:
                     return response.json().get("session")
-            except Exception:
+                # A refused report leaves the App Server without the session
+                # (the plan refuses no_session): said once for each answer.
+                self._report_refused(
+                    f"{response.status_code}: {getattr(response, 'text', '')[:200]}"
+                )
+            except Exception as error:
+                self._report_refused(type(error).__name__)
                 log.debug("Reporting the session failed.", exc_info=True)
             return None
 
@@ -2001,6 +2023,16 @@ class Harness:
                     self._keep_budget(usd=self._budget_usd)
                 except OSError:
                     log.warning("The new budget wasn't kept.", exc_info=True)
+
+    def _report_refused(self, why: str) -> None:
+        """A session report the App Server didn't take: a warning the first
+        time for each kind of answer, then quiet (it reports every 30 s)."""
+        said = self._refusals_said
+        kind = why.split(":", 1)[0]
+        if kind in said:
+            return
+        said.add(kind)
+        log.warning("The App Server didn't take the session report (%s).", why)
 
     async def _reread_budget(self) -> None:
         """Ask the App Server for the session's budget, in case the operator

@@ -1671,6 +1671,35 @@ def test_the_harness_reports_the_goal_once_and_leaves_later_ones_to_the_agent():
     assert "explicitly" in harness_mod.texts().prompt
 
 
+def test_a_report_that_does_not_read_still_names_the_session(caplog):
+    """A goal the report can't hold never costs the session: the App Server
+    still learns it (else every plan write is refused), and the log says so."""
+
+    class Client:
+        def __init__(self):
+            self.bodies = []
+
+        def request(self, method, path, json=None, timeout=None):
+            self.bodies.append(json)
+
+    from fibsem.ai.agent.report import MAX_GOAL
+
+    agent = ScriptedAgent()
+    agent.session_id = "s-long-goal"
+    harness = Harness(agent, lambda: None, goal="x" * (MAX_GOAL + 1))
+    harness._client = client = Client()
+    with caplog.at_level("ERROR"):
+        asyncio.run(harness._report())
+    assert client.bodies[0]["session_id"] == "s-long-goal"
+    assert "goal" not in client.bodies[0]
+    assert "did not read" in caplog.text
+    # A goal the size an operator writes reads whole.
+    harness = Harness(agent, lambda: None, goal="y" * 600)
+    harness._client = client = Client()
+    asyncio.run(harness._report())
+    assert client.bodies[0]["goal"] == "y" * 600
+
+
 def test_the_harness_says_what_the_agent_can_do_with_its_first_report():
     class Client:
         def __init__(self):
@@ -2673,3 +2702,26 @@ def test_an_automatic_resume_carries_the_runs_budget_on():
     assert carried == {"usd": 35.0, "spent_before_usd": 0.0}
     fresh = harness_mod._budget(args(), record)
     assert fresh["usd"] == 50.0
+
+
+def test_a_refused_session_report_is_said_once_not_silently_dropped(caplog):
+    class Refused:
+        status_code = 401
+        text = "Missing or invalid bearer token"
+
+    class Client:
+        def __init__(self):
+            self.calls = 0
+
+        def request(self, method, path, json=None, timeout=None):
+            self.calls += 1
+            return Refused()
+
+    harness = Harness(ScriptedAgent(), lambda: None, goal="Mill 01")
+    harness._client = client = Client()
+    with caplog.at_level(logging.WARNING, logger=harness_mod.log.name):
+        asyncio.run(harness._report())
+        asyncio.run(harness._report())
+    assert client.calls == 2
+    said = [r for r in caplog.records if "didn't take the session report" in r.message]
+    assert len(said) == 1 and "401" in said[0].message

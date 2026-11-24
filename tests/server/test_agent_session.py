@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from fibsem.ai.agent.levels import AgentLevel
+from fibsem.ai.agent.report import MAX_GOAL
 from fibsem.instrument_id import instrument_id
 from fibsem.server import AuthConfig
 from fibsem.server.agent.session import (
@@ -88,7 +89,7 @@ def test_a_new_session_id_or_a_report_after_the_end_starts_a_new_session(server)
         {"spent_usd": True},
         {"turns": 1.5},
         {"ended": "yes"},
-        {"goal": "x" * 501},
+        {"goal": "x" * (MAX_GOAL + 1)},
         {"model": 3},
         {"tokens": {"input": -1}},
         {"tokens": {"prompt": 1}},
