@@ -267,7 +267,7 @@ export interface ReviewItem {
   facts: { label: string; value: string }[];
   options: string[];
   /** The result it scores, when it is a scored item: Accept is a pass, Reject a fail. */
-  score?: "sites" | "target" | "polishing";
+  score?: "site-selection" | "site-coverage" | "site-setup" | "target" | "polishing";
   /** The lamella and task run it is about, as the server resolved them from the names the agent gave. */
   item_id?: string;
   item_name?: string;

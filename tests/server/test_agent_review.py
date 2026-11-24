@@ -37,9 +37,14 @@ class FakeAgent:
         run = SimpleNamespace(
             task_id="t-polish-1", name="Polishing", task_type="MILL_POLISHING"
         )
+        setup = SimpleNamespace(
+            task_id="t-setup-1", name="Setup", task_type="SELECT_MILLING_POSITION"
+        )
         self.experiment = SimpleNamespace(
             positions=[
-                SimpleNamespace(id="id-01", name="Lamella 01", task_history=[run]),
+                SimpleNamespace(
+                    id="id-01", name="Lamella 01", task_history=[setup, run]
+                ),
                 SimpleNamespace(id="id-02", name="Lamella 02", task_history=[]),
             ]
         )
@@ -257,14 +262,16 @@ def test_accepting_done_work_with_nothing_to_add_is_not_told(server):
 
 def test_scored_items_count_a_pass_or_a_fail_per_kind(server):
     agent, operator, recorded, *_ = server
-    sites = add(agent, title="Sites on Grid 1", about="Grid 1", score="sites").json()
-    assert sites["score"] == "sites"
+    sites = add(
+        agent, title="Site 1 on Grid 1", item_name="Lamella 01", score="site-selection"
+    ).json()
+    assert sites["score"] == "site-selection"
     assert sites["options"] == ["Accept", "Reject"]
     add(agent, title="Target found", item_name="Lamella 01", score="target")
     add(agent, title="Target found", item_name="Lamella 02", score="target")
     add(agent, title="Polished to 190 nm", item_name="Lamella 01", score="polishing")
     add(agent, title="Rough mill done", about="Lamella 01")
-    assert recorded[0][1]["score"] == "sites"
+    assert recorded[0][1]["score"] == "site-selection"
     operator.post("/app/agent/review/r1/answer", json={"choice": "Accept"})
     operator.post(
         "/app/agent/review/r2/answer",
@@ -273,7 +280,7 @@ def test_scored_items_count_a_pass_or_a_fail_per_kind(server):
     operator.post("/app/agent/review/r3/answer", json={"choice": "Accept"})
     counts = agent.get("/app/agent/review").json()["counts"]
     assert counts["scores"] == {
-        "sites": {
+        "site-selection": {
             "passed": 1,
             "failed": 0,
             "open": 0,
@@ -355,11 +362,45 @@ def test_which_lamellae_reached_polishing_is_read_from_their_tasks():
     ]
     since = "2026-11-24T09:00:00+11:00"
 
+    def names_of(found, kind):
+        return [r["item_name"] for r in found[kind]]
+
     def names(found):
-        return [r["item_name"] for r in found["polishing"]]
+        return names_of(found, "polishing")
 
     assert names(reached_in(positions, since)) == ["L1", "L2"]
     assert names(reached_in(positions)) == ["L1", "L2", "L6"]
+    # Each site picked in the session: any position but one run before it.
+    setup = NS(name="L7", task_history=[run("SELECT_MILLING_POSITION", "Completed")])
+    assert names_of(reached_in([setup], since), "site-setup") == ["L7"]
+    picked = [r["item_name"] for r in reached_in(positions, since)["site-selection"]]
+    assert picked == ["L1", "L2", "L3", "L4", "L5"]
+    assert len(reached_in(positions)["site-selection"]) == 6
+
+
+def test_each_site_picked_is_scored_on_its_own_and_the_grid_for_coverage(server):
+    agent, operator, _, _, fake = server
+    fake.reached = {
+        "site-selection": [
+            {"item_id": "id-01", "item_name": "Lamella 01"},
+            {"item_id": "id-02", "item_name": "Lamella 02"},
+        ]
+    }
+    # The grid's overview scores whether good squares were missed.
+    grid = add(agent, title="Sites on Grid 1: 2 picked", score="site-coverage")
+    assert grid.status_code == 422
+    add(agent, title="Sites on Grid 1: 2 picked", about="Grid 1", score="site-coverage")
+    add(agent, title="Site 1", item_name="Lamella 01", score="site-selection")
+    operator.post("/app/agent/review/r1/answer", json={"choice": "Reject"})
+    operator.post("/app/agent/review/r2/answer", json={"choice": "Accept"})
+    scores = agent.get("/app/agent/review").json()["counts"]["scores"]
+    assert scores["site-coverage"]["failed"] == 1
+    sites = scores["site-selection"]
+    assert (sites["passed"], sites["failed"], sites["missing"]) == (
+        1,
+        1,
+        ["Lamella 02"],
+    )
 
 
 def test_missing_lamellae_are_counted_from_the_session_start(server):
@@ -383,8 +424,14 @@ def test_a_scored_item_names_a_lamella_the_experiment_has(server):
     assert (added["task_id"], added["task_name"]) == ("t-polish-1", "Polishing")
     assert recorded[-1][1]["item_id"] == "id-01"
     assert recorded[-1][1]["task_id"] == "t-polish-1"
-    # Grids aren't positions: sites go by about.
-    assert add(agent, title="x", score="sites", about="Grid 1").is_success
+    # A placement takes the lamella's Setup run.
+    placed = add(agent, title="x", score="site-setup", item_name="Lamella 01").json()
+    assert placed["task_id"] == "t-setup-1"
+    # A site is scored on its own position, about free for the grid.
+    site = add(
+        agent, title="x", score="site-selection", item_name="Lamella 02", about="Grid 1"
+    )
+    assert (site.json()["item_id"], site.json()["about"]) == ("id-02", "Grid 1")
 
 
 def test_item_and_task_names_are_optional_but_checked(server):
@@ -395,9 +442,9 @@ def test_item_and_task_names_are_optional_but_checked(server):
     assert named["item_id"] == "id-02" and "task_id" not in named
     task = add(agent, title="x", item_name="Lamella 01", task_name="polishing").json()
     assert task["task_id"] == "t-polish-1"
-    wrong = add(agent, title="x", item_name="Lamella 01", task_name="Setup")
+    wrong = add(agent, title="x", item_name="Lamella 01", task_name="Trench")
     assert wrong.status_code == 404
-    assert wrong.json()["detail"]["task_names"] == ["Polishing"]
+    assert wrong.json()["detail"]["task_names"] == ["Polishing", "Setup"]
     assert add(agent, title="x", task_name="Polishing").status_code == 422
 
 
@@ -455,7 +502,7 @@ def test_a_scored_item_names_what_it_scores_and_keeps_accept_or_reject(server):
     assert add(agent, title="x", score="speed", about="L1").status_code == 422
     # The lamella it scores goes in item_name; the grid in about.
     assert add(agent, title="x", score="target", about="L1").status_code == 422
-    assert add(agent, title="x", score="sites").status_code == 422
+    assert add(agent, title="x", score="site-selection").status_code == 422
     assert (
         add(
             agent,
