@@ -754,6 +754,25 @@ def test_allowing_an_agent_ends_the_one_the_gateway_started(made, tmp_path):
     assert result.startswith("Allowed claude-code on this PC, replacing the agent")
 
 
+def test_an_allow_that_fails_leaves_the_gateways_agent_running(
+    made, tmp_path, monkeypatch
+):
+    """The Allow before the end (L3): an ask that expired ends nothing."""
+    agent, gateway, _ = made()
+    agent.start("default", None, "watch", "operator", "page")
+    assert until(lambda: _record(tmp_path).get("runs"))
+    client, connections = _allowing(agent, gateway, tmp_path)
+    connections.ask("claude-code 2.1", "this PC", "lab", wait_s=0)
+    card = client.get("/gateway/connections").json()["asking"]
+
+    def expired(ask_id):
+        raise LookupError("That ask has expired.")
+
+    monkeypatch.setattr(connections, "allow", expired)
+    assert client.post(f"/gateway/connections/{card['id']}/allow").status_code == 404
+    assert agent.state().running["state"] == "running"
+
+
 def test_always_allow_never_replaces_an_agent_in_use(made, tmp_path):
     agent, gateway, _ = made()
     agent.start("default", None, "watch", "operator", "page")

@@ -553,16 +553,17 @@ def build_gateway_app(
         connections = _connections()
         if not any(ask.id == ask_id for ask in connections.asking()):
             raise _refused(404, "not_found", "No agent is asking with that id.")
-        # The agent the gateway started stops first, as its End does: the
-        # card said allowing ends it.
         own = _own()
-        if own is not None:
-            agent.end(found.who, "page")
         replaced = connections.tokens.agent()
+        # The Allow first: one that fails (the ask expired) leaves the agent
+        # running as it was. Then the agent the gateway started ends, as its
+        # End does (the card said allowing ends it); its token is gone already.
         try:
             computer = connections.allow(ask_id)
         except LookupError as exc:
             raise _refused(404, "not_found", str(exc)) from None
+        if own is not None:
+            agent.end(found.who, "page")
         replacing = own or (replaced.name if replaced else None)
         allowed = f"Allowed {computer.name}" + (
             f", replacing {replacing}" if replacing else ""

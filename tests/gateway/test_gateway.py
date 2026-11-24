@@ -278,6 +278,22 @@ def test_a_host_it_didnt_start_blocks_a_start(tmp_path, fakes):
     assert gateway.state().mode == OFF
 
 
+def test_a_refused_restart_leaves_the_running_app_up(tmp_path, fakes):
+    """The checks come before the stop (L1); a restart says it stopped."""
+    gateway = _gateway(tmp_path, fakes)
+    _headless(gateway, last=True)
+    fakes.found = {"pid": 424242, "url": "http://127.0.0.1:8001"}
+    with pytest.raises(GatewayRefused) as refused:
+        _headless(gateway, last=True)
+    assert refused.value.error_type == "held"
+    assert gateway.state().mode == RUNNING
+    fakes.found = None
+    _headless(gateway, last=True)
+    results = [switch.result for switch in gateway.history().switches]
+    assert "stopped" in results
+    assert gateway.stop("operator", "page").mode == OFF
+
+
 @pytest.mark.parametrize(
     "kwargs, error",
     [

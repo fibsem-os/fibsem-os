@@ -564,8 +564,8 @@ class Gateway:
             else []
         )
         with self._take(who, via, RUNNING, app, experiment, window):
-            if self._state.mode != OFF:
-                self._stop_current(force)
+            # Everything that can refuse first: a refused start never leaves
+            # the running app stopped. (Its own host isn't another's.)
             other = self._other_host()
             if other is not None:
                 raise GatewayRefused(
@@ -574,6 +574,10 @@ class Gateway:
                     f"Another fibsem host (pid {other.pid}) has control of the microscope: "
                     "close it at the PC first.",
                 )
+            if self._state.mode != OFF:
+                was = self._state.app, self._state.experiment, self._state.window
+                self._stop_current(force)
+                self._record(RUNNING, OFF, who, via, "stopped", *was)
             self._start(
                 app, chosen, window, experiment, last, connection, create, flags
             )
