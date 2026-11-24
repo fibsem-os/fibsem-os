@@ -52,6 +52,8 @@ context and the next session find it:
 - **The review list** (fibsem-agent, *Keep a review list*): one item per
   key decision (the site list, each placement, each lamella's polishing),
   with its images, your decision, and the Verifier's answer as a fact.
+  The site lists, targets and polishing are scored items (autolamella,
+  *Scored results*).
   The Verifier puts its own `[verdict]` note on the record as well.
 - **The knowledge base**, at the review, for the next run.
 

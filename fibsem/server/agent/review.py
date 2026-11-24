@@ -10,6 +10,10 @@ picture; the answer reaches the agent as the operator's message
 (`fibsem.server.agent.operator`). The agent may close an item it no longer
 needs answered. Nothing is enforced: a wait is the agent's own promise.
 
+An item may be a scored result (``score``: sites, target or polishing, about
+the grid or lamella it scores): the operator's Accept is a pass and Reject a
+fail, with the note saying why. The run's scores are counted from these.
+
 Kept at ``agent/review-<session id>.jsonl`` beside the plan (`AgentFiles`):
 one line per item added, answered or closed, read back in order.
 """
@@ -42,6 +46,9 @@ ANSWERED = "agent_review_answered"
 CLOSED = "agent_review_closed"
 LEVELS = ("done", "check", "wait")
 OPTIONS = ("Accept", "Reject")
+# What a scored item scores: a grid's site list, a lamella's target, a
+# lamella's polishing. Accept is a pass, Reject a fail.
+SCORES = ("sites", "target", "polishing")
 MAX_TITLE = 120
 MAX_TEXT = 2000
 MAX_ABOUT = 60
@@ -195,8 +202,14 @@ class ReviewStore:
     def view(self, item: Dict[str, Any]) -> Dict[str, Any]:
         return {**item, "state": state(item)}
 
-    def counts(self) -> Dict[str, int]:
-        found = {"waiting": 0, "to_check": 0, "rejected": 0, "all": len(self.items)}
+    def counts(self) -> Dict[str, Any]:
+        found: Dict[str, Any] = {
+            "waiting": 0,
+            "to_check": 0,
+            "rejected": 0,
+            "all": len(self.items),
+            "scores": scores(self.items),
+        }
         for item in self.items:
             said = state(item)
             if said in found:
@@ -205,6 +218,25 @@ class ReviewStore:
             if choice == "Reject":
                 found["rejected"] += 1
         return found
+
+
+def scores(items: List[Dict[str, Any]]) -> Dict[str, Dict[str, int]]:
+    """Per kind scored, the items passed (Accept), failed (Reject) and still
+    open; a closed item without an answer is left out."""
+    found: Dict[str, Dict[str, int]] = {}
+    for item in items:
+        kind = item.get("score")
+        if not kind:
+            continue
+        tally = found.setdefault(kind, {"passed": 0, "failed": 0, "open": 0})
+        choice = (item.get("answer") or {}).get("choice")
+        if choice == "Accept":
+            tally["passed"] += 1
+        elif choice == "Reject":
+            tally["failed"] += 1
+        elif not item.get("closed"):
+            tally["open"] += 1
+    return found
 
 
 def store_of(
@@ -289,6 +321,21 @@ def build_agent_review_router(
             raise _invalid(f"level is one of {list(LEVELS)}.")
         if len(body.text) > MAX_TEXT:
             raise _invalid(f"text is at most {MAX_TEXT} characters.")
+        score = body.score.strip()
+        about = _line(body.about, "about", MAX_ABOUT)
+        if score:
+            if score not in SCORES:
+                raise _invalid(f"score is one of {list(SCORES)}.")
+            if not about:
+                raise _invalid(
+                    "A scored item says what it scores in about: the grid for "
+                    "sites, the lamella for target and polishing."
+                )
+            if body.options:
+                raise _invalid(
+                    "A scored item is answered Accept (pass) or Reject (fail): "
+                    "leave options out."
+                )
         cited = cited_evidence(
             SimpleNamespace(experiment_path=experiment_path()), request
         )
@@ -296,12 +343,14 @@ def build_agent_review_router(
             "level": body.level,
             "title": _line(body.title, "title", MAX_TITLE, True),
             "text": body.text.strip(),
-            "about": _line(body.about, "about", MAX_ABOUT),
+            "about": about,
             "images": _images(body.images),
             "evidence": cited["evidence_id"] if cited else None,
             "facts": _facts(body.facts),
             "options": _options(body.options),
         }
+        if score:
+            item["score"] = score
         store = store_of(request, experiment_path)
         added = store.add(session_id, item)
         _record(
@@ -311,6 +360,7 @@ def build_agent_review_router(
                 "level": added["level"],
                 "title": added["title"],
                 "about": added["about"],
+                "score": added.get("score", ""),
                 "session_id": session_id,
             },
         )

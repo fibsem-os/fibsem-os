@@ -13,14 +13,85 @@ import { type Mark, listMarks, toMarks } from "@/lib/marks";
 import type { EvidenceAnswer, ReviewItem, ReviewList } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-type Show = "all" | ReviewItem["state"];
+type Show = "all" | "to_score" | ReviewItem["state"];
 const SHOWS: { show: Show; name: string }[] = [
   { show: "all", name: "All" },
   { show: "waiting", name: "Waiting on you" },
   { show: "to_check", name: "To check" },
+  { show: "to_score", name: "To score" },
   { show: "answered", name: "Answered" },
   { show: "done", name: "Done" },
 ];
+
+const toScore = (i: ReviewItem) => !!i.score && !i.answer && !i.closed;
+const shows = (i: ReviewItem, show: Show) => show === "all" || (show === "to_score" ? toScore(i) : i.state === show);
+
+// What a fail asks the operator to mark, so the right answer is kept with it.
+const MARK_ON_FAIL: Record<NonNullable<ReviewItem["score"]>, string> = {
+  sites: "Mark the good squares it missed.",
+  target: "Mark the right target.",
+  polishing: "Say why in the note: too thick, too thin, damaged.",
+};
+
+const KINDS: NonNullable<ReviewItem["score"]>[] = ["sites", "target", "polishing"];
+const RESULT: Record<string, string> = { Accept: "Pass", Reject: "Fail" };
+
+/** The run's scored items: a tally per kind, then each item; one opens in the viewer. */
+function Scores({ items, onOpen, onClose }: { items: ReviewItem[]; onOpen: (id: string) => void; onClose: () => void }) {
+  const scored = items.filter((i) => i.score && !(i.closed && !i.answer));
+  const tally = KINDS.map((kind) => {
+    const of = scored.filter((i) => i.score === kind);
+    const n = (choice: string) => of.filter((i) => i.answer?.choice === choice).length;
+    return { kind, passed: n("Accept"), failed: n("Reject"), open: of.filter((i) => !i.answer).length };
+  }).filter((t) => t.passed + t.failed + t.open > 0);
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent title="Scores" className="w-[min(560px,calc(100vw-32px))]">
+        <div className="flex flex-col gap-4 overflow-y-auto px-4 py-3 text-[13px]">
+          <table className="w-full border-collapse tabular-nums">
+            <thead className="text-[12px] text-muted-foreground">
+              <tr>
+                <th className="py-1 text-left font-normal" />
+                <th className="py-1 text-right font-normal">Pass</th>
+                <th className="py-1 text-right font-normal">Fail</th>
+                <th className="py-1 text-right font-normal">To score</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tally.map((t) => (
+                <tr key={t.kind} className="border-t border-border">
+                  <td className="py-1.5 capitalize">{t.kind}</td>
+                  <td className="py-1.5 text-right">{t.passed}</td>
+                  <td className="py-1.5 text-right">{t.failed}</td>
+                  <td className="py-1.5 text-right text-muted-foreground">{t.open || ""}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="flex flex-col">
+            {scored.map((i) => (
+              <button
+                key={i.id}
+                className="flex cursor-pointer items-baseline gap-3 border-0 border-t border-border bg-transparent px-0 py-2 text-left hover:bg-muted/40"
+                onClick={() => onOpen(i.id)}
+              >
+                <span className="w-24 shrink-0 text-muted-foreground">{i.about}</span>
+                <span className="w-20 shrink-0 text-muted-foreground">{i.score}</span>
+                <span className="min-w-0 flex-1">
+                  {i.title}
+                  {i.answer?.note && <span className="block text-[12px] text-muted-foreground">“{i.answer.note}”</span>}
+                </span>
+                <span className={cn("shrink-0", !i.answer && "text-muted-foreground")}>
+                  {i.answer ? (RESULT[i.answer.choice] ?? i.answer.choice) : "To score"}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 // A small dot says what an item wants: orange waits on the operator, grey asks for a look.
 const DOT: Partial<Record<ReviewItem["state"], string>> = { waiting: "#e0a030", to_check: "#8a8f98" };
@@ -70,7 +141,7 @@ function Row({ item, selected, onOpen }: { item: ReviewItem; selected: boolean; 
   const marked = useEvidence(item.evidence);
   const shown = imagesOf(item, marked?.image ?? null).slice(0, 2);
   const choice = item.answer?.choice;
-  const line = [item.about, SAYS[item.state], choice && `${choice}${item.answer?.note ? `: “${item.answer.note}”` : ""}`]
+  const line = [item.about, item.score, SAYS[item.state], choice && `${choice}${item.answer?.note ? `: “${item.answer.note}”` : ""}`]
     .filter(Boolean)
     .join(" · ");
   return (
@@ -147,7 +218,9 @@ function Answer({
   return (
     <section className="flex flex-col gap-3 text-[13px]">
       <span className="text-[12px] text-muted-foreground">
-        {[item.about, SAYS[item.state], fmt.clock(item.at)].filter(Boolean).join(" · ")}
+        {[item.about, item.score && `scores ${item.score}`, SAYS[item.state], fmt.clock(item.at)]
+          .filter(Boolean)
+          .join(" · ")}
       </span>
       {item.text && <p className="m-0 leading-snug">{item.text}</p>}
       {item.facts.length > 0 && (
@@ -181,10 +254,15 @@ function Answer({
               </Button>
             ))}
           </div>
+          {item.score && (
+            <p className="m-0 text-[12px] text-muted-foreground">
+              {choice === "Reject" ? MARK_ON_FAIL[item.score] : "Accept is a pass, Reject a fail."}
+            </p>
+          )}
           <textarea
             rows={3}
             aria-label="Note for the agent"
-            placeholder="Note for the agent (optional)"
+            placeholder={item.score ? "Why (optional)" : "Note for the agent (optional)"}
             className="resize-y rounded border border-input bg-background px-2 py-1.5 text-[13px]"
             value={note}
             onChange={(e) => setNote(e.target.value)}
@@ -249,7 +327,9 @@ export function ReviewTab({ open }: { open?: { id: string } | null }) {
     if (open) setOpenId(open.id);
   }, [open]);
   const items = [...(review.data?.items ?? [])].reverse();
-  const shown = show === "all" ? items : items.filter((i) => i.state === show);
+  const shown = items.filter((i) => shows(i, show));
+  const [scores, setScores] = useState(false);
+  const anyScored = items.some((i) => i.score);
   const opened = items.find((i) => i.id === openId);
   const count = review.data?.counts.all ?? 0;
   return (
@@ -293,6 +373,17 @@ export function ReviewTab({ open }: { open?: { id: string } | null }) {
                   {s.name}
                 </button>
               ))}
+              {anyScored && (
+                <button
+                  className="cursor-pointer border-0 border-t border-border bg-transparent px-3 py-1.5 text-left text-[13px] whitespace-nowrap hover:bg-muted"
+                  onClick={() => {
+                    setScores(true);
+                    close();
+                  }}
+                >
+                  Scores…
+                </button>
+              )}
             </div>
           )}
         </Popup>
@@ -306,6 +397,9 @@ export function ReviewTab({ open }: { open?: { id: string } | null }) {
         <Row key={item.id} item={item} selected={item.id === openId} onOpen={() => setOpenId(item.id)} />
       ))}
       {opened && <Viewer item={opened} onClose={() => setOpenId(null)} />}
+      {scores && !opened && (
+        <Scores items={items} onOpen={(id) => setOpenId(id)} onClose={() => setScores(false)} />
+      )}
     </div>
   );
 }

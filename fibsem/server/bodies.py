@@ -178,6 +178,7 @@ class ReviewAddBody:
     images: Optional[List[str]] = None
     facts: Optional[List[Dict[str, Any]]] = None
     options: Optional[List[str]] = None
+    score: str = ""
 
 
 @dataclass
