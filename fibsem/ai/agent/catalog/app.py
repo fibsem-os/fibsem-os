@@ -628,7 +628,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="experiment_message_operator",
         returns="Recorded",
-        description="Tell the operator something they should read now: you have stopped and need them (a hardware error, a site you can't fix), or you answer their message (a MESSAGE line from fibsem-mcp watch: pass its id as reply_to). It goes on the record like a note, shown to the operator as a message, not a note. A message asks nothing of the run and approves nothing: a decision is a proposal or a request. When you stop until the operator answers (a question, a go-ahead, a hardware error), set waits: the page shows it as waiting on them until they reply. You can't set a timer, so never say you'll go ahead on your own after a while. Answers the message's id.",
+        description="Tell the operator something they should read now: you have stopped and need them (a hardware error, a site you can't fix), or you answer their message (a MESSAGE line from fibsem-mcp watch: pass its id as reply_to). It goes on the record like a note, shown to the operator as a message, not a note. A message asks nothing of the run and approves nothing: a decision is a proposal or a request. When you stop until the operator answers (a question, a go-ahead, a hardware error), set waits: the page shows it as waiting on them until they reply. Say you'll go ahead on your own after a while only once wake_after has answered that the wake-up is set. Answers the message's id.",
         method="POST",
         path="/app/experiment/messages",
         level="watch",  # Watch tells the operator: a message changes nothing

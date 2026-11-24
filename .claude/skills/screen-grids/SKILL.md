@@ -173,7 +173,8 @@ with its coincident height: on a bent grid it changes from site to site.
 Once it is coincident, save an SEM and FIB pair at 100-150 µm with a path
 (`beam_acquire_image`), the site centred with its square, bars and
 neighbours in view, besides the 50 µm pair: the operator judges a site
-from the wide pair.
+from the wide pair. Name a site's image folder once its square is final
+(after any lattice fit), so its folder, name and review item agree.
 
 **Recording sites.** For AutoLamella, each site is a lamella: `item_add`
 without `name`, so it gets the app's usual name, and how to find it again

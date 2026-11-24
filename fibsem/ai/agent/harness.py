@@ -3900,6 +3900,9 @@ def _main(argv, opened: List["sessions.SessionFolder"]) -> int:
         handoff=handoff,
         keep_context=session.keep_context,
         spent_carried_usd=sessions.context_spend(record),
+        # The same timer the wake_after tool sets: bound to the run's loop
+        # here, or every wake-up answers "can't wake you yet".
+        alarm=alarm,
         wake_on=wake_on,
         recover=recover,
         latest_note=lambda: handoff_mod.latest_note(session.folder / sessions.HANDOFF),
