@@ -293,6 +293,17 @@ def test_a_note_joins_what_each_resume_is_given(make):
     assert seen == [{"level": "drive", "level_now": "assist"}]
 
 
+def test_an_automatic_resume_carries_the_run_on(make):
+    mgr, env = make("1,wait")
+    spawned = []
+    spawn = mgr._spawn
+    mgr._spawn = lambda args, *rest: spawned.append(args) or spawn(args, *rest)
+    agent = start(mgr, env)
+    until(lambda: len(runs(agent)) == 2, mgr)
+    assert "--carry-on" not in spawned[0]
+    assert spawned[1][-3:] == ["--resume", agent.session_id, "--carry-on"]
+
+
 def test_an_ended_session_is_not_taken_back(make):
     first, env = make("0")
     agent = start(first, env)

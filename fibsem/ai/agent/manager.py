@@ -49,6 +49,9 @@ CONTEXTS = "contexts"
 HANDOFF = "handoff.md"
 # The wake policy the agent set itself, in the record (`SessionFolder.keep_wake_on`).
 WAKE_ON = "wake_on"
+# The run's budget, {"usd", "spent_before_usd"}: what it may spend from what
+# the session had spent when it was given. An automatic resume keeps it.
+BUDGET = "budget"
 # The agent's own files, when it was given no folder.
 WORK = "work"
 # Without a work folder a session runs in run/, which holds only its skills.
@@ -278,6 +281,13 @@ class SessionFolder:
             record.pop(WAKE_ON, None)
         else:
             record[WAKE_ON] = state
+        self._write(record)
+
+    def keep_budget(self, **budget) -> None:
+        """The run's budget (`BUDGET`): set at start, and again when the
+        operator sets a new one, so an automatic resume carries it on."""
+        record = self.record()
+        record[BUDGET] = {**(record.get(BUDGET) or {}), **budget}
         self._write(record)
 
     def keep_event_cursor(self, event_id: str) -> None:
@@ -606,7 +616,12 @@ class AgentSessionManager:
 
     def _resume(self, agent: Agent) -> None:
         managed = read_json(agent.folder / MANAGED)
-        args = list(managed.get("args", [])) + ["--resume", agent.session_id]
+        # Carrying on the run it continues: its budget, not a fresh one.
+        args = list(managed.get("args", [])) + [
+            "--resume",
+            agent.session_id,
+            "--carry-on",
+        ]
         env = agent.env if agent.env is not None else self._env_for(agent.microscope)
         try:
             self._on_resume(agent.microscope, managed.get("about") or {})

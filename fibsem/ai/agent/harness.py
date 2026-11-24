@@ -1198,6 +1198,7 @@ class Harness:
         goal: Optional[str] = None,
         budget_usd: Optional[float] = None,
         spent_before_usd: Optional[float] = None,
+        keep_budget: Optional[Callable[..., None]] = None,
         about: Optional[dict] = None,
         alarm: Optional[Alarm] = None,
         playbook: Optional[PlaybookControl] = None,
@@ -1288,6 +1289,8 @@ class Harness:
         # What it can do (code mode, effort, skills), sent with the first report.
         self._about = dict(about or {})
         self._budget_usd = budget_usd
+        # Writes a budget the operator sets to the session's record.
+        self._keep_budget = keep_budget or (lambda **budget: None)
         # The CLI's running total when this run started: 0 for a new session;
         # None for a resume whose record doesn't say, and then this run's
         # first turn is not counted (`_count_spend`).
@@ -1994,6 +1997,10 @@ class Harness:
                     self._budget_usd or 0,
                 )
                 self._budget_usd = float(budget)
+                try:
+                    self._keep_budget(usd=self._budget_usd)
+                except OSError:
+                    log.warning("The new budget wasn't kept.", exc_info=True)
 
     async def _reread_budget(self) -> None:
         """Ask the App Server for the session's budget, in case the operator
@@ -3375,6 +3382,13 @@ def _parser() -> argparse.ArgumentParser:
         "folder given, the last one that worked in its own)",
     )
     parser.add_argument(
+        "--carry-on",
+        action="store_true",
+        # A manager's resume after a crash or an app restart: the run goes
+        # on, on the budget it had (the session's record), not a fresh one.
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
         "--session-id",
         default=None,
         type=_session_id,
@@ -3766,6 +3780,8 @@ def _main(argv, opened: List["sessions.SessionFolder"]) -> int:
     wake_on.say = control.say
     if named:
         control.say(f"Playbook set: {playbook.name}, {control.reminders.chosen_by}")
+    budget = _budget(args, record)
+    session.keep_budget(**budget)
     harness = Harness(
         agent,
         # Its record and wake-ups: the agent host's, else the App Server's.
@@ -3778,8 +3794,9 @@ def _main(argv, opened: List["sessions.SessionFolder"]) -> int:
         resumed=args.resume is not None,
         server_wait_s=args.server_wait,
         goal=args.goal,
-        budget_usd=args.max_budget_usd,
-        spent_before_usd=_spent_before(record),
+        budget_usd=budget["usd"],
+        spent_before_usd=budget["spent_before_usd"],
+        keep_budget=session.keep_budget,
         playbook=control,
         words=words,
         deadline_warn_s=playbook.session.deadline_warn_min * 60,
@@ -3849,6 +3866,17 @@ def _too_large_to_resume(
     return handoff_mod.TOO_LARGE.format(
         used=usage.short(used), limit=usage.short(limit)
     )
+
+
+def _budget(args, record: dict) -> dict:
+    """This run's budget, as the record keeps it (`sessions.BUDGET`): the
+    run it carries on's (``--carry-on``), else the one given now, counted
+    from what the session has spent so far."""
+    kept = record.get(sessions.BUDGET) or {}
+    if getattr(args, "carry_on", False) and "usd" in kept:
+        return {"usd": kept["usd"], "spent_before_usd": kept.get("spent_before_usd")}
+    spent = _spent_before(record) if args.resume else 0.0
+    return {"usd": args.max_budget_usd, "spent_before_usd": spent}
 
 
 def _spent_before(record: dict) -> Optional[float]:
