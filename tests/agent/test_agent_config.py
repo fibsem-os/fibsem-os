@@ -42,7 +42,10 @@ def test_a_session_loads_what_its_playbooks_name(lab, checkout):
 
     autolamella = _loaded("autolamella", checkout)
     assert "fibsem-experiment" not in autolamella.skills
-    assert "autolamella-correlative" not in autolamella.skills
+    # A playbook built on it comes too, so the session can move on to it.
+    assert {"autolamella-correlative", "autolamella-coincidence-milling"} <= set(
+        autolamella.skills
+    )
     assert autolamella.skills[:3] == [
         "fibsem-agent",
         "fibsem-microscope",
@@ -272,3 +275,15 @@ def test_an_apps_hook_is_on_only_where_a_playbook_switches_it_on(tmp_path, lab):
     (lab / "typo.yaml").write_text("hooks: [polish]\n")
     with pytest.raises(playbooks.PlaybookError, match="no hook polish"):
         playbooks.load("typo", root)
+
+
+def test_an_autolamella_session_can_move_on_to_correlative_lamellae(lab, checkout):
+    loaded = _loaded("autolamella", checkout)
+    reminders = playbooks.Reminders()
+    reminders.set(playbooks.load("autolamella", checkout), "named at launch")
+    control = harness_mod.PlaybookControl(reminders, checkout, loaded=loaded)
+    said = control.set("autolamella-correlative", "named by the operator")
+    assert not said.startswith("Refused"), said
+    assert reminders.playbook.name == "autolamella-correlative"
+    # A playbook that doesn't build on autolamella stays out.
+    assert control.set("fibsem-experiment", "agent").startswith("Refused")

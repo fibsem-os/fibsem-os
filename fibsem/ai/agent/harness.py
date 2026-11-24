@@ -303,22 +303,26 @@ def session_names(
     checkout: Optional[Path], playbook: Optional[playbooks.Playbook] = None
 ) -> Loaded:
     """What a session loads. Started on a playbook other than the base one:
-    that playbook's skills and subagents (with what it extends). Else every
+    that playbook's skills and subagents (with what it extends), and those of
+    every playbook built on it, so the session can move on to one of them
+    (autolamella to autolamella-correlative) without a restart. Else every
     playbook's of its instrument kind, as intake may set any of them. The lab's
     own skills and subagents always, a lab copy of a shipped one replacing it."""
-    if playbook is not None and playbook.name != playbooks.DEFAULT:
-        found = [playbook]
-    else:
-        kind = _kind(playbook)
-        found = []
-        for name in playbooks.available(checkout):
-            try:
-                each = playbooks.load(name, checkout)
-            except playbooks.PlaybookError as error:
-                log.warning("Playbook %s is left out: %s", name, error)
-                continue
-            if _kind(each) == kind:
-                found.append(each)
+    named = playbook is not None and playbook.name != playbooks.DEFAULT
+    kind = _kind(playbook)
+    found = [playbook] if named else []
+    for name in playbooks.available(checkout):
+        if named and name == playbook.name:
+            continue
+        try:
+            each = playbooks.load(name, checkout)
+        except playbooks.PlaybookError as error:
+            log.warning("Playbook %s is left out: %s", name, error)
+            continue
+        if _kind(each) != kind:
+            continue
+        if not named or playbook.name in each.chain[:-1]:
+            found.append(each)
     skills: List[str] = []
     agents: List[str] = []
     for each in found:
