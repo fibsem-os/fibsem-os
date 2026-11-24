@@ -142,7 +142,8 @@ def test_a_query_and_a_long_poll_pass_through(app_server, gateways):
 def test_the_gateways_own_routes_stay_its_own(app_server, gateways):
     url, _ = app_server
     gateway = gateways(lambda: url)
-    assert gateway.get("/health").json() == {"status": "ok"}
+    health = gateway.get("/health").json()
+    assert (health["status"], health["program"]) == ("ok", "fibsem-gateway")
     assert gateway.get("/gateway", headers=_as(OPERATOR_TOKEN)).status_code == 200
 
 

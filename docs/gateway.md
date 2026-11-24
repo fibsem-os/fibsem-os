@@ -139,6 +139,16 @@ app doesn't answer), why in a line, how long the answer took, and since when. A 
 the same. A piece that isn't well turns its dot amber on Overview, with the reason and for
 how long under its row. The gateway only reports: it restarts nothing.
 
+An app the gateway started is `starting` from its launch until its App Server first
+answers (up to 3 minutes, for a slow first start), not `stopped` or `not_answering`; an
+agent's Start in that time says the app is still starting.
+
+Every fibsem program answers `GET /health` the same way, open to anyone: `{"status": "ok",
+"program", "version", "api_version", "state"}`. The program is `fibsem-gateway`,
+`fibsem-app-server` or `fibsem-agent-host`; `version` is fibsemOS's; `api_version` is the
+version of that program's own routes (the gateway's are versioned apart from the App
+Server's it passes on), so a hub can tell a gateway it is too old or too new for.
+
 The bottom of the list says when there is newer code: "fibsemOS 0.6.3 available" when a
 newer release is on PyPI, or "Update available" for a source checkout behind GitHub's
 `main` (hover it for how many changes). The gateway asks when it starts and once a day after. Offline, or with a commit that

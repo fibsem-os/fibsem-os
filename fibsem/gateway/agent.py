@@ -39,6 +39,7 @@ from fibsem.ai.agent.manager import (
 )
 from fibsem.gateway import slot as slot_mod
 from fibsem.gateway.gateway import RUNNING, Gateway, GatewayRefused
+from fibsem.gateway.health import STARTING
 from fibsem.gateway.host import call_host
 from fibsem.keystore import stored_secret
 from fibsem.server.discovery import read_discovery_file
@@ -520,6 +521,14 @@ class GatewayAgent:
             )
             return self.state()
 
+    def _app_starting(self) -> bool:
+        """Whether the gateway's health watch says the app is starting."""
+        watch = getattr(self._gateway, "health", None)
+        try:
+            return watch is not None and watch.state().app.status == STARTING
+        except Exception:  # noqa: BLE001 - a read never refuses a start
+            return False
+
     def _ready(
         self,
         level: str,
@@ -539,6 +548,12 @@ class GatewayAgent:
                 409, "no_app", "Run the app first: the agent acts through it."
             )
         url = self._url()
+        if self._app_starting():
+            raise GatewayRefused(
+                409,
+                "app_starting",
+                "The app is still starting: try again when its health shows ok.",
+            )
         if url is None:
             raise GatewayRefused(
                 409, "no_app", "The app's server isn't up yet: try again shortly."

@@ -8,6 +8,7 @@ import json
 import sys
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -228,6 +229,18 @@ def test_start_needs_the_app_server_to_answer(made):
     with pytest.raises(GatewayRefused) as refused:
         agent.start("default", None, "watch", "operator", "page")
     assert refused.value.error_type == "no_app"
+
+
+def test_start_waits_for_an_app_that_is_starting(made):
+    gateway = FakeGateway()
+    gateway.health = SimpleNamespace(
+        state=lambda: SimpleNamespace(app=SimpleNamespace(status="starting"))
+    )
+    agent, _, app = made(gateway=gateway)
+    with pytest.raises(GatewayRefused) as refused:
+        agent.start("default", None, "watch", "operator", "page")
+    assert refused.value.error_type == "app_starting"
+    assert app.levels == []
 
 
 def test_start_needs_no_microscope(made):

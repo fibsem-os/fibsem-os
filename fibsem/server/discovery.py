@@ -17,7 +17,7 @@ import os
 import secrets
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import fibsem
 from fibsem import paths
@@ -88,6 +88,22 @@ def gateway_url() -> str:
 # meaning) raises the minor number, and clients built for another minor refuse
 # to connect (`api_mismatch`). A change clients can ignore raises the patch.
 API_VERSION = "0.3.0"
+
+
+def health_answer(
+    program: str, api_version: str, state: str = "ready"
+) -> Dict[str, Any]:
+    """What every fibsem program's ``/health`` answers, open to anyone: the
+    program, its fibsem version, the version of its routes, and its state
+    ("ready", or "starting" while it can't serve its routes yet). ``status``
+    stays "ok" for readers that only look at that."""
+    return {
+        "status": "ok",
+        "program": program,
+        "version": fibsem.__version__,
+        "api_version": api_version,
+        "state": state,
+    }
 
 
 class ApiMismatch(ConnectionError):
