@@ -358,23 +358,24 @@ def test_a_resume_leaves_the_level_of_an_app_that_kept_running(
     assert app.levels == [(URL, "drive")]
 
 
-def test_a_resume_after_an_app_restart_never_sets_a_level_above_the_last_seen(
-    made, tmp_path, monkeypatch
+@pytest.mark.parametrize("last", ["assist", "drive"])
+def test_a_resume_after_an_app_restart_comes_back_at_the_level_last_set(
+    made, tmp_path, monkeypatch, last
 ):
     monkeypatch.setenv("STAND_IN_PLAN", "wait")
     agent, _, app = made()
     monkeypatch.setattr(
-        "fibsem.gateway.agent.call_host", lambda url, method, path: {"level": "assist"}
+        "fibsem.gateway.agent.call_host", lambda url, method, path: {"level": last}
     )
-    agent.start("default", None, "drive", "operator", "page")
+    agent.start("default", None, "assist", "operator", "page")
     assert until(lambda: _record(tmp_path).get("runs"))
-    agent._follow_level()  # the operator lowered it to Assist
+    agent._follow_level()  # the operator set *last*
     about = read_json(folders(tmp_path / "sessions")[0] / MANAGED)["about"]
-    assert about["level_now"] == "assist"
+    assert about["level_now"] == last
 
     app.pid = 2
     agent._again(about)
-    assert app.levels == [(URL, "drive"), (URL, "assist")]
+    assert app.levels == [(URL, "assist"), (URL, last)]
 
 
 def test_a_resume_after_a_stop_agent_and_an_app_restart_stays_at_watch(made):
@@ -382,6 +383,58 @@ def test_a_resume_after_a_stop_agent_and_an_app_restart_stays_at_watch(made):
     app.pid = 2
     agent._again({"level": "drive", "level_now": "watch", "app_pid": 1})
     assert app.levels == []
+
+
+def test_end_sets_the_app_to_watch_but_the_record_keeps_the_level_set(
+    made, tmp_path, monkeypatch
+):
+    agent, _, app = made()
+    monkeypatch.setattr(
+        "fibsem.gateway.agent.call_host", lambda url, method, path: {"level": "drive"}
+    )
+    agent.start("default", None, "drive", "operator", "page")
+    assert until(lambda: _record(tmp_path).get("runs"))
+    agent._after_end()
+    agent._follow_level()
+    agent.end("operator", "page")
+    assert app.levels == [(URL, "drive"), (URL, "watch")]
+    managed = read_json(folders(tmp_path / "sessions")[0] / MANAGED)
+    assert managed["about"]["level_now"] == "drive", "Resume comes back at Drive"
+
+
+def test_an_agent_that_ends_by_itself_sets_the_app_to_watch_once(
+    made, tmp_path, monkeypatch
+):
+    monkeypatch.setenv("STAND_IN_PLAN", "0")
+    agent, _, app = made()
+    agent.start("default", None, "assist", "operator", "page")
+    agent._after_end()  # seen running
+    assert until(lambda: agent._manager.agent("arctis-pc").state == "ended", agent)
+    agent._after_end()
+    agent._after_end()
+    assert app.levels == [(URL, "assist"), (URL, "watch")]
+
+
+def test_an_old_ended_session_never_sets_the_level(made, tmp_path, monkeypatch):
+    """Another agent may hold the slot: only an end this gateway saw."""
+    monkeypatch.setenv("STAND_IN_PLAN", "0")
+    first, _, app = made()
+    first.start("default", None, "assist", "operator", "page")
+    assert until(lambda: first._manager.agent("arctis-pc").state == "ended", first)
+    again, _, _ = made(gateway=FakeGateway(), app=app)
+    again._after_end()
+    assert app.levels == [(URL, "assist")]
+
+
+def test_resume_is_offered_at_the_level_last_set():
+    from fibsem.gateway.agent import _row
+
+    def row(about):
+        return _row({"session_id": "s1", "manager": {"about": about}})
+
+    assert row({"level": "drive", "level_now": "assist"})["last_level"] == "assist"
+    assert row({"level": "drive"})["last_level"] == "drive"
+    assert row({})["last_level"] is None
 
 
 def test_a_watch_agent_is_resumed_without_a_level_call(made, tmp_path, monkeypatch):
