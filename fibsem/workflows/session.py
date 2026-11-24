@@ -478,7 +478,7 @@ class AppSession:
             self.plain_experiment = FibsemExperiment.create(SESSIONS_PATH, name)
             if self.recorder is not None:
                 self.recorder.set_experiment(
-                    self.plain_experiment.path, self.plain_experiment
+                    self.plain_experiment.path, self.plain_experiment, plain=True
                 )
         return self.plain_experiment
 
@@ -520,6 +520,7 @@ class AppSession:
                 # operator's
                 default_actor=OPERATOR,
                 experiment=recorded,
+                plain=self.experiment is None,
             )
         except Exception:
             logger.exception("event stream failed to start; continuing without it")

@@ -79,6 +79,31 @@ def is_message(record: Dict[str, Any]) -> bool:
     )
 
 
+# The conversation's own kinds: kept in the agent session's record
+# (`is_session_record`).
+SESSION_KINDS = frozenset({"operator_message", "agent_level_set"})
+# On the operator's ``/note``: for the record, not a message to the agent.
+FOR_RECORD = "for_record"
+
+
+def is_session_record(record: Dict[str, Any]) -> bool:
+    """Whether *record* is part of the conversation with the agent, kept with
+    its session rather than the experiment: a message either way (side
+    questions and ``/now`` among them), the operator's ``/note``, Stop agent,
+    an interrupt and a level change. Every other note, the agent's tagged
+    ones among them, and everything the workflow and instrument did stay
+    with the experiment."""
+    kind = record.get("kind")
+    if kind in SESSION_KINDS:
+        return True
+    p = record.get("payload") or {}
+    if kind == NOTE:
+        return is_message(record) or bool(p.get(FOR_RECORD))
+    if kind == ACTION:
+        return p.get("stops") == "agent" or bool(p.get("interrupts"))
+    return False
+
+
 def record_operator_action(microscope: Any, what: str, **fields: Any) -> None:
     """The operator's act at a control, on the microscope's record."""
     with acting(OPERATOR):

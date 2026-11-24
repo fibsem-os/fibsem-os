@@ -39,6 +39,8 @@ PICTURES = "pictures"
 LINK = "experiment.json"
 # On the experiment's record: a session took it.
 JOINED = "agent_session_joined"
+# The record's file, in an experiment's folder and in a session's agent/ folder.
+EVENTS = "events.jsonl"
 
 
 def sessions_root() -> Path:
@@ -49,6 +51,19 @@ def sessions_root() -> Path:
 def session_folder(session_id: str) -> Path:
     """Session *session_id*'s agent/ folder, made or not."""
     return manager.session_folder(session_id, sessions_root()) / FOLDER
+
+
+def record_files(session_id: Optional[str], experiment: Optional[str]) -> List[Path]:
+    """The files the chat and notes are read from: the session's own record
+    (with no session running, the newest one's that worked on *experiment*),
+    then *experiment*'s. Only those there."""
+    if not session_id and experiment:
+        linked = AgentFiles(lambda: None).sessions(experiment)
+        session_id = linked[0][0] if linked else None
+    found = [session_folder(session_id) / EVENTS] if session_id else []
+    if experiment:
+        found.append(Path(experiment) / EVENTS)
+    return [path for path in found if path.is_file()]
 
 
 def _read_link(folder: Path) -> Dict[str, Any]:

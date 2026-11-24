@@ -19,8 +19,8 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 from fibsem.acting import AGENT, OPERATOR
 from fibsem.ai.agent import aside
 from fibsem.ai.agent.levels import AgentLevel, if_allowed
+from fibsem.server.agent.files import record_files
 from fibsem.workflows.actions import ACTION, NOTE, action_record, note_record
-from fibsem.workflows.events.recording import EVENTS_FILENAME
 from fibsem.workflows.evidence import EVIDENCE
 from fibsem.workflows.proposals import DecisionResult
 
@@ -716,20 +716,22 @@ class AgentControl:
             self._earlier = EarlierRecords()
         return read_rows(
             held,
-            self._events_file(),
+            self._record_files(),
             size or SIZE,
             self._earlier,
             getattr(recorder.buffer, "stream", None),
         )
 
-    def _events_file(self) -> Optional[Path]:
-        """The file the session's record is written to: the host's own, or
-        the experiment's."""
-        own = getattr(self._session.recorder, "events_file", None)
+    def _record_files(self) -> List[Path]:
+        """The files the chat is read from: the host's own, or the agent
+        session's and the experiment's."""
+        recorder = self._session.recorder
+        own = getattr(recorder, "events_file", None)
         if own is not None:
-            return Path(own)
-        root = self.experiment_path()
-        return Path(root) / EVENTS_FILENAME if root is not None else None
+            return [Path(own)]
+        return record_files(
+            getattr(recorder, "agent_session_id", None), self.experiment_path()
+        )
 
     def citing(self, evidence_id: str) -> Optional[str]:
         """What the agent was doing when it cited the evidence *evidence_id*,
