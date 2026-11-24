@@ -141,12 +141,6 @@ def _app_url() -> Optional[str]:
     return found.get("url") if found else None
 
 
-def _app_secret() -> Optional[str]:
-    """The App Server's secret for this gateway (`fibsem.server.auth`)."""
-    found = read_discovery_file()
-    return found.get("gateway_secret") if found else None
-
-
 # How long the gateway waits for its port before giving up.
 LISTEN_WAIT_S = 15.0
 
@@ -206,9 +200,7 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
                 microscope,
                 on_quit,
                 on_show,
-                passthrough=PassThrough(
-                    _app_url, is_connect=auth.is_connect, secret=_app_secret
-                ),
+                passthrough=PassThrough(_app_url, is_connect=auth.is_connect),
             ),
             host="127.0.0.1",
             port=port,

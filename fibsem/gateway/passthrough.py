@@ -31,6 +31,8 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.background import BackgroundTask
 
+from fibsem.server.discovery import read_discovery_file
+
 logger = logging.getLogger(__name__)
 
 __all__ = ["APP_LOST", "CONNECT_FIRST", "NO_APP", "PASSED", "PassThrough", "is_stop"]
@@ -115,6 +117,13 @@ def _headers(items: Iterable) -> list:
     return [(k, v) for k, v in items if k.lower() not in HOP_BY_HOP]
 
 
+def app_server_secret() -> Optional[str]:
+    """This PC's App Server's secret for the gateway, from its discovery file
+    (`fibsem.server.auth`); None while none runs or it has none."""
+    found = read_discovery_file()
+    return found.get("gateway_secret") if found else None
+
+
 class PassThrough:
     """Calls on the gateway passed to the App Server at *upstream* (its url,
     or None while none runs)."""
@@ -124,12 +133,12 @@ class PassThrough:
         upstream: Callable[[], Optional[str]],
         transport: Optional[httpx.AsyncBaseTransport] = None,
         is_connect: Callable[[Optional[str]], bool] = lambda token: False,
-        secret: Callable[[], Optional[str]] = lambda: None,
+        secret: Optional[Callable[[], Optional[str]]] = None,
     ) -> None:
         self._upstream = upstream
         # The App Server's secret (its discovery file's): every call passed on
         # carries it, so the App Server knows it came through the gateway.
-        self._secret = secret
+        self._secret = secret or app_server_secret
         # gateway.json's token only asks to connect: answered here, never sent on
         self._is_connect = is_connect
         timeout = httpx.Timeout(READ_TIMEOUT_S, connect=CONNECT_TIMEOUT_S)

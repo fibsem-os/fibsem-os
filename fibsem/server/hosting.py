@@ -377,7 +377,11 @@ class AppServerHost:
             time.sleep(0.05)
 
         write_discovery_file(
-            self._host, self._port, self.auth, path=self._discovery_path
+            self._host,
+            self._port,
+            self.auth,
+            path=self._discovery_path,
+            gateway_secret=True,
         )
         self._wrote_discovery = True
         atexit.register(self._remove_discovery)

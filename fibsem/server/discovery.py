@@ -195,8 +195,15 @@ def _client_host(bind_host: str) -> str:
 
 
 def write_discovery_file(
-    host: str, port: int, auth: "AuthConfig", path: Optional[Path] = None
+    host: str,
+    port: int,
+    auth: "AuthConfig",
+    path: Optional[Path] = None,
+    gateway_secret: bool = False,
 ) -> Path:
+    """Write the running server's connection info to *path*. With
+    *gateway_secret* (the App Server's), it makes the secret the gateway adds
+    to every call it passes on."""
     path = Path(path) if path is not None else DISCOVERY_FILE
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
@@ -205,12 +212,13 @@ def write_discovery_file(
         # No level: it changes while the server runs and a file
         # would go stale. /capabilities is the live answer.
     }
-    if auth.gateway_secret is None:
-        auth.gateway_secret = secrets.token_urlsafe(32)
-    # For this PC's gateway alone (the file is this user's): it adds it to
-    # each call it passes on, and an agent's call without it is refused
-    # while the gateway runs (`fibsem.server.auth`).
-    payload["gateway_secret"] = auth.gateway_secret
+    if gateway_secret:
+        if auth.gateway_secret is None:
+            auth.gateway_secret = secrets.token_urlsafe(32)
+        # For this PC's gateway alone (the file is this user's): it adds it to
+        # each call it passes on, and an agent's call without it is refused
+        # while the gateway runs (`fibsem.server.auth`).
+        payload["gateway_secret"] = auth.gateway_secret
     if auth.connect_token is not None:
         # Only asks to connect: the operator allows an agent on this PC
         # (fibsem.server.connections). Never the agent's own token. The App

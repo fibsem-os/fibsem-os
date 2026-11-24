@@ -182,7 +182,9 @@ def test_while_a_gateway_runs_an_agent_call_must_come_through_it(monkeypatch, tm
             else None
         ),
     )
-    written = write_discovery_file("127.0.0.1", 8001, config, tmp_path / "app.json")
+    written = write_discovery_file(
+        "127.0.0.1", 8001, config, tmp_path / "app.json", gateway_secret=True
+    )
     secret = json.loads(written.read_text())["gateway_secret"]
     assert secret == config.gateway_secret
     app = FastAPI(dependencies=[Depends(auth.require_level(AgentLevel.WATCH))])
