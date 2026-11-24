@@ -10,8 +10,8 @@ picture; the answer reaches the agent as the operator's message
 (`fibsem.server.agent.operator`). The agent may close an item it no longer
 needs answered. Nothing is enforced: a wait is the agent's own promise.
 
-An item may be a scored result (``score``: sites, target or polishing, about
-the grid or lamella it scores): the operator's Accept is a pass and Reject a
+An item may be a scored result (``score``: site-selection, site-setup, target or polishing, with
+``item_name`` the site or lamella it scores, one item each): the operator's Accept is a pass and Reject a
 fail, with the note saying why. The run's scores are counted from these.
 
 Kept at ``agent/review-<session id>.jsonl`` beside the plan (`AgentFiles`):
@@ -52,7 +52,11 @@ LEVELS = ("done", "check", "wait")
 OPTIONS = ("Accept", "Reject")
 # What a scored item scores: a grid's site list, a lamella's target, a
 # lamella's polishing. Accept is a pass, Reject a fail.
-SCORES = ("sites", "target", "polishing")
+SCORES = ("site-selection", "site-coverage", "site-setup", "target", "polishing")
+# Scored per grid, named in about; the rest per site or lamella, in item_name.
+GRID_SCORES = ("site-coverage",)
+# Kinds as older review files named them.
+OLD_SCORES = {"sites": "site-selection"}
 MAX_TITLE = 120
 MAX_TEXT = 2000
 MAX_ABOUT = 60
@@ -251,6 +255,12 @@ class ReviewStore:
 # The tasks after which a lamella's polishing is scored: polishing, with or
 # without the FM between passes.
 POLISHING_TASKS = ("MILL_POLISHING", "MILL_COINCIDENT")
+# Per kind scored on a task run, the tasks that run it: a lamella's site-setup
+# is Setup's (the milling position chosen), its polishing the polishing's.
+SCORED_TASKS = {
+    "site-setup": ("SELECT_MILLING_POSITION",),
+    "polishing": POLISHING_TASKS,
+}
 
 # What ties an item to the experiment, filled in by the server from the
 # names the agent gave.
@@ -266,27 +276,32 @@ def _instant(value: Any) -> Optional[datetime]:
 
 def reached_in(positions, since: Any = None) -> Dict[str, List[Dict[str, Any]]]:
     """Per kind scored, the lamellae of *positions* the run took through that
-    step since *since* (the session's start): polishing, finished or failed.
-    A lamella polished before the session, by an earlier one or by hand, isn't
-    this session's to score. Sites and targets aren't read from the record, so
-    only an item filed for them counts."""
+    step since *since* (the session's start). site-selection: each site picked, a
+    position with no run before the session (one with runs from earlier was
+    an earlier session's pick). site-setup and polishing: their task
+    (`SCORED_TASKS`) finished or failed in the session. Targets aren't read
+    from the record, so only an item filed for them counts."""
     start = _instant(since)
-    polished = []
+    found: Dict[str, List[Dict[str, Any]]] = {"site-selection": []}
+    found.update({kind: [] for kind in SCORED_TASKS})
     for position in positions:
-        for run in getattr(position, "task_history", None) or []:
-            status = getattr(getattr(run, "status", None), "name", "")
-            if run.task_type not in POLISHING_TASKS:
-                continue
-            if status not in ("Completed", "Failed"):
-                continue
-            began = _instant(getattr(run, "start_timestamp", None))
-            if start is not None and (began is None or began < start):
-                continue
-            polished.append(
-                {"item_id": getattr(position, "id", None), "item_name": position.name}
-            )
-            break
-    return {"polishing": polished}
+        named = {"item_id": getattr(position, "id", None), "item_name": position.name}
+        runs = list(getattr(position, "task_history", None) or [])
+        began = [_instant(getattr(r, "start_timestamp", None)) for r in runs]
+        if start is None or all(b is not None and b >= start for b in began):
+            found["site-selection"].append(named)
+        for kind, tasks in SCORED_TASKS.items():
+            for run, at in zip(runs, began):
+                status = getattr(getattr(run, "status", None), "name", "")
+                if run.task_type not in tasks:
+                    continue
+                if status not in ("Completed", "Failed"):
+                    continue
+                if start is not None and (at is None or at < start):
+                    continue
+                found[kind].append(named)
+                break
+    return found
 
 
 def resolve_review_item(
@@ -295,7 +310,7 @@ def resolve_review_item(
     """The item named *item_name* and its run named *task_name* in
     *experiment*, as their ids and names: refused (404 not_found, naming the
     ones there are) when the experiment hasn't them. With no task named, a
-    polishing score takes the item's latest polishing run, when it has one."""
+    site-setup or polishing score takes the item's latest run of its task."""
     if not item_name:
         raise _invalid("task_name goes with the item_name it is a task of.")
     if experiment is None:
@@ -316,8 +331,9 @@ def resolve_review_item(
                 task_names=sorted({r.name for r in runs}),
             )
         run = named[-1]
-    elif score == "polishing":
-        run = next((r for r in reversed(runs) if r.task_type in POLISHING_TASKS), None)
+    elif score in SCORED_TASKS:
+        tasks = SCORED_TASKS[score]
+        run = next((r for r in reversed(runs) if r.task_type in tasks), None)
     else:
         run = None
     return {
@@ -353,7 +369,8 @@ def scores(
     groups: Dict[tuple, List[Dict[str, Any]]] = {}
     for item in items:
         if item.get("score"):
-            groups.setdefault((item["score"], _key(item)), []).append(item)
+            kind = OLD_SCORES.get(item["score"], item["score"])
+            groups.setdefault((kind, _key(item)), []).append(item)
     found: Dict[str, Dict[str, Any]] = {}
 
     def tally(kind: str) -> Dict[str, Any]:
@@ -507,10 +524,17 @@ def build_agent_review_router(
         if score:
             if score not in SCORES:
                 raise _invalid(f"score is one of {list(SCORES)}.")
-            if score in ("target", "polishing") and not item_name:
+            if score in GRID_SCORES:
+                if not body.about.strip():
+                    raise _invalid(
+                        f"A {score} score names its grid in about ('Grid 1')."
+                    )
+            elif not item_name:
+                what = "site" if score == "site-selection" else "lamella"
                 raise _invalid(
-                    f"A {score} score names its lamella in item_name, as the "
-                    "experiment names it."
+                    f"A {score} score names its {what} in item_name, as the "
+                    "experiment names it: one item per "
+                    + ("site picked." if score == "site-selection" else "lamella.")
                 )
             if body.options:
                 raise _invalid(
@@ -519,8 +543,6 @@ def build_agent_review_router(
                 )
         found = _resolve(item_name, task_name, score)
         about = _line(body.about, "about", MAX_ABOUT) or found.get("item_name") or ""
-        if score == "sites" and not about:
-            raise _invalid("A sites score names its grid in about ('Grid 1').")
         cited = cited_evidence(
             SimpleNamespace(experiment_path=experiment_path()), request
         )

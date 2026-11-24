@@ -28,12 +28,20 @@ const shows = (i: ReviewItem, show: Show) => show === "all" || (show === "to_sco
 
 // What a fail asks the operator to mark, so the right answer is kept with it.
 const MARK_ON_FAIL: Record<NonNullable<ReviewItem["score"]>, string> = {
-  sites: "Mark the good squares it missed.",
+  "site-selection": "Say why in the note, and mark a better square if there is one.",
+  "site-coverage": "Mark the good squares it missed.",
+  "site-setup": "Mark where the lamella should go.",
   target: "Mark the right target.",
   polishing: "Say why in the note: too thick, too thin, damaged.",
 };
 
-const KINDS: NonNullable<ReviewItem["score"]>[] = ["sites", "target", "polishing"];
+const KINDS: NonNullable<ReviewItem["score"]>[] = [
+  "site-selection",
+  "site-coverage",
+  "site-setup",
+  "target",
+  "polishing",
+];
 const RESULT: Record<string, string> = { Accept: "Pass", Reject: "Fail" };
 
 // A grid's or lamella's name as the server compares it ("Lamella 01" is "lamella-01").
@@ -96,7 +104,7 @@ function Scores({
             <tbody>
               {tally.map((t) => (
                 <tr key={t.kind} className="border-t border-border">
-                  <td className="py-1.5 capitalize">{t.kind}</td>
+                  <td className="py-1.5">{t.kind}</td>
                   <td className="py-1.5 text-right">{t.passed}</td>
                   <td className="py-1.5 text-right">{t.failed}</td>
                   <td className="py-1.5 text-right text-muted-foreground">{t.open || ""}</td>
@@ -112,7 +120,7 @@ function Scores({
                 onClick={() => onOpen(i.id)}
               >
                 <span className="w-24 shrink-0 text-muted-foreground">{i.about}</span>
-                <span className="w-20 shrink-0 text-muted-foreground">{i.score}</span>
+                <span className="w-28 shrink-0 text-muted-foreground">{i.score}</span>
                 <span className="min-w-0 flex-1">
                   {i.title}
                   {i.answer?.note && <span className="block text-[12px] text-muted-foreground">“{i.answer.note}”</span>}
@@ -126,7 +134,7 @@ function Scores({
             {missing.map((m) => (
               <div key={`${m.kind}:${m.about}`} className="flex items-baseline gap-3 border-t border-border py-2">
                 <span className="w-24 shrink-0 text-muted-foreground">{m.about}</span>
-                <span className="w-20 shrink-0 text-muted-foreground">{m.kind}</span>
+                <span className="w-28 shrink-0 text-muted-foreground">{m.kind}</span>
                 <span className="min-w-0 flex-1 text-muted-foreground">No item filed</span>
                 <span className="shrink-0">Fail</span>
               </div>
