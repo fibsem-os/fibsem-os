@@ -14,6 +14,7 @@ import {
   ListChecks,
   ListFilter,
   MessageCircle,
+  MessageSquare,
   Loader,
   Microscope,
   PanelRight,
@@ -46,14 +47,23 @@ import { SentFiles } from "./agent/Attachments";
 import { useAct } from "./agent/act";
 import { COMMANDS, compose, Composer } from "./agent/Composer";
 import { KnowledgeDialog } from "./agent/Knowledge";
-import { MicroscopeCustomise, MicroscopeTab, useMicroscopeShown } from "./agent/MicroscopeTab";
+import { MicroscopeCustomise, MicroscopeMain, MicroscopeTab, useMicroscopeShown } from "./agent/MicroscopeTab";
 import { EvidenceImage } from "./agent/Pictures";
 import { Palette, PALETTE_KEY, type PaletteEntry, usePaletteKey } from "./agent/Palette";
 import { PlanDialog } from "./agent/PlanDialog";
 import { say, since } from "./agent/steps";
 import { asking, SideChat } from "./agent/SideChat";
 import { ReviewTab, useReview } from "./agent/ReviewTab";
-import { type ColumnTab, SafetyRow, SideColumn, useSafetyActions } from "./agent/SideColumn";
+import {
+  type ColumnTab,
+  MainSwitch,
+  type MainView,
+  SafetyRow,
+  SideColumn,
+  useMainView,
+  useSafetyActions,
+  useWide,
+} from "./agent/SideColumn";
 import { hasPanel, SidePanel } from "./agent/SidePanel";
 
 // The agent's news (lib/events.ts) reads it, its session and its plan again at once.
@@ -1145,6 +1155,11 @@ export function AgentPage() {
   const safety = useSafetyActions(instrument);
   const gatewayAsk = useGatewayAsk();
   const [shown, setShown] = useMicroscopeShown();
+  // The chat or the microscope in the main area, the other in the side column;
+  // the chat stays main where there is no microscope or no room for the column.
+  const [mainChoice, setMainChoice] = useMainView();
+  const wide = useWide();
+  const main: MainView = instrument && wide ? mainChoice : "chat";
   const rowsNow = recent.data?.rows ?? [];
   const since = rowsNow.find((r) => r.at)?.at;
   const transcript = useQuery({
@@ -1287,6 +1302,12 @@ export function AgentPage() {
       onOpenRun={openRun}
     />
   ) : null;
+  const switchMain = (view: MainView) => {
+    setMainChoice(view);
+    // What leaves the main area comes to the front of the column.
+    setFocus(view === "microscope" ? "chat" : "microscope");
+  };
+  const switcher = instrument && wide ? <MainSwitch view={main} onChange={switchMain} /> : null;
   const tabs: ColumnTab[] = [
     {
       id: "session",
@@ -1310,7 +1331,15 @@ export function AgentPage() {
       ) : undefined,
       render: () => <ReviewTab open={reviewOpen} />,
     });
-  if (instrument)
+  if (main === "microscope")
+    tabs.unshift({
+      id: "chat",
+      label: "Chat",
+      icon: <MessageSquare size={14} />,
+      fill: true,
+      render: () => chat,
+    });
+  else if (instrument)
     tabs.push({
       id: "microscope",
       label: "Microscope",
@@ -1401,234 +1430,248 @@ export function AgentPage() {
     onRun: openRun,
     onMessage: jumpTo,
   });
-  return (
-    <div className="flex h-full">
-      <div
-        className="mx-auto flex h-full w-full max-w-[880px] min-w-0 flex-col px-4 md:px-5"
-        onDragEnter={(e) => {
-          if (!carriesFiles(e)) return;
-          drags.current += 1;
-          setDragging(true);
-        }}
-        onDragLeave={(e) => {
-          if (carriesFiles(e) && --drags.current <= 0) setDragging(false);
-        }}
-        onDragOver={(e) => carriesFiles(e) && e.preventDefault()}
-        onDrop={(e) => {
-          if (!carriesFiles(e)) return;
-          e.preventDefault();
-          drags.current = 0;
-          setDragging(false);
-          if (a.experiment) attach.add(e.dataTransfer.files);
-        }}
-      >
-        <div className="flex items-center justify-end gap-3 pt-2.5">
-          <button
-            className="mr-auto flex cursor-pointer items-center gap-1.5 rounded border-0 bg-transparent px-2 py-1 text-[12px] text-muted-foreground hover:bg-accent hover:text-foreground"
-            onClick={() => setPalette(true)}
-            aria-keyshortcuts="Meta+K Control+K"
-          >
-            <Search size={14} />
-            Search
-            <kbd className="rounded border border-border px-1 text-[11px]">{PALETTE_KEY}</kbd>
-          </button>
-          <Palette open={palette} onOpenChange={setPalette} entries={found} />
-          <button
-            className="flex cursor-pointer items-center gap-1.5 rounded border-0 bg-transparent px-2 py-1 text-[12px] text-muted-foreground hover:bg-accent hover:text-foreground"
-            onClick={() => setKnowledge(true)}
-          >
-            <BookOpen size={14} />
-            Knowledge
-          </button>
-          <KnowledgeDialog open={knowledge} onOpenChange={setKnowledge} />
-          <Popup
-            label="Show"
-            align="right"
-            className="top-[calc(100%+4px)] bottom-auto w-44"
-            trigger={(open, toggle) => (
-              <button
-                className="flex cursor-pointer items-center gap-1.5 rounded border-0 bg-transparent px-2 py-1 text-[12px] text-muted-foreground hover:bg-accent hover:text-foreground"
-                aria-haspopup="menu"
-                aria-expanded={open}
-                onClick={toggle}
-              >
-                <ListFilter size={14} />
-                {label}
-              </button>
-            )}
-          >
-            {(close) => (
-              <div role="menu" className="flex flex-col">
-                {SHOWS.map(([key, word]) => (
-                  <button
-                    key={key}
-                    role="menuitemradio"
-                    aria-checked={key === show}
-                    className={cn(
-                      "cursor-pointer rounded border-0 bg-transparent px-2 py-1.5 text-left text-[13px] text-foreground hover:bg-accent",
-                      key === show && "bg-accent",
-                    )}
-                    onClick={() => {
-                      setShow(key);
-                      close();
-                    }}
-                  >
-                    {word}
-                  </button>
-                ))}
-                <div className="my-1 border-t border-border" />
+  const chat = (
+    <div
+      className="mx-auto flex h-full w-full max-w-[880px] min-w-0 flex-col px-4 md:px-5"
+      onDragEnter={(e) => {
+        if (!carriesFiles(e)) return;
+        drags.current += 1;
+        setDragging(true);
+      }}
+      onDragLeave={(e) => {
+        if (carriesFiles(e) && --drags.current <= 0) setDragging(false);
+      }}
+      onDragOver={(e) => carriesFiles(e) && e.preventDefault()}
+      onDrop={(e) => {
+        if (!carriesFiles(e)) return;
+        e.preventDefault();
+        drags.current = 0;
+        setDragging(false);
+        if (a.experiment) attach.add(e.dataTransfer.files);
+      }}
+    >
+      <div className="flex items-center justify-end gap-3 pt-2.5">
+        <button
+          className="mr-auto flex cursor-pointer items-center gap-1.5 rounded border-0 bg-transparent px-2 py-1 text-[12px] text-muted-foreground hover:bg-accent hover:text-foreground"
+          onClick={() => setPalette(true)}
+          aria-keyshortcuts="Meta+K Control+K"
+        >
+          <Search size={14} />
+          Search
+          <kbd className="rounded border border-border px-1 text-[11px]">{PALETTE_KEY}</kbd>
+        </button>
+        <Palette open={palette} onOpenChange={setPalette} entries={found} />
+        <button
+          className="flex cursor-pointer items-center gap-1.5 rounded border-0 bg-transparent px-2 py-1 text-[12px] text-muted-foreground hover:bg-accent hover:text-foreground"
+          onClick={() => setKnowledge(true)}
+        >
+          <BookOpen size={14} />
+          Knowledge
+        </button>
+        <KnowledgeDialog open={knowledge} onOpenChange={setKnowledge} />
+        <Popup
+          label="Show"
+          align="right"
+          className="top-[calc(100%+4px)] bottom-auto w-44"
+          trigger={(open, toggle) => (
+            <button
+              className="flex cursor-pointer items-center gap-1.5 rounded border-0 bg-transparent px-2 py-1 text-[12px] text-muted-foreground hover:bg-accent hover:text-foreground"
+              aria-haspopup="menu"
+              aria-expanded={open}
+              onClick={toggle}
+            >
+              <ListFilter size={14} />
+              {label}
+            </button>
+          )}
+        >
+          {(close) => (
+            <div role="menu" className="flex flex-col">
+              {SHOWS.map(([key, word]) => (
                 <button
-                  role="menuitemcheckbox"
-                  aria-checked={calls}
-                  className="flex cursor-pointer items-center justify-between rounded border-0 bg-transparent px-2 py-1.5 text-left text-[13px] text-foreground hover:bg-accent"
+                  key={key}
+                  role="menuitemradio"
+                  aria-checked={key === show}
+                  className={cn(
+                    "cursor-pointer rounded border-0 bg-transparent px-2 py-1.5 text-left text-[13px] text-foreground hover:bg-accent",
+                    key === show && "bg-accent",
+                  )}
                   onClick={() => {
-                    keepCalls(!calls);
-                    setCalls(!calls);
+                    setShow(key);
                     close();
                   }}
                 >
-                  Show tool calls
-                  {calls && <Check size={14} />}
+                  {word}
+                </button>
+              ))}
+              <div className="my-1 border-t border-border" />
+              <button
+                role="menuitemcheckbox"
+                aria-checked={calls}
+                className="flex cursor-pointer items-center justify-between rounded border-0 bg-transparent px-2 py-1.5 text-left text-[13px] text-foreground hover:bg-accent"
+                onClick={() => {
+                  keepCalls(!calls);
+                  setCalls(!calls);
+                  close();
+                }}
+              >
+                Show tool calls
+                {calls && <Check size={14} />}
+              </button>
+            </div>
+          )}
+        </Popup>
+        {panel && (
+          <div className="lg:hidden">
+            <Popup
+              label="Goal and to do"
+              align="right"
+              className="top-[calc(100%+4px)] bottom-auto w-[min(18rem,calc(100vw-2rem))] p-3"
+              trigger={(open, toggle) => (
+                <button
+                  className="flex cursor-pointer items-center gap-1.5 rounded border-0 bg-transparent px-2 py-1 text-[12px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                  aria-expanded={open}
+                  onClick={toggle}
+                >
+                  <ListChecks size={14} />
+                  Goal and to do
+                </button>
+              )}
+            >
+              {() => panel}
+            </Popup>
+          </div>
+        )}
+        {main === "chat" && switcher}
+      </div>
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <section
+          aria-label="Record"
+          ref={list}
+          className="min-h-0 flex-1 overflow-y-auto py-1"
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+            if (pinned.current) setNewer(false);
+          }}
+        >
+          <div>
+            {a.session && <div className="py-1.5 pl-2.5 text-[13px] text-muted-foreground">{a.session}</div>}
+            {recent.data?.more && (
+              <div className="flex justify-center py-1.5">
+                <button
+                  type="button"
+                  className="rounded-md border px-2.5 py-1 text-[13px] text-muted-foreground hover:bg-muted disabled:opacity-60"
+                  disabled={recent.isPlaceholderData}
+                  onClick={showEarlier}
+                >
+                  {recent.isPlaceholderData ? "Reading…" : "Show earlier"}
                 </button>
               </div>
             )}
-          </Popup>
-          {panel && (
-            <div className="lg:hidden">
-              <Popup
-                label="Goal and to do"
-                align="right"
-                className="top-[calc(100%+4px)] bottom-auto w-[min(18rem,calc(100vw-2rem))] p-3"
-                trigger={(open, toggle) => (
-                  <button
-                    className="flex cursor-pointer items-center gap-1.5 rounded border-0 bg-transparent px-2 py-1 text-[12px] text-muted-foreground hover:bg-accent hover:text-foreground"
-                    aria-expanded={open}
-                    onClick={toggle}
-                  >
-                    <ListChecks size={14} />
-                    Goal and to do
-                  </button>
-                )}
-              >
-                {() => panel}
-              </Popup>
-            </div>
-          )}
-        </div>
-        <div className="relative flex min-h-0 flex-1 flex-col">
-          <section
-            aria-label="Record"
-            ref={list}
-            className="min-h-0 flex-1 overflow-y-auto py-1"
-            onScroll={(e) => {
-              const el = e.currentTarget;
-              pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-              if (pinned.current) setNewer(false);
-            }}
-          >
-            <div>
-              {a.session && <div className="py-1.5 pl-2.5 text-[13px] text-muted-foreground">{a.session}</div>}
-              {recent.data?.more && (
-                <div className="flex justify-center py-1.5">
-                  <button
-                    type="button"
-                    className="rounded-md border px-2.5 py-1 text-[13px] text-muted-foreground hover:bg-muted disabled:opacity-60"
-                    disabled={recent.isPlaceholderData}
-                    onClick={showEarlier}
-                  >
-                    {recent.isPlaceholderData ? "Reading…" : "Show earlier"}
-                  </button>
-                </div>
-              )}
-              {all.length || lines.length ? (
-                <Record
-                  rows={rows}
-                  lines={lines}
-                  show={show}
-                  heard={heard}
-                  live={reported.data?.session?.session_id}
-                  now={a.now}
-                  calls={calls}
-                  onOpen={openRun}
-                />
-              ) : isWorking && !agent.data?.stopped ? (
-                <div className="flex items-center justify-center gap-1.5 py-8 text-[13px] text-muted-foreground">
-                  <Loader size={13} className="shrink-0 animate-spin" aria-hidden />
-                  The agent is starting: it connects, then reads its skills and playbook. Its steps show here as it takes
-                  them.
-                </div>
-              ) : (
-                <div className="py-8 text-center text-[13px] text-muted-foreground">
-                  No messages yet. What you write here waits for the agent: it reads it on its next turn, or when one
-                  connects.
-                </div>
-              )}
-            </div>
-          </section>
-          {dragging && (
-            <div className="pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-dashed border-primary bg-primary/5 text-center">
-              {a.experiment ? (
-                <>
-                  <div className="text-[15px]">Drop to attach</div>
-                  <div className="text-[13px] text-muted-foreground">
-                    Saved in the experiment folder, under notes/, where the agent reads them
-                  </div>
-                </>
-              ) : (
-                <div className="text-[15px]">Open an experiment to attach files</div>
-              )}
-            </div>
-          )}
-          {newer && (
-            <button
-              className="absolute bottom-3 left-1/2 flex -translate-x-1/2 cursor-pointer items-center gap-1.5 rounded-md border border-input bg-popover px-3 py-1.5 text-[12px] text-foreground shadow-[0_4px_14px_rgba(0,0,0,0.4)] hover:bg-accent"
-              onClick={toNewest}
-            >
-              <ArrowDown size={14} />
-              Newer messages
-            </button>
-          )}
-        </div>
-        {unread.length > 0 && (
-          <section
-            aria-label="Not read yet"
-            className="max-h-[30vh] overflow-y-auto border-t border-dashed border-border pt-1"
-          >
-            {unread.map((row) => (
-              <Message key={row.message_id} row={row} unread={unreadWhy(a)} />
-            ))}
-          </section>
-        )}
-        <div className="flex flex-col gap-2.5 border-t border-border pt-3 pb-4">
-          {/* Kept while a session runs, so the composer doesn't move as commands start and end.
-              Live while something runs; else the running step says it in the record, and
-              here only when no step shows it. */}
-          <LiveLine agent={a} heard={isWorking && !a.stopped} hide={nowOnStep} />
-          {a.waiting &&
-            (a.waiting.agent_reviewing ? (
-              <div className="text-[13px]">
-                <b>Agent is reviewing:</b> {a.waiting.proposal}
+            {all.length || lines.length ? (
+              <Record
+                rows={rows}
+                lines={lines}
+                show={show}
+                heard={heard}
+                live={reported.data?.session?.session_id}
+                now={a.now}
+                calls={calls}
+                onOpen={openRun}
+              />
+            ) : isWorking && !agent.data?.stopped ? (
+              <div className="flex items-center justify-center gap-1.5 py-8 text-[13px] text-muted-foreground">
+                <Loader size={13} className="shrink-0 animate-spin" aria-hidden />
+                The agent is starting: it connects, then reads its skills and playbook. Its steps show here as it takes
+                them.
               </div>
             ) : (
-              <div className="text-[13px]">
-                <b>Waiting on a decision:</b> {a.waiting.proposal}{" "}
-                <span className="text-muted-foreground">· {a.waiting.who}</span>
+              <div className="py-8 text-center text-[13px] text-muted-foreground">
+                No messages yet. What you write here waits for the agent: it reads it on its next turn, or when one
+                connects.
               </div>
-            ))}
-          {gatewayAsk && <ConnectCard key={gatewayAsk.id} ask={gatewayAsk} />}
-          {a.asking && <ConnectCard key={a.asking.id} ask={a.asking} decide="/app/agent/connections" />}
-          {request && <RequestCard key={request.request_id} request={request} agent={a} />}
-          {!request && suggestion && <SuggestionCard key={suggestion.proposal_id} suggestion={suggestion} agent={a} />}
-          <div
-            className={cn(
-              "rounded-md",
-              dragging && a.experiment && "outline-2 outline-offset-2 outline-primary outline-dashed",
             )}
-          >
-            <Composer agent={a} attach={attach} onSent={() => (pinned.current = true)} />
           </div>
+        </section>
+        {dragging && (
+          <div className="pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-dashed border-primary bg-primary/5 text-center">
+            {a.experiment ? (
+              <>
+                <div className="text-[15px]">Drop to attach</div>
+                <div className="text-[13px] text-muted-foreground">
+                  Saved in the experiment folder, under notes/, where the agent reads them
+                </div>
+              </>
+            ) : (
+              <div className="text-[15px]">Open an experiment to attach files</div>
+            )}
+          </div>
+        )}
+        {newer && (
+          <button
+            className="absolute bottom-3 left-1/2 flex -translate-x-1/2 cursor-pointer items-center gap-1.5 rounded-md border border-input bg-popover px-3 py-1.5 text-[12px] text-foreground shadow-[0_4px_14px_rgba(0,0,0,0.4)] hover:bg-accent"
+            onClick={toNewest}
+          >
+            <ArrowDown size={14} />
+            Newer messages
+          </button>
+        )}
+      </div>
+      {unread.length > 0 && (
+        <section
+          aria-label="Not read yet"
+          className="max-h-[30vh] overflow-y-auto border-t border-dashed border-border pt-1"
+        >
+          {unread.map((row) => (
+            <Message key={row.message_id} row={row} unread={unreadWhy(a)} />
+          ))}
+        </section>
+      )}
+      <div className="flex flex-col gap-2.5 border-t border-border pt-3 pb-4">
+        {/* Kept while a session runs, so the composer doesn't move as commands start and end.
+            Live while something runs; else the running step says it in the record, and
+            here only when no step shows it. */}
+        <LiveLine agent={a} heard={isWorking && !a.stopped} hide={nowOnStep} />
+        {a.waiting &&
+          (a.waiting.agent_reviewing ? (
+            <div className="text-[13px]">
+              <b>Agent is reviewing:</b> {a.waiting.proposal}
+            </div>
+          ) : (
+            <div className="text-[13px]">
+              <b>Waiting on a decision:</b> {a.waiting.proposal}{" "}
+              <span className="text-muted-foreground">· {a.waiting.who}</span>
+            </div>
+          ))}
+        {gatewayAsk && <ConnectCard key={gatewayAsk.id} ask={gatewayAsk} />}
+        {a.asking && <ConnectCard key={a.asking.id} ask={a.asking} decide="/app/agent/connections" />}
+        {request && <RequestCard key={request.request_id} request={request} agent={a} />}
+        {!request && suggestion && <SuggestionCard key={suggestion.proposal_id} suggestion={suggestion} agent={a} />}
+        <div
+          className={cn(
+            "rounded-md",
+            dragging && a.experiment && "outline-2 outline-offset-2 outline-primary outline-dashed",
+          )}
+        >
+          <Composer agent={a} attach={attach} onSent={() => (pinned.current = true)} />
         </div>
       </div>
+    </div>
+  );
+  return (
+    <div className="flex h-full">
+      {main === "microscope" ? (
+        <MicroscopeMain
+          fibsem={fibsem}
+          shown={shown}
+          menu={<MicroscopeCustomise fibsem={fibsem} shown={shown} onChange={setShown} />}
+          switcher={switcher}
+          onOpenPage={() => openPage("/ui/microscope")}
+        />
+      ) : (
+        chat
+      )}
       <SideColumn
         tabs={tabs}
         focus={focus}

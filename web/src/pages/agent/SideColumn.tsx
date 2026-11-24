@@ -1,5 +1,5 @@
 import { useQueries, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, ShieldAlert, Square, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, MessageSquare, Microscope, ShieldAlert, Square, X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Popup } from "@/components/ui/popup";
@@ -9,7 +9,8 @@ import { cn } from "@/lib/utils";
 
 /** One tab of the column, its *icon* beside its label and alone on the folded
  * rail. *menu* sits in the tab row while the tab is open
- * (the Microscope tab's Customise); *closable* tabs show an x that calls *onClose*. */
+ * (the Microscope tab's Customise); *closable* tabs show an x that calls *onClose*.
+ * A *fill* tab gets the whole body, unpadded, and scrolls itself (the chat). */
 export interface ColumnTab {
   id: string;
   label: string;
@@ -18,7 +19,66 @@ export interface ColumnTab {
   closable?: boolean;
   onClose?: () => void;
   menu?: ReactNode;
+  fill?: boolean;
   render: () => ReactNode;
+}
+
+/** What the agent page shows in its main area; the other sits in the side column. */
+export type MainView = "chat" | "microscope";
+const MAIN_KEY = "fibsem.agent.main";
+
+/** The main view chosen last in this browser, the chat at first. */
+export function useMainView(): [MainView, (view: MainView) => void] {
+  const [view, setView] = useState<MainView>(() => (load(MAIN_KEY) === "microscope" ? "microscope" : "chat"));
+  return [
+    view,
+    (next) => {
+      setView(next);
+      keep(MAIN_KEY, next);
+    },
+  ];
+}
+
+/** True while the window is wide enough for the side column. */
+export function useWide(): boolean {
+  const query = "(min-width: 1024px)";
+  const [wide, setWide] = useState(() => matchMedia(query).matches);
+  useEffect(() => {
+    const list = matchMedia(query);
+    const change = () => setWide(list.matches);
+    list.addEventListener("change", change);
+    return () => list.removeEventListener("change", change);
+  }, []);
+  return wide;
+}
+
+const VIEWS: [MainView, string, ReactNode][] = [
+  ["chat", "Chat as the main view", <MessageSquare key="chat" size={14} />],
+  ["microscope", "Microscope as the main view", <Microscope key="microscope" size={14} />],
+];
+
+/** The small switcher at the top right of the main area: chat or microscope main. */
+export function MainSwitch({ view, onChange }: { view: MainView; onChange: (view: MainView) => void }) {
+  return (
+    <div role="radiogroup" aria-label="Main view" className="flex shrink-0 rounded border border-input p-0.5">
+      {VIEWS.map(([key, label, icon]) => (
+        <button
+          key={key}
+          role="radio"
+          aria-checked={key === view}
+          aria-label={label}
+          title={label}
+          className={cn(
+            "cursor-pointer rounded-sm border-0 bg-transparent px-1.5 py-1 text-muted-foreground hover:text-foreground",
+            key === view && "bg-accent text-foreground",
+          )}
+          onClick={() => onChange(key)}
+        >
+          {icon}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 export const COLUMN_MIN = 340;
@@ -213,7 +273,10 @@ export function SideColumn({
           </button>
         </div>
       </div>
-      <div role="tabpanel" className="min-h-0 flex-1 overflow-y-auto px-6 pt-4 pb-4">
+      <div
+        role="tabpanel"
+        className={cn("min-h-0 flex-1", tab?.fill ? "flex flex-col overflow-hidden" : "overflow-y-auto px-6 pt-4 pb-4")}
+      >
         {tab?.render()}
       </div>
       {footer && <div className="border-t border-border px-4 py-3">{footer}</div>}

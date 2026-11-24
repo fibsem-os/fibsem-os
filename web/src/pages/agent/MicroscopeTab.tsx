@@ -15,6 +15,8 @@ import { IMAGE_LABEL, Shown } from "../Microscope";
 // As the Microscope page reads them: the stage and a beam's current move without events.
 const READINGS_EVERY_MS = 5000;
 const IMAGES_EVERY_MS = 10000;
+// Read more often when the images are the main view.
+const MAIN_IMAGES_EVERY_MS = 3000;
 const SHOW_KEY = "fibsem.agent.microscope.show";
 
 type Values = Record<string, unknown>;
@@ -62,20 +64,20 @@ function clock(iso: string | null | undefined): string {
   return Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 }
 
-function Section({ title, children }: { title: ReactNode; children: ReactNode }) {
+function Section({ title, children, className }: { title: ReactNode; children: ReactNode; className?: string }) {
   return (
-    <section className="border-b border-border/60 pb-3.5 last:border-b-0 last:pb-0">
+    <section className={cn("border-b border-border/60 pb-3.5 last:border-b-0 last:pb-0", className)}>
       <h4 className="mb-1.5 text-[12px] font-semibold text-muted-foreground">{title}</h4>
       {children}
     </section>
   );
 }
 
-function useImages() {
+function useImages(every = IMAGES_EVERY_MS) {
   return useQuery({
     queryKey: ["app/experiment/images"],
     queryFn: () => api<DisplayImages>("/app/experiment/images"),
-    refetchInterval: IMAGES_EVERY_MS,
+    refetchInterval: every,
   });
 }
 
@@ -122,23 +124,31 @@ function LastImages({ fibsem, shown }: { fibsem: boolean; shown: ShowChoices }) 
           ),
         )}
       </div>
-      <Dialog open={!!big?.[2]} onOpenChange={(o) => !o && setOpen(null)}>
-        {big?.[2] && (
-          <DialogContent title={big[1]} className="w-[min(1100px,calc(100vw-32px))]">
-            <div className="flex flex-col p-3.5">
-              <div className="flex items-center justify-center bg-black">
-                <Shown image={big[2]} alt={big[1]} height="70vh" />
-              </div>
-              <ImageInfoBar info={big[2].info} />
-            </div>
-          </DialogContent>
-        )}
-      </Dialog>
+      <ImageDialog image={big?.[2] ?? null} label={big?.[1] ?? ""} onClose={() => setOpen(null)} />
     </Section>
   );
 }
 
-function Running() {
+/** An image opened large, with its metadata under it. */
+function ImageDialog({ image, label, onClose }: { image: ImagePayload | null; label: string; onClose: () => void }) {
+  return (
+    <Dialog open={!!image} onOpenChange={(o) => !o && onClose()}>
+      {image && (
+        <DialogContent title={label} className="w-[min(1100px,calc(100vw-32px))]">
+          <div className="flex flex-col p-3.5">
+            <div className="flex items-center justify-center bg-black">
+              <Shown image={image} alt={label} height="70vh" />
+            </div>
+            <ImageInfoBar info={image.info} />
+          </div>
+        </DialogContent>
+      )}
+    </Dialog>
+  );
+}
+
+/** What runs now: a workflow's task and lamella, else a running step's label, with its progress. */
+function useRunning() {
   const status = useQuery({
     queryKey: ["app/workflow/status"],
     queryFn: () => api<WorkflowStatus>("/app/workflow/status"),
@@ -150,19 +160,28 @@ function Running() {
     : progress && !progress.outcome
       ? progress.label
       : null;
+  return { task, progress };
+}
+
+function ProgressBar({ fraction }: { fraction: number }) {
+  return (
+    <div className="mt-1.5 h-[3px] rounded-sm bg-accent">
+      <div
+        className="h-full rounded-sm bg-[var(--fibsem-primary-color)]"
+        style={{ width: `${Math.min(100, 100 * fraction)}%` }}
+      />
+    </div>
+  );
+}
+
+function Running() {
+  const { task, progress } = useRunning();
   return (
     <Section title="Running">
       {task ? (
         <>
           <p className="m-0 break-words">{task}</p>
-          {progress?.fraction != null && (
-            <div className="mt-1.5 h-[3px] rounded-sm bg-accent">
-              <div
-                className="h-full rounded-sm bg-[var(--fibsem-primary-color)]"
-                style={{ width: `${Math.min(100, 100 * progress.fraction)}%` }}
-              />
-            </div>
-          )}
+          {progress?.fraction != null && <ProgressBar fraction={progress.fraction} />}
           {progress && (progress.step || progress.numbers) && (
             <p className="m-0 mt-1 flex gap-2 text-muted-foreground">
               <span className="min-w-0 break-words">{progress.step}</span>
@@ -237,6 +256,113 @@ export function MicroscopeTab({ fibsem, shown, onOpenPage }: { fibsem: boolean; 
       )}
       <button
         className="cursor-pointer self-start border-0 bg-transparent p-0 text-[13px] text-link underline underline-offset-2"
+        onClick={onOpenPage}
+      >
+        Open the Microscope page
+      </button>
+    </div>
+  );
+}
+
+/** The microscope as the agent page's main view: what runs and its progress
+ * across the top, the last image of each view as large as the room allows, and
+ * the beams and stage under them. *switcher* and *menu* sit at the top right. */
+export function MicroscopeMain({
+  fibsem,
+  shown,
+  menu,
+  switcher,
+  onOpenPage,
+}: {
+  fibsem: boolean;
+  shown: ShowChoices;
+  menu?: ReactNode;
+  switcher?: ReactNode;
+  onOpenPage: () => void;
+}) {
+  const images = useImages(MAIN_IMAGES_EVERY_MS);
+  const [open, setOpen] = useState<string | null>(null);
+  const { task, progress } = useRunning();
+  const devices = useDevices(on(shown, "beams") || on(shown, "stage"));
+  const beams = on(shown, "beams") ? devices.filter((d) => d.spec.type === "beam") : [];
+  const stage = on(shown, "stage") ? devices.find((d) => d.spec.type === "stage") : undefined;
+  const pairs = imagePairs(images.data, fibsem).filter(([key]) => on(shown, key));
+  const big = pairs.find(([key]) => key === open);
+  return (
+    <div className="flex h-full min-w-0 flex-1 flex-col gap-3 px-4 pb-4 text-[13px] leading-[1.45] md:px-5">
+      <div className="flex flex-col pt-2.5">
+        <div className="flex min-h-[30px] items-center gap-3">
+          {on(shown, "running") &&
+            (task ? (
+              <p className="m-0 min-w-0 truncate">
+                <b className="font-semibold">{task}</b>
+                {progress?.step && <span className="text-muted-foreground"> · {progress.step}</span>}
+              </p>
+            ) : (
+              <p className="m-0 text-muted-foreground">Nothing running</p>
+            ))}
+          <span className="ml-auto flex shrink-0 items-center gap-2">
+            {on(shown, "running") && progress?.numbers && task && (
+              <span className="text-muted-foreground">{progress.numbers}</span>
+            )}
+            {menu}
+            {switcher}
+          </span>
+        </div>
+        {on(shown, "running") && task && progress?.fraction != null && <ProgressBar fraction={progress.fraction} />}
+      </div>
+      {pairs.length > 0 ? (
+        <div
+          className="grid min-h-0 flex-1 gap-3"
+          style={{ gridTemplateColumns: `repeat(${pairs.length}, minmax(0, 1fr))` }}
+        >
+          {pairs.map(([key, label, image]) => (
+            <div key={key} className="flex min-h-0 min-w-0 flex-col gap-1">
+              <span className="flex gap-1 text-[12px]">
+                <b className="font-semibold">{label}</b>
+                {image?.hfw != null && <span className="text-muted-foreground">· {fmt.length(image.hfw)}</span>}
+                <span className="ml-auto text-muted-foreground">{clock(image?.acquired_at)}</span>
+              </span>
+              {image ? (
+                <button
+                  className="flex min-h-0 flex-1 cursor-pointer items-center justify-center overflow-hidden rounded-sm border-0 bg-black p-0 [container-type:size]"
+                  title={`Open the last ${label} image`}
+                  onClick={() => setOpen(key)}
+                >
+                  <Shown image={image} alt={`Last ${label}`} height="100cqh" />
+                </button>
+              ) : (
+                <div className="flex min-h-0 flex-1 items-center justify-center rounded-sm bg-panel text-muted-foreground">
+                  None yet
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="flex flex-1 items-center justify-center text-muted-foreground">No images chosen to show</div>
+      )}
+      <ImageDialog image={big?.[2] ?? null} label={big?.[1] ?? ""} onClose={() => setOpen(null)} />
+      {(beams.length > 0 || stage) && (
+        <div className="grid shrink-0 grid-cols-1 gap-x-6 gap-y-3 border-t border-border pt-3 md:grid-cols-2">
+          {beams.length > 0 && (
+            <Section title="Beams" className="border-b-0 pb-0">
+              <Facts rows={beams.map((b) => [beamName(b.spec), b.values ? beamLine(b.values) : "Reading…"])} />
+            </Section>
+          )}
+          {stage && (
+            <Section title="Stage" className="border-b-0 pb-0">
+              {stage.values ? (
+                <Facts rows={stageRows(stage.values)} />
+              ) : (
+                <p className="m-0 text-muted-foreground">Reading…</p>
+              )}
+            </Section>
+          )}
+        </div>
+      )}
+      <button
+        className="shrink-0 cursor-pointer self-start border-0 bg-transparent p-0 text-[13px] text-link underline underline-offset-2"
         onClick={onOpenPage}
       >
         Open the Microscope page
