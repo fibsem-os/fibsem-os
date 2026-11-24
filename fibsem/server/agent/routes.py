@@ -71,10 +71,8 @@ def mount_agent_routes(
 
     # Its review list: finished work, checks and waits for the operator.
     def positions():
-        from fibsem.server.app_context import _positions
-
         experiment = app_context._experiment
-        return _positions(experiment) if experiment is not None else []
+        return list(getattr(experiment, "positions", None) or [])
 
     app.include_router(
         build_agent_review_router(

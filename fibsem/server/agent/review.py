@@ -41,6 +41,7 @@ from fibsem.server.auth import (
 )
 from fibsem.server.bodies import ReviewAddBody, ReviewCloseBody
 from fibsem.util.timestamps import to_datetime
+from fibsem.workflows.experiment import find_item as find_experiment_item
 
 logger = logging.getLogger(__name__)
 
@@ -295,14 +296,14 @@ def resolve_review_item(
     *experiment*, as their ids and names: refused (404 not_found, naming the
     ones there are) when the experiment hasn't them. With no task named, a
     polishing score takes the item's latest polishing run, when it has one."""
-    from fibsem.server.app_context import find_item
-
     if not item_name:
         raise _invalid("task_name goes with the item_name it is a task of.")
-    item, refusal = find_item(experiment, item_name)
-    if refusal:
+    if experiment is None:
+        raise refusal_error(409, "no_experiment", "No experiment is loaded.")
+    item, why = find_experiment_item(experiment, item_name)
+    if item is None:
         raise refusal_error(
-            refusal.status, refusal.error_type, refusal.message, **refusal.names
+            404, "not_found", why["error"], item_names=why["item_names"]
         )
     runs = list(getattr(item, "task_history", None) or [])
     if task_name:
