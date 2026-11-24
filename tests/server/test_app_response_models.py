@@ -442,7 +442,7 @@ def test_every_app_route_declares_its_answer(client):
     """A route answers a declared class, or a file (an image, a bundle)."""
     images = {
         "/app/report",
-        "/app/experiment/items/{item_name}/outputs/{filename}",
+        "/app/experiment/items/{item_name}/outputs/{filename:path}",
         "/app/experiment/grids/{grid_name}/outputs/{filename:path}",
         "/app/experiment/planes/{path:path}",
         "/app/experiment/export/image",
