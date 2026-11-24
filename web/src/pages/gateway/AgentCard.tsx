@@ -26,6 +26,14 @@ export interface Session {
   last_level?: string | null;
   // The budget it last ran with, else its start budget.
   last_budget_usd?: number | null;
+  // From the shared sessions list: running, waiting (for its app), ended,
+  // left (its gateway was closed) or crashed; and why, once known.
+  status?: "running" | "waiting" | "ended" | "left" | "crashed";
+  status_reason?: string | null;
+  // When it last wrote its record, its events or its output.
+  last_active?: string | null;
+  // The experiment it worked on; on_this_pc false when it isn't here.
+  experiment?: { path: string; name: string | null; id: string | null; on_this_pc?: boolean } | null;
 }
 
 export interface Running extends Session {

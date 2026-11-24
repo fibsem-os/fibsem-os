@@ -947,3 +947,28 @@ def test_a_start_waiting_for_its_app_ends_when_the_gateway_quits(made, tmp_path)
     assert PairedTokens(tmp_path / "paired.json").agent() is None
     managed = read_json(folder / MANAGED)
     assert managed["ended"] == "did not start (the gateway closed first)"
+
+
+def test_history_says_each_sessions_status_and_experiment(made, tmp_path):
+    ended = _by_hand(tmp_path)
+    (ended / "agent").mkdir()
+    (ended / "agent" / "experiment.json").write_text(
+        json.dumps(
+            {"session_id": "by-hand", "path": "/x/exp", "name": "exp", "id": "e-1"}
+        )
+    )
+    # The gateway's agent, parked when its app was stopped: not ended.
+    parked = SessionFolder.open(
+        "parked", {"playbook": "default", "mode": "none"}, tmp_path / "sessions"
+    )
+    parked.end(0, "stopped")
+    (parked.folder / MANAGED).write_text(json.dumps({"about": {"level": "assist"}}))
+    agent, _, _ = made()
+    rows = {row["session_id"]: row for row in agent.sessions().sessions}
+    assert rows["by-hand"]["status"] == "ended"
+    assert rows["by-hand"]["experiment"] == {
+        "path": "/x/exp",
+        "name": "exp",
+        "id": "e-1",
+    }
+    assert rows["parked"]["status"] == "waiting"
