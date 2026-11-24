@@ -74,7 +74,7 @@ little thickness, never the lamella.
 
 First put your answer on the record yourself, so the run's review sees
 what you said and not only what the Run Lead wrote down: one
-`experiment_add_note` whose text is `[verdict] ` and then the JSON below on
+`mcp__fibsem__experiment_add_note` (that full name) whose text is `[verdict] ` and then the JSON below on
 one line, with `item_name` when the decision is about one lamella. Do this
 for every answer, a carried-on polishing conversation included. If the note
 is refused, say so in `concern` and answer anyway.
