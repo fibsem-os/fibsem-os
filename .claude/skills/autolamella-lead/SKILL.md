@@ -52,6 +52,10 @@ context and the next session find it:
 - **The review list** (fibsem-agent, *Keep a review list*): one item per
   key decision (the site list, each placement, each lamella's polishing),
   with its images, your decision, and the Verifier's answer as a fact.
+  A placement's or a mill's first image is its patterns on the FIB image
+  (`item_draw_milling`), as the operator checks it at the microscope; the
+  SEM overview drawing (`grid_draw_milling`) only when it shows a bar or a
+  neighbour too close.
   The site lists, targets and polishing are scored items (autolamella,
   *Scored results*).
   The Verifier puts its own `[verdict]` note on the record as well.
