@@ -904,7 +904,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="app_get_events",
         returns="Events",
-        description="Events after a sequence number or an event id: milling/acquisition progress, stage moves, task lifecycle. Each has an id that stays unique across restarts. Long-polls up to timeout seconds.",
+        description="Events after a sequence number or an event id: milling/acquisition progress, stage moves, task lifecycle. Each has an id that stays unique across restarts. Long-polls up to timeout seconds. Ask for what is new: after the last id you read, or since a recent seq. since=0 is every event held, hundreds of KB in a long run, too much to read at once.",
         method="GET",
         path="/app/events",
         level="watch",
