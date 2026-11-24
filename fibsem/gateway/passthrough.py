@@ -24,14 +24,14 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Callable, Iterable, Optional
+from typing import Callable, Iterable, Optional, Tuple
 
 import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.background import BackgroundTask
 
-from fibsem.server.discovery import read_discovery_file
+from fibsem.server import discovery
 
 logger = logging.getLogger(__name__)
 
@@ -117,11 +117,24 @@ def _headers(items: Iterable) -> list:
     return [(k, v) for k, v in items if k.lower() not in HOP_BY_HOP]
 
 
+_kept_secret: Tuple[Optional[float], Optional[str]] = (None, None)
+
+
 def app_server_secret() -> Optional[str]:
     """This PC's App Server's secret for the gateway, from its discovery file
-    (`fibsem.server.auth`); None while none runs or it has none."""
-    found = read_discovery_file()
-    return found.get("gateway_secret") if found else None
+    (`fibsem.server.auth`); None while none runs or it has none. Read again
+    only when the file changes: it is asked on every call passed on."""
+    global _kept_secret
+    try:
+        changed = discovery.DISCOVERY_FILE.stat().st_mtime
+    except OSError:
+        changed = None
+    if changed is not None and _kept_secret[0] == changed:
+        return _kept_secret[1]
+    found = discovery.read_discovery_file()
+    secret = found.get("gateway_secret") if found else None
+    _kept_secret = (changed, secret)
+    return secret
 
 
 class PassThrough:

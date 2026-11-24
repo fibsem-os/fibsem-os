@@ -270,6 +270,7 @@ class AppServerHost:
         from fibsem.server import AuthConfig, build_server
         from fibsem.server.devices import WS_PROTOCOL
         from fibsem.server.discovery import (
+            DISCOVERY_FILE_ENV,
             SERVER_TOKEN_ENV,
             read_discovery_file,
             write_discovery_file,
@@ -381,7 +382,10 @@ class AppServerHost:
             self._port,
             self.auth,
             path=self._discovery_path,
-            gateway_secret=True,
+            # Only the App Server the gateway is in front of (this PC's usual
+            # file): another beside it (an eval, a test) isn't refused.
+            gateway_secret=self._discovery_path is None
+            and not os.environ.get(DISCOVERY_FILE_ENV),
         )
         self._wrote_discovery = True
         atexit.register(self._remove_discovery)

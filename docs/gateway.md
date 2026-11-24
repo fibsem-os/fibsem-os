@@ -224,7 +224,11 @@ The App Server enforces it too. As it starts it makes a secret and writes it int
 a gateway runs, an agent's call without it is refused (`401 through_gateway`, naming the
 gateway). An app started by hand or by a desktop launch works the same way. The operator's
 token and the App Server's own (an App Server run alone: tests, evals, scripts) never need
-it, and giving control up is never refused.
+it, and giving control up is never refused. Only the App Server with this PC's usual
+`app-server.json` makes one, so a second App Server with its own file (an eval) is never
+refused, and websockets (which the gateway doesn't pass on yet) aren't checked. Any program
+running as this user can read the file, so the secret guards against a mistake (an old
+address or token), not against a program set on getting around the gateway.
 
 An agent with no App Server (no instrument, or an instrument served by something else) runs
 against `fibsem-agent-host`. It sits behind the gateway the same way: it serves no pages and

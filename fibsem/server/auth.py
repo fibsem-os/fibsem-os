@@ -304,6 +304,9 @@ def _skipped_gateway(request: HTTPConnection, auth: AuthConfig, token) -> bool:
     secret = auth.gateway_secret
     if secret is None or _matches(token, auth.token):
         return False
+    if request.scope.get("type") == "websocket":
+        # The gateway passes no websockets on yet: they come here direct.
+        return False
     if _matches(request.headers.get(GATEWAY_HEADER), secret):
         return False
     return read_gateway_file() is not None
