@@ -1,7 +1,7 @@
 """The gateway's routes, on its own port, localhost only.
 
 ``GET /gateway``, ``/gateway/health`` and ``/gateway/history`` for anyone
-paired; ``POST /gateway/start`` and ``/gateway/stop`` for the operator, or a
+paired but an agent (an agent's token is refused on the gateway's own routes); ``POST /gateway/start`` and ``/gateway/stop`` for the operator, or a
 hub the operator granted "may start and stop apps" (`SWITCH_MODES`); forcing
 past a running workflow, and ``/gateway/claim`` (a desktop launch on this
 PC), for the operator only. ``/gateway/microscope/...`` connects and

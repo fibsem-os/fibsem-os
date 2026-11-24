@@ -435,7 +435,7 @@ HTTP; basenames have spaces in them, so URL-encode them:
 
 ```bash
 curl -s -o out.jpg -H "Authorization: Bearer $TOKEN" \
-  "http://127.0.0.1:8001/app/experiment/items/01-tough-mako/outputs/ref_Mill%20Fiducial_start_ib.tif"
+  "http://127.0.0.1:8010/app/experiment/items/01-tough-mako/outputs/ref_Mill%20Fiducial_start_ib.tif"
 ```
 
 `app_get_status` gives the experiment's folder (`experiment.path`). On the

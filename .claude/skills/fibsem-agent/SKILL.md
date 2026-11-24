@@ -32,12 +32,13 @@ from the `fibsem-mcp` sidecar; if they are missing, it isn't registered in
 this session's MCP config (`claude mcp add -s user fibsem -- fibsem-mcp`), and
 plain HTTP works regardless. The first connection asks the operator to
 allow you: a call that answers `connect_waiting` means they haven't clicked
-Allow yet, so tell them and try again. Once allowed, your token is kept on this
-PC:
+Allow yet, so tell them and try again. Every call goes through this PC's
+gateway (port 8010), never straight to the App Server. Once allowed, your
+token is kept on this PC:
 
 ```bash
-TOKEN=$(python3 -c "import json;print(json.load(open('$HOME/.fibsem/agent/127.0.0.1_8001.json'))['token'])")
-curl -s "http://127.0.0.1:8001/capabilities" -H "Authorization: Bearer $TOKEN"
+TOKEN=$(python3 -c "import json;print(json.load(open('$HOME/.fibsem/agent/127.0.0.1_8010.json'))['token'])")
+curl -s "http://127.0.0.1:8010/capabilities" -H "Authorization: Bearer $TOKEN"
 ```
 
 On the curl path your own harness may gate commands that change state: a
