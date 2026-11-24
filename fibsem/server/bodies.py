@@ -179,6 +179,8 @@ class ReviewAddBody:
     facts: Optional[List[Dict[str, Any]]] = None
     options: Optional[List[str]] = None
     score: str = ""
+    item_name: str = ""
+    task_name: str = ""
 
 
 @dataclass

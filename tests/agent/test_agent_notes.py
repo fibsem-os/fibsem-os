@@ -50,20 +50,20 @@ def test_the_newest_of_each_tag_from_the_buffer_then_the_file(tmp_path):
     path.write_text("".join(json.dumps(r) + "\n" for r in old))
     held = [_note(5000, "[run_state v2] two done"), _note(5001, "[run_state v3] three")]
 
-    answer = latest_notes(held, path, ["intake", "run_state", "recipe_card"])
+    answer = latest_notes(held, [path], ["intake", "run_state", "recipe_card"])
     assert [(n["tag"], n["text"]) for n in answer["notes"]] == [
         ("intake", "[intake] the brief"),
         ("run_state", "[run_state v3] three"),
     ]
     assert answer["missing"] == ["recipe_card"]
     # Each counts the buffer's and the file's together, without repeats.
-    two = latest_notes(held, path, ["run_state"], each=3)
+    two = latest_notes(held, [path], ["run_state"], each=3)
     assert [n["id"] for n in two["notes"]] == ["s-5001", "s-5000", "s-2"]
     # With no file (no experiment open), the buffer alone.
-    alone = latest_notes(held, None, ["intake"])
+    alone = latest_notes(held, [], ["intake"])
     assert alone == {"notes": [], "missing": ["intake"]}
     with pytest.raises(NotesRefused):
-        latest_notes(held, path, ["intake"], each=0)
+        latest_notes(held, [path], ["intake"], each=0)
 
 
 def test_the_route_reads_a_note_written_before_a_restart(tmp_path, monkeypatch):

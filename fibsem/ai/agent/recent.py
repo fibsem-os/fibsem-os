@@ -636,8 +636,8 @@ class EarlierRecords:
     before the buffer doesn't change."""
 
     def __init__(self) -> None:
-        # The last read's key and what it found, as one: readers share it.
-        self._last: Tuple[Any, Tuple[List[Dict[str, Any]], int]] = (None, ([], 0))
+        # Each file's last read key and what it found, as one: readers share it.
+        self._last: Dict[str, Tuple[Any, Tuple[List[Dict[str, Any]], int]]] = {}
 
     def read(
         self, path: Path, held: Sequence[Dict[str, Any]], limit: int
@@ -649,7 +649,7 @@ class EarlierRecords:
         # With nothing held, nothing of this stream's is being written: the
         # file's end is where the read starts, and it moves only if it grows.
         key = (str(path), oldest, limit, None if held else path.stat().st_size)
-        last_key, found = self._last
+        last_key, found = self._last.get(str(path), (None, ([], 0)))
         if key == last_key:
             return found
         ids = {record.get("id") for record in held}
@@ -667,31 +667,57 @@ class EarlierRecords:
         found = read_events_before(
             path, limit=limit, skip_kinds=_UNREAD_KINDS, keep=keep
         )
-        self._last = (key, found)
+        self._last[str(path)] = (key, found)
         return found
+
+
+def _merged(
+    earlier: EarlierRecords,
+    paths: Sequence[Path],
+    held: Sequence[Dict[str, Any]],
+    limit: int,
+) -> Tuple[List[Dict[str, Any]], int]:
+    """`EarlierRecords.read` of each file in *paths*, as one: oldest first by
+    time, each record once, and 0 only when every file was read to its start."""
+    found: Dict[Any, Dict[str, Any]] = {}
+    start = 0
+    for path in paths:
+        records, at = earlier.read(path, held, limit)
+        start = max(start, at)
+        for record in records:
+            found.setdefault(record.get("id") or id(record), record)
+    ordered = sorted(found.values(), key=_time_of)
+    return ordered[-limit:], start
+
+
+def _time_of(record: Dict[str, Any]) -> float:
+    stamp = record.get("timestamp")
+    return float(stamp) if isinstance(stamp, (int, float)) else 0.0
 
 
 def read_rows(
     held: Sequence[Dict[str, Any]],
-    path: Optional[Path],
+    paths: Sequence[Path],
     size: int = SIZE,
     earlier: Optional[EarlierRecords] = None,
     stream: Optional[str] = None,
 ) -> Tuple[List[RecentRow], bool]:
     """The last *size* rows, oldest first, and whether there are earlier ones:
     from *held* (the live buffer, oldest first) and, when it hasn't that
-    many, from the record's file at *path* before it. The file is read
-    backwards and only as far as the rows asked for need. *stream* is the
-    buffer's: rows from another were written before the app last started."""
+    many, from the record's files at *paths* before it, merged by time. Each
+    file is read backwards and only as far as the rows asked for need.
+    *stream* is the buffer's: rows from another were written before the app
+    last started."""
     size = max(1, min(int(size), MAX_SIZE))
     held = list(held)
     rows = _rows_of(held, size + 1, stream)
-    if len(rows) > size or path is None or not Path(path).is_file():
+    paths = [Path(path) for path in paths if Path(path).is_file()]
+    if len(rows) > size or not paths:
         return rows[-size:], len(rows) > size
     earlier = earlier or EarlierRecords()
     limit = _RECORDS_PER_ROW * (size + 1)
     while True:
-        older, start = earlier.read(Path(path), held, limit)
+        older, start = _merged(earlier, paths, held, limit)
         rows = _rows_of(older + held, size + 1, stream)
         if len(rows) > size or start == 0 or limit >= _RECORDS_MAX:
             return rows[-size:], len(rows) > size or start > 0

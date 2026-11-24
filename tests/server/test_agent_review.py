@@ -1,6 +1,7 @@
 """The agent's review list: ``/app/agent/review``, and the operator's answer."""
 
 import json
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -17,6 +18,8 @@ from fibsem.server.agent.review import (
     CLOSED,
     ReviewStore,
     build_agent_review_router,
+    reached_in,
+    resolve_review_item,
 )
 from fibsem.server.agent.session import build_agent_session_router
 
@@ -30,6 +33,17 @@ class FakeAgent:
     def __init__(self, path):
         self.path = path
         self.messages = []
+        self.reached = {}
+        run = SimpleNamespace(
+            task_id="t-polish-1", name="Polishing", task_type="MILL_POLISHING"
+        )
+        self.experiment = SimpleNamespace(
+            positions=[
+                SimpleNamespace(id="id-01", name="Lamella 01", task_history=[run]),
+                SimpleNamespace(id="id-02", name="Lamella 02", task_history=[]),
+            ]
+        )
+        self.since = []
 
     def experiment_path(self):
         return self.path
@@ -56,7 +70,16 @@ def server(tmp_path):
         recorded.append((kind, payload, actor))
 
     app.include_router(build_agent_session_router(lambda kind, data: None))
-    app.include_router(build_agent_review_router(lambda: str(experiment), emit))
+    app.include_router(
+        build_agent_review_router(
+            lambda: str(experiment),
+            emit,
+            reached=lambda since: fake.since.append(since) or fake.reached,
+            resolve=lambda item, task, score: resolve_review_item(
+                fake.experiment, item, task, score
+            ),
+        )
+    )
     app.include_router(build_operator_router(fake))
     agent = TestClient(app, headers={"Authorization": f"Bearer {app.state.auth.token}"})
     operator = TestClient(app, headers={"Authorization": f"Bearer {OPERATOR}"})
@@ -237,9 +260,9 @@ def test_scored_items_count_a_pass_or_a_fail_per_kind(server):
     sites = add(agent, title="Sites on Grid 1", about="Grid 1", score="sites").json()
     assert sites["score"] == "sites"
     assert sites["options"] == ["Accept", "Reject"]
-    add(agent, title="Target found", about="Lamella 01", score="target")
-    add(agent, title="Target found", about="Lamella 02", score="target")
-    add(agent, title="Polished to 190 nm", about="Lamella 01", score="polishing")
+    add(agent, title="Target found", item_name="Lamella 01", score="target")
+    add(agent, title="Target found", item_name="Lamella 02", score="target")
+    add(agent, title="Polished to 190 nm", item_name="Lamella 01", score="polishing")
     add(agent, title="Rough mill done", about="Lamella 01")
     assert recorded[0][1]["score"] == "sites"
     operator.post("/app/agent/review/r1/answer", json={"choice": "Accept"})
@@ -250,20 +273,196 @@ def test_scored_items_count_a_pass_or_a_fail_per_kind(server):
     operator.post("/app/agent/review/r3/answer", json={"choice": "Accept"})
     counts = agent.get("/app/agent/review").json()["counts"]
     assert counts["scores"] == {
-        "sites": {"passed": 1, "failed": 0, "open": 0},
-        "target": {"passed": 1, "failed": 1, "open": 0},
-        "polishing": {"passed": 0, "failed": 0, "open": 1},
+        "sites": {
+            "passed": 1,
+            "failed": 0,
+            "open": 0,
+            "after_help": 0,
+            "missing": [],
+            "closed": [],
+        },
+        "target": {
+            "passed": 1,
+            "failed": 1,
+            "open": 0,
+            "after_help": 0,
+            "missing": [],
+            "closed": [],
+        },
+        "polishing": {
+            "passed": 0,
+            "failed": 0,
+            "open": 1,
+            "after_help": 0,
+            "missing": [],
+            "closed": [],
+        },
     }
+
+
+def test_a_redo_after_a_reject_keeps_one_score_per_lamella(server):
+    agent, operator, *_ = server
+    add(agent, title="Target found", item_name="Lamella 01", score="target")
+    operator.post("/app/agent/review/r1/answer", json={"choice": "Reject"})
+    # The agent tries again on the same lamella, with its own label.
+    add(
+        agent,
+        title="Target found again",
+        item_name="Lamella 01",
+        about="L01 redo",
+        score="target",
+    )
+    operator.post("/app/agent/review/r2/answer", json={"choice": "Accept"})
+    target = agent.get("/app/agent/review").json()["counts"]["scores"]["target"]
+    assert (target["passed"], target["failed"], target["after_help"]) == (0, 1, 1)
+
+
+def test_a_lamella_polished_with_no_scored_item_counts_as_a_fail(server):
+    agent, operator, _, _, fake = server
+    fake.reached = {
+        "polishing": [
+            {"item_id": "id-01", "item_name": "Lamella 01"},
+            {"item_id": "id-02", "item_name": "Lamella 02"},
+        ]
+    }
+    add(agent, title="Polished to 190 nm", item_name="Lamella 01", score="polishing")
+    operator.post("/app/agent/review/r1/answer", json={"choice": "Accept"})
+    polishing = agent.get("/app/agent/review").json()["counts"]["scores"]["polishing"]
+    assert polishing["passed"] == 1
+    assert polishing["failed"] == 1
+    assert polishing["missing"] == ["Lamella 02"]
+
+
+def test_which_lamellae_reached_polishing_is_read_from_their_tasks():
+    from types import SimpleNamespace as NS
+
+    def run(task_type, status, at="2026-11-24T10:00:00+11:00"):
+        return NS(task_type=task_type, status=NS(name=status), start_timestamp=at)
+
+    positions = [
+        NS(name="L1", task_history=[run("MILL_POLISHING", "Completed")]),
+        NS(name="L2", task_history=[run("MILL_COINCIDENT", "Failed")]),
+        NS(name="L3", task_history=[run("MILL_POLISHING", "InProgress")]),
+        NS(name="L4", task_history=[run("MILL_ROUGH", "Completed")]),
+        NS(name="L5", task_history=None),
+        # Polished the day before: an earlier session's.
+        NS(
+            name="L6",
+            task_history=[
+                run("MILL_POLISHING", "Completed", "2026-11-23T10:00:00+11:00")
+            ],
+        ),
+    ]
+    since = "2026-11-24T09:00:00+11:00"
+
+    def names(found):
+        return [r["item_name"] for r in found["polishing"]]
+
+    assert names(reached_in(positions, since)) == ["L1", "L2"]
+    assert names(reached_in(positions)) == ["L1", "L2", "L6"]
+
+
+def test_missing_lamellae_are_counted_from_the_session_start(server):
+    agent, _, _, _, fake = server
+    agent.get("/app/agent/review")
+    assert fake.since[-1] is not None
+
+
+def test_a_scored_item_names_a_lamella_the_experiment_has(server):
+    agent, _, recorded, *_ = server
+    refused = add(agent, title="x", score="polishing", item_name="Lamella 01 polish")
+    assert refused.status_code == 404
+    assert refused.json()["detail"]["item_names"] == ["Lamella 01", "Lamella 02"]
+    # The server fills in the ids, and the latest polishing run.
+    added = add(agent, title="x", score="polishing", item_name="Lamella 01").json()
+    assert (added["item_id"], added["item_name"], added["about"]) == (
+        "id-01",
+        "Lamella 01",
+        "Lamella 01",
+    )
+    assert (added["task_id"], added["task_name"]) == ("t-polish-1", "Polishing")
+    assert recorded[-1][1]["item_id"] == "id-01"
+    assert recorded[-1][1]["task_id"] == "t-polish-1"
+    # Grids aren't positions: sites go by about.
+    assert add(agent, title="x", score="sites", about="Grid 1").is_success
+
+
+def test_item_and_task_names_are_optional_but_checked(server):
+    agent, *_ = server
+    plain = add(agent, title="Rough mill done").json()
+    assert "item_id" not in plain
+    named = add(agent, title="Rough mill done", item_name="Lamella 02").json()
+    assert named["item_id"] == "id-02" and "task_id" not in named
+    task = add(agent, title="x", item_name="Lamella 01", task_name="polishing").json()
+    assert task["task_id"] == "t-polish-1"
+    wrong = add(agent, title="x", item_name="Lamella 01", task_name="Setup")
+    assert wrong.status_code == 404
+    assert wrong.json()["detail"]["task_names"] == ["Polishing"]
+    assert add(agent, title="x", task_name="Polishing").status_code == 422
+
+
+def test_a_scored_item_the_agent_closed_unanswered_is_a_closed_fail(server):
+    agent, _, _, _, fake = server
+    fake.reached = {"polishing": [{"item_id": "id-01", "item_name": "Lamella 01"}]}
+    add(agent, title="Polished", item_name="Lamella 01", score="polishing")
+    agent.post("/app/agent/review/r1/close", json={"reason": "Asked in the chat."})
+    polishing = agent.get("/app/agent/review").json()["counts"]["scores"]["polishing"]
+    assert polishing["failed"] == 1
+    assert polishing["closed"] == ["Lamella 01"]
+    assert polishing["missing"] == []
+
+
+def test_an_answer_kept_when_the_agent_cannot_be_told(server, monkeypatch):
+    agent, operator, _, _, fake = server
+    add(agent, title="Thinned", level="check")
+
+    def broken(text, evidence=None):
+        raise RuntimeError("no agent")
+
+    monkeypatch.setattr(fake, "message", broken)
+    answer = operator.post(
+        "/app/agent/review/r1/answer", json={"choice": "Reject", "note": "Too thick."}
+    )
+    assert answer.status_code == 200
+    assert answer.json()["told"] is False
+    assert answer.json()["state"] == "answered"
+
+
+def test_a_list_that_cannot_be_saved_refuses_and_tells_nobody(
+    server, tmp_path, monkeypatch
+):
+    agent, operator, _, _, fake = server
+    add(agent, title="Thinned", level="check")
+    blocker = tmp_path / "blocker"
+    blocker.write_text("not a folder")
+    monkeypatch.setattr(ReviewStore, "_file", lambda self, sid: blocker / "r.jsonl")
+    refused = add(agent, title="Rough mill done")
+    assert refused.status_code == 503
+    assert refused.json()["detail"]["error_type"] == "not_saved"
+    answer = operator.post(
+        "/app/agent/review/r1/answer", json={"choice": "Reject", "note": "Too thick."}
+    )
+    assert answer.status_code == 503
+    # Nothing held that the file doesn't have, and the agent wasn't told.
+    assert fake.messages == []
+    monkeypatch.undo()
+    items = agent.get("/app/agent/review").json()["items"]
+    assert [(i["id"], i["state"]) for i in items] == [("r1", "to_check")]
 
 
 def test_a_scored_item_names_what_it_scores_and_keeps_accept_or_reject(server):
     agent, *_ = server
     assert add(agent, title="x", score="speed", about="L1").status_code == 422
-    # The grid or the lamella it scores goes in about.
-    assert add(agent, title="x", score="target").status_code == 422
+    # The lamella it scores goes in item_name; the grid in about.
+    assert add(agent, title="x", score="target", about="L1").status_code == 422
+    assert add(agent, title="x", score="sites").status_code == 422
     assert (
         add(
-            agent, title="x", score="target", about="L1", options=["Good", "Bad"]
+            agent,
+            title="x",
+            score="target",
+            item_name="Lamella 01",
+            options=["Good", "Bad"],
         ).status_code
         == 422
     )

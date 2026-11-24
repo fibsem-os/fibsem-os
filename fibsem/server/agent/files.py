@@ -22,6 +22,7 @@ folder. Those are left where they are and still read as earlier sessions'
 import json
 import logging
 import os
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -39,6 +40,8 @@ PICTURES = "pictures"
 LINK = "experiment.json"
 # On the experiment's record: a session took it.
 JOINED = "agent_session_joined"
+# The record's file, in an experiment's folder and in a session's agent/ folder.
+EVENTS = "events.jsonl"
 
 
 def sessions_root() -> Path:
@@ -49,6 +52,40 @@ def sessions_root() -> Path:
 def session_folder(session_id: str) -> Path:
     """Session *session_id*'s agent/ folder, made or not."""
     return manager.session_folder(session_id, sessions_root()) / FOLDER
+
+
+def session_record_file(session_id: str) -> Path:
+    """Where session *session_id*'s own record is written, its folder made."""
+    folder = session_folder(session_id)
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder / EVENTS
+
+
+def record_files(session_id: Optional[str], experiment: Optional[str]) -> List[Path]:
+    """The files the chat and notes are read from: the session's own record
+    (with no session running, the newest one's that worked on *experiment*),
+    then *experiment*'s. Only those there."""
+    if not session_id and experiment:
+        session_id = _last_session(experiment)
+    found = [session_folder(session_id) / EVENTS] if session_id else []
+    if experiment:
+        found.append(Path(experiment) / EVENTS)
+    return [path for path in found if path.is_file()]
+
+
+# The newest session on each experiment, as last found, and when: the chat
+# reads it on every event, and finding it reads every session's link.
+LAST_KEPT_S = 30.0
+_last: Dict[str, Tuple[float, Optional[str]]] = {}
+
+
+def _last_session(experiment: str) -> Optional[str]:
+    kept = _last.get(experiment)
+    if kept is None or time.monotonic() - kept[0] > LAST_KEPT_S:
+        linked = AgentFiles(lambda: None).sessions(experiment)
+        kept = (time.monotonic(), linked[0][0] if linked else None)
+        _last[experiment] = kept
+    return kept[1]
 
 
 def _read_link(folder: Path) -> Dict[str, Any]:

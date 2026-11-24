@@ -288,7 +288,7 @@ class AgentHost:
         host's record (`fibsem.server.agent.notes`)."""
 
         held = self.buffer.events_since(0).get("events") or []
-        return latest_notes(held, self.events_file, tags, each)
+        return latest_notes(held, [self.events_file], tags, each)
 
     @property
     def following(self) -> bool:

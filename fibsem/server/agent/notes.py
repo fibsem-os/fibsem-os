@@ -62,13 +62,13 @@ def asked_tags(tags: Sequence[str]) -> List[str]:
 
 def latest_notes(
     held: Sequence[Dict[str, Any]],
-    path: Optional[Path],
+    paths: Sequence[Path],
     tags: Sequence[str],
     each: int = 1,
 ) -> Dict[str, Any]:
     """The newest *each* notes of every tag in *tags*: from *held* (the live
-    buffer, oldest first) and then the record's file at *path*, read
-    backwards. Answers ``notes`` (by tag as asked, newest first) and
+    buffer, oldest first) and then the record's files at *paths* (the agent
+    session's and the experiment's), each read backwards. Answers ``notes`` (by tag as asked, newest first) and
     ``missing``, the tags with no note on the record."""
     tags = asked_tags(tags)
     if not 1 <= each <= MAX_EACH:
@@ -77,11 +77,14 @@ def latest_notes(
     seen: set = set()
     found: Dict[str, List[Dict[str, Any]]] = {tag: [] for tag in tags}
 
+    def key_of(record: Dict[str, Any]) -> Any:
+        return record.get("id") or (record.get("timestamp"), record.get("seq"))
+
     def take(record: Dict[str, Any]) -> bool:
         tag = tag_of(record)
         if tag is None or not wanted.get(tag):
             return False
-        key = record.get("id") or (record.get("timestamp"), record.get("seq"))
+        key = key_of(record)
         if key in seen:
             return False
         seen.add(key)
@@ -92,10 +95,31 @@ def latest_notes(
     for record in reversed(list(held)):
         take(record)
     still = sum(wanted.values())
-    if still and path is not None and Path(path).is_file():
-        read_events_before(Path(path), limit=still, skip_kinds=LIVE_KINDS, keep=take)
+    earlier: List[Dict[str, Any]] = []
+    for path in paths if still else ():
+        if not Path(path).is_file():
+            continue
+        left = dict(wanted)
+
+        def keep(record: Dict[str, Any], left=left) -> bool:
+            tag = tag_of(record)
+            if tag is None or not left.get(tag) or key_of(record) in seen:
+                return False
+            left[tag] -= 1
+            earlier.append(record)
+            return True
+
+        read_events_before(Path(path), limit=still, skip_kinds=LIVE_KINDS, keep=keep)
+    # Newest first across the files, as the buffer was read.
+    for record in sorted(earlier, key=_time, reverse=True):
+        take(record)
     notes = [_row(tag, record) for tag in tags for record in found[tag]]
     return {"notes": notes, "missing": [tag for tag in tags if not found[tag]]}
+
+
+def _time(record: Dict[str, Any]) -> float:
+    stamp = record.get("timestamp")
+    return float(stamp) if isinstance(stamp, (int, float)) else 0.0
 
 
 def _row(tag: str, record: Dict[str, Any]) -> Dict[str, Any]:

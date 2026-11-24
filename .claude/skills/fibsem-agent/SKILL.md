@@ -447,7 +447,8 @@ of a `done` item with no note is kept on the list, not sent). Review ids (`r1`,
 with `review_list` (`show: waiting`) when you need it, not the whole list,
 and close an item answered in the chat or no longer needed (`review_close`). A
 task skill may ask for scored items (`score`): add each one it names, good
-or bad.
+or bad. A `not_saved` refusal means the list could not be written and the
+item was not added: tell the operator in a message, and add it again later.
 
 For a small change, don't resend the section: `plan_append` adds a line
 (a Progress line, a rule, a new box) and `plan_check_step` ticks a box by
