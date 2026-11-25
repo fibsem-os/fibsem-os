@@ -66,6 +66,7 @@ from fibsem.keystore import get_secret
 from fibsem.server import discovery
 from fibsem.server.agent.files import AgentFiles
 from fibsem.server.agent.handoff import build_agent_handoff_router
+from fibsem.server.agent.library import build_library_router
 from fibsem.server.agent.notes import latest_notes
 from fibsem.server.agent.operator import build_operator_router
 from fibsem.server.agent.plan import (
@@ -542,6 +543,9 @@ def build_agent_host(
     # The operator's side, what the Agent page does: the App Server's own
     # routes, over the host as a session (`_HostSession`).
     app.include_router(build_operator_router(AgentControl(_HostSession(host))))
+    # The playbooks, skills and subagents (the Knowledge window, and the
+    # gateway's Customise), with no app: the App Server's own routes.
+    app.include_router(build_library_router())
     if data is not None:
         _serve_data(app, host, Path(data))
     return app
