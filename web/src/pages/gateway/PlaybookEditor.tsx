@@ -746,7 +746,7 @@ function Preview({ checked }: { checked: Checked | null }) {
     return <p className="m-0 text-xs text-muted-foreground">Checking…</p>;
   if (checked.error)
     return (
-      <p className="m-0 text-[13px] text-destructive">
+      <p className="m-0 break-words text-[13px] text-destructive [overflow-wrap:anywhere]">
         It wouldn't load: {checked.error}
       </p>
     );

@@ -350,7 +350,7 @@ function ConnectorRow({
   const tools =
     c.entry.tools === "all"
       ? "every tool"
-      : `${(c.entry.tools ?? []).length} tools`;
+      : `${(c.entry.tools ?? []).length} tool${(c.entry.tools ?? []).length === 1 ? "" : "s"}`;
   return (
     <div className="flex flex-col gap-1.5 border-t border-border py-2.5 text-[13px]">
       <div className="flex flex-wrap items-center gap-2">
@@ -385,7 +385,8 @@ function ConnectorRow({
       )}
       {test.data && (
         <span className="text-xs text-muted-foreground">
-          Offers {test.data.tools.length} tools:{" "}
+          Offers {test.data.tools.length} tool
+          {test.data.tools.length === 1 ? "" : "s"}:{" "}
           {test.data.tools.join(", ") || "none"}
         </span>
       )}
