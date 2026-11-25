@@ -825,6 +825,95 @@ function AppCard({
   );
 }
 
+/** This PC's Device Server, as the gateway runs it from device-server.yaml. */
+interface DeviceServerState {
+  status: "stopped" | "starting" | "running" | "not_set_up";
+  url: string | null;
+  python: string | null;
+  since: number | null;
+  health: { program?: string; version?: string; api_version?: string } | null;
+  devices: { name: string; ok: boolean; detail: string | null }[];
+  exit_code: number | null;
+  log: string | null;
+  log_tail: string[];
+  detail: string | null;
+}
+
+/** The Device Server in one row, its devices below: shown only on a PC with
+ * a device-server.yaml. A Device Server that ends stays stopped until Start. */
+function DeviceServerCard() {
+  const client = useQueryClient();
+  const query = useQuery({
+    queryKey: ["gateway/device-server"],
+    queryFn: () => api<DeviceServerState>("/gateway/device-server"),
+    refetchInterval: 3000,
+    retry: false,
+  });
+  const act = useMutation({
+    mutationFn: (what: "start" | "stop") =>
+      api<DeviceServerState>(`/gateway/device-server/${what}`, { method: "POST" }),
+    onSuccess: (answer) => client.setQueryData(["gateway/device-server"], answer),
+  });
+  const s = query.data;
+  if (!s || s.status === "not_set_up") return null;
+  const up = s.status !== "stopped";
+  const version = s.health?.version ? ` · ${s.health.version}` : "";
+  return (
+    <Card className="flex flex-col gap-0 py-1">
+      <div className="grid grid-cols-1 items-center gap-2 py-2.5 text-[13px] sm:grid-cols-[96px_minmax(0,1fr)_auto] sm:gap-3">
+        <span className="text-muted-foreground">Devices</span>
+        <span className="flex min-w-0 items-center gap-2">
+          <Dot colour={s.status === "running" ? "ok" : up ? "warn" : "off"} />
+          <span className="min-w-0 break-words">
+            {s.status === "running"
+              ? "Device Server running"
+              : s.status === "starting"
+                ? "Device Server starting"
+                : "Device Server stopped"}
+            <span className="text-muted-foreground" title={s.python ?? ""}>
+              {s.url && ` · ${s.url}`}
+              {version}
+            </span>
+          </span>
+        </span>
+        <Button
+          variant={up ? "danger" : "default"}
+          disabled={act.isPending}
+          onClick={() => act.mutate(up ? "stop" : "start")}
+        >
+          {act.isPending ? (up ? "Stopping…" : "Starting…") : up ? "Stop" : "Start"}
+        </Button>
+      </div>
+      {s.devices.map((d) => (
+        <div
+          key={d.name}
+          className="flex items-center gap-2 border-t border-border py-2 text-[13px] sm:pl-[108px]"
+        >
+          <Dot colour={d.ok ? "ok" : "warn"} />
+          <span>{d.name}</span>
+          {d.detail && <span className="text-muted-foreground">{d.detail}</span>}
+        </div>
+      ))}
+      {(s.status !== "running" && s.detail) && (
+        <p className="m-0 border-t border-border py-2 text-[13px] text-muted-foreground">
+          {s.detail}
+          {s.exit_code != null && ` (exit ${s.exit_code})`}
+        </p>
+      )}
+      {s.status !== "running" && s.log_tail.length > 0 && (
+        <pre className="m-0 mb-2 max-h-48 overflow-auto rounded bg-muted p-2 text-xs" title={s.log ?? ""}>
+          {s.log_tail.join("\n")}
+        </pre>
+      )}
+      {act.error && (
+        <p className="m-0 pb-2 text-[13px] text-destructive">
+          {(act.error as Error).message}
+        </p>
+      )}
+    </Card>
+  );
+}
+
 /** After Stop: the page still shows, but the gateway is gone. */
 function Stopped({ at }: { at: number }) {
   return (
@@ -1043,6 +1132,7 @@ function Gateway({
                 starting={appStarting}
                 up={appUp}
               />
+              <DeviceServerCard />
               {gatewayAsk && <ConnectCard key={gatewayAsk.id} ask={gatewayAsk} />}
               <AgentCard
                 appRunning={appUp}

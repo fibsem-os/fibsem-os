@@ -28,7 +28,7 @@ from __future__ import annotations
 import logging
 import secrets
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -46,6 +46,7 @@ from fibsem.gateway.agent import (
     SessionsPage,
 )
 from fibsem.gateway.defaults import GatewayDefaults, read_defaults, save_defaults
+from fibsem.gateway.device_server import DeviceServerProcess
 from fibsem.gateway.gateway import (
     HISTORY_MAX,
     HISTORY_SHOWN,
@@ -189,6 +190,7 @@ def build_gateway_app(
     on_show: Optional[Callable[[], bool]] = None,
     defaults_file: Optional[Path] = None,
     passthrough: Optional[PassThrough] = None,
+    device_server: Optional[DeviceServerProcess] = None,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -466,6 +468,35 @@ def build_gateway_app(
             restart = bool((body or {}).get("restart", False))
             on_quit(restart)
             return {"stopping": True, "restart": restart}
+
+    if device_server is not None:
+
+        @app.get("/gateway/device-server")
+        def get_device_server(found: Caller = Depends(caller)) -> dict:
+            """This PC's Device Server (from ``device-server.yaml``): stopped,
+            starting, running or not set up, its devices and its last log
+            lines."""
+            return asdict(device_server.state())
+
+        def device_server_act(found: Caller, act: str) -> dict:
+            if not found.operator:
+                raise _refused(
+                    403, "operator_only", "Only the operator starts and stops it."
+                )
+            gateway.record_access(found.who, "page", f"{act} the Device Server")
+            done = device_server.start if act == "start" else device_server.stop
+            return asdict(done())
+
+        @app.post("/gateway/device-server/start")
+        def start_device_server(found: Caller = Depends(caller)) -> dict:
+            """Start it; a running one is left as it is. The operator only."""
+            return device_server_act(found, "start")
+
+        @app.post("/gateway/device-server/stop")
+        def stop_device_server(found: Caller = Depends(caller)) -> dict:
+            """Stop it: it switches its devices off as it ends. The operator
+            only."""
+            return device_server_act(found, "stop")
 
     @app.get("/gateway/defaults", response_model=GatewayDefaults)
     def get_defaults(found: Caller = Depends(caller)):
