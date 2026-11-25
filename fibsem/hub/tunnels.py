@@ -17,6 +17,7 @@ import socket
 import subprocess
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional
 
@@ -60,14 +61,47 @@ def _accepts(port: int) -> bool:
         return False
 
 
+# How many of ssh's last lines are kept to say why it ended.
+LAST_WORDS = 20
+
+
+def _listen(process: subprocess.Popen) -> None:
+    """Read what ssh says as it says it, keeping its last lines.
+
+    ssh writes a line each time a forward can't connect, which is every
+    read while a gateway is down. Left unread they fill the pipe and ssh
+    stops, so the tunnel hangs."""
+    said: deque = deque(maxlen=LAST_WORDS)
+    stderr = process.stderr
+
+    def read() -> None:
+        try:
+            for line in stderr:  # type: ignore[union-attr]
+                said.append(line)
+        except (OSError, ValueError):
+            pass
+        finally:
+            try:
+                stderr.close()  # type: ignore[union-attr]
+            except OSError:
+                pass
+
+    listener = threading.Thread(target=read, name="hub-ssh-said", daemon=True)
+    process.last_words = said  # type: ignore[attr-defined]
+    process.listener = listener  # type: ignore[attr-defined]
+    listener.start()
+
+
 def _spawn(command: List[str]) -> subprocess.Popen:
-    return subprocess.Popen(
+    process = subprocess.Popen(
         command,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
         text=True,
     )
+    _listen(process)
+    return process
 
 
 @dataclass
@@ -231,7 +265,12 @@ def _said(process: Optional[subprocess.Popen], destination: str) -> str:
     """Why ssh ended, in its own last words."""
     said = ""
     stderr = getattr(process, "stderr", None)
-    if stderr is not None:
+    listener = getattr(process, "listener", None)
+    if listener is not None:
+        # ssh has ended, so its last line arrives at once.
+        listener.join(timeout=1.0)
+        said = "".join(getattr(process, "last_words", ()))
+    elif stderr is not None:
         try:
             said = stderr.read() or ""
         except (OSError, ValueError):

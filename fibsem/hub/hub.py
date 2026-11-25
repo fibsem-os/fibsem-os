@@ -162,6 +162,11 @@ def _pair(url: str, code: str, name: str) -> Tuple[str, str]:
     return answer["token"], answer.get("role", "operator")
 
 
+def _address(instrument: "Instrument") -> str:
+    """Where *instrument*'s gateway is: what its token is issued for."""
+    return f"ssh:{instrument.ssh}" if instrument.ssh else f"url:{instrument.url}"
+
+
 def _slug(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "instrument"
 
@@ -263,6 +268,15 @@ class Hub:
             )
         instruments = self.instruments()
         kept = [i for i in instruments if i.name != name]
+        for other in kept:
+            # Each instrument's token is kept under its name in this form,
+            # so two names that come to the same one would share a token.
+            if _slug(other.name) == _slug(name):
+                raise GatewayRefused(
+                    409,
+                    "name_taken",
+                    f"That name is too close to {other.name}: pick another.",
+                )
         if len(kept) >= MAX_INSTRUMENTS:
             raise GatewayRefused(
                 409, "too_many", f"A hub lists up to {MAX_INSTRUMENTS} instruments."
@@ -270,6 +284,14 @@ class Hub:
         if len(kept) == len(instruments):
             kept.append(Instrument(name, url, ssh))
         else:
+            before = next(i for i in instruments if i.name == name)
+            if _address(before) != _address(Instrument(name, url, ssh)):
+                # Its token was issued at the old address, and stays there.
+                try:
+                    self._token_file(name).unlink()
+                except OSError:
+                    pass
+                log.info("%s is reached somewhere new: pair with it again.", name)
             kept = [
                 Instrument(name, url, ssh) if i.name == name else i for i in instruments
             ]
@@ -297,9 +319,16 @@ class Hub:
         return self._tokens / f"{_slug(name)}.json"
 
     def token(self, name: str) -> Optional[str]:
+        """This hub's token for *name*, while *name* is still reached where
+        the token was issued. A token is never sent anywhere else: an
+        instrument whose address changed is paired again."""
         try:
-            token = json.loads(self._token_file(name).read_text()).get("token")
+            kept = json.loads(self._token_file(name).read_text())
+            token, issued = kept.get("token"), kept.get("address")
         except (OSError, ValueError, AttributeError):
+            return None
+        now = next((_address(i) for i in self.instruments() if i.name == name), None)
+        if now is None or issued != now:
             return None
         return token if isinstance(token, str) and token else None
 
@@ -322,7 +351,16 @@ class Hub:
         # Created user-only, never readable by others even for a moment.
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w") as f:
-            json.dump({"name": name, "role": role, "token": token}, f, indent=2)
+            json.dump(
+                {
+                    "name": name,
+                    "role": role,
+                    "address": _address(instrument),
+                    "token": token,
+                },
+                f,
+                indent=2,
+            )
         os.chmod(path, 0o600)
         log.info("The hub paired with %s as %s.", name, role)
         self._check_one(instrument)
@@ -392,19 +430,7 @@ class Hub:
             elif token is None:
                 found.why = "Pair this hub with its gateway to read it."
             else:
-                status, gateway = self._fetch(url, "/gateway", token, TIMEOUT_S)
-                if status == 200 and isinstance(gateway, dict):
-                    found.gateway = {
-                        key: gateway.get(key)
-                        for key in _GATEWAY_KEYS
-                        if gateway.get(key) is not None
-                    }
-                    found.agent = self._agent(url, token)
-                    found.health = _health(gateway.get("health"))
-                elif status in (401, 403):
-                    found.why = "Its gateway no longer knows this hub: pair again."
-                else:
-                    found.why = f"Its gateway answered {status}."
+                self._read_gateway(found, url, token)
         except TunnelDown as down:
             found.reachable = False
             found.why = str(down)
@@ -417,6 +443,32 @@ class Hub:
             same = before is not None and before.reachable == found.reachable
             found.since = before.since if same and before is not None else now
             self._read[instrument.name] = found
+
+    def _read_gateway(self, found: InstrumentState, url: str, token: str) -> None:
+        """What a gateway that answered says of itself and of its agent.
+        Each read fails by itself: a slow one never makes an instrument
+        that answered show as unreachable."""
+        try:
+            status, gateway = self._fetch(url, "/gateway", token, TIMEOUT_S)
+        except OSError as error:
+            found.why = f"Its gateway answered, then its state didn't: {error}"
+            return
+        if status in (401, 403):
+            found.why = "Its gateway no longer knows this hub: pair again."
+            return
+        if status != 200 or not isinstance(gateway, dict):
+            found.why = f"Its gateway answered {status}."
+            return
+        found.gateway = {
+            key: gateway.get(key)
+            for key in _GATEWAY_KEYS
+            if gateway.get(key) is not None
+        }
+        found.health = _health(gateway.get("health"))
+        try:
+            found.agent = self._agent(url, token)
+        except OSError as error:
+            found.why = f"Its agent's state didn't answer: {error}"
 
     def _agent(self, url: str, token: str) -> Optional[Dict[str, Any]]:
         status, agent = self._fetch(url, "/gateway/agent", token, TIMEOUT_S)

@@ -465,3 +465,91 @@ def test_without_ssh_installed_the_tunnel_says_so():
 def test_the_tunnel_command_only_forwards(ssh):
     tunnel = ssh.tunnels.ensure("Scope 1", "user@scope-1")
     assert command(tunnel)[:2] == ["ssh", "-N"]
+
+
+def test_two_names_that_would_share_a_token_file_are_refused(hub):
+    hub.add("Scope 1", URL)
+    with pytest.raises(GatewayRefused) as refused:
+        hub.add("scope-1", "http://scope-2:8010")
+    assert refused.value.error_type == "name_taken"
+    assert [i.name for i in hub.instruments()] == ["Scope 1"]
+
+
+def test_a_token_is_never_sent_to_a_new_address(hub, instruments, tmp_path):
+    hub.add("Scope 1", URL)
+    hub.pair("Scope 1", instruments.auth.pairing.open(role=HUB))
+    assert hub.token("Scope 1") is not None
+    sent = []
+    fetch = hub._fetch
+    hub._fetch = lambda url, route, token, timeout: (
+        sent.append((url, token)) or fetch(url, route, token, timeout)
+    )
+    instruments.up.add("http://elsewhere:8010")
+    (row,) = hub.add("Scope 1", "http://elsewhere:8010").instruments
+    assert not row.paired and hub.token("Scope 1") is None
+    assert not (tmp_path / "hub" / "scope-1.json").exists()
+    hub.check()
+    assert sent and all(token is None for _, token in sent)
+    assert "Pair this hub" in hub.state().instruments[0].why
+
+
+def test_a_token_kept_for_another_address_is_not_used(hub, instruments, tmp_path):
+    hub.add("Scope 1", URL)
+    hub.pair("Scope 1", instruments.auth.pairing.open(role=HUB))
+    kept = tmp_path / "hub" / "scope-1.json"
+    saved = json.loads(kept.read_text())
+    assert saved["address"] == f"url:{URL}"
+    saved["address"] = "url:http://elsewhere:8010"
+    kept.write_text(json.dumps(saved))
+    assert hub.token("Scope 1") is None
+    saved.pop("address")
+    kept.write_text(json.dumps(saved))
+    assert hub.token("Scope 1") is None
+
+
+def test_a_slow_agent_read_leaves_the_instrument_reachable(hub, instruments):
+    hub.add("Scope 1", URL)
+    hub.pair("Scope 1", instruments.auth.pairing.open(role=HUB))
+    fetch = hub._fetch
+
+    def slow(url, route, token, timeout):
+        if route == "/gateway/agent":
+            raise OSError("timed out")
+        return fetch(url, route, token, timeout)
+
+    hub._fetch = slow
+    hub.check()
+    (row,) = hub.state().instruments
+    assert row.reachable is True and row.gateway["version"] == "1.2.3"
+    assert row.agent is None and "agent" in row.why
+
+
+def test_a_slow_state_read_leaves_the_instrument_reachable(hub, instruments):
+    hub.add("Scope 1", URL)
+    hub.pair("Scope 1", instruments.auth.pairing.open(role=HUB))
+    fetch = hub._fetch
+
+    def slow(url, route, token, timeout):
+        if route == "/gateway":
+            raise OSError("timed out")
+        return fetch(url, route, token, timeout)
+
+    hub._fetch = slow
+    hub.check()
+    (row,) = hub.state().instruments
+    assert row.reachable is True and row.gateway is None and row.why
+
+
+def test_what_ssh_says_is_read_as_it_says_it():
+    """A real process that writes far more than a pipe holds, then ends."""
+    import sys
+
+    from fibsem.hub.tunnels import LAST_WORDS, _said, _spawn
+
+    chatter = "import sys\nfor i in range(20000):\n    sys.stderr.write('channel %d: open failed' % i + chr(10))\nsys.stderr.write('Permission denied (publickey).' + chr(10))\nsys.exit(255)\n"
+    process = _spawn([sys.executable, "-c", chatter])
+    assert process.wait(timeout=30) == 255
+    assert _said(process, "user@host") == (
+        "ssh to user@host failed: Permission denied (publickey)."
+    )
+    assert len(process.last_words) == LAST_WORDS

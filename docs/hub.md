@@ -45,4 +45,10 @@ To add an instrument, pair the hub with its gateway: on the microscope PC run
 `~/.fibsem/hub/`. Every 5 seconds it reads from each gateway whether it answers, what it runs,
 whether an agent runs there, and how its App Server and microscope are (the gateway's own
 [health](gateway.md#health): a status, why, and since when). Whether the PC answers at all is
-the hub's own to say; everything else is as the gateway reports it.
+the hub's own to say; everything else is as the gateway reports it. A slow answer about the
+agent or the state never makes an instrument that answered show as unreachable.
+
+A token is kept with the address it was issued for, and is never sent anywhere else. If you
+change where an instrument is reached, the hub drops its token: pair the hub with it again.
+Two names that differ only in case, spaces or punctuation (`Scope 1`, `scope-1`) are refused,
+because they would share one token file.
