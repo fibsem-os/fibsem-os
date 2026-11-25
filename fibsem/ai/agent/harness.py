@@ -184,7 +184,8 @@ TRANSCRIPT_KEEP = 2000
 TRANSCRIPT_TEXT = 2000
 # A step's failed line when its run ended before it answered.
 STEP_ENDED = "Ended without an answer: the run stopped."
-# A lab tool's pictures on the transcript (`_show_pictures`): at most this many
+# A lab tool's pictures on the transcript, and a subagent's
+# (`_show_pictures`): at most this many
 # from one result, this many waiting to be sent, and this big (base64, under
 # the server's 5 MB). A send carries one picture at most.
 PICTURES_PER_RESULT = 4
@@ -2748,8 +2749,9 @@ def _images(content) -> List[tuple]:
 
 
 def _show_pictures(agent, content, step: int) -> None:
-    """The pictures a lab tool answered with, on the transcript under its
-    step, so the web page shows what the agent saw. At most
+    """The pictures a lab tool, or any tool in a subagent's run, answered
+    with, on the transcript under its step, so the web page shows what the
+    agent saw. At most
     `PICTURES_WAITING` wait to be sent; one past that is left off."""
     for media_type, data in _images(content)[:PICTURES_PER_RESULT]:
         waiting = sum(
@@ -2943,7 +2945,9 @@ def _show(message, agent: SdkAgent) -> None:
                     answer, verdict = _answer(block.content)
                     answer = _clip(answer, SUBAGENT_ANSWER)
                 _line(agent, "done", answer, step=seq, took_s=took, **run, **verdict)
-                if _lab_tool(name):
+                # A lab tool's pictures, and every picture a subagent saw: its
+                # run shows what it looked at, as the agent's messages do.
+                if _lab_tool(name) or run:
                     _show_pictures(agent, block.content, seq)
             runs = getattr(agent, "runs_started", None)
             if runs is not None and not block.is_error:

@@ -2663,6 +2663,47 @@ def test_a_lab_tool_s_picture_goes_on_the_transcript_under_its_step():
     assert sum(line["kind"] == "picture" for line in sent) == 1
 
 
+def test_every_picture_a_subagent_saw_goes_on_its_run():
+    """A subagent's run shows what it looked at: our own tools' pictures too,
+    under its step, where the agent's own show none."""
+    pytest.importorskip("claude_agent_sdk")
+    from claude_agent_sdk import (
+        AssistantMessage,
+        ToolResultBlock,
+        ToolUseBlock,
+        UserMessage,
+    )
+
+    from fibsem.ai.agent.harness import SdkAgent, _show
+
+    agent = SdkAgent(harness_mod.build_options(harness_mod.find_checkout()))
+    image = {"type": "image", "data": "/9j/", "mimeType": "image/jpeg"}
+    asked = {"subagent_type": "fibsem-worker", "description": "Find sites"}
+    _show(
+        AssistantMessage(content=[ToolUseBlock("a1", "Agent", asked)], model="m"),
+        agent,
+    )
+    _show(
+        AssistantMessage(
+            content=[ToolUseBlock("c1", "mcp__fibsem__analysis_crop_image", {})],
+            model="m",
+            parent_tool_use_id="a1",
+        ),
+        agent,
+    )
+    result = [{"type": "text", "text": "{}"}, image]
+    _show(
+        UserMessage(
+            content=[ToolResultBlock("c1", result, False)], parent_tool_use_id="a1"
+        ),
+        agent,
+    )
+    call, crop, done, picture = agent.transcript
+    assert crop["run"] == call["seq"]
+    assert picture["kind"] == "picture" and picture["step"] == crop["seq"]
+    assert (picture["media_type"], picture["image"]) == ("image/jpeg", "/9j/")
+
+
 # --- what wakes the agent (wake_on) ---------------------------------------------
 
 
