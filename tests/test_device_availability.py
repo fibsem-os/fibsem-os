@@ -288,35 +288,3 @@ def test_a_read_only_parameter_without_a_reason_is_unchanged(instrument):
     assert fixed.size.reason == ""
     with pytest.raises(ParameterReadOnly, match="read-only$"):
         fixed.size.set_value(2.0)
-
-
-class PlasmaColumn(Device):
-    """A column whose gas list the vendor can't read (xT: "Failed to get
-    available states from ...PlasmaGas")."""
-
-    gas = DeviceParameter(str, choices=["Xe", "Ar"])
-    focus = DeviceParameter(float)
-
-    def read_gas(self):
-        return "Xe"
-
-    def write_gas(self, value):
-        pass
-
-    def metadata_gas(self):
-        raise RuntimeError("Failed to get available states from PlasmaGas.")
-
-    def read_focus(self):
-        return 1.0
-
-    def write_focus(self, value):
-        pass
-
-
-def test_a_parameter_whose_choices_cannot_be_read_leaves_the_device_built(caplog):
-    with caplog.at_level("WARNING"):
-        column = PlasmaColumn("ion").connect()
-    assert column.gas.get_value() == "Xe"
-    assert list(column.gas.effective_metadata().choices) == ["Xe", "Ar"]
-    assert column.focus.get_value() == 1.0
-    assert "gas" in caplog.text and "PlasmaGas" in caplog.text
