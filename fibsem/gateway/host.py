@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional
 
+from fibsem.gateway import child_secrets
 from fibsem.gateway.gateway import GatewayRefused
 from fibsem.server.discovery import read_discovery_file
 from fibsem.server.operator_token import read_operator_token
@@ -26,7 +27,10 @@ def call_host(
             method,
             f"{url}{route}",
             json=body,
-            headers={"Authorization": f"Bearer {token}"} if token else {},
+            headers={
+                **({"Authorization": f"Bearer {token}"} if token else {}),
+                **child_secrets.headers(url),
+            },
             timeout=timeout,
         )
     except httpx.HTTPError as error:
