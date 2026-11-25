@@ -174,8 +174,10 @@ reminders and rules.
 
 Start needs:
 
-- **The app running**, with its window or without. The agent acts through it. A microscope
-  needn't be connected: without one the agent can still read and review an experiment.
+- **The app running**, with its window or without, for the agent to act on the microscope.
+  A microscope needn't be connected: without one the agent can still read and review an
+  experiment. With no app, Start runs the agent on the gateway's agent host (below): it can
+  talk, plan and keep its review list, and reaches the microscope once the app runs.
 - **An API key**, stored once with `fibsem-cli key set ANTHROPIC_API_KEY` (see below).
 - **A playbook that doesn't run code.** Windows has no sandbox for the agent's code.
 
@@ -200,14 +202,18 @@ app or has restarted.
 - **End** asks first, then stops the agent and keeps the app, back at Watch. The app goes
   back to Watch whenever the gateway's agent ends: End, replaced by an **Allow**, or
   restarts used up. The session keeps the level you last set, for its Resume.
-- **Start with no app running** makes the session and leaves the agent waiting; it starts,
-  at the level you picked, once the app answers.
-- **Stopping the app** from the gateway (Stop or a new start) stops the agent first and leaves
-  it waiting, still paired: it carries on, at the level you last set, once the next app
-  answers, never on the app being stopped. A new start of another app or experiment ends it
-  instead (the gateway compares the app and experiment it started; one opened by hand in the
-  app isn't seen). End ends it. Quit leaves it for Resume, as above; a start still waiting
-  for its app ends, since it never ran.
+- **Start with no app running** starts the agent at once on the agent host, at the level you
+  picked. When the app answers, the agent's calls go to it and the gateway sets the app to
+  the level the agent runs at; nothing restarts. Resume works with no app the same way.
+- **Stopping the app** from the gateway (Stop or a new start) leaves the agent running on the
+  agent host, still paired, at the level you last set. When the same app and experiment
+  answer again, it carries on there. A new start of another app or experiment ends it
+  (the gateway compares the app and experiment it started; one opened by hand in the app
+  isn't seen). End ends it. Quit leaves it for Resume, as above.
+- **With no agent host** (it couldn't start), Start with no app leaves the agent waiting, and
+  it starts once the app answers; stopping the app stops the agent first and leaves it
+  waiting, carrying on once the next app answers, never on the app being stopped. A start
+  still waiting for its app ends on Quit, since it never ran.
 
 The page has **End** while one runs. A hub with "may start and stop apps" can start and
 end the agent too. Each session's record and log are in
@@ -239,8 +245,17 @@ refused, and websockets (which the gateway doesn't pass on yet) aren't checked. 
 running as this user can read the file, so the secret guards against a mistake (an old
 address or token), not against a program set on getting around the gateway.
 
+The gateway runs `fibsem-agent-host` itself, with no window, from its start until it closes,
+and starts it again if it ends (its log is in `~/.fibsem/logs/gateway/agent-host-*.log`). A
+host already started by hand is used as it is and never stopped by the gateway. The host
+serves the agent's own routes: its events, session, plan, transcript, messages, level and
+Stop. While no App Server runs the gateway passes calls to it, so the gateway's agent, and the
+Agent page, work with no app; a call only the app serves (the microscope's, a workflow's) is
+answered 503 `no_app`. The host keeps its own level, which the gateway sets as it does the
+App Server's.
+
 An agent with no App Server (no instrument, or an instrument served by something else) runs
-against `fibsem-agent-host`. It sits behind the gateway the same way: it serves no pages and
+against the same host. It sits behind the gateway the same way: it serves no pages and
 pairs nothing, checks tokens against the gateway's `paired.json`, and the gateway passes calls
 to it while no App Server runs. `fibsem-agent --host` asks to connect at the gateway, and the
 operator allows it on the gateway's Agent page. Agents allowed on a host before this have to

@@ -254,3 +254,49 @@ def test_a_call_that_says_how_long_it_waits_is_waited_for(tmp_path):
     }
     assert _read_s(httpx.Timeout(10.0, read=400.0)) == 400.0
     assert _read_s(None) is None
+
+
+def test_with_no_app_the_agent_hosts_routes_go_to_it(tmp_path):
+    """While no App Server runs, the agent host answers its own routes; one
+    only the app has is the gateway's no_app, not the host's 404, and the
+    App Server's secret never goes to the host."""
+    import json
+
+    seen = []
+
+    def reply(status, body):
+        return httpx.Response(
+            status,
+            headers={"content-type": "application/json"},
+            stream=httpx.ByteStream(json.dumps(body).encode()),
+        )
+
+    def host(request):
+        seen.append((request.url.host, request.headers.get("x-fibsem-gateway")))
+        if request.url.path == "/app/agent/plan":
+            return reply(200, {"plan": "yes"})
+        if request.url.path == "/app/agent/missing":
+            return reply(404, {"detail": {"error_type": "no_plan", "message": "x"}})
+        return reply(404, {"detail": "Not Found"})
+
+    app = {"url": None}
+    passthrough = PassThrough(
+        lambda: app["url"],
+        transport=httpx.MockTransport(host),
+        secret=lambda: "app-secret",
+        host=lambda: "http://host.test",
+    )
+    through = TestClient(_gateway_app(tmp_path, None, passthrough))
+    assert through.get("/app/agent/plan", headers=_as(AGENT)).json() == {"plan": "yes"}
+    answer = through.get("/microscope/connection", headers=_as(AGENT))
+    assert answer.status_code == 503
+    assert answer.json()["detail"]["error_type"] == "no_app"
+    # The host's own refusals come through as it made them.
+    answer = through.get("/app/agent/missing", headers=_as(AGENT))
+    assert answer.status_code == 404
+    assert answer.json()["detail"]["error_type"] == "no_plan"
+    assert {secret for _, secret in seen} == {None}
+    # With the app running again, its calls go to it.
+    app["url"] = "http://app.test"
+    through.get("/app/agent/plan", headers=_as(AGENT))
+    assert seen[-1] == ("app.test", "app-secret")

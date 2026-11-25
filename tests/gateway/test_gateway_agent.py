@@ -27,6 +27,7 @@ from fibsem.server.pairing import AGENT, PairedTokens
 ROOT = Path(__file__).resolve().parents[2]
 STAND_IN = ROOT / "tests" / "agent" / "stand_in.py"
 URL = "http://127.0.0.1:8001"
+HOST_URL = "http://127.0.0.1:8030"
 DEFAULT = {"playbook": {"name": "default"}, "mode": "none", "model": None}
 
 
@@ -51,6 +52,17 @@ class FakeGateway:
             hook()
         self.stopped.append((who, via, force))
         self.mode = OFF
+
+
+class Host:
+    """The agent host the gateway runs, as its discovery file says."""
+
+    def __init__(self, up=True):
+        self.up = up
+        self.pid = 50
+
+    def discovery(self):
+        return {"url": HOST_URL, "pid": self.pid} if self.up else None
 
 
 class App:
@@ -90,9 +102,11 @@ def made(tmp_path, monkeypatch):
         key="sk-test",
         stored=None,
         own_url=None,
+        host=None,
     ):
         gateway = gateway or FakeGateway()
         app = app or App()
+        host = host or Host(up=False)
         configs = configs if configs is not None else {"default": DEFAULT}
 
         def configuration(name):
@@ -108,7 +122,7 @@ def made(tmp_path, monkeypatch):
             end_wait_s=5.0,
             discovery=app.discovery,
             level=app.level,
-            reachable=lambda url: app.up,
+            reachable=lambda url: host.up if url == HOST_URL else app.up,
             last_heard=app.heard,
             playbooks=lambda: [{"name": name} for name in configs],
             configuration=configuration,
@@ -117,6 +131,7 @@ def made(tmp_path, monkeypatch):
             platform=platform,
             microscope="arctis-pc",
             own_url=own_url,
+            host=host.discovery,
         )
         built.append(agent)
         return agent, gateway, app
@@ -1019,3 +1034,107 @@ def test_a_new_gateway_frees_a_slot_and_pairing_nothing_carries_on(made, tmp_pat
     again, _, _ = made()
     assert again.slot.read()["state"] == "ended"
     assert PairedTokens(tmp_path / "paired.json").agent() is None
+
+
+# -- the agent host: the agent works with no app ----------------------------
+
+
+def _levels_on(app, monkeypatch, level):
+    monkeypatch.setattr(
+        "fibsem.gateway.agent.call_host", lambda url, method, path: {"level": level}
+    )
+
+
+def test_start_with_no_app_runs_on_the_agent_host_and_moves_to_the_app(
+    made, tmp_path, monkeypatch
+):
+    app, host = App(), Host()
+    app.up = False
+    gateway = FakeGateway(OFF)
+    agent, _, _ = made(
+        gateway=gateway, app=app, host=host, own_url="http://127.0.0.1:8010"
+    )
+    state = agent.start("default", "Plan the run", "assist", "operator", "page")
+    # It runs at once, through the gateway, which passes its calls to the host.
+    assert state.running["state"] == "running"
+    assert state.agent_host
+    assert app.levels == [(HOST_URL, "assist")]
+    assert until(lambda: _record(tmp_path).get("args"), agent)
+    assert _record(tmp_path)["args"][-2:] == ["--url", "http://127.0.0.1:8010"]
+    # The app answers: it gets the level the agent runs at, and nothing restarts.
+    _levels_on(app, monkeypatch, "assist")
+    app.up, app.pid, gateway.mode = True, 2, RUNNING
+    agent._follow_level()
+    assert app.levels == [(HOST_URL, "assist"), (URL, "assist")]
+    assert len(_record(tmp_path)["runs"]) == 1
+    agent.end("operator", "page")
+
+
+def test_stopping_the_app_moves_a_running_agent_to_the_agent_host(
+    made, tmp_path, monkeypatch
+):
+    host = Host()
+    agent, gateway, app = made(host=host, own_url="http://127.0.0.1:8010")
+    agent.start("default", None, "drive", "operator", "page")
+    assert until(lambda: _record(tmp_path).get("runs"))
+    _levels_on(app, monkeypatch, "drive")
+    gateway.stop("operator", "page")
+    # Not parked: it carries on, and its calls go to the host once the app is gone.
+    assert agent.state().running["state"] == "running"
+    app.up = False
+    agent._level_read = float("-inf")
+    agent._follow_level()
+    assert app.levels == [(URL, "drive"), (HOST_URL, "drive")]
+    agent._unpark()
+    # The same app and experiment again: it carries on there.
+    app.up, app.pid, gateway.mode = True, 2, RUNNING
+    agent._unpark()
+    agent._level_read = float("-inf")
+    agent._follow_level()
+    assert agent.state().running["state"] == "running"
+    assert app.levels[-1] == (URL, "drive")
+    assert len(_record(tmp_path)["runs"]) == 1
+    agent.end("operator", "page")
+
+
+def test_an_agent_on_the_host_ends_when_the_next_app_opens_another_experiment(
+    made, tmp_path
+):
+    agent, gateway, app = made(host=Host(), own_url="http://127.0.0.1:8010")
+    agent.start("default", None, "watch", "operator", "page")
+    assert until(lambda: _record(tmp_path).get("runs"))
+    gateway.stop("operator", "page")
+    app.up = False
+    agent._unpark()
+    assert agent.state().running["state"] == "running"
+    gateway.experiment = "another"
+    app.up, app.pid = True, 2
+    agent._unpark()
+    assert agent.state().running is None
+    assert PairedTokens(tmp_path / "paired.json").agent() is None
+
+
+def test_resume_with_no_app_runs_on_the_agent_host(made, tmp_path):
+    app, host = App(), Host()
+    agent, gateway, _ = made(app=app, host=host, own_url="http://127.0.0.1:8010")
+    agent.start("default", None, "assist", "operator", "page")
+    assert until(lambda: _record(tmp_path).get("runs"))
+    session_id = agent._manager.agent(agent.microscope).session_id
+    agent.end("operator", "page")
+    app.up, gateway.mode = False, OFF
+    state = agent.resume(session_id, "assist", "operator", "page")
+    assert state.running["state"] == "running"
+    assert app.levels[-1] == (HOST_URL, "assist")
+    agent.end("operator", "page")
+
+
+def test_with_no_app_and_no_agent_host_start_still_waits(made):
+    app = App()
+    app.up = False
+    agent, _, _ = made(
+        gateway=FakeGateway(OFF), app=app, own_url="http://127.0.0.1:8010"
+    )
+    state = agent.start("default", None, "watch", "operator", "page")
+    assert state.running["state"] == "waiting"
+    assert not state.agent_host
+    agent.end("operator", "page")

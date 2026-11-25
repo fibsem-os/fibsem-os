@@ -767,3 +767,16 @@ def test_secrets_say_where_a_key_is_never_what(with_defaults, monkeypatch):
         "source": None,
     }
     assert client.get("/gateway/secrets").status_code == 401
+
+
+def test_the_agent_page_opens_with_no_app_while_the_agent_host_runs():
+    from fibsem.gateway.gateway import GatewayRefused
+
+    microscope = HostMicroscope(
+        discovery=lambda: None,
+        token=lambda: "op",
+        agent_host=lambda: {"url": "http://127.0.0.1:8030", "pid": 5},
+    )
+    assert microscope.agent_page() == "/ui/agent#token=op"
+    with pytest.raises(GatewayRefused):
+        HostMicroscope(discovery=lambda: None, token=lambda: "op").agent_page()

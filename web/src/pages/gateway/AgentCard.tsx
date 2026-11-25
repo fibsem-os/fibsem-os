@@ -61,6 +61,8 @@ export interface AgentState {
   microscope: string;
   // Who holds the instrument's one agent slot, as the gateway wrote it down.
   slot?: Slot;
+  // Whether the gateway's agent host runs: the agent works with no app.
+  agent_host?: boolean;
 }
 
 export interface Slot {
@@ -258,8 +260,10 @@ export function notReady(
   appRunning: boolean,
   appStarting?: boolean,
 ): string | null {
-  if (appStarting) return "Waiting for the app to start…";
-  if (!appRunning) return "Start the app first: the agent acts through it.";
+  if (!state?.agent_host) {
+    if (appStarting) return "Waiting for the app to start…";
+    if (!appRunning) return "Start the app first: the agent acts through it.";
+  }
   if (!state?.api_key) return "No API key on this PC.";
   return null;
 }
@@ -436,7 +440,12 @@ function Start({
             </p>
           )}
           <div className="flex flex-wrap items-center justify-end gap-2.5">
-            {appStarting || !appRunning ? (
+            {(appStarting || !appRunning) && state.agent_host ? (
+              <span className="text-xs text-muted-foreground">
+                With no app, the agent can talk, plan and review; it reaches
+                the microscope once the app runs.
+              </span>
+            ) : appStarting || !appRunning ? (
               <span className="text-xs text-muted-foreground">
                 The agent waits for the app, and starts once it answers.
               </span>
@@ -472,7 +481,7 @@ function Start({
 
 /** The running agent in one line, with the app's Agent page for the rest:
  * what it is doing, and its questions, live there. */
-function Run({ running }: { running: Running }) {
+function Run({ running, noApp }: { running: Running; noApp?: boolean }) {
   const client = useQueryClient();
   // The app's own Agent page, signed in as the operator; absent while it is away.
   const page = useQuery({
@@ -515,6 +524,12 @@ function Run({ running }: { running: Running }) {
         <p className="m-0 text-[13px] text-[var(--fibsem-semantic-warning-color)]">
           Waiting for the app: it carries on
           {running.level ? ` at ${title(running.level)}` : ""} once the app answers.
+        </p>
+      )}
+      {running.state === "running" && noApp && (
+        <p className="m-0 text-[13px] text-muted-foreground">
+          No app running: the agent can talk, plan and review, and reaches the
+          microscope once the app runs.
         </p>
       )}
       {lastRestart && (
@@ -697,7 +712,10 @@ export function AgentCard({
       )}
       {state &&
         (state.running ? (
-          <Run running={state.running} />
+          <Run
+            running={state.running}
+            noApp={!appRunning || appStarting}
+          />
         ) : (
           <>
             <Start

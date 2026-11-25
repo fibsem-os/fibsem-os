@@ -645,7 +645,36 @@ def serve(
     return 0
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def _run_until(stop: threading.Event) -> Callable[..., None]:
+    """A *run* for `serve` that ends once *stop* is set."""
+
+    def run(app: FastAPI, host: str, port: int, log_level: str) -> None:
+        import uvicorn
+
+        server = uvicorn.Server(
+            uvicorn.Config(app, host=host, port=port, log_level=log_level)
+        )
+
+        def ending() -> None:
+            stop.wait()
+            server.should_exit = True
+
+        threading.Thread(target=ending, name="agent-host-stop", daemon=True).start()
+        server.run()
+
+    return run
+
+
+def serve_for_gateway(argv: List[str], stop: threading.Event) -> int:
+    """The host as the gateway runs it (`fibsem.gateway.agent_host`, through
+    ``fibsem.gateway.child``): ``fibsem-agent-host`` with *argv*, until
+    *stop* is set."""
+    return main(argv, run=_run_until(stop))
+
+
+def main(
+    argv: Optional[List[str]] = None, run: Optional[Callable[..., None]] = None
+) -> int:
     """``fibsem-agent-host``: serve the agent host on this PC."""
     import argparse
 
@@ -733,6 +762,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         args.bind,
         args.port,
         discover=discovery.HOST_DISCOVERY_FILE if own else None,
+        run=run,
         open_page=args.open,
     )
 
