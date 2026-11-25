@@ -1,4 +1,4 @@
-<!-- The harness prompt for a playbook with no instrument (`instrument:
+<!-- fibsem-agent's prompt for a playbook with no instrument (`instrument:
 none`), added to the CLI's own. {tools} is what the session's mode gives the
 agent; {deadline_warn_min} is the playbook's. -->
 

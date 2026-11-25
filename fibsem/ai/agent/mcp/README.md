@@ -134,8 +134,8 @@ fibsem-agent
 - **The level decides.** The agent works by the skill for its level
   (observe at Watch, assist at Assist, supervise at Drive), and the watcher
   prints a `LEVEL` line when the operator changes it. The level is set from
-  the Agent chip, the server still refuses what it doesn't allow, and the
-  harness never sets it.
+  the Agent chip, the server still refuses what it doesn't allow, and
+  fibsem-agent never sets it.
 - **Tools.** The `mcp__fibsem__*` tools run without a prompt, since the
   server decides what they may do. The agent also has the Skill tool,
   ToolSearch to find the fibsem tools, the Agent tool for the checkout's
@@ -191,7 +191,7 @@ fibsem-agent
   token in at registration; in cmd use double quotes.
 
   A tool needs the agent at Drive unless it is marked `watch` (`- search:
-  watch`), or its server is (`level: watch`); below that the harness refuses
+  watch`), or its server is (`level: watch`); below that fibsem-agent refuses
   it. The agent never sees a tool the server offers that isn't listed. With
   `tools: all`, every tool the server offers is allowed, at the server's
   level, including tools it adds later.
@@ -242,7 +242,7 @@ fibsem-agent
   variable, else the one `fibsem-cli key set ANTHROPIC_API_KEY` stored in
   Windows Credential Manager or the macOS Keychain. Or configure Amazon Bedrock or Google Vertex as the Agent SDK
   documents. Not a claude.ai login: products built on the Agent SDK use API
-  keys. If the model refuses the sign-in, the harness stops with exit code 1
+  keys. If the model refuses the sign-in, fibsem-agent stops with exit code 1
   rather than wait. Its log never shows a bearer token or an API key.
 - **Instructions.** It reads its skills and nothing else: not the
   checkout's `CLAUDE.md` (developer guidance) and not Claude Code's auto memory.
@@ -261,7 +261,7 @@ fibsem-agent
   (`experiment_add_note`).
 - **Waking.** Lines are held while the level is Off, and come as one turn
   once it is back; started at Off, the agent's first turn waits for it too. A `GAP`, a restart or the level coming back tells the
-  agent to re-read the status. If the app can't be watched, the harness waits
+  agent to re-read the status. If the app can't be watched, fibsem-agent waits
   up to `--server-wait` seconds (default 600) for it to answer again, then
   stops with exit code 1.
 - **Playbooks.** `--playbook NAME` starts the session on `NAME.yaml` from the
@@ -291,7 +291,7 @@ fibsem-agent
   `wake_on_drive: all`); the agent changes it with the `wake_on` tool, and
   its choice holds across level changes and a resume. The agent's transcript
   says each change and each digest ("Woke with 7 held line(s), ..."), and the
-  harness log has every held line. A long command's end the agent already
+  fibsem-agent log has every held line. A long command's end the agent already
   read with `service_wait_for_run` never wakes it, under any policy. To turn
   holding off, set `wake_on_watch: all` in a lab playbook, or ask the agent
   to call `wake_on` with mode `all`.
@@ -318,7 +318,7 @@ fibsem-agent
   tool calls in one wake-up; the next wake-up starts a fresh count.
   `--max-budget-usd` (default: the playbook's, 500 as shipped) caps what one
   run of `fibsem-agent` spends, and reaching it
-  stops the harness with exit code 2. `--model` picks the model.
+  stops fibsem-agent with exit code 2. `--model` picks the model.
   The SDK compacts a long session's context by itself, and the log says when.
 - **Stopping and resuming.** Ctrl-C interrupts the agent's turn and ends the
   session cleanly; a second Ctrl-C ends it at once. The log names the session

@@ -271,7 +271,7 @@ failed run, task, mill or command, and a milling monitor's trigger. The next tur
 then may still have finished: read where things stand before you act, and
 never repeat a relative move without checking.
 
-A turn ends with a short "Where you are" block, read by the harness as it
+A turn ends with a short "Where you are" block, read by fibsem-agent as it
 wakes you, whenever it changed since the last one: your plan's steps done,
 the step you are on and the next, the workflow while it runs, and what
 waits on the operator (review items, requests, proposals). It is read from the App Server, not written by you: keep the
@@ -474,7 +474,7 @@ a long session costs more than the last, and an automatic compaction keeps
 only a summary. Under fibsem-agent, `context_reset` starts a fresh context of
 the same session (same chat, budget, plan and experiment) when your turn
 ends, from your skills, the plan and a handoff note you write. At a
-natural point past the playbook's suggestion (300k by default) the harness
+natural point past the playbook's suggestion (300k by default) fibsem-agent
 says once that you may reset there; whether to is yours. Past its ceiling
 (500k) a reset is due: you are asked at each natural point until you do, and
 you may put it off with one line saying what is in flight, until the ask
@@ -487,7 +487,7 @@ while a decision waits on the operator's answer. The operator may also ask for
 one. First bring the plan up to date (Steps ticked, Progress written, every
 rule in Rules), then write the note for an agent who knows the skills but
 nothing of today: what is in flight and what it means, the next steps
-concretely, and what the record doesn't hold. The harness adds what it can
+concretely, and what the record doesn't hold. fibsem-agent adds what it can
 read itself to the end of the note (the workflow and its task, proposals
 waiting, your pending requests, long commands you started, your wake-up, the
 budget) with their ids, so don't copy those. A figure in it says where it
