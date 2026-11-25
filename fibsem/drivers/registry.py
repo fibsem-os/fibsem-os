@@ -99,6 +99,14 @@ class DriverEntry:
     interface class from the remote driver (``RemoteScanner``), which has only the
     interface's parameters. See ``fibsem.drivers.remote.devices.remote_class``."""
 
+    services: Mapping[str, "ServiceBuilder"] = field(default_factory=dict)
+    """The services this driver builds over its own devices, by the name each is
+    served under: work that uses only this driver's devices, run next to them (a
+    scan, an approach). A Device Server serves them under ``/services`` beside the
+    devices, and the App Server that connects to it uses them as its own. Work that
+    needs another computer's devices, or the instrument's lock, is the microscope's
+    service instead. See :func:`service_builders`."""
+
     aliases: Tuple[str, ...] = ()
     """Other spellings of the name ("thermo", "thermo fisher scientific"), as
     configuration files, image headers and the command line carry them.
@@ -152,6 +160,20 @@ class DeviceBuilder:
         return _import(self.build)
 
 
+@dataclass(frozen=True)
+class ServiceBuilder:
+    """How a driver builds one of its services over the devices it built."""
+
+    build: str
+    """The build function, as ``"module:function"``, imported when first used. It is
+    called as ``build(devices)`` with every device built beside it, by name, and
+    returns the connected service, or None when its devices are not among them."""
+
+    def load(self) -> "ServiceBuildFn":
+        """Import and return the build function."""
+        return _import(self.build)
+
+
 @dataclass
 class BuildContext:
     """What a build function gets besides its entry, for one connect."""
@@ -182,6 +204,10 @@ BuildFn = Callable[["DeviceEntry", BuildContext], "Device"]
 """A device builder's function: ``build(entry, context) -> Device``."""
 
 
+ServiceBuildFn = Callable[[Mapping[str, "Device"]], Optional[Any]]
+"""A service builder's function: ``build(devices) -> Service`` or None."""
+
+
 DRIVER_ENTRY_POINT_GROUP = "fibsem.drivers"
 
 
@@ -204,6 +230,9 @@ _BUILT_IN: Dict[str, str] = {
 # their builders by type live. ``remote`` is a device on its own PC, reached through
 # its device server; it is named only on a device entry, never as a manufacturer.
 REMOTE_DRIVER = "remote"
+REMOTE_SERVICES = "remote_services"
+"""Where a connect keeps the services its Device Servers have, by name, in
+`BuildContext.shared`: for a connect with no microscope to put them on."""
 _DEVICE_DRIVERS: Dict[str, str] = {
     REMOTE_DRIVER: "fibsem.drivers.remote.devices:DEVICE_BUILDERS",
 }
@@ -326,6 +355,17 @@ def get_driver(manufacturer: Optional[str]) -> DriverEntry:
     if entry is None:
         raise NotImplementedError(f"Manufacturer {manufacturer} not supported.")
     return entry
+
+
+def service_builders(driver: Optional[str]) -> Mapping[str, ServiceBuilder]:
+    """The services *driver* builds over its own devices, by name; none for a
+    driver that only reaches devices elsewhere (``remote``). Raises
+    ``NotImplementedError`` for a driver nothing is registered as, as
+    :func:`get_driver` does."""
+    name = normalize_name(driver)
+    if name in _DEVICE_DRIVERS:
+        return {}
+    return get_driver(name).services
 
 
 def device_builder(driver: Optional[str], type: str) -> Optional[DeviceBuilder]:

@@ -967,6 +967,50 @@ same computer reads by itself, or one paired by command: `--pair` prints a code,
 every later connect. A remote entry names only where the server is. Keep the server
 on the microscope's private network all the same: the traffic is not encrypted.
 
+### A service on the device PC
+
+Work that uses only the devices of one device PC can run there, next to the hardware,
+as a service: a scan, an approach, an autofocus of its own. The driver that builds the
+devices says which services it builds over them:
+
+```python
+DriverEntry(
+    manufacturer="FakeScan",
+    devices={"scan_generator": DeviceBuilder("my_plugin.devices:build_scanner")},
+    services={"line_scan": ServiceBuilder("my_plugin.services:build_line_scan")},
+)
+```
+
+```python
+def build_line_scan(devices):
+    scanner = devices.get("fake_scanner")
+    if scanner is None:
+        return None            # its devices are not in this file: no service
+    service = LineScan()       # a fibsem.services.core.Service
+    service.fill_roles(scanner=scanner)
+    return service.connect()
+```
+
+The builder is called once with every device the file built, by name. The Device
+Server serves what it returns under `/services`, with the same routes as a device, so
+the service describes its own parameters, commands and queries. Nothing is added to
+the file.
+
+The App Server that reaches the Device Server through a `remote:` entry takes these
+services on as its own when it connects: they are listed in `microscope.services` and
+served under `/microscope/services` with its other services, behind the same level
+and lock, and they refuse during its Safety Halt. No code for them is needed on the
+microscope PC. A name the microscope already has (`milling`, say) is left out with a
+warning.
+
+Keep to the rule: a service on a device PC uses that PC's devices and nothing else.
+Work that also needs the microscope's devices, or decides when something may move,
+is a service of the microscope.
+
+Not yet: a parameter of such a service is not read on the microscope PC (its commands
+and queries are), and a Device Server that comes up after the App Server connected
+has its services picked up at the next connect.
+
 ### Over the App Server
 
 `fibsem.client.FibsemClient` reaches a microscope's devices and services through the
