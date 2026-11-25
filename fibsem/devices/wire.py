@@ -31,6 +31,7 @@ from typing import (
 import numpy as np
 from pydantic import PydanticSchemaGenerationError, ValidationError
 
+import fibsem
 from fibsem.codec import Tagged, decode, encode
 
 logger = logging.getLogger(__name__)
@@ -54,8 +55,7 @@ def version_problem(health: Mapping[str, Any], where: str) -> Tuple[bool, str]:
     from its /health: (True, why) when its routes are another minor version's
     than `DEVICE_API_VERSION`, (False, why) for a warning (another fibsem
     version, or a server too old to say), (False, "") when they match."""
-    from fibsem import __version__ as ours
-
+    ours = fibsem.__version__
     served, version = health.get("api_version"), health.get("version")
     if served is None:
         return False, (
