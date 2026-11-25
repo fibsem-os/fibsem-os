@@ -61,7 +61,7 @@ def for_server(found: Optional[dict]) -> Optional[str]:
 
 
 def for_url(url: str) -> Optional[str]:
-    """The secret for the App Server or agent host at *url* on this PC."""
+    """The secret for the App Server or Agent Server at *url* on this PC."""
     want = url.rstrip("/")
     for path in (discovery.DISCOVERY_FILE, discovery.HOST_DISCOVERY_FILE):
         found = discovery.read_discovery_file(path)

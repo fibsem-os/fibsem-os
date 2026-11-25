@@ -32,7 +32,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.requests import HTTPConnection
 from fastapi.responses import RedirectResponse
 
@@ -46,8 +46,8 @@ from fibsem.gateway.agent import (
     SessionsPage,
 )
 from fibsem.gateway.defaults import GatewayDefaults, read_defaults, save_defaults
-from fibsem.gateway.device_server import DeviceServerProcess
-from fibsem.gateway.device_servers import DeviceServers, EntryRefused
+from fibsem.gateway.device_server import NOT_SET_UP, DeviceServerProcess
+from fibsem.gateway.device_servers import DeviceServers, EntryRefused, PairRefused
 from fibsem.gateway.gateway import (
     HISTORY_MAX,
     HISTORY_SHOWN,
@@ -59,6 +59,7 @@ from fibsem.gateway.gateway import (
 from fibsem.gateway.health import ServersHealth
 from fibsem.gateway.host import HostMicroscope
 from fibsem.gateway.passthrough import PassThrough
+from fibsem.gateway.peers import GATEWAY, START_DEVICE_SERVER, PeerAsks
 from fibsem.server.auth import _bearer_token, _matches
 from fibsem.server.bodies import refuse_invalid_requests
 from fibsem.server.discovery import health_answer
@@ -111,6 +112,12 @@ class GatewayAuth:
     def hub(self, token: Optional[str]) -> Optional[PairedComputer]:
         computer = self.pairing.tokens.match(token)
         return computer if computer is not None and computer.role == HUB else None
+
+    def peer(self, token: Optional[str]) -> Optional[PairedComputer]:
+        """A SEM PC's gateway paired through the gateways (`fibsem.gateway.peers`):
+        it may start and stop this PC's Device Server, and nothing else."""
+        computer = self.pairing.tokens.match(token)
+        return computer if computer is not None and computer.role == GATEWAY else None
 
     def is_agent(self, token: Optional[str]) -> bool:
         return False
@@ -193,6 +200,7 @@ def build_gateway_app(
     passthrough: Optional[PassThrough] = None,
     device_server: Optional[DeviceServerProcess] = None,
     remote_servers: Optional[DeviceServers] = None,
+    peers: Optional[PeerAsks] = None,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -480,25 +488,94 @@ def build_gateway_app(
             lines."""
             return asdict(device_server.state())
 
-        def device_server_act(found: Caller, act: str) -> dict:
+        def starter(request: HTTPConnection) -> Caller:
+            """The operator, or a SEM PC's gateway paired to start and stop
+            the Device Server (`fibsem.gateway.peers`); no one else."""
+            peer = auth.peer(_bearer_token(request))
+            if peer is not None and START_DEVICE_SERVER in peer.grants:
+                return Caller(who=peer.name, operator=False, may_switch=False)
+            found = caller(request)
             if not found.operator:
                 raise _refused(
                     403, "operator_only", "Only the operator starts and stops it."
                 )
-            gateway.record_access(found.who, "page", f"{act} the Device Server")
+            return found
+
+        def device_server_act(found: Caller, act: str) -> dict:
+            via = "page" if found.operator else "gateway"
+            gateway.record_access(found.who, via, f"{act} the Device Server")
             done = device_server.start if act == "start" else device_server.stop
             return asdict(done())
 
         @app.post("/gateway/device-server/start")
-        def start_device_server(found: Caller = Depends(caller)) -> dict:
-            """Start it; a running one is left as it is. The operator only."""
+        def start_device_server(found: Caller = Depends(starter)) -> dict:
+            """Start it; a running one is left as it is. The operator, or a
+            paired SEM PC's gateway."""
             return device_server_act(found, "start")
 
         @app.post("/gateway/device-server/stop")
-        def stop_device_server(found: Caller = Depends(caller)) -> dict:
-            """Stop it: it switches its devices off as it ends. The operator
-            only."""
+        def stop_device_server(found: Caller = Depends(starter)) -> dict:
+            """Stop it: it switches its devices off as it ends. The operator,
+            or a paired SEM PC's gateway."""
             return device_server_act(found, "stop")
+
+    if device_server is not None and peers is not None:
+
+        @app.post("/gateway/peers/ask")
+        def ask_to_pair(request: Request, body: Optional[Dict[str, Any]] = None):
+            """Unauthenticated: a SEM PC's gateway asks to pair with this PC's
+            Device Server, ``{name, id?, wait_s?}``. Nothing comes back until
+            the operator here allows it: ``{state: waiting, id}``, then
+            ``allowed`` with the two tokens, to that id only, or ``denied``.
+            Only on a PC that serves devices."""
+            if device_server.state().status == NOT_SET_UP:
+                raise _refused(404, "no_devices", "This PC serves no devices.")
+            body = body or {}
+            try:
+                wait_s = float(body.get("wait_s", 20.0))
+            except (TypeError, ValueError):
+                wait_s = 20.0
+            origin = request.client.host if request.client else "unknown"
+            return peers.ask(
+                str(body.get("name") or ""),
+                "this PC's SSH tunnel" if origin in ("127.0.0.1", "::1") else origin,
+                ask_id=str(body.get("id") or "") or None,
+                wait_s=wait_s,
+            )
+
+        @app.get("/gateway/peers/asks")
+        def get_pair_asks(found: Caller = Depends(caller)) -> List[dict]:
+            """The gateway asking to pair, for the Allow card: none or one."""
+            if not found.operator:
+                return []
+            return [ask.to_dict() for ask in peers.asking()]
+
+        def answer_ask(found: Caller, ask: str, allow: bool) -> dict:
+            if not found.operator:
+                raise _refused(
+                    403, "operator_only", "Only the operator allows a pairing."
+                )
+            try:
+                if allow:
+                    computer = peers.allow(ask)
+                    name = computer.name
+                else:
+                    name = peers.deny(ask).name
+            except LookupError as error:
+                raise _refused(404, "no_ask", str(error)) from None
+            what = "allowed" if allow else "denied"
+            gateway.record_access(found.who, "page", f"{what} {name} (gateway)")
+            return {"answered": what, "name": name}
+
+        @app.post("/gateway/peers/asks/{ask}/allow")
+        def allow_pair_ask(ask: str, found: Caller = Depends(caller)) -> dict:
+            """Pair the asking gateway: with the Device Server, and here to
+            start and stop it only. The operator only."""
+            return answer_ask(found, ask, True)
+
+        @app.post("/gateway/peers/asks/{ask}/deny")
+        def deny_pair_ask(ask: str, found: Caller = Depends(caller)) -> dict:
+            return answer_ask(found, ask, False)
 
     if remote_servers is not None:
 
@@ -534,6 +611,39 @@ def build_gateway_app(
                     body.get("tunnel"),
                 ),
             )
+
+        def remote_act(found: Caller, key: str, act: str):
+            if not found.operator:
+                raise _refused(
+                    403, "operator_only", "Only the operator pairs, starts and stops."
+                )
+            try:
+                if act == "pair":
+                    remote_servers.pair(key)
+                else:
+                    remote_servers.switch(key, act)
+            except PairRefused as refused:
+                raise _refused(refused.status, "device_server", str(refused)) from None
+            gateway.record_access(
+                found.who, "page", f"{act} the Device Server at {key}"
+            )
+            return gateway.state()
+
+        @app.post("/gateway/device-servers/{key}/pair", response_model=GatewayState)
+        def pair_device_server(key: str, found: Caller = Depends(caller)):
+            """Ask the Device Server's PC gateway to pair (through its SSH
+            tunnel); the operator there allows it. The operator only."""
+            return remote_act(found, key, "pair")
+
+        @app.post("/gateway/device-servers/{key}/start", response_model=GatewayState)
+        def start_remote_device_server(key: str, found: Caller = Depends(caller)):
+            """Start it through its PC's gateway, once paired. The operator only."""
+            return remote_act(found, key, "start")
+
+        @app.post("/gateway/device-servers/{key}/stop", response_model=GatewayState)
+        def stop_remote_device_server(key: str, found: Caller = Depends(caller)):
+            """Stop it through its PC's gateway, once paired. The operator only."""
+            return remote_act(found, key, "stop")
 
         @app.delete("/gateway/device-servers/{device}", response_model=GatewayState)
         def remove_device_server(

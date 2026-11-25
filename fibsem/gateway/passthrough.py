@@ -140,7 +140,7 @@ def app_server_secret() -> Optional[str]:
 
 
 def host_secret() -> Optional[str]:
-    """The agent host's secret, when the gateway started it; else None."""
+    """The Agent Server's secret, when the gateway started it; else None."""
     return child_secrets.for_server(_found(discovery.HOST_DISCOVERY_FILE))
 
 

@@ -23,6 +23,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 import yaml
 
+from fibsem.gateway import child_secrets
 from fibsem.server.discovery import DISCOVERY_DIR
 from fibsem.server.operator_token import read_device_token
 
@@ -178,6 +179,10 @@ class DeviceServerProcess:
                 str(self._config),
             ]
             self._stopped_here = False
+            # A new secret at each start, as the App Server gets (step 6):
+            # handed and kept, not yet checked by the Device Server, whose
+            # app calls come straight through the tunnel (C1, 25 Nov).
+            secret = child_secrets.make()
             try:
                 with open(self._log, "w") as out:
                     self._proc = self._popen(
@@ -185,6 +190,7 @@ class DeviceServerProcess:
                         stdout=out,
                         stderr=subprocess.STDOUT,
                         stdin=subprocess.DEVNULL,
+                        env=child_secrets.environment(secret),
                         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                     )
             except OSError as error:
@@ -196,6 +202,7 @@ class DeviceServerProcess:
                     out.write(f"Couldn't start {python}: {error}\n")
                 return self._state_locked()
             self._since = self._clock()
+            child_secrets.keep(self._proc.pid, secret)
             logger.info("Gateway started the Device Server (pid %d)", self._proc.pid)
             return self._state_locked()
 
@@ -218,6 +225,8 @@ class DeviceServerProcess:
                         pass
             if stop_file is not None:
                 stop_file.unlink(missing_ok=True)
+            if proc is not None and proc.poll() is not None:
+                child_secrets.forget(proc.pid)
             return self._state_locked()
 
     close = stop

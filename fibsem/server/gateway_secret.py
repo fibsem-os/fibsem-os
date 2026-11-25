@@ -2,7 +2,7 @@
 the gateway.
 
 The gateway makes a new secret at each start of a server (the App Server, the
-agent host) and hands it through the server's environment (`ENV`), never on
+Agent Server) and hands it through the server's environment (`ENV`), never on
 disk. The server takes it out of its environment at once, so the programs it
 starts in turn (the agent, a code sandbox) never see it, and while this PC's
 gateway runs it refuses every call that doesn't carry it (`HEADER`), whoever
