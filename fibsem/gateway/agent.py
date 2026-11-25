@@ -2,7 +2,7 @@
 and ended from the gateway's page or window, kept by an `AgentSessionManager`.
 
 Start works with the app running, with or without a microscope connected,
-or with no app while the agent host runs (`fibsem.gateway.agent_host`): the
+or with no app while the Agent Server runs (`fibsem.gateway.agent_host`): the
 agent then talks, plans and keeps its record there, and reaches the
 microscope once the app answers. It pairs the agent's
 token straight into the shared ``paired.json`` (the operator starting it is
@@ -84,7 +84,7 @@ class AgentState:
     microscope: str = ""
     # Who holds the instrument's one agent slot (`fibsem.gateway.slot`).
     slot: Dict[str, Any] = field(default_factory=dict)
-    # Whether the agent host runs: the agent works with no app through it.
+    # Whether the Agent Server runs: the agent works with no app through it.
     agent_host: bool = False
 
 
@@ -280,7 +280,7 @@ class GatewayAgent:
         # The gateway's own address: the agent reaches the App Server through
         # it (`fibsem.gateway.passthrough`), else directly.
         self._own_url = own_url
-        # The agent host's discovery file (`fibsem.gateway.agent_host`): the
+        # The Agent Server's discovery file (`fibsem.gateway.agent_host`): the
         # agent works through it while no app answers.
         self._host = host
         self._tokens = tokens
@@ -319,7 +319,7 @@ class GatewayAgent:
         self._parked_on: Tuple[Optional[str], Optional[str]] = (None, None)
         # Whether no app answered since it was parked (its pid unread then).
         self._parked_gone = False
-        # Whether the agent carried on on the agent host when its app stopped
+        # Whether the agent carried on on the Agent Server when its app stopped
         # (not parked): the next app is checked as a parked agent's is.
         self._moved = False
         self._allowed_read = float("-inf")
@@ -638,7 +638,7 @@ class GatewayAgent:
         server = self._server()
         if server is not None and not server["host"]:
             if self._gateway.state().mode != RUNNING or starting:
-                # Not an app to start on yet: the agent host, if it runs.
+                # Not an app to start on yet: the Agent Server, if it runs.
                 server = self._host_server()
         url = server["url"] if server is not None else None
         if url is None and not waits:
@@ -715,7 +715,7 @@ class GatewayAgent:
             self._parked_on = self._app_and_experiment()
             self._parked_gone = False
             if agent.state == "running" and self._host_server() is not None:
-                # It carries on with no app, on the agent host: its calls
+                # It carries on with no app, on the Agent Server: its calls
                 # pass there once the app has stopped.
                 self._moved = True
                 return
@@ -859,7 +859,7 @@ class GatewayAgent:
         about = read_json(agent.folder / MANAGED).get("about") or {}
         if about.get("app_pid") is not None and pid != about["app_pid"]:
             # The app restarted under a running agent, or it moved between
-            # the app and the agent host: that server is at Watch, so the
+            # the app and the Agent Server: that server is at Watch, so the
             # level last set is set back first.
             self._again(about)
             self._manager.note(self.microscope, app_pid=pid)
@@ -892,13 +892,13 @@ class GatewayAgent:
 
     def _url(self) -> Optional[str]:
         """The server the agent works through now: the App Server, else the
-        agent host; None when neither answers."""
+        Agent Server; None when neither answers."""
         server = self._server()
         return server["url"] if server is not None else None
 
     def _server(self) -> Optional[dict]:
         """The App Server's ``{url, pid, host: False}`` while it answers,
-        else the agent host's (``host: True``), else None."""
+        else the Agent Server's (``host: True``), else None."""
         found = self._discovery()
         if found is not None and self._answers(found["url"]):
             return {"url": found["url"], "pid": found.get("pid"), "host": False}
@@ -914,7 +914,7 @@ class GatewayAgent:
         return {"url": found["url"], "pid": found.get("pid"), "host": True}
 
     def _host_running(self) -> bool:
-        """Whether the agent host's discovery file is live: read every time
+        """Whether the Agent Server's discovery file is live: read every time
         the page asks, so no call to it."""
         try:
             return self._host() is not None

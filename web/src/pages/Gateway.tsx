@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useState } from "react";
-import { Loader, Square } from "lucide-react";
+import { ChevronDown, ChevronRight, Loader, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -67,6 +67,8 @@ const HEALTH_WORDS: Partial<Record<Health["status"], string>> = {
 };
 
 interface GatewayState {
+  device_servers?: DeviceServerState[];
+  device_servers_file?: string | null;
   mode: Mode;
   version: string;
   app: string | null;
@@ -773,6 +775,10 @@ function AppCard({
               />
             </>
           )}
+          <DeviceRows
+            servers={state.device_servers ?? []}
+            file={state.device_servers_file ?? null}
+          />
           <SubHeading first={!connects}>App</SubHeading>
           <Starting
             state={state}
@@ -791,6 +797,10 @@ function AppCard({
             starting={starting}
             health={state.health?.microscope}
           />
+          <DeviceRows
+            servers={state.device_servers ?? []}
+            file={state.device_servers_file ?? null}
+          />
           <AppRow
             state={state}
             starting={starting}
@@ -802,7 +812,7 @@ function AppCard({
       )}
       {state.other_host && (
         <p className={cn("m-0 pb-2 text-[13px]", WARN)}>
-          Another fibsem host runs here (pid {state.other_host.pid}) that the
+          Another App Server runs here (pid {state.other_host.pid}) that the
           gateway didn't start: close it at the PC before starting the app.
         </p>
       )}
@@ -822,6 +832,521 @@ function AppCard({
         </p>
       )}
     </Card>
+  );
+}
+
+/** This PC's Device Server, as the gateway runs it from device-server.yaml. */
+interface DeviceServerState {
+  /** "here": this PC's, which the gateway runs; "remote": one the
+   * configuration names on another PC (or in another environment). */
+  kind: "here" | "remote";
+  name: string;
+  status: string;
+  url: string | null;
+  tunnel?: string | null;
+  /** "open", "by_hand" or "down", and since when it has been up. */
+  tunnel_state?: string | null;
+  tunnel_since?: number | null;
+  /** Whether the tunnel to its PC's gateway (pairing, Start, Stop) is open. */
+  gateway_tunnel?: boolean;
+  serves?: string[];
+  /** Paired through the gateways: Start and Stop reach its PC's gateway. */
+  paired?: boolean;
+  /** "asking" while the device PC's operator hasn't answered; else how the
+   * last pairing ended. */
+  pairing?: string | null;
+  python?: string | null;
+  since?: number | null;
+  health: { program?: string; version?: string; api_version?: string } | null;
+  devices: { name: string; ok: boolean; detail: string | null }[];
+  exit_code?: number | null;
+  log?: string | null;
+  log_tail?: string[];
+  detail: string | null;
+}
+
+/** The Microscope section's Devices row: how many Device Servers and devices,
+ * expanding to each Device Server with its devices. Shown only when there is
+ * one (this PC's, from its device-server.yaml). */
+function DeviceRows({
+  servers,
+  file,
+}: {
+  servers: DeviceServerState[];
+  file: string | null;
+}) {
+  const unwell = servers.some(
+    (s) => s.status !== "running" || s.devices.some((d) => !d.ok),
+  );
+  const client = useQueryClient();
+  const [open, setOpen] = useState<boolean | null>(null);
+  const [adding, setAdding] = useState(false);
+  const changed = () => client.invalidateQueries({ queryKey: ["gateway"] });
+  const shown = open ?? unwell;
+  const devices = servers.reduce(
+    (n, s) => n + (s.devices.length || (s.serves ?? []).length),
+    0,
+  );
+  const tunnels = servers.filter((s) => s.tunnel).length;
+  const tunnelsUp = servers.filter(
+    (s) => s.tunnel_state === "open" || s.tunnel_state === "by_hand",
+  ).length;
+  const Chevron = shown ? ChevronDown : ChevronRight;
+  return (
+    <div className="flex flex-col border-t border-border">
+      <div className="grid grid-cols-1 items-center gap-2 py-2 text-[13px] sm:grid-cols-[96px_minmax(0,1fr)_auto] sm:gap-3">
+        <span className="text-muted-foreground">Devices</span>
+        <button
+          type="button"
+          onClick={() => setOpen(!shown)}
+          aria-expanded={shown}
+          disabled={servers.length === 0}
+          className="flex min-w-0 cursor-pointer items-center gap-2 border-0 bg-transparent p-0 text-left text-[13px] text-foreground disabled:cursor-default"
+        >
+          {servers.length === 0 ? (
+            <span className="text-muted-foreground">No Device Servers</span>
+          ) : (
+            <>
+              <Dot colour={unwell ? "warn" : "ok"} />
+              {servers.length === 1
+                ? "1 Device Server"
+                : `${servers.length} Device Servers`}
+              <span className="text-muted-foreground">
+                · {devices === 1 ? "1 device" : `${devices} devices`}
+                {tunnels > 0 && ` · ${tunnelsUp} of ${tunnels} SSH tunnels up`}
+              </span>
+              <Chevron className="size-4 text-muted-foreground" aria-hidden />
+            </>
+          )}
+        </button>
+        <Button onClick={() => setAdding(true)} disabled={!file}>
+          New
+        </Button>
+      </div>
+      {shown &&
+        servers.map((s) => (
+          <DeviceServerRow key={`${s.kind}:${s.url}`} s={s} changed={changed} />
+        ))}
+      <AddDeviceServer
+        open={adding}
+        setOpen={setAdding}
+        file={file}
+        added={() => {
+          setOpen(true);
+          changed();
+        }}
+      />
+    </div>
+  );
+}
+
+/** The New modal: one device pointed at a Device Server, written as one
+ * entry's `remote:` (and `tunnel:`) in the configuration the app connects
+ * with. Nothing else in the file changes. */
+function AddDeviceServer({
+  open,
+  setOpen,
+  file,
+  added,
+}: {
+  open: boolean;
+  setOpen: (open: boolean) => void;
+  file: string | null;
+  added: () => void;
+}) {
+  const [device, setDevice] = useState("fm");
+  const [address, setAddress] = useState("");
+  const [port, setPort] = useState("8765");
+  const [tunnel, setTunnel] = useState("");
+  const add = useMutation({
+    mutationFn: () =>
+      api<GatewayState>("/gateway/device-servers", {
+        method: "POST",
+        body: JSON.stringify({
+          device,
+          address: tunnel ? "127.0.0.1" : address,
+          port: Number(port),
+          tunnel: tunnel || null,
+        }),
+      }),
+    onSuccess: () => {
+      setOpen(false);
+      added();
+    },
+  });
+  const name = file?.split(/[\\/]/).pop();
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) add.reset();
+      }}
+    >
+      <DialogContent
+        title="New Device Server"
+        className="w-[min(460px,calc(100vw-32px))]"
+      >
+        <form
+          className="flex flex-col gap-3 px-4 py-3.5 text-[13px]"
+          onSubmit={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            add.mutate();
+          }}
+        >
+          <label className="flex flex-col gap-1">
+            <span className="text-muted-foreground">Device</span>
+            <input
+              value={device}
+              onChange={(event) => setDevice(event.target.value)}
+              className={FIELD}
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-muted-foreground">SSH tunnel (optional)</span>
+            <input
+              value={tunnel}
+              onChange={(event) => setTunnel(event.target.value)}
+              placeholder="user@device-pc"
+              className={FIELD}
+            />
+          </label>
+          <div className="flex gap-2.5">
+            <label className="flex min-w-0 flex-1 flex-col gap-1">
+              <span className="text-muted-foreground">Address</span>
+              <input
+                value={tunnel ? "127.0.0.1" : address}
+                onChange={(event) => setAddress(event.target.value)}
+                disabled={!!tunnel}
+                placeholder="192.168.0.20"
+                className={FIELD}
+              />
+            </label>
+            <label className="flex w-24 flex-col gap-1">
+              <span className="text-muted-foreground">Port</span>
+              <input
+                value={port}
+                onChange={(event) => setPort(event.target.value)}
+                inputMode="numeric"
+                className={FIELD}
+              />
+            </label>
+          </div>
+          <p className="m-0 text-muted-foreground">
+            Adds it to {name ?? "the configuration"}. The app uses it from its next
+            connect.
+          </p>
+          {add.error && (
+            <p className="m-0 text-destructive">{(add.error as Error).message}</p>
+          )}
+          <div className="flex justify-end gap-2.5 pt-1">
+            <Button type="button" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary" disabled={add.isPending}>
+              Add
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Pair, then Start or Stop, on a Device Server on another PC: each goes
+ * through that PC's gateway, over the entry's SSH tunnel. */
+function RemoteActions({
+  s,
+  changed,
+}: {
+  s: DeviceServerState;
+  changed: () => void;
+}) {
+  const key = (s.url ?? "").replace(/^https?:\/\//, "");
+  const act = useMutation({
+    mutationFn: (what: "pair" | "start" | "stop") =>
+      api<GatewayState>(
+        `/gateway/device-servers/${encodeURIComponent(key)}/${what}`,
+        { method: "POST" },
+      ),
+    onSuccess: changed,
+  });
+  if (!s.tunnel) return null;
+  if (!s.paired)
+    return (
+      <span className="flex flex-col items-end gap-1">
+        <Button
+          disabled={act.isPending || s.pairing === "asking"}
+          onClick={() => act.mutate("pair")}
+        >
+          {s.pairing === "asking" ? "Asked…" : "Pair"}
+        </Button>
+        {act.error && (
+          <span className="text-xs text-destructive">
+            {(act.error as Error).message}
+          </span>
+        )}
+      </span>
+    );
+  const up = s.status === "running";
+  return (
+    <span className="flex flex-col items-end gap-1">
+      <Button
+        variant={up ? "danger" : "default"}
+        disabled={act.isPending}
+        onClick={() => act.mutate(up ? "stop" : "start")}
+      >
+        {up ? "Stop" : "Start"}
+      </Button>
+      {act.error && (
+        <span className="text-xs text-destructive">
+          {(act.error as Error).message}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** On the device PC: another PC's gateway asking to pair with this PC's
+ * Device Server, with Allow and Deny. */
+function PeerAskCard() {
+  const client = useQueryClient();
+  const asks = useQuery({
+    queryKey: ["gateway/peers/asks"],
+    queryFn: () => api<PeerAsk[]>("/gateway/peers/asks"),
+    refetchInterval: 2000,
+    retry: false,
+  });
+  const answer = useMutation({
+    mutationFn: ({ ask, allow }: { ask: string; allow: boolean }) =>
+      api(`/gateway/peers/asks/${ask}/${allow ? "allow" : "deny"}`, {
+        method: "POST",
+      }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["gateway/peers/asks"] }),
+  });
+  const ask = asks.data?.[0];
+  if (!ask) return null;
+  return (
+    <Card className="flex flex-col gap-2">
+      <CardTitle>{ask.name} asks to pair with this PC's Device Server</CardTitle>
+      <p className="m-0 text-[13px]">
+        From {ask.origin}. Allowing lets that PC use the devices this PC serves, and
+        start and stop its Device Server. It is listed in Pairing, where Unpair ends
+        both.
+      </p>
+      {answer.error && (
+        <p className="m-0 text-[13px] text-destructive">
+          {(answer.error as Error).message}
+        </p>
+      )}
+      <div className="flex justify-end gap-2.5">
+        <Button
+          disabled={answer.isPending}
+          onClick={() => answer.mutate({ ask: ask.ask, allow: false })}
+        >
+          Deny
+        </Button>
+        <Button
+          variant="primary"
+          disabled={answer.isPending}
+          onClick={() => answer.mutate({ ask: ask.ask, allow: true })}
+        >
+          Allow
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
+interface PeerAsk {
+  ask: string;
+  name: string;
+  origin: string;
+  asked_at: number;
+}
+
+/** Remove one device's Device Server from the configuration, after a yes. */
+function RemoveDeviceServer({
+  device,
+  changed,
+}: {
+  device: string;
+  changed: () => void;
+}) {
+  const [ask, setAsk] = useState(false);
+  const remove = useMutation({
+    mutationFn: () =>
+      api<GatewayState>(`/gateway/device-servers/${encodeURIComponent(device)}`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => {
+      setAsk(false);
+      changed();
+    },
+  });
+  return (
+    <>
+      <Button variant="danger" onClick={() => setAsk(true)}>
+        Remove
+      </Button>
+      <Dialog open={ask} onOpenChange={setAsk}>
+        <DialogContent
+          title={`Remove ${device}'s Device Server?`}
+          className="w-[min(460px,calc(100vw-32px))]"
+        >
+          <div className="flex flex-col gap-2 px-4 py-3.5 text-[13px]">
+            <p className="m-0">
+              The configuration stops pointing {device} at this Device Server, from
+              the app's next connect. Nothing changes on the device's PC.
+            </p>
+            {remove.error && (
+              <p className="m-0 text-destructive">
+                {(remove.error as Error).message}
+              </p>
+            )}
+            <div className="flex justify-end gap-2.5 pt-2">
+              <Button onClick={() => setAsk(false)}>Cancel</Button>
+              <Button
+                variant="danger"
+                disabled={remove.isPending}
+                onClick={() => remove.mutate()}
+              >
+                Remove
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+/** A Device Server's SSH tunnel: open (and since when), opened by hand, or down. */
+function TunnelLine({ s }: { s: DeviceServerState }) {
+  const up = s.tunnel_state === "open" || s.tunnel_state === "by_hand";
+  const since = s.tunnel_since
+    ? new Date(s.tunnel_since * 1000).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : null;
+  const words =
+    s.tunnel_state === "open"
+      ? `open${since ? ` since ${since}` : ""}`
+      : s.tunnel_state === "by_hand"
+        ? "opened by hand"
+        : s.tunnel_state === "down"
+          ? "down"
+          : "not opened yet";
+  return (
+    <div className="flex items-center gap-2 py-1 pl-4 text-[13px]">
+      <Dot colour={up ? "ok" : s.tunnel_state === "down" ? "warn" : "off"} />
+      <span>SSH tunnel to {s.tunnel}</span>
+      <span className="text-muted-foreground">
+        {words}
+        {s.gateway_tunnel && " · and one to its gateway"}
+      </span>
+    </div>
+  );
+}
+
+/** Each Device Server's state in words. */
+const STATUS_WORDS: Record<string, string> = {
+  running: "running",
+  starting: "starting",
+  stopped: "stopped",
+  not_answering: "not answering",
+  not_paired: "not paired",
+  tunnel_down: "tunnel down",
+  version_mismatch: "another version",
+  not_checked: "not checked yet",
+};
+
+/** One Device Server in the expanded list: its state, Start/Stop, its
+ * devices, and its last log lines once stopped. */
+function DeviceServerRow({
+  s,
+  changed,
+}: {
+  s: DeviceServerState;
+  changed: () => void;
+}) {
+  const act = useMutation({
+    mutationFn: (what: "start" | "stop") =>
+      api<DeviceServerState>(`/gateway/device-server/${what}`, { method: "POST" }),
+    onSuccess: changed,
+  });
+  const here = s.kind === "here";
+  const up = s.status !== "stopped";
+  return (
+    <div className="flex flex-col border-t border-border sm:ml-[108px]">
+      <div className="flex items-center gap-2 py-2 text-[13px]">
+        <Dot colour={s.status === "running" ? "ok" : up ? "warn" : "off"} />
+        <span className="min-w-0 flex-1 break-words">
+          {s.name}
+          <span className="text-muted-foreground" title={s.python ?? ""}>
+            {" "}
+            · {STATUS_WORDS[s.status] ?? s.status}
+            {s.url && ` · ${s.url}`}
+            {s.health?.version && ` · ${s.health.version}`}
+          </span>
+        </span>
+        {!here && <RemoteActions s={s} changed={changed} />}
+        {!here &&
+          (s.serves ?? []).map((device) => (
+            <RemoveDeviceServer key={device} device={device} changed={changed} />
+          ))}
+        {here && (
+          <Button
+            variant={up ? "danger" : "default"}
+            disabled={act.isPending}
+            onClick={() => act.mutate(up ? "stop" : "start")}
+          >
+            {act.isPending ? (up ? "Stopping…" : "Starting…") : up ? "Stop" : "Start"}
+          </Button>
+        )}
+      </div>
+      {s.tunnel && <TunnelLine s={s} />}
+      {s.devices.length === 0 && (s.serves ?? []).length > 0 && (
+        <div className="py-1 pl-4 text-[13px] text-muted-foreground">
+          Serves {(s.serves ?? []).join(", ")}
+        </div>
+      )}
+      {s.devices.map((d) => (
+        <div key={d.name} className="flex items-center gap-2 py-1 pl-4 text-[13px]">
+          <Dot colour={d.ok ? "ok" : "warn"} />
+          <span>{d.name}</span>
+          {d.detail && <span className="text-muted-foreground">{d.detail}</span>}
+        </div>
+      ))}
+      {s.pairing && (
+        <p className="m-0 py-1 text-[13px] text-muted-foreground">
+          {s.pairing === "asking"
+            ? "Asked to pair: waiting for Allow on the device PC's gateway page."
+            : s.pairing}
+        </p>
+      )}
+      {s.status !== "running" && s.detail && (
+        <p className="m-0 py-1 text-[13px] text-muted-foreground">
+          {s.detail}
+          {s.exit_code != null && ` (exit ${s.exit_code})`}
+        </p>
+      )}
+      {s.status !== "running" && (s.log_tail ?? []).length > 0 && (
+        <pre
+          className="m-0 mb-2 max-h-48 overflow-auto rounded bg-muted p-2 text-xs"
+          title={s.log ?? ""}
+        >
+          {(s.log_tail ?? []).join("\n")}
+        </pre>
+      )}
+      {act.error && (
+        <p className="m-0 pb-2 text-[13px] text-destructive">
+          {(act.error as Error).message}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -1043,6 +1568,7 @@ function Gateway({
                 starting={appStarting}
                 up={appUp}
               />
+              <PeerAskCard />
               {gatewayAsk && <ConnectCard key={gatewayAsk.id} ask={gatewayAsk} />}
               <AgentCard
                 appRunning={appUp}

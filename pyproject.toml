@@ -141,6 +141,8 @@ fibsem-volume = "fibsem.applications.volume.launch:main"
 fibsem-volume-ui = "fibsem.tools.desktop_launch:volume"
 fibsem-autolamella-server = "fibsem.applications.autolamella.launch:main"
 fibsem-agent = "fibsem.ai.agent.harness:main"
+fibsem-agent-server = "fibsem.server.agent.host:main"
+# The Agent Server's old name, kept so scripts and shortcuts that use it still work.
 fibsem-agent-host = "fibsem.server.agent.host:main"
 fibsem-gateway = "fibsem.gateway.main:main"
 fibsem-device-server = "fibsem.server.devices:main"

@@ -55,7 +55,7 @@ class FakeGateway:
 
 
 class Host:
-    """The agent host the gateway runs, as its discovery file says."""
+    """The Agent Server the gateway runs, as its discovery file says."""
 
     def __init__(self, up=True):
         self.up = up
@@ -1036,7 +1036,7 @@ def test_a_new_gateway_frees_a_slot_and_pairing_nothing_carries_on(made, tmp_pat
     assert PairedTokens(tmp_path / "paired.json").agent() is None
 
 
-# -- the agent host: the agent works with no app ----------------------------
+# -- the Agent Server: the agent works with no app ----------------------------
 
 
 def _levels_on(app, monkeypatch, level):

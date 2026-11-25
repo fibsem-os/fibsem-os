@@ -27,6 +27,9 @@ from typing import Callable, List, Optional, Sequence
 from fibsem import diagnostics
 from fibsem.gateway.agent import GatewayAgent
 from fibsem.gateway.agent_host import AgentHostProcess
+from fibsem.gateway.defaults import read_defaults
+from fibsem.gateway.device_server import DeviceServerProcess
+from fibsem.gateway.device_servers import DeviceServers, configuration_file
 from fibsem.gateway.gateway import (
     GATEWAY_FILE,
     GATEWAY_PORT,
@@ -34,14 +37,18 @@ from fibsem.gateway.gateway import (
     GatewayRefused,
     _python,
     read_gateway_file,
+    saved_configurations,
     write_gateway_file,
 )
 from fibsem.gateway.host import HostMicroscope
+from fibsem.gateway.peers import PeerAsks
+from fibsem.server.device_auth import DEVICE_PAIRED_FILE
 from fibsem.server.discovery import (
     gateway_port,
     read_discovery_file,
 )
 from fibsem.server.operator_token import read_operator_token
+from fibsem.server.pairing import PairedTokens
 from fibsem.unreleased import refuse
 
 logger = logging.getLogger(__name__)
@@ -136,7 +143,7 @@ def _connection(extra: List[str]) -> List[str]:
 
 def _app_url() -> Optional[str]:
     """The App Server running on this PC, whoever started it: the gateway
-    passes calls to it, else to the agent host (`AgentHostProcess`)."""
+    passes calls to it, else to the Agent Server (`AgentHostProcess`)."""
     found = read_discovery_file()
     return found.get("url") if found else None
 
@@ -171,6 +178,24 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
     auth = GatewayAuth.from_disk()
     # The agent's routes while no app runs: the agent works with no app.
     agent_host = AgentHostProcess(_python())
+    # This PC's devices, when it has a device-server.yaml (a device PC).
+    device_server = DeviceServerProcess(_python())
+    # The Device Servers the microscope reaches, from its configuration's
+    # remote entries; this PC's own first.
+    remote_servers = DeviceServers(
+        lambda: configuration_file(
+            gateway.connection_flags(),
+            read_defaults().configuration,
+            saved_configurations(),
+        )
+    )
+    # A SEM PC's gateway asking to pair with this PC's Device Server.
+    peer_asks = PeerAsks(auth.pairing.tokens, lambda: PairedTokens(DEVICE_PAIRED_FILE))
+    gateway.device_servers_file = remote_servers.file
+    gateway.device_servers = lambda: [
+        *device_server.listed(),
+        *remote_servers.state(),
+    ]
     agent = GatewayAgent(
         gateway,
         auth.pairing.tokens,
@@ -208,6 +233,9 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
                 passthrough=PassThrough(
                     _app_url, is_connect=auth.is_connect, host=agent_host.url
                 ),
+                device_server=device_server,
+                remote_servers=remote_servers,
+                peers=peer_asks,
             ),
             host="127.0.0.1",
             port=port,
@@ -236,6 +264,10 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
     write_gateway_file(f"http://127.0.0.1:{port}", auth.connect_token)
     # Started once the gateway listens: it passes the host's calls on.
     gateway.watchers.append(agent_host.ensure)
+    gateway.watchers.append(device_server.ensure)
+    gateway.watchers.append(remote_servers.ensure)
+    # Unpairing a SEM PC's gateway in Pairing ends its Device Server pairing.
+    gateway.watchers.append(peer_asks.forget_orphans)
     gateway.start()
     print(f"Gateway at http://127.0.0.1:{port}/ui/gateway")
     try:
@@ -266,6 +298,8 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
             quit_gateway(gateway)
         gateway.close()
         agent_host.close()
+        device_server.close()
+        remote_servers.close()
         server.should_exit = True
         GATEWAY_FILE.unlink(missing_ok=True)
         # the port is free for the next gateway once the server has stopped
