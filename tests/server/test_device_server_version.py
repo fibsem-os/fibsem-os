@@ -135,3 +135,12 @@ def test_the_gateway_stops_it():
         stop.set()
         thread.join(timeout=10)
     assert not thread.is_alive() and ended == [0]
+
+
+def test_a_start_that_fails_says_why_on_stderr(tmp_path, capsys):
+    bad = tmp_path / "device-server.yaml"
+    bad.write_text("hardware:\n  devices:\n    - {name: fm, type: fm}\n")
+    with pytest.raises(SystemExit) as stopped:
+        server_devices.main(["--config", str(bad)])
+    assert stopped.value.code == 1
+    assert "fibsem-device-server:" in capsys.readouterr().err
