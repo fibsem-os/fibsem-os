@@ -155,7 +155,7 @@ def test_a_window_started_to_host_hosts_until_the_operator_turns_it_off(
     ui, monkeypatch, tmp_path
 ):
     """``--host`` (the gateway's window starts): hosted with the preference
-    off, through any preferences save, until Tools → Host turns it off."""
+    off, through any preferences save, until Tools → App Server turns it off."""
     preferences = _confine_and_control_preferences(monkeypatch, tmp_path)
     monkeypatch.setattr(fibsem_cfg, "save_user_preferences", lambda p: None)
     ui.session.host_app_server = True

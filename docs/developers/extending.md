@@ -139,10 +139,10 @@ Each group contributes one kind of object:
   kind for a lab's own instrument but never replaces a shipped one. A
   playbook for another kind than `fibsem` names its own MCP servers (`mcp:`);
   one with no instrument at all sets `instrument: none` and runs through an
-  agent host: start `fibsem-agent-host`, then `fibsem-agent --host`. The host
+  Agent Server: start `fibsem-agent-server`, then `fibsem-agent --host`. The Agent Server
   makes its own tokens and writes a discovery file, as the App Server does, so
-  the agent finds it and asks to connect; the operator allows it on the host's
-  Agent page (`/ui/agent`). `fibsem-agent-host --data <folder>` also serves
+  the agent finds it and asks to connect; the operator allows it on the Agent Server's
+  Agent page (`/ui/agent`). `fibsem-agent-server --data <folder>` also serves
   the image tools (`analysis_*`) and file reads (`experiment_list_files`,
   `experiment_read_file`) over that folder, read only, for an agent that
   reviews saved data with no instrument.

@@ -14,7 +14,7 @@ pip install -e .
 
 ## Starting the Server
 
-The App Server runs inside AutoLamella: turn it on in Tools → Host,
+The App Server runs inside AutoLamella: turn it on in Tools → App Server,
 which also shows its address and the event log. With
 *Serve the microscope* on, it also serves the `/microscope` routes below. While it runs it writes `~/.fibsem/app-server.json` (url and
 a connect token), so local clients find it without copying anything.
@@ -54,7 +54,7 @@ dialog lists them. `GET /microscope/devices` and `/microscope/services` mark tho
 `agent: false`. A command's `path` argument must be inside the open experiment. A hardware
 command takes control of the microscope while it runs: when a workflow, a script or
 another command is in control it gets `409 microscope_busy`, naming who.
-The **operator token** (Tools → Host → Copy operator token; one per
+The **operator token** (Tools → App Server → Copy operator token; one per
 install, kept in `~/.fibsem/operator-token.json`) is the operator from outside
 the window. It reads the monitoring routes and reaches the operator's routes,
 whatever the level: `GET /app/agent` (level, last heard, the waiting request),
@@ -70,7 +70,7 @@ take control as the operator and a stop needs no reason; the blocklist still
 applies (venting, the manipulator and the GIS stay at the microscope).
 To connect from another computer: open an SSH tunnel to the PC's gateway, its
 one way in (`ssh -N -L 8010:localhost:8010 <pc>`), copy the operator token at
-the PC (Tools → Host → Copy operator token), and pass it in:
+the PC (Tools → App Server → Copy operator token), and pass it in:
 `RemoteMicroscope.connect("http://localhost:8010", token)`, or set
 `FIBSEM_SERVER_URL` and `FIBSEM_SERVER_TOKEN`. The remote computer keeps no copy;
 "New operator token" revokes it.

@@ -350,13 +350,13 @@ refused, and websockets (which the gateway doesn't pass on yet) aren't checked. 
 running as this user can read the file, so the secret guards against a mistake (an old
 address or token), not against a program set on getting around the gateway.
 
-The gateway runs `fibsem-agent-server` itself, with no window, from its start until it closes,
-and starts it again if it ends (its log is in `~/.fibsem/logs/gateway/agent-host-*.log`). A
-host already started by hand is used as it is and never stopped by the gateway. The host
+The gateway runs the Agent Server (`fibsem-agent-server`) itself, with no window, from its start until it closes,
+and starts it again if it ends (its log is in `~/.fibsem/logs/gateway/agent-host-*.log`). An
+Agent Server already started by hand is used as it is and never stopped by the gateway. It
 serves the agent's own routes: its events, session, plan, transcript, messages, level and
 Stop. While no App Server runs the gateway passes calls to it, so the gateway's agent, and the
 Agent page, work with no app; a call only the app serves (the microscope's, a workflow's) is
-answered 503 `no_app`. The host keeps its own level, which the gateway sets as it does the
+answered 503 `no_app`. The Agent Server keeps its own level, which the gateway sets as it does the
 App Server's.
 
 An agent with no App Server (no instrument, or an instrument served by something else) runs

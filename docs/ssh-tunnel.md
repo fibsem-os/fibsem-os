@@ -7,12 +7,12 @@ traffic encrypted, and nothing is opened to the lab network except SSH. One port
 everything: the agent's calls, the web app and pairing.
 
 ```
-agent computer                              microscope PC
+your computer                               microscope PC
 fibsem-agent ─┐
 browser      ─┴► localhost:8010 ══ ssh ══►  127.0.0.1:8010  gateway ──► App Server
 ```
 
-Both computers need the same fibsemOS version. The agent computer needs
+Both computers need the same fibsemOS version. Your computer needs
 `pip install "fibsem[agent]"` and an API key; the microscope PC needs no internet.
 
 ## On the microscope PC (once, as an administrator)
@@ -26,14 +26,14 @@ Set-Service -Name sshd -StartupType Automatic
 ```
 
 This also opens port 22 in Windows Firewall. If the lab network has its own firewall,
-ask for port 22 from the agent computer to the microscope PC.
+ask for port 22 from your computer to the microscope PC.
 
 Make a standard (not administrator) Windows account for the tunnel, such as `fibsem-tunnel`.
 It needs nothing but the login. Don't use an administrator account: their keys go in one
 shared file, `C:\ProgramData\ssh\administrators_authorized_keys`, that lets the key into
 every administrator account.
 
-Add the agent computer's key (see below) to that account's
+Add your computer's key (see below) to that account's
 `C:\Users\fibsem-tunnel\.ssh\authorized_keys`, with this in front of it on the same line:
 
 ```
@@ -44,10 +44,10 @@ restrict,port-forwarding,permitopen="127.0.0.1:8010",command="echo tunnel only" 
 gateway's port, and `command` replaces any command the key asks to run, so the key opens
 the tunnel and nothing else.
 
-Use one key per agent computer. To stop a computer connecting, delete its line, and
+Use one key per computer. To stop a computer connecting, delete its line, and
 unpair it on the gateway's page, **Pairing**.
 
-## On the agent computer (once)
+## On your computer (once)
 
 Make a key, and give the `.pub` file to whoever set up the microscope PC:
 
@@ -68,8 +68,8 @@ Host microscope
     ExitOnForwardFailure yes
 ```
 
-`LocalForward` listens on the agent computer's `127.0.0.1` only. Don't add `-g` or
-`GatewayPorts`: that would open the tunnel to the agent computer's network. On a computer
+`LocalForward` listens on your computer's `127.0.0.1` only. Don't add `-g` or
+`GatewayPorts`: that would open the tunnel to your computer's network. On a computer
 other people log in to, they can reach `localhost:8010` too; they still need a token, which
 is kept readable by you alone.
 
@@ -89,13 +89,13 @@ while true; do ssh -N microscope; sleep 5; done
 ```
 
 The first time, pair the agent at the gateway. On the gateway's page, open **Pairing →
-Pair a computer…** and pick **Agent**. On the agent computer:
+Pair a computer…** and pick **Agent**. On your computer:
 
 ```bash
 fibsem-mcp pair <code>
 ```
 
-The token is kept in `~/.fibsem/agent/` on the agent computer, so later sessions don't pair
+The token is kept in `~/.fibsem/agent/` on your computer, so later sessions don't pair
 again. Then run the agent against the tunnel's end:
 
 ```bash

@@ -33,13 +33,13 @@ from fibsem.structures.settings import (
 BEAMS = {"electron": BeamType.ELECTRON, "ion": BeamType.ION}
 
 NO_SERVER = (
-    "no fibsem host found. Open the app with Tools > Host serving, or run "
+    "no App Server found. Open the app with Tools > App Server serving, or run "
     "fibsem-autolamella-server; or give --url and --token (the operator token: "
-    "Tools > Host > Copy operator token)."
+    "Tools > App Server > Copy operator token)."
 )
 MICROSCOPE_OFF = (
-    "the host doesn't serve the microscope: turn on its microscope setting "
-    "in Tools > Host."
+    "the App Server doesn't serve the microscope: turn on its microscope setting "
+    "in Tools > App Server."
 )
 STOP_REASON = "stopped from fibsem-cli"
 
@@ -667,7 +667,7 @@ def cmd_notify(args) -> int:
     config.update_user_preferences(keep)
     print(f"Sent a test to {settings.channel or channel_id} ({channel_id}).")
     if args.verb == "setup":
-        print("Slack notifications are on; a running fibsem host starts sending now.")
+        print("Slack notifications are on; a running App Server starts sending now.")
     return 0
 
 
