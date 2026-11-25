@@ -29,7 +29,7 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
-from fibsem import keystore
+from fibsem import config, keystore
 from fibsem.ai.agent import extra_mcp
 
 __all__ = [
@@ -317,7 +317,6 @@ def this_pc() -> dict:
     """The install preferences the page shows: whether a new app session
     serves the microscope, whether an agent on this PC connects without a
     click, the gateway's port, and the update check."""
-    from fibsem import config
 
     install = config.load_user_preferences().install
     return {
@@ -333,7 +332,6 @@ def save_this_pc(body: Any, local: bool) -> dict:
     is now. Any operator, except an agent connecting without a click, which
     only the operator at this PC (*local*) turns on or off. A new port is
     used from the gateway's next start. Raises `KeyRefused`."""
-    from fibsem import config
 
     if not isinstance(body, dict) or not body:
         raise KeyRefused(422, "no_change", "Nothing to change was given.")
