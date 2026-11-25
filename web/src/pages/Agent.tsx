@@ -1841,6 +1841,7 @@ export function AgentPage() {
         <MicroscopeMain
           fibsem={fibsem}
           shown={shown}
+          live={<LiveLine agent={a} heard={isWorking && !a.stopped} hide={false} />}
           menu={<MicroscopeCustomise fibsem={fibsem} shown={shown} onChange={setShown} />}
           switcher={switcher}
           onOpenPage={() => openPage("/ui/microscope")}

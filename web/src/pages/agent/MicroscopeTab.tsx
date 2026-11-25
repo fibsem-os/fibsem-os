@@ -266,26 +266,27 @@ export function MicroscopeTab({ fibsem, shown, onOpenPage }: { fibsem: boolean; 
   );
 }
 
-/** The microscope as the agent page's main view: what runs and its progress
- * across the top, the last image of each view in a two-column grid (SEM and FIB,
+/** The microscope as the agent page's main view: *live*, the page's line for
+ * what runs now (the chat's, with its progress and time), across the top, the last image of each view in a two-column grid (SEM and FIB,
  * then FM), each at its own shape and as large as the room allows, and
  * the beams and stage under them. *switcher* and *menu* sit at the top right. */
 export function MicroscopeMain({
   fibsem,
   shown,
+  live,
   menu,
   switcher,
   onOpenPage,
 }: {
   fibsem: boolean;
   shown: ShowChoices;
+  live?: ReactNode;
   menu?: ReactNode;
   switcher?: ReactNode;
   onOpenPage: () => void;
 }) {
   const images = useImages(MAIN_IMAGES_EVERY_MS);
   const [open, setOpen] = useState<string | null>(null);
-  const { task, progress } = useRunning();
   const devices = useDevices(on(shown, "beams") || on(shown, "stage"));
   const beams = on(shown, "beams") ? devices.filter((d) => d.spec.type === "beam") : [];
   const stage = on(shown, "stage") ? devices.find((d) => d.spec.type === "stage") : undefined;
@@ -293,26 +294,12 @@ export function MicroscopeMain({
   const big = pairs.find(([key]) => key === open);
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col gap-3 px-4 pb-4 text-[13px] leading-[1.45] md:px-5">
-      <div className="flex flex-col pt-2.5">
-        <div className="flex min-h-[30px] items-center gap-3">
-          {on(shown, "running") &&
-            (task ? (
-              <p className="m-0 min-w-0 truncate">
-                <b className="font-semibold">{task}</b>
-                {progress?.step && <span className="text-muted-foreground"> · {progress.step}</span>}
-              </p>
-            ) : (
-              <p className="m-0 text-muted-foreground">Nothing running</p>
-            ))}
-          <span className="ml-auto flex shrink-0 items-center gap-2">
-            {on(shown, "running") && progress?.numbers && task && (
-              <span className="text-muted-foreground">{progress.numbers}</span>
-            )}
-            {menu}
-            {switcher}
-          </span>
-        </div>
-        {on(shown, "running") && task && progress?.fraction != null && <ProgressBar fraction={progress.fraction} />}
+      <div className="flex min-h-[30px] items-start gap-3 pt-2.5">
+        <div className="min-w-0 flex-1 pt-1">{on(shown, "running") && live}</div>
+        <span className="flex shrink-0 items-center gap-2">
+          {menu}
+          {switcher}
+        </span>
       </div>
       {pairs.length > 0 ? (
         <div
