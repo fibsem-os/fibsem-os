@@ -137,7 +137,7 @@ on the left has four pages:
     token is stored with where it may go (the scheme and host of its address, or its
     command line), and is sent nowhere else: edit a connector's address and its token
     must be set again.
-  - **This PC:** whether a new app session serves the microscope to agents, whether an
+  - **This PC:** whether a new app session lets agents use the microscope, whether an
     agent on this PC connects without your click (set at this PC only), the gateway's
     port (used from its next start), and the update check.
   - **Defaults:** what Overview fills in for the microscope, the app and the agent, kept in

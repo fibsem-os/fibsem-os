@@ -572,9 +572,14 @@ function ThisPcCard() {
   return (
     <Card className="flex flex-col gap-1">
       <CardTitle className="mb-1.5">This PC</CardTitle>
-      <Row label="Serve the microscope to agents">
-        {toggle("microscope", "Serve the microscope to agents")}
+      <Row label="Agents may use the microscope">
+        {toggle("microscope", "Agents may use the microscope")}
       </Row>
+      <p className="m-0 pb-1 text-xs text-muted-foreground">
+        Off: agents see the app and the experiment, but not the stage, beams or
+        milling. Used from the app's next start; the agent's level still decides
+        what it may do.
+      </p>
       <Row label="Agents on this PC connect without a click">
         <span className="flex items-center gap-2">
           <input
