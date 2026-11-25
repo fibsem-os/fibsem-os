@@ -39,7 +39,7 @@ import threading
 import time
 import traceback
 import uuid
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -244,7 +244,7 @@ def harness_prompt(
     fibsem = not servers or SERVER in servers
     tools = NO_CODE if work is None else code_mode.prompt(work, code, fibsem)
     tools = _name_servers(tools, servers)
-    more = extra_mcp.prompt_lines(extra_mcp.load() if extras is None else extras)
+    more = extra_mcp.prompt_lines(extra_mcp.usable()[0] if extras is None else extras)
     if more:
         tools += "\n" + more
     warn = deadline_warn_min or defaults().deadline_warn_min
@@ -3035,7 +3035,8 @@ def mcp_names(
 ) -> List[str]:
     """The MCP servers *playbook* names (``mcp``): ``fibsem``, the sidecar,
     and any of the lab's (*extras*). Without a playbook, the sidecar alone.
-    Raises `SetupRefused` for a server that isn't there, and, without an
+    A lab server that isn't there is left off, with a warning. Raises
+    `SetupRefused`, without an
     agent *host*, for a playbook without ``fibsem``: the agent's wake-ups and
     its record go through the App Server then. A playbook with no instrument
     (``instrument: none``) has no ``fibsem`` and runs through a host."""
@@ -3057,10 +3058,14 @@ def mcp_names(
         )
     missing = [n for n in names if n != SERVER and n not in extras]
     if missing:
-        raise SetupRefused(
+        # Not set up, or set up wrong (`extra_mcp.usable`): the session runs
+        # without it, and the skills say what to do then.
+        log.warning(
             f"The {playbook.name} playbook uses the MCP server(s) "
-            f"{', '.join(missing)}, which {extra_mcp.path()} doesn't set up."
+            f"{', '.join(missing)}, which {extra_mcp.path()} doesn't set up "
+            "usably; the agent starts without them."
         )
+        names = [n for n in names if n not in missing]
     if SERVER not in names and not host:
         raise SetupRefused(
             f"The {playbook.name} playbook's mcp has no {SERVER}: without "
@@ -3205,7 +3210,7 @@ def build_options(
     from claude_agent_sdk import ClaudeAgentOptions
 
     loaded = loaded or session_names(checkout, playbook)
-    extras = extra_mcp.load() if extras is None else extras
+    extras = extra_mcp.usable()[0] if extras is None else extras
     base = defaults()
     compact = (
         words or texts(playbook.instrument if playbook is not None else None)
@@ -3574,6 +3579,8 @@ class Setup:
     folder: Path
     run: Optional[Path]
     extras: Dict[str, extra_mcp.Server]
+    # Why each of the lab's servers set up wrong is left off (`extra_mcp.usable`).
+    left_off: List[str] = field(default_factory=list)
 
 
 def _setup(args, checkout: Path) -> Setup:
@@ -3598,13 +3605,9 @@ def _setup(args, checkout: Path) -> Setup:
     # What it loads is fixed for the session: a playbook named at launch
     # narrows it (`session_names`).
     loaded = session_names(checkout, playbook if args.playbook else None)
-    try:
-        extras = extra_mcp.load()
-        # Each token stored, or the agent would start without what it was
-        # told it has.
-        extra_mcp.tokens(extras)
-    except extra_mcp.ExtraMcpError as error:
-        raise SetupRefused(str(error)) from None
+    # A lab server that is set up wrong, or whose token isn't stored, is left
+    # off (logged): the session runs without it rather than not at all.
+    extras, left_off = extra_mcp.usable()
     names = mcp_names(playbook, extras, getattr(args, "host", None) is not None)
     # A specialist gets only the lab servers its session has.
     used = used_servers(extras, names)
@@ -3643,7 +3646,9 @@ def _setup(args, checkout: Path) -> Setup:
         refused = code_mode.refusal(work, checkout, code)
         if refused:
             raise SetupRefused(refused)
-    return Setup(playbook, words, loaded, work, code, session_id, folder, run, extras)
+    return Setup(
+        playbook, words, loaded, work, code, session_id, folder, run, extras, left_off
+    )
 
 
 def playbook_list() -> List[dict]:
@@ -3671,6 +3676,7 @@ def playbook_configuration(name: str) -> dict:
         setup.loaded,
         setup.words,
         setup.extras,
+        setup.left_off,
     )
 
 
@@ -3749,7 +3755,7 @@ def _main(argv, opened: List["sessions.SessionFolder"]) -> int:
     folder, run, extras = setup.folder, setup.run, setup.extras
     if args.show_config:
         config = show_config(
-            args, checkout, work, code, playbook, loaded, words, extras
+            args, checkout, work, code, playbook, loaded, words, extras, setup.left_off
         )
         return _print(config, args.json, _config_text)
     missing = missing_extra_message("agent", "fibsem-agent")
@@ -4128,12 +4134,16 @@ def show_config(
     loaded: Optional[Loaded] = None,
     words: Optional[instruments.Texts] = None,
     extras: Optional[Dict[str, extra_mcp.Server]] = None,
+    left_off: Optional[List[str]] = None,
 ) -> dict:
     """``--show-config``: everything the agent would run with, from the same
     pieces `build_options` uses, without the SDK and without starting. The
-    extra servers with their tokens' names, never the tokens."""
+    extra servers with their tokens' names, never the tokens, and why any of
+    them is left off (*left_off*)."""
     loaded = loaded or session_names(checkout, playbook)
-    extras = extra_mcp.load() if extras is None else extras
+    problems = list(left_off or [])
+    if extras is None:
+        extras, problems = extra_mcp.usable()
     host = getattr(args, "host", None)
     named = mcp_names(playbook, extras, host is not None)
     # The lab's servers this playbook leaves off, so none goes unnoticed.
@@ -4170,6 +4180,8 @@ def show_config(
         # The playbook's servers, and the lab's it doesn't name (off).
         "mcp": servers,
         "mcp_unused": unused,
+        # The lab's servers set up wrong or without their token: left off.
+        "mcp_left_off": problems,
         # The lines that wake the agent, by group; None for every line.
         "wakes": playbook.wakes,
         # The agent host its record and wake-ups go through; None for the
@@ -4315,6 +4327,7 @@ def _config_text(config: dict) -> str:
             f"MCP off (the lab's, not named in this playbook's mcp): "
             f"{', '.join(config['mcp_unused'])}"
         )
+    lines += [f"MCP left off: {problem}" for problem in config.get("mcp_left_off", [])]
     if config.get("wakes") is not None:
         lines.append(
             "Wakes on: "

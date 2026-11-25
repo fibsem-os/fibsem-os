@@ -618,11 +618,15 @@ def test_a_labs_extra_mcp_server_is_added_and_its_token_is_never_shown(
     ) in printed
     assert secret not in printed
 
-    # Not stored: fibsem-agent refuses to start, saying how to store it.
+    # Not stored: fibsem-agent starts without it, saying how to set it.
     monkeypatch.delenv("NOTEBOOK_TOKEN")
     monkeypatch.setattr(extra_mcp.keystore, "stored_secret", lambda name: None)
-    assert harness_mod.main(["--show-config"]) == 1
-    assert "fibsem-cli key set NOTEBOOK_TOKEN" in capsys.readouterr().err
+    assert harness_mod.main(["--show-config", "--playbook", "with-notebook"]) == 0
+    printed = capsys.readouterr().out
+    assert (
+        "MCP left off" in printed and "NOTEBOOK_TOKEN environment variable" in printed
+    )
+    assert "mcp__notebook__" not in printed
 
 
 def test_code_mode_is_sandboxed_in_its_work_folder(tmp_path, monkeypatch):
