@@ -973,6 +973,7 @@ Work that uses only the devices of one device PC can run there, next to the hard
 as a service: a scan, an approach, an autofocus of its own. The driver that builds the
 devices says which services it builds over them:
 
+<!-- not run -->
 ```python
 DriverEntry(
     manufacturer="FakeScan",
@@ -981,6 +982,7 @@ DriverEntry(
 )
 ```
 
+<!-- not run -->
 ```python
 def build_line_scan(devices):
     scanner = devices.get("fake_scanner")
@@ -999,8 +1001,8 @@ the file.
 The App Server that reaches the Device Server through a `remote:` entry takes these
 services on as its own when it connects: they are listed in `microscope.services` and
 served under `/microscope/services` with its other services, behind the same level
-and lock. No code for them is needed on the microscope PC. A name the microscope already has (`milling`, say) is left out with a
-warning.
+and lock. No code for them is needed on the microscope PC. A name the microscope
+already has (`milling`, say) is left out with a warning.
 
 Keep to the rule: a service on a device PC uses that PC's devices and nothing else.
 Work that also needs the microscope's devices, or decides when something may move,
