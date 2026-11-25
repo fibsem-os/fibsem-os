@@ -18,6 +18,7 @@ import time
 from pathlib import Path
 from typing import Callable, Optional
 
+from fibsem.gateway import child_secrets
 from fibsem.server.discovery import (
     DISCOVERY_DIR,
     HOST_DISCOVERY_FILE,
@@ -112,10 +113,14 @@ class AgentHostProcess:
         ]
         self._started = self._clock()
         self._said_ended = False
+        # A new secret for this start, through its environment alone: the
+        # host refuses every call without it while the gateway runs.
+        secret = child_secrets.make()
         try:
             with open(self._log, "w") as out:
                 self._proc = self._popen(
                     command,
+                    env=child_secrets.environment(secret),
                     stdout=out,
                     stderr=subprocess.STDOUT,
                     stdin=subprocess.DEVNULL,
@@ -125,6 +130,7 @@ class AgentHostProcess:
             self._proc = None
             logger.warning("The gateway couldn't start the agent host: %s", error)
             return
+        child_secrets.keep(self._proc.pid, secret)
         logger.info("Gateway started the agent host (pid %d)", self._proc.pid)
 
     def close(self, wait_s: float = STOP_WAIT_S) -> None:

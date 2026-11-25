@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import fibsem
+from fibsem.gateway import child_secrets
 from fibsem.gateway.health import HealthWatch, ServersHealth
 from fibsem.server.discovery import (
     DISCOVERY_DIR,
@@ -785,7 +786,10 @@ class Gateway:
         logs = self._home / "logs" / "gateway"
         logs.mkdir(parents=True, exist_ok=True)
         log = logs / f"{'window' if window else 'headless'}-{key}-{stamp}.log"
-        env = dict(os.environ)
+        # A new secret for this start, through its environment alone: the App
+        # Server it hosts refuses every call without it while the gateway runs.
+        secret = child_secrets.make()
+        env = child_secrets.environment(secret)
         stop_file = None
         # An app with neither starts with no experiment open, if it can.
         args = [experiment] if experiment else ["--last"] if last else []
@@ -820,6 +824,7 @@ class Gateway:
                 env=env,
                 creationflags=flags,
             )
+        child_secrets.keep(proc.pid, secret)
         logger.info("Gateway started %s (window: %s, pid %d)", key, window, proc.pid)
         with self._lock:
             self._proc, self._stop_file, self._log = proc, stop_file, log

@@ -254,10 +254,19 @@ While the gateway runs, an agent never goes to the App Server directly: an App S
 instead, so the one-agent slot, the Allow card and History apply to every agent. Without a
 gateway, a client still finds an App Server running alone (tests, scripts).
 
-The App Server enforces it too. As it starts it makes a secret and writes it into its
-`app-server.json` (this user's alone); the gateway adds it to every call it passes on. While
-a gateway runs, an agent's call without it is refused (`401 through_gateway`, naming the
-gateway). An app started by hand or by a desktop launch works the same way. The operator's
+The servers enforce it too. Each time the gateway starts the App Server (with or without its
+window) or the agent host, it makes a new secret and hands it through that server's
+environment (`FIBSEM_GATEWAY_SECRET`), never on disk. The server takes it out of its
+environment as it starts, so the programs it starts in turn (the agent, a code sandbox) never
+see it, and the gateway adds it to every call it makes or passes on (`X-Fibsem-Gateway`).
+While the gateway runs, such a server refuses every call without it, whoever makes it, the
+operator's token included (`401 through_gateway`, naming the gateway); the caller's token is
+still checked after. Its `/health` and the stops are never refused, and a server left running
+after its gateway closed answers as before.
+
+An App Server the gateway didn't start (its window opened by hand) makes its own secret and
+writes it into its `app-server.json` (this user's alone); the gateway adds that to the calls
+it passes on, and while a gateway runs an agent's call without it is refused. The operator's
 token and the App Server's own (an App Server run alone: tests, evals, scripts) never need
 it, and giving control up is never refused. Only the App Server with this PC's usual
 `app-server.json` makes one, so a second App Server with its own file (an eval) is never
