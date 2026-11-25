@@ -701,7 +701,34 @@ def build_gateway_app(
     app.include_router(build_pairing_router(auth))
     app.include_router(web_app_router())
     if passthrough is not None:
+        passthrough.on_answered = lambda *call: _record_library(gateway, auth, *call)
         # Last: the gateway's own routes are found first.
         app.include_router(passthrough.router())
 
     return app
+
+
+_LIBRARY_KINDS = {"playbooks": "playbook", "skills": "skill", "agents": "subagent"}
+_LIBRARY_VERBS = {"PUT": "saved", "POST": "made", "DELETE": "removed"}
+
+
+def _record_library(
+    gateway, auth: GatewayAuth, method: str, path: str, status: int, token: str
+) -> None:
+    """A playbook, skill or subagent saved, made or removed through the
+    gateway (the Knowledge window) goes in History, with who did it."""
+    parts = path.strip("/").split("/")
+    verb = _LIBRARY_VERBS.get(method)
+    if (
+        verb is None
+        or not 200 <= status < 300
+        or len(parts) != 4
+        or parts[:2] != ["app", "library"]
+        or parts[2] not in _LIBRARY_KINDS
+    ):
+        return
+    who = auth.operator(token)
+    if who is None:
+        hub = auth.hub(token)
+        who = hub.name if hub is not None else "someone"
+    gateway.record_access(who, "page", f"{verb} {_LIBRARY_KINDS[parts[2]]} {parts[3]}")

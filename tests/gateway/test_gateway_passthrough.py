@@ -300,3 +300,18 @@ def test_with_no_app_the_agent_hosts_routes_go_to_it(tmp_path):
     app["url"] = "http://app.test"
     through.get("/app/agent/plan", headers=_as(AGENT))
     assert seen[-1] == ("app.test", "app-secret")
+
+
+def test_a_library_save_through_the_gateway_goes_in_history(
+    app_server, tmp_path, monkeypatch
+):
+    monkeypatch.setenv("FIBSEM_HOME", str(tmp_path / "home"))
+    url, _ = app_server
+    app = _gateway_app(tmp_path, lambda: url)
+    with TestClient(app) as gateway:
+        r = gateway.post(
+            "/app/library/playbooks/my-lamellae", headers=_as(OPERATOR_TOKEN)
+        )
+        assert r.status_code == 200, r.text
+        history = gateway.get("/gateway/history", headers=_as(OPERATOR_TOKEN))
+    assert "made playbook my-lamellae" in history.text

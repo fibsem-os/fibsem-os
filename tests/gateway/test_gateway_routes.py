@@ -1030,3 +1030,30 @@ def test_this_pc_settings_and_who_may_change_them(keys, tmp_path, monkeypatch):
         assert r.status_code == 422, bad
     hub = _pair_hub(client, [])
     assert client.get("/gateway/this-pc", headers=_as(hub["token"])).status_code == 403
+
+
+def test_library_changes_through_the_gateway_go_in_history():
+    from types import SimpleNamespace
+
+    from fibsem.gateway.server import _record_library
+
+    kept = []
+    gateway = SimpleNamespace(record_access=lambda *a: kept.append(a))
+    auth = SimpleNamespace(
+        operator=lambda token: "operator" if token == "op" else None,
+        hub=lambda token: SimpleNamespace(name="lab-hub") if token == "hub" else None,
+    )
+    _record_library(
+        gateway, auth, "PUT", "/app/library/playbooks/autolamella", 200, "op"
+    )
+    _record_library(gateway, auth, "DELETE", "/app/library/agents/checker", 200, "hub")
+    # Reads, refusals and other routes are not changes.
+    _record_library(
+        gateway, auth, "GET", "/app/library/playbooks/autolamella", 200, "op"
+    )
+    _record_library(gateway, auth, "PUT", "/app/library/playbooks/x", 403, "op")
+    _record_library(gateway, auth, "PUT", "/app/agent/level", 200, "op")
+    assert kept == [
+        ("operator", "page", "saved playbook autolamella"),
+        ("lab-hub", "page", "removed subagent checker"),
+    ]

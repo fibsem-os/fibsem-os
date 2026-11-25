@@ -110,11 +110,12 @@ on the left has four pages:
   opens to show its playbook, spend, how it ended and what it last said, and **Resume**.
 - **Pairing.** The paired computers, agents and hubs, and a code to pair another
   (see [Pairing](#pairing)).
-- **Customise.** What shapes the agent's work on this PC.
-  - **Playbooks, Skills, Subagents:** the Agent page's Knowledge browser, through the
-    gateway: what fibsemOS ships and the lab's own, each with its form or its file. Editing
-    a shipped one saves the lab's copy. It works with no app running (the gateway's agent
-    host serves it). Editing is the operator's.
+- **Customise.** The agent's setup: each row opens the Agent page's **Knowledge** window on
+  that part. Through the gateway, its playbooks, skills, subagents, tools and connectors work
+  with no app running (the gateway's agent host serves them); its entries need the app.
+  - **Playbooks, Skills, Subagents:** what fibsemOS ships and the lab's own, each with its
+    form or its file. Editing a shipped one saves the lab's copy. Editing is the operator's,
+    and each save, new one or removal made through the gateway is in History.
   - **Connectors:** the lab's MCP servers (`~/.fibsem/agent/mcp.yaml`), each with
     **Test** (the tools it offers, asked as the agent asks), **Edit** and **Remove**, and
     its token's key. A connector is checked as the agent reads it, so one that wouldn't
