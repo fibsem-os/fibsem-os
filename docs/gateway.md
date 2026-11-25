@@ -189,8 +189,9 @@ server:
 
 Overview shows it under Microscope, in Devices: a line with how many Device Servers and
 devices, which opens to each Device Server (running, starting or stopped, its address and
-version) and whether each device it serves answers. It opens by itself when one is not well (from its `/health`, read with this install's Device
-Server token). One that ends is not started again by itself: it shows stopped with its last
+version) and whether each device it serves answers (from its `/health`, read with this install's Device
+Server token). The list opens by itself when one is not well.
+One that ends is not started again by itself: it shows stopped with its last
 log lines, until Start. Stop ends it by its stop file, so it switches its devices off as it
 ends. Only the operator starts and stops it; a hub reads it at `GET /gateway/device-server`.
 Its log is in `~/.fibsem/logs/gateway/device-server-<time>.log`. Without the file, nothing
