@@ -197,6 +197,44 @@ ends. Only the operator starts and stops it; a hub reads it at `GET /gateway/dev
 Its log is in `~/.fibsem/logs/gateway/device-server-<time>.log`. Without the file, nothing
 changes.
 
+
+### Device Servers on other PCs
+
+The microscope reaches a device on another PC (a METEOR's FM, an AFM) through that PC's
+Device Server, named by a `remote: <address>:<port>` entry in the microscope configuration.
+The gateway reads those entries from the configuration the app connects with (the app's own,
+else the one chosen on Overview, else the default), so there is no second list, and asks
+each Device Server how it is every 10 seconds, with the token this PC was paired with there.
+Overview lists them under Microscope, in Devices, beside this PC's own: running, not
+answering, not paired, another version (its routes are another minor version's), or tunnel
+down, and whether each of its devices answers. `GET /gateway` has the same list in
+`device_servers`, which is what a hub reads.
+
+An entry can name an SSH tunnel to its PC, and the gateway opens and keeps it open:
+
+```yaml
+hardware:
+  devices:
+    - name: fm
+      driver: Odemis
+      remote: 127.0.0.1:8765
+      tunnel: meteor@meteor-pc
+```
+
+The Device Server then stays on its own PC's 127.0.0.1, and the gateway brings its port to
+the same port here. The gateway runs this PC's own `ssh` as the same user, with their SSH key
+and settings, and never asks for a password: setting the key up is a one-time step by a
+person (`ssh-keygen`, then `ssh-copy-id meteor@meteor-pc`, then `ssh meteor@meteor-pc` once to
+accept its host key). The gateway stores no secret and makes no key; when ssh can't connect,
+the row says what ssh said. A port that already answers here, such as a tunnel opened by
+hand, is used as it is.
+
+New, beside Devices, points one device at a Device Server (its name, the address and port, and
+the tunnel if any), and Remove on a Device Server's row takes it off. Each changes only that
+device's entry in the configuration (its `remote:` and `tunnel:`), keeping the file as it was
+beside it the first time (`<name>.yaml.bak`), and counts from the app's next connect. Only the
+operator adds and removes them.
+
 ## The agent
 
 The gateway can run the agent on this PC, next to the app. The agent reaches the app

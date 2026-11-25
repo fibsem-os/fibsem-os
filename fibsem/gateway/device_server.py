@@ -17,7 +17,7 @@ import logging
 import subprocess
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -223,6 +223,14 @@ class DeviceServerProcess:
     close = stop
 
     # -- what the page shows -------------------------------------------------
+
+    def listed(self) -> List[Dict[str, Any]]:
+        """This PC's Device Server as one row of ``GET /gateway``'s
+        ``device_servers``: none when this PC has no file."""
+        state = self.state()
+        if state.status == NOT_SET_UP:
+            return []
+        return [{"kind": "here", "name": "This PC", **asdict(state)}]
 
     def state(self) -> DeviceServerState:
         with self._lock:

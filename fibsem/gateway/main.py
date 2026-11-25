@@ -27,7 +27,9 @@ from typing import Callable, List, Optional, Sequence
 from fibsem import diagnostics
 from fibsem.gateway.agent import GatewayAgent
 from fibsem.gateway.agent_host import AgentHostProcess
+from fibsem.gateway.defaults import read_defaults
 from fibsem.gateway.device_server import DeviceServerProcess
+from fibsem.gateway.device_servers import DeviceServers, configuration_file
 from fibsem.gateway.gateway import (
     GATEWAY_FILE,
     GATEWAY_PORT,
@@ -35,6 +37,7 @@ from fibsem.gateway.gateway import (
     GatewayRefused,
     _python,
     read_gateway_file,
+    saved_configurations,
     write_gateway_file,
 )
 from fibsem.gateway.host import HostMicroscope
@@ -174,6 +177,20 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
     agent_host = AgentHostProcess(_python())
     # This PC's devices, when it has a device-server.yaml (a device PC).
     device_server = DeviceServerProcess(_python())
+    # The Device Servers the microscope reaches, from its configuration's
+    # remote entries; this PC's own first.
+    remote_servers = DeviceServers(
+        lambda: configuration_file(
+            gateway.connection_flags(),
+            read_defaults().configuration,
+            saved_configurations(),
+        )
+    )
+    gateway.device_servers_file = remote_servers.file
+    gateway.device_servers = lambda: [
+        *device_server.listed(),
+        *remote_servers.state(),
+    ]
     agent = GatewayAgent(
         gateway,
         auth.pairing.tokens,
@@ -212,6 +229,7 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
                     _app_url, is_connect=auth.is_connect, host=agent_host.url
                 ),
                 device_server=device_server,
+                remote_servers=remote_servers,
             ),
             host="127.0.0.1",
             port=port,
@@ -241,6 +259,7 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
     # Started once the gateway listens: it passes the host's calls on.
     gateway.watchers.append(agent_host.ensure)
     gateway.watchers.append(device_server.ensure)
+    gateway.watchers.append(remote_servers.ensure)
     gateway.start()
     print(f"Gateway at http://127.0.0.1:{port}/ui/gateway")
     try:
@@ -272,6 +291,7 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
         gateway.close()
         agent_host.close()
         device_server.close()
+        remote_servers.close()
         server.should_exit = True
         GATEWAY_FILE.unlink(missing_ok=True)
         # the port is free for the next gateway once the server has stopped

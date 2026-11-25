@@ -47,6 +47,7 @@ from fibsem.gateway.agent import (
 )
 from fibsem.gateway.defaults import GatewayDefaults, read_defaults, save_defaults
 from fibsem.gateway.device_server import DeviceServerProcess
+from fibsem.gateway.device_servers import DeviceServers, EntryRefused
 from fibsem.gateway.gateway import (
     HISTORY_MAX,
     HISTORY_SHOWN,
@@ -191,6 +192,7 @@ def build_gateway_app(
     defaults_file: Optional[Path] = None,
     passthrough: Optional[PassThrough] = None,
     device_server: Optional[DeviceServerProcess] = None,
+    remote_servers: Optional[DeviceServers] = None,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -497,6 +499,53 @@ def build_gateway_app(
             """Stop it: it switches its devices off as it ends. The operator
             only."""
             return device_server_act(found, "stop")
+
+    if remote_servers is not None:
+
+        def edit_entry(found: Caller, what: str, edit) -> GatewayState:
+            if not found.operator:
+                raise _refused(
+                    403, "operator_only", "Only the operator adds Device Servers."
+                )
+            try:
+                path = edit()
+            except EntryRefused as refused:
+                raise _refused(refused.status, "bad_entry", str(refused)) from None
+            name = path.name if path is not None else "the configuration"
+            gateway.record_access(found.who, "page", f"{what} in {name}")
+            return gateway.state()
+
+        @app.post("/gateway/device-servers", response_model=GatewayState)
+        def add_device_server(
+            body: Dict[str, Any], found: Caller = Depends(caller)
+        ) -> GatewayState:
+            """``{device, address, port, tunnel}``: point *device* at a Device
+            Server in the configuration the app connects with (one entry's
+            ``remote:``, and ``tunnel: user@host`` for an SSH tunnel). It
+            counts from the app's next connect. The operator only."""
+            device = str(body.get("device") or "")
+            return edit_entry(
+                found,
+                f"added a Device Server for {device}",
+                lambda: remote_servers.add(
+                    device,
+                    str(body.get("address") or ""),
+                    body.get("port"),
+                    body.get("tunnel"),
+                ),
+            )
+
+        @app.delete("/gateway/device-servers/{device}", response_model=GatewayState)
+        def remove_device_server(
+            device: str, found: Caller = Depends(caller)
+        ) -> GatewayState:
+            """Take *device* off its Device Server in that configuration. The
+            operator only."""
+            return edit_entry(
+                found,
+                f"removed the Device Server for {device}",
+                lambda: remote_servers.remove(device),
+            )
 
     @app.get("/gateway/defaults", response_model=GatewayDefaults)
     def get_defaults(found: Caller = Depends(caller)):

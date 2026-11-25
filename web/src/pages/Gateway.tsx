@@ -67,6 +67,8 @@ const HEALTH_WORDS: Partial<Record<Health["status"], string>> = {
 };
 
 interface GatewayState {
+  device_servers?: DeviceServerState[];
+  device_servers_file?: string | null;
   mode: Mode;
   version: string;
   app: string | null;
@@ -773,7 +775,10 @@ function AppCard({
               />
             </>
           )}
-          <DeviceRows />
+          <DeviceRows
+            servers={state.device_servers ?? []}
+            file={state.device_servers_file ?? null}
+          />
           <SubHeading first={!connects}>App</SubHeading>
           <Starting
             state={state}
@@ -792,7 +797,10 @@ function AppCard({
             starting={starting}
             health={state.health?.microscope}
           />
-          <DeviceRows />
+          <DeviceRows
+            servers={state.device_servers ?? []}
+            file={state.device_servers_file ?? null}
+          />
           <AppRow
             state={state}
             starting={starting}
@@ -829,95 +837,325 @@ function AppCard({
 
 /** This PC's Device Server, as the gateway runs it from device-server.yaml. */
 interface DeviceServerState {
-  status: "stopped" | "starting" | "running" | "not_set_up";
+  /** "here": this PC's, which the gateway runs; "remote": one the
+   * configuration names on another PC (or in another environment). */
+  kind: "here" | "remote";
+  name: string;
+  status: string;
   url: string | null;
-  python: string | null;
-  since: number | null;
+  tunnel?: string | null;
+  serves?: string[];
+  python?: string | null;
+  since?: number | null;
   health: { program?: string; version?: string; api_version?: string } | null;
   devices: { name: string; ok: boolean; detail: string | null }[];
-  exit_code: number | null;
-  log: string | null;
-  log_tail: string[];
+  exit_code?: number | null;
+  log?: string | null;
+  log_tail?: string[];
   detail: string | null;
 }
 
 /** The Microscope section's Devices row: how many Device Servers and devices,
  * expanding to each Device Server with its devices. Shown only when there is
  * one (this PC's, from its device-server.yaml). */
-function DeviceRows() {
-  const query = useQuery({
-    queryKey: ["gateway/device-server"],
-    queryFn: () => api<DeviceServerState>("/gateway/device-server"),
-    refetchInterval: 3000,
-    retry: false,
-  });
-  const servers = [query.data].filter(
-    (s): s is DeviceServerState => !!s && s.status !== "not_set_up",
-  );
+function DeviceRows({
+  servers,
+  file,
+}: {
+  servers: DeviceServerState[];
+  file: string | null;
+}) {
   const unwell = servers.some(
     (s) => s.status !== "running" || s.devices.some((d) => !d.ok),
   );
+  const client = useQueryClient();
   const [open, setOpen] = useState<boolean | null>(null);
-  if (servers.length === 0) return null;
+  const [adding, setAdding] = useState(false);
+  const changed = () => client.invalidateQueries({ queryKey: ["gateway"] });
   const shown = open ?? unwell;
-  const devices = servers.reduce((n, s) => n + s.devices.length, 0);
+  const devices = servers.reduce(
+    (n, s) => n + (s.devices.length || (s.serves ?? []).length),
+    0,
+  );
   const Chevron = shown ? ChevronDown : ChevronRight;
   return (
     <div className="flex flex-col border-t border-border">
-      <button
-        type="button"
-        onClick={() => setOpen(!shown)}
-        aria-expanded={shown}
-        className="grid cursor-pointer grid-cols-1 items-center gap-2 border-0 bg-transparent px-0 py-2.5 text-left text-[13px] text-foreground sm:grid-cols-[96px_minmax(0,1fr)_auto] sm:gap-3"
-      >
+      <div className="grid grid-cols-1 items-center gap-2 py-2 text-[13px] sm:grid-cols-[96px_minmax(0,1fr)_auto] sm:gap-3">
         <span className="text-muted-foreground">Devices</span>
-        <span className="flex min-w-0 items-center gap-2">
-          <Dot colour={unwell ? "warn" : "ok"} />
-          {servers.length === 1 ? "1 Device Server" : `${servers.length} Device Servers`}
-          <span className="text-muted-foreground">
-            {" "}
-            · {devices === 1 ? "1 device" : `${devices} devices`}
-          </span>
-        </span>
-        <Chevron className="size-4 text-muted-foreground" aria-hidden />
-      </button>
+        <button
+          type="button"
+          onClick={() => setOpen(!shown)}
+          aria-expanded={shown}
+          disabled={servers.length === 0}
+          className="flex min-w-0 cursor-pointer items-center gap-2 border-0 bg-transparent p-0 text-left text-[13px] text-foreground disabled:cursor-default"
+        >
+          {servers.length === 0 ? (
+            <span className="text-muted-foreground">No Device Servers</span>
+          ) : (
+            <>
+              <Dot colour={unwell ? "warn" : "ok"} />
+              {servers.length === 1
+                ? "1 Device Server"
+                : `${servers.length} Device Servers`}
+              <span className="text-muted-foreground">
+                · {devices === 1 ? "1 device" : `${devices} devices`}
+              </span>
+              <Chevron className="size-4 text-muted-foreground" aria-hidden />
+            </>
+          )}
+        </button>
+        <Button onClick={() => setAdding(true)} disabled={!file}>
+          New
+        </Button>
+      </div>
       {shown &&
-        servers.map((s) => <DeviceServerRow key={s.url ?? "here"} s={s} />)}
+        servers.map((s) => (
+          <DeviceServerRow key={`${s.kind}:${s.url}`} s={s} changed={changed} />
+        ))}
+      <AddDeviceServer
+        open={adding}
+        setOpen={setAdding}
+        file={file}
+        added={() => {
+          setOpen(true);
+          changed();
+        }}
+      />
     </div>
   );
 }
 
+/** The New modal: one device pointed at a Device Server, written as one
+ * entry's `remote:` (and `tunnel:`) in the configuration the app connects
+ * with. Nothing else in the file changes. */
+function AddDeviceServer({
+  open,
+  setOpen,
+  file,
+  added,
+}: {
+  open: boolean;
+  setOpen: (open: boolean) => void;
+  file: string | null;
+  added: () => void;
+}) {
+  const [device, setDevice] = useState("fm");
+  const [address, setAddress] = useState("");
+  const [port, setPort] = useState("8765");
+  const [tunnel, setTunnel] = useState("");
+  const add = useMutation({
+    mutationFn: () =>
+      api<GatewayState>("/gateway/device-servers", {
+        method: "POST",
+        body: JSON.stringify({
+          device,
+          address: tunnel ? "127.0.0.1" : address,
+          port: Number(port),
+          tunnel: tunnel || null,
+        }),
+      }),
+    onSuccess: () => {
+      setOpen(false);
+      added();
+    },
+  });
+  const name = file?.split(/[\\/]/).pop();
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) add.reset();
+      }}
+    >
+      <DialogContent
+        title="New Device Server"
+        className="w-[min(460px,calc(100vw-32px))]"
+      >
+        <form
+          className="flex flex-col gap-3 px-4 py-3.5 text-[13px]"
+          onSubmit={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            add.mutate();
+          }}
+        >
+          <label className="flex flex-col gap-1">
+            <span className="text-muted-foreground">Device</span>
+            <input
+              value={device}
+              onChange={(event) => setDevice(event.target.value)}
+              className={FIELD}
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-muted-foreground">SSH tunnel (optional)</span>
+            <input
+              value={tunnel}
+              onChange={(event) => setTunnel(event.target.value)}
+              placeholder="user@device-pc"
+              className={FIELD}
+            />
+          </label>
+          <div className="flex gap-2.5">
+            <label className="flex min-w-0 flex-1 flex-col gap-1">
+              <span className="text-muted-foreground">Address</span>
+              <input
+                value={tunnel ? "127.0.0.1" : address}
+                onChange={(event) => setAddress(event.target.value)}
+                disabled={!!tunnel}
+                placeholder="192.168.0.20"
+                className={FIELD}
+              />
+            </label>
+            <label className="flex w-24 flex-col gap-1">
+              <span className="text-muted-foreground">Port</span>
+              <input
+                value={port}
+                onChange={(event) => setPort(event.target.value)}
+                inputMode="numeric"
+                className={FIELD}
+              />
+            </label>
+          </div>
+          <p className="m-0 text-muted-foreground">
+            Adds it to {name ?? "the configuration"}. The app uses it from its next
+            connect.
+          </p>
+          {add.error && (
+            <p className="m-0 text-destructive">{(add.error as Error).message}</p>
+          )}
+          <div className="flex justify-end gap-2.5 pt-1">
+            <Button type="button" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="primary" disabled={add.isPending}>
+              Add
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Remove one device's Device Server from the configuration, after a yes. */
+function RemoveDeviceServer({
+  device,
+  changed,
+}: {
+  device: string;
+  changed: () => void;
+}) {
+  const [ask, setAsk] = useState(false);
+  const remove = useMutation({
+    mutationFn: () =>
+      api<GatewayState>(`/gateway/device-servers/${encodeURIComponent(device)}`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => {
+      setAsk(false);
+      changed();
+    },
+  });
+  return (
+    <>
+      <Button variant="danger" onClick={() => setAsk(true)}>
+        Remove
+      </Button>
+      <Dialog open={ask} onOpenChange={setAsk}>
+        <DialogContent
+          title={`Remove ${device}'s Device Server?`}
+          className="w-[min(460px,calc(100vw-32px))]"
+        >
+          <div className="flex flex-col gap-2 px-4 py-3.5 text-[13px]">
+            <p className="m-0">
+              The configuration stops pointing {device} at this Device Server, from
+              the app's next connect. Nothing changes on the device's PC.
+            </p>
+            {remove.error && (
+              <p className="m-0 text-destructive">
+                {(remove.error as Error).message}
+              </p>
+            )}
+            <div className="flex justify-end gap-2.5 pt-2">
+              <Button onClick={() => setAsk(false)}>Cancel</Button>
+              <Button
+                variant="danger"
+                disabled={remove.isPending}
+                onClick={() => remove.mutate()}
+              >
+                Remove
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+/** Each Device Server's state in words. */
+const STATUS_WORDS: Record<string, string> = {
+  running: "running",
+  starting: "starting",
+  stopped: "stopped",
+  not_answering: "not answering",
+  not_paired: "not paired",
+  tunnel_down: "tunnel down",
+  version_mismatch: "another version",
+  not_checked: "not checked yet",
+};
+
 /** One Device Server in the expanded list: its state, Start/Stop, its
  * devices, and its last log lines once stopped. */
-function DeviceServerRow({ s }: { s: DeviceServerState }) {
-  const client = useQueryClient();
+function DeviceServerRow({
+  s,
+  changed,
+}: {
+  s: DeviceServerState;
+  changed: () => void;
+}) {
   const act = useMutation({
     mutationFn: (what: "start" | "stop") =>
       api<DeviceServerState>(`/gateway/device-server/${what}`, { method: "POST" }),
-    onSuccess: (answer) => client.setQueryData(["gateway/device-server"], answer),
+    onSuccess: changed,
   });
+  const here = s.kind === "here";
   const up = s.status !== "stopped";
   return (
     <div className="flex flex-col border-t border-border sm:ml-[108px]">
       <div className="flex items-center gap-2 py-2 text-[13px]">
         <Dot colour={s.status === "running" ? "ok" : up ? "warn" : "off"} />
         <span className="min-w-0 flex-1 break-words">
-          This PC
+          {s.name}
           <span className="text-muted-foreground" title={s.python ?? ""}>
             {" "}
-            · {s.status}
+            · {STATUS_WORDS[s.status] ?? s.status}
+            {s.tunnel && " · by SSH tunnel"}
             {s.url && ` · ${s.url}`}
             {s.health?.version && ` · ${s.health.version}`}
           </span>
         </span>
-        <Button
-          variant={up ? "danger" : "default"}
-          disabled={act.isPending}
-          onClick={() => act.mutate(up ? "stop" : "start")}
-        >
-          {act.isPending ? (up ? "Stopping…" : "Starting…") : up ? "Stop" : "Start"}
-        </Button>
+        {!here &&
+          (s.serves ?? []).map((device) => (
+            <RemoveDeviceServer key={device} device={device} changed={changed} />
+          ))}
+        {here && (
+          <Button
+            variant={up ? "danger" : "default"}
+            disabled={act.isPending}
+            onClick={() => act.mutate(up ? "stop" : "start")}
+          >
+            {act.isPending ? (up ? "Stopping…" : "Starting…") : up ? "Stop" : "Start"}
+          </Button>
+        )}
       </div>
+      {s.devices.length === 0 && (s.serves ?? []).length > 0 && (
+        <div className="py-1 pl-4 text-[13px] text-muted-foreground">
+          Serves {(s.serves ?? []).join(", ")}
+        </div>
+      )}
       {s.devices.map((d) => (
         <div key={d.name} className="flex items-center gap-2 py-1 pl-4 text-[13px]">
           <Dot colour={d.ok ? "ok" : "warn"} />
@@ -931,12 +1169,12 @@ function DeviceServerRow({ s }: { s: DeviceServerState }) {
           {s.exit_code != null && ` (exit ${s.exit_code})`}
         </p>
       )}
-      {s.status !== "running" && s.log_tail.length > 0 && (
+      {s.status !== "running" && (s.log_tail ?? []).length > 0 && (
         <pre
           className="m-0 mb-2 max-h-48 overflow-auto rounded bg-muted p-2 text-xs"
           title={s.log ?? ""}
         >
-          {s.log_tail.join("\n")}
+          {(s.log_tail ?? []).join("\n")}
         </pre>
       )}
       {act.error && (
