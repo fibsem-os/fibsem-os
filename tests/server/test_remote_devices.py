@@ -185,12 +185,11 @@ def test_a_parameter_that_means_something_else_on_the_server_refuses_to_connect(
 def test_health_reports_each_device(served):
     local, remote, _ = served
     client = remote[BeamType.ELECTRON].client
-    assert client.health() == {
-        "ok": True,
-        "devices": {
-            "electron": {"ok": True, "detail": None},
-            "ion": {"ok": True, "detail": None},
-        },
+    health = client.health()
+    assert health["ok"] is True
+    assert health["devices"] == {
+        "electron": {"ok": True, "detail": None},
+        "ion": {"ok": True, "detail": None},
     }
     local[BeamType.ION].check_health = lambda: "plasma source not responding"
     health = client.health()
