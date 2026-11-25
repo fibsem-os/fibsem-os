@@ -1,7 +1,7 @@
 """MCP servers a lab adds to the agent's own, set up in one place,
 ``<state root>/agent/mcp.yaml``: each server's address (``url``) or the
 command that starts it (``command``), the name its token is stored under
-(``token``, set with ``fibsem-cli key set <name>``), the tools the agent may
+(``token``, set as an environment variable of that name), the tools the agent may
 call and the ones a specialist may list:
 
     notebook:
@@ -157,8 +157,8 @@ def usable(file: Optional[Path] = None) -> Tuple[Dict[str, Server], List[str]]:
             continue
         if server.token and not keystore.get_secret(server.token):
             problems.append(
-                f"{file}: no {server.token} stored for {server.name}: run "
-                f"fibsem-cli key set {server.token}"
+                f"{file}: no {server.token} for {server.name}: set the "
+                f"{server.token} environment variable"
             )
             continue
         servers[server.name] = server
@@ -329,8 +329,8 @@ def tokens(extras: Dict[str, Server]) -> Dict[str, str]:
     if missing:
         first = missing[0]
         raise ExtraMcpError(
-            f"{path()}: no {first.token} stored for {first.name}: run "
-            f"fibsem-cli key set {first.token}"
+            f"{path()}: no {first.token} for {first.name}: set the "
+            f"{first.token} environment variable"
         )
     return found
 
