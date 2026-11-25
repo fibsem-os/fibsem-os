@@ -1,8 +1,8 @@
-"""The agent host the gateway runs (`fibsem.server.agent.host`), so the agent
+"""The Agent Server the gateway runs (`fibsem.server.agent.host`), so the agent
 works with no app: it talks, plans and keeps its review list while the app is
 off, and reaches the microscope once the app answers.
 
-The gateway starts ``fibsem-agent-host`` beside itself, with no window
+The gateway starts ``fibsem-agent-server`` beside itself, with no window
 (``python -m fibsem.gateway.child``, stopped by its stop file), and starts it
 again if it ends. It passes calls to it while no App Server answers
 (`fibsem.gateway.passthrough`). A host already running on this PC, started by
@@ -41,7 +41,7 @@ def _host_file() -> Optional[dict]:
 
 
 class AgentHostProcess:
-    """The gateway's agent host: started by `ensure` (a gateway watcher) while
+    """The gateway's Agent Server: started by `ensure` (a gateway watcher) while
     none runs on this PC, stopped by `close`."""
 
     def __init__(
@@ -87,7 +87,7 @@ class AgentHostProcess:
         if proc is not None and not self._said_ended:
             self._said_ended = True
             logger.warning(
-                "The gateway's agent host ended (%s); its log is %s",
+                "The gateway's Agent Server ended (%s); its log is %s",
                 proc.returncode,
                 self._log,
             )
@@ -123,9 +123,9 @@ class AgentHostProcess:
                 )
         except OSError as error:
             self._proc = None
-            logger.warning("The gateway couldn't start the agent host: %s", error)
+            logger.warning("The gateway couldn't start the Agent Server: %s", error)
             return
-        logger.info("Gateway started the agent host (pid %d)", self._proc.pid)
+        logger.info("Gateway started the Agent Server (pid %d)", self._proc.pid)
 
     def close(self, wait_s: float = STOP_WAIT_S) -> None:
         """Stop the host the gateway started, by its stop file, else killed

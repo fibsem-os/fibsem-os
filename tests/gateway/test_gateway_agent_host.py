@@ -1,4 +1,4 @@
-"""The agent host the gateway runs: started while none runs on this PC, not
+"""The Agent Server the gateway runs: started while none runs on this PC, not
 again straight after one ended, never over a host started by hand, and
 stopped by its stop file when the gateway closes."""
 

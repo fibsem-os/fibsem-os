@@ -10,7 +10,7 @@ It never touches the microscope itself; the app it starts does. Without the gate
 installed, nothing changes: desktop launches work as they always have.
 
 A PC runs one App Server at a time, and the gateway runs one app at a time. Clients on the
-PC (`fibsem-agent`, `fibsem-cli`, the `fibsem-mcp` sidecar, the gateway itself) find it
+PC (`fibsem-agent`, `fibsem-cli`, the `fibsem-mcp` MCP server program, the gateway itself) find it
 through its discovery file, `~/.fibsem/app-server.json`. A second app's App Server is
 refused while a live one runs, and says which one (its pid and address).
 
@@ -112,7 +112,7 @@ on the left has four pages:
   (see [Pairing](#pairing)).
 - **Customise.** The agent's setup: each row opens the Agent page's **Knowledge** window on
   that part. Through the gateway, its playbooks, skills, subagents, tools and connectors work
-  with no app running (the gateway's agent host serves them); its entries need the app.
+  with no app running (the gateway's Agent Server serves them); its entries need the app.
   - **Playbooks, Skills, Subagents:** what fibsemOS ships and the lab's own, each with its
     form or its file. Editing a shipped one saves the lab's copy. Editing is the operator's,
     and each save, new one or removal made through the gateway is in History.
@@ -165,7 +165,7 @@ agent's Start in that time says the app is still starting.
 
 Every fibsem program answers `GET /health` the same way, open to anyone: `{"status": "ok",
 "program", "version", "api_version", "state"}`. The program is `fibsem-gateway`,
-`fibsem-app-server` or `fibsem-agent-host`; `version` is fibsemOS's; `api_version` is the
+`fibsem-app-server` or `fibsem-agent-server`; `version` is fibsemOS's; `api_version` is the
 version of that program's own routes (the gateway's are versioned apart from the App
 Server's it passes on), so a hub can tell a gateway it is too old or too new for.
 
@@ -257,7 +257,7 @@ Start needs:
 
 - **The app running**, with its window or without, for the agent to act on the microscope.
   A microscope needn't be connected: without one the agent can still read and review an
-  experiment. With no app, Start runs the agent on the gateway's agent host (below): it can
+  experiment. With no app, Start runs the agent on the gateway's Agent Server (below): it can
   talk, plan and keep its review list, and reaches the microscope once the app runs.
 - **An API key**, stored once with `fibsem-cli key set ANTHROPIC_API_KEY` (see below).
 - **A playbook that doesn't run code.** Windows has no sandbox for the agent's code.
@@ -283,15 +283,15 @@ app or has restarted.
 - **End** asks first, then stops the agent and keeps the app, back at Watch. The app goes
   back to Watch whenever the gateway's agent ends: End, replaced by an **Allow**, or
   restarts used up. The session keeps the level you last set, for its Resume.
-- **Start with no app running** starts the agent at once on the agent host, at the level you
+- **Start with no app running** starts the agent at once on the Agent Server, at the level you
   picked. When the app answers, the agent's calls go to it and the gateway sets the app to
   the level the agent runs at; nothing restarts. Resume works with no app the same way.
 - **Stopping the app** from the gateway (Stop or a new start) leaves the agent running on the
-  agent host, still paired, at the level you last set. When the same app and experiment
+  Agent Server, still paired, at the level you last set. When the same app and experiment
   answer again, it carries on there. A new start of another app or experiment ends it
   (the gateway compares the app and experiment it started; one opened by hand in the app
   isn't seen). End ends it. Quit leaves it for Resume, as above.
-- **With no agent host** (it couldn't start), Start with no app leaves the agent waiting, and
+- **With no Agent Server** (it couldn't start), Start with no app leaves the agent waiting, and
   it starts once the app answers; stopping the app stops the agent first and leaves it
   waiting, carrying on once the next app answers, never on the app being stopped. A start
   still waiting for its app ends on Quit, since it never ran.
@@ -326,7 +326,7 @@ refused, and websockets (which the gateway doesn't pass on yet) aren't checked. 
 running as this user can read the file, so the secret guards against a mistake (an old
 address or token), not against a program set on getting around the gateway.
 
-The gateway runs `fibsem-agent-host` itself, with no window, from its start until it closes,
+The gateway runs `fibsem-agent-server` itself, with no window, from its start until it closes,
 and starts it again if it ends (its log is in `~/.fibsem/logs/gateway/agent-host-*.log`). A
 host already started by hand is used as it is and never stopped by the gateway. The host
 serves the agent's own routes: its events, session, plan, transcript, messages, level and

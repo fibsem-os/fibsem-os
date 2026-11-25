@@ -247,7 +247,7 @@ def build_gateway_app(
     @app.get("/health")
     def health():
         """Open to anyone: the program, its version and its routes' version,
-        the same shape as the App Server's and the agent host's."""
+        the same shape as the App Server's and the Agent Server's."""
         return health_answer("fibsem-gateway", GATEWAY_API_VERSION)
 
     @app.get("/gateway", response_model=GatewayState)
