@@ -124,11 +124,13 @@ function ConnectorForm({
   start,
   isNew,
   atThisPc,
+  keyRow,
   onDone,
 }: {
   start: Form;
   isNew: boolean;
   atThisPc: boolean;
+  keyRow?: Secret;
   onDone: () => void;
 }) {
   const client = useQueryClient();
@@ -220,7 +222,7 @@ function ConnectorForm({
       )}
       <Field
         label="Token name"
-        hint="Where its token is stored, such as NOTEBOOK_TOKEN. Set the token itself under Keys."
+        hint="Where its token is stored, such as NOTEBOOK_TOKEN."
       >
         <input
           value={f.token}
@@ -228,6 +230,7 @@ function ConnectorForm({
           className={cn(FIELD, "font-mono text-xs sm:w-64")}
         />
       </Field>
+      {keyRow && keyRow.name === f.token && <KeyRow s={keyRow} />}
       <Field label="About" hint="What the agent is told it is.">
         <input
           value={f.about}
@@ -350,7 +353,6 @@ function ConnectorRow({
     c.entry.tools === "all"
       ? "every tool"
       : `${(c.entry.tools ?? []).length} tool${(c.entry.tools ?? []).length === 1 ? "" : "s"}`;
-  const [keyOpen, setKeyOpen] = useState(false);
   const facts = [
     c.entry.about,
     tools,
@@ -366,22 +368,18 @@ function ConnectorRow({
       <div className="flex items-center gap-2" title={facts}>
         <Dot on={!c.problem} />
         <span className="font-medium text-foreground">{c.name}</span>
+        {key && !key.set && (
+          <CircleAlert
+            size={13}
+            className="shrink-0 text-amber-500"
+            aria-label={`${key.name} isn't set`}
+          >
+            <title>{`${key.name} isn't set: set it under Edit`}</title>
+          </CircleAlert>
+        )}
         <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
           {isCommand ? (c.entry.command ?? []).join(" ") : c.entry.url}
         </span>
-        {key && (
-          <Button
-            variant="ghost"
-            className={small}
-            title={key.set ? `${key.name} is set` : `${key.name} isn't set`}
-            onClick={() => setKeyOpen(!keyOpen)}
-          >
-            {!key.set && (
-              <CircleAlert size={13} className="text-amber-500" aria-hidden />
-            )}
-            {key.set ? "Key" : "Set key"}
-          </Button>
-        )}
         {local && (
           <>
             <Button
@@ -436,12 +434,12 @@ function ConnectorRow({
           {((test.error ?? remove.error) as Error).message}
         </span>
       )}
-      {key && keyOpen && <KeyRow s={key} />}
       {editing && (
         <ConnectorForm
           start={toForm(c.name, c.entry)}
           isNew={false}
           atThisPc={atThisPc}
+          keyRow={key}
           onDone={() => setEditing(false)}
         />
       )}
