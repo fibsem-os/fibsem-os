@@ -671,7 +671,7 @@ function ThisPcCard() {
       </Row>
       <p className="m-0 pb-1 text-xs text-muted-foreground">
         A new port is used once the gateway restarts (Gateway, below). This page
-        then opens at the new port, and a second computer's SSH forward must
+        then opens at the new port, and your computer's SSH forward must
         name it.
       </p>
       <Row label="Check for a newer fibsemOS">

@@ -3044,7 +3044,7 @@ def mcp_names(
         if not host:
             raise SetupRefused(
                 f"The {playbook.name} playbook has no instrument: it keeps its "
-                "record on an agent host, so start it with --host."
+                "record on an Agent Server, so start it with --host."
             )
         if SERVER in playbook.mcp:
             raise SetupRefused(
@@ -3437,7 +3437,7 @@ def _parser() -> argparse.ArgumentParser:
         const="",
         default=None,
         metavar="URL",
-        help="an agent host (fibsem-agent-host) to hear from and keep the "
+        help="an Agent Server (fibsem-agent-server) to hear from and keep the "
         "agent's record through, in place of the App Server: the one running "
         "on this PC, or at URL. It asks the operator to allow this agent, and "
         "keeps the token it is given; or set the token in "

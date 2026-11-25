@@ -290,20 +290,37 @@ Once, on the support PC:
    [Devices](docs/developers/devices.md#configuring-devices) for the other keys.
 
 **Start the Device Server** on the METEOR PC, with odemis already running
-(`odemis-cli --check` exits 0). Start it in tmux, so it keeps running when your
-SSH session closes, with its log kept:
+(`odemis-cli --check` exits 0). The first time, start it in a terminal with
+`--pair`, and leave it running until the pairing below is done:
 
 ```bash
-tmux new-session -d -s fmserver "$HOME/fibsem-venv/bin/python -u -m fibsem.server.devices \
-    --config ~/.fibsem/device-server.yaml --pair 2>&1 | tee ~/fm-server.log"
-cat ~/fm-server.log
+~/fibsem-venv/bin/fibsem-device-server --pair
 ```
 
-The log shows a 4-digit pairing code (5 minutes, works once) and
+With no `--config` it serves `~/.fibsem/device-server.yaml`. It prints a
+4-digit pairing code (5 minutes, works once) and
 `Uvicorn running on http://127.0.0.1:8765`. If odemis cannot be imported or
-does not answer, the FM is not served and the log says which. Keep `-u`:
-without it the code never reaches the log. `tmux attach -t fmserver` watches
-it (`Ctrl-b d` to leave).
+does not answer, the FM is not served and the log says which. Once paired,
+stop it with `Ctrl-C` and run it as a service from then on, so it keeps
+running when your SSH session closes and keeps its log. Write
+`~/.config/systemd/user/fibsem-device-server.service`:
+
+```ini
+[Unit]
+Description=fibsemOS Device Server
+
+[Service]
+ExecStart=%h/fibsem-venv/bin/fibsem-device-server
+```
+
+```bash
+systemctl --user daemon-reload
+systemctl --user start fibsem-device-server
+journalctl --user -u fibsem-device-server -f     # its log (Ctrl-C to leave)
+```
+
+It is not restarted by itself: if it stops, its log says why, and
+`systemctl --user start fibsem-device-server` starts it again.
 
 **Open the tunnel** on the support PC. It must be up whenever fibsemOS is
 running:
@@ -331,17 +348,19 @@ It answers `{"ok":true,"devices":{"fm":{"ok":true,...},...}}`. Then start
 fibsemOS with the configuration; its log says
 `Connected to the fluorescence microscope at 127.0.0.1:8765`.
 
-**Every later session**: start the Device Server the same way without
-`--pair`, open the tunnel, start fibsemOS. To restart the Device Server,
-`tmux kill-session -t fmserver` and start it again without `--pair`; fibsemOS
-reconnects within a few seconds.
+**Every later session**: `systemctl --user start fibsem-device-server` on the
+METEOR PC, open the tunnel, start fibsemOS. To restart the Device Server,
+`systemctl --user restart fibsem-device-server`; fibsemOS reconnects within a
+few seconds. When the two PCs run fibsem versions whose Device Server routes
+differ, fibsemOS refuses to connect to the FM and its log names both versions:
+install the same version on both.
 
 **When you are done**, quit fibsemOS, then:
 
 ```bash
-pkill -f "ssh -f -N.*8765"            # support PC: the tunnel
-tmux kill-session -t fmserver          # METEOR PC: the Device Server
-odemis-cli --list-prop light | grep power   # METEOR PC: [0.0, 0.0] is off
+pkill -f "ssh -f -N.*8765"                   # support PC: the tunnel
+systemctl --user stop fibsem-device-server   # METEOR PC: the Device Server
+odemis-cli --list-prop light | grep power    # METEOR PC: [0.0, 0.0] is off
 ```
 
 Two things to know:

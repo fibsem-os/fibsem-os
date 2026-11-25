@@ -1632,7 +1632,7 @@ def main(argv=None):
         action="store_const",
         const=True,
         help="offer only the agent's record tools (plan, notes, messages): for "
-        "an agent host",
+        "an Agent Server",
     )
     record.add_argument(
         "--no-record",
@@ -1640,7 +1640,7 @@ def main(argv=None):
         action="store_const",
         const=False,
         help="offer every tool but the record tools: for an instrument whose "
-        "agent keeps its record on an agent host",
+        "agent keeps its record on an Agent Server",
     )
     parser.add_argument(
         "--always-load",

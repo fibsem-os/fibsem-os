@@ -1,4 +1,4 @@
-"""The agent host: the agent's routes on their own, with no microscope or app.
+"""The Agent Server: the agent's routes on their own, with no microscope or app.
 
 The watch, the harness's checks and the Agent page's calls are made against it
 as they are against the App Server, on a real socket where the watch runs."""
@@ -143,7 +143,7 @@ def test_pictures_go_both_ways_through_the_host(host, agent, operator):
     kept = agent.post("/app/experiment/evidence", json={"upload": _png()})
     assert kept.status_code == 200
     evidence_id = kept.json()["evidence_id"]
-    # The sidecar cites it on the call it judged for.
+    # The MCP server cites it on the call it judged for.
     cited = agent.post(
         "/app/experiment/messages",
         json={"text": "see this"},
@@ -587,7 +587,7 @@ def test_the_agent_says_when_no_host_runs_on_the_pc(on_its_own, capsys):
     from fibsem.ai.agent import harness
 
     assert harness.main(["--host"]) == 1
-    assert "no agent host is running" in capsys.readouterr().err
+    assert "no Agent Server is running" in capsys.readouterr().err
 
 
 def test_a_data_folder_is_served_with_the_image_tools(tmp_path, monkeypatch):
