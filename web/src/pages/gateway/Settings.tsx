@@ -7,15 +7,7 @@ import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { HoverCard } from "@/components/ui/hover-card";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import {
-  type Configuration,
-  ConfigurationFacts,
-  dollars,
-  FIELD,
-  LEVELS,
-  type Playbook,
-  title,
-} from "@/pages/gateway/AgentCard";
+import { FIELD, LEVELS, type Playbook, title } from "@/pages/gateway/AgentCard";
 
 /** What the page fills in for the next start; unset is the page's own
  * choice. */
@@ -526,78 +518,6 @@ function DefaultsCard({
   );
 }
 
-function PlaybookRow({ playbook }: { playbook: Playbook }) {
-  const [open, setOpen] = useState(false);
-  const config = useQuery({
-    queryKey: ["gateway/agent/playbooks", playbook.name],
-    queryFn: () =>
-      api<Configuration>(
-        `/gateway/agent/playbooks/${encodeURIComponent(playbook.name)}`,
-      ),
-    enabled: !playbook.error,
-    staleTime: 30_000,
-  });
-  const c = config.data;
-  return (
-    <div className="flex flex-col gap-2 border-t border-border py-2 text-[13px]">
-      <div className="grid grid-cols-1 gap-1 sm:grid-cols-[190px_minmax(0,1fr)_auto] sm:gap-3">
-        <span className="text-muted-foreground">{playbook.name}</span>
-        {playbook.error ? (
-          <span className="text-destructive">{playbook.error}</span>
-        ) : (
-          <span>
-            {c
-              ? [
-                  title(c.level ?? "watch"),
-                  c.max_budget_usd != null
-                    ? dollars(c.max_budget_usd)
-                    : "no budget",
-                ].join(" · ")
-              : "…"}
-            {playbook.hash && (
-              <span className="text-muted-foreground"> · {playbook.hash}</span>
-            )}
-          </span>
-        )}
-        {!playbook.error && (
-          <button
-            onClick={() => setOpen(!open)}
-            className="w-fit cursor-pointer border-0 bg-transparent p-0 text-xs text-[var(--primary)] hover:underline"
-          >
-            {open ? "Hide configuration" : "Show configuration"}
-          </button>
-        )}
-      </div>
-      {open && <ConfigurationFacts name={playbook.name} />}
-    </div>
-  );
-}
-
-function Playbooks() {
-  const playbooks = useQuery({
-    queryKey: ["gateway/agent/playbooks"],
-    queryFn: () => api<Playbook[]>("/gateway/agent/playbooks"),
-    staleTime: 30_000,
-    retry: false,
-  });
-  return (
-    <Card className="flex flex-col gap-1">
-      <CardTitle>Playbooks</CardTitle>
-      <p className="m-0 pb-1 text-[13px] text-muted-foreground">
-        On this PC. Read-only.
-      </p>
-      {playbooks.error && (
-        <p className="m-0 text-[13px] text-destructive">
-          {(playbooks.error as Error).message}
-        </p>
-      )}
-      {playbooks.data?.map((p) => (
-        <PlaybookRow key={p.name} playbook={p} />
-      ))}
-    </Card>
-  );
-}
-
 interface ThisPc {
   microscope: boolean;
   allow_local_agents: boolean;
@@ -844,7 +764,6 @@ export function Settings({
       <Secrets />
       <ThisPcCard />
       <DefaultsCard apps={apps} configurations={configurations} />
-      <Playbooks />
       <GatewayCard
         version={version}
         newer={newer}

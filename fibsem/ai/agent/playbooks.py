@@ -396,7 +396,33 @@ def load(name: str, checkout: Optional[Path], efforts=()) -> Playbook:
     servers for a playbook of the base's instrument kind; a
     `PlaybookError` says what is wrong with it. *efforts*, when given, are
     the efforts allowed."""
-    playbook = _load(name, checkout, [], tuple(efforts))
+    return _finish(_load(name, checkout, [], tuple(efforts)), checkout)
+
+
+def check(name: str, text: str, checkout: Optional[Path], efforts=()) -> Playbook:
+    """Playbook *name* as it would load were *text* the lab's file, without
+    saving it: the page's editor checks a draft so. A `PlaybookError` says
+    what is wrong, naming the lab's file."""
+    import tempfile
+
+    if not _NAME.fullmatch(name or ""):
+        raise PlaybookError(f"{name!r} isn't a playbook name: letters, digits, _ . -")
+    lab = sources.lab_folder("playbooks") / f"{name}.yaml"
+    with tempfile.TemporaryDirectory() as folder:
+        draft = Path(folder) / f"{name}.yaml"
+        draft.write_text(text, encoding="utf-8")
+        try:
+            playbook = _finish(
+                _read(name, draft, checkout, [], tuple(efforts)), checkout
+            )
+        except PlaybookError as error:
+            raise PlaybookError(str(error).replace(str(draft), str(lab))) from None
+    playbook.path = lab
+    return playbook
+
+
+def _finish(playbook: Playbook, checkout: Optional[Path]) -> Playbook:
+    """*playbook* on the shipped base, checked as `load` checks it."""
     base = shipped_base(checkout)
     if base is not None:
         playbook.instrument = playbook.instrument or base.instrument

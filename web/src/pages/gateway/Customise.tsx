@@ -5,6 +5,7 @@ import { Card, CardTitle } from "@/components/ui/card";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { FIELD } from "@/pages/gateway/AgentCard";
+import { PlaybooksCard } from "@/pages/gateway/PlaybookEditor";
 import { KeyRow, type Secret } from "@/pages/gateway/Settings";
 
 /** One connector as mcp.yaml has it (`fibsem.ai.agent.extra_mcp`). */
@@ -463,11 +464,12 @@ function ConnectorsCard() {
   );
 }
 
-/** What shapes the agent's work on this PC: its connectors, and (to come)
- * its playbooks and skills. */
+/** What shapes the agent's work on this PC: its playbooks and its
+ * connectors. */
 export function Customise() {
   return (
     <div className="flex flex-col gap-4">
+      <PlaybooksCard />
       <ConnectorsCard />
     </div>
   );
