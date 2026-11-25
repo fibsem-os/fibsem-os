@@ -9,7 +9,7 @@ import yaml
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.devices.beam import Beam
-from fibsem.devices.core import Role, command, query
+from fibsem.devices.core import Role, SafetyHalted, command, query
 from fibsem.devices.entries import build_device_entries, resolve_device_entries
 from fibsem.drivers.demo.microscope import DemoMicroscope
 from fibsem.drivers.registry import REMOTE_SERVICES, ServiceBuilder
@@ -34,6 +34,11 @@ class LineScan(Service):
     @command
     def scan(self, lines: int = 1) -> int:
         self.lines += lines
+        return self.lines
+
+    @command(safety=True)
+    def park(self) -> int:
+        self.parked = True
         return self.lines
 
     @query
@@ -258,3 +263,60 @@ def test_a_connected_microscope_serves_them_as_its_own(scanning_server, tmp_path
         assert service.lines == 4
     finally:
         microscope.beams[BeamType.ELECTRON].client.close()
+
+
+# -- the App Server's Safety Halt reaches what it uses on a Device Server --
+
+
+@pytest.fixture
+def halted(scanning_server):
+    """A microscope in a Safety Halt, with the server's beam and service built for it."""
+    server, service = scanning_server
+    microscope = DemoMicroscope.__new__(DemoMicroscope)
+    built = _build_remote(server, microscope)
+    microscope.resources.safety_halt.set("a test")
+    yield microscope, built["electron"], service
+    _close(built)
+
+
+def test_a_remote_device_refuses_during_the_microscopes_halt(halted, devices):
+    microscope, beam, _ = halted
+    before = devices["electron"].working_distance.get_value()
+    with pytest.raises(SafetyHalted):
+        beam.working_distance.set_value(before + 1e-3)
+    with pytest.raises(SafetyHalted):
+        beam.turn_off()
+    with pytest.raises(SafetyHalted):
+        beam.call_command("turn_off")
+    assert devices["electron"].working_distance.get_value() == before
+    assert beam.working_distance.get_value() == before  # reads still work
+
+
+def test_a_remote_device_keeps_its_own_locks(halted):
+    microscope, beam, _ = halted
+    assert beam.resources is not microscope.resources
+    assert beam.safety_halt is microscope.resources.safety_halt
+
+
+def test_a_device_servers_service_refuses_during_the_halt(halted):
+    microscope, _, service = halted
+    remote = microscope.services["line_scan"]
+    with pytest.raises(SafetyHalted):
+        remote.scan(lines=1)
+    with pytest.raises(SafetyHalted):
+        remote.call_command("scan", lines=1)
+    assert service.lines == 0  # nothing was sent
+    assert remote.scanned() == 0  # a query is a read
+
+
+def test_a_safety_command_the_server_lists_still_runs(halted):
+    microscope, _, service = halted
+    microscope.services["line_scan"].park()
+    assert service.parked
+
+
+def test_they_run_again_once_the_halt_is_cleared(halted):
+    microscope, beam, service = halted
+    microscope.resources.safety_halt.clear()
+    assert microscope.services["line_scan"].scan(lines=2) == 2
+    beam.turn_off()
