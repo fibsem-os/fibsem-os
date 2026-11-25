@@ -48,6 +48,7 @@ from fibsem.ai.agent.calls import current_call
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.control import MicroscopeBusy
 from fibsem.server.discovery import read_gateway_file
+from fibsem.server.gateway_secret import HEADER
 from fibsem.server.leases import LEASE_HEADER
 from fibsem.server.pairing import AGENT, OPERATOR, PairedComputer, Pairing
 
@@ -112,10 +113,13 @@ class AuthConfig:
     # The agent's session as its harness reports it (fibsem.server.agent.session):
     # model, goal, budget and spend. Self-reported, like agent_client.
     agent_session: Optional[Dict[str, Any]] = None
-    # The App Server's own secret, made when it writes its discovery file and
-    # kept there for this PC's gateway to read: while a gateway runs, an agent's
-    # call must carry it (`GATEWAY_HEADER`), so it came through the gateway.
+    # The secret a call through this PC's gateway carries (`GATEWAY_HEADER`).
+    # From the gateway that started this server (`from_gateway`): never on
+    # disk, and every call needs it (`fibsem.server.gateway_secret`). Else the
+    # App Server's own, made when it writes its discovery file and kept there
+    # for the gateway to read: an agent's call needs it while a gateway runs.
     gateway_secret: Optional[str] = None
+    from_gateway: bool = False
     # Called after each level change and on Stop agent (on_level_change).
     _listeners: List[Callable[[], Optional[Callable]]] = field(
         default_factory=list, repr=False, compare=False
@@ -293,7 +297,7 @@ def refusal_error(
 
 
 # What the gateway's pass-through adds to every call it passes on.
-GATEWAY_HEADER = "X-Fibsem-Gateway"
+GATEWAY_HEADER = HEADER
 
 
 def _skipped_gateway(request: HTTPConnection, auth: AuthConfig, token) -> bool:
@@ -302,7 +306,9 @@ def _skipped_gateway(request: HTTPConnection, auth: AuthConfig, token) -> bool:
     Server's own token (an App Server run alone: tests, evals, scripts) and
     the operator's never need it."""
     secret = auth.gateway_secret
-    if secret is None or _matches(token, auth.token):
+    if secret is None or auth.from_gateway or _matches(token, auth.token):
+        # From the gateway, every call is checked before it gets here
+        # (`fibsem.server.gateway_secret.GatewayOnly`).
         return False
     if request.scope.get("type") == "websocket":
         # The gateway passes no websockets on yet: they come here direct.

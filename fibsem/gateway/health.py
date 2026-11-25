@@ -19,6 +19,7 @@ import time
 from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from fibsem.gateway import child_secrets
 from fibsem.server.discovery import read_discovery_file
 from fibsem.server.operator_token import read_operator_token
 
@@ -108,7 +109,10 @@ def _get(url: str, route: str, timeout: float) -> Tuple[int, Any]:
     try:
         r = httpx.get(
             f"{url}{route}",
-            headers={"Authorization": f"Bearer {token}"} if token else {},
+            headers={
+                **({"Authorization": f"Bearer {token}"} if token else {}),
+                **child_secrets.headers(url),
+            },
             timeout=timeout,
         )
     except httpx.HTTPError as error:

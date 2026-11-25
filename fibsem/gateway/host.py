@@ -1,4 +1,4 @@
-"""The gateway's calls to the fibsem host on this PC, as the operator: the
+"""The gateway's calls to the App Server on this PC, as the operator: the
 host's answer, or its refusal as a `GatewayRefused`. `HostMicroscope` is the
 host's connect and disconnect, and the link to its Agent page, for the
 gateway's page."""
@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional
 
+from fibsem.gateway import child_secrets
 from fibsem.gateway.gateway import GatewayRefused
 from fibsem.server.discovery import read_discovery_file
 from fibsem.server.operator_token import read_operator_token
@@ -26,7 +27,10 @@ def call_host(
             method,
             f"{url}{route}",
             json=body,
-            headers={"Authorization": f"Bearer {token}"} if token else {},
+            headers={
+                **({"Authorization": f"Bearer {token}"} if token else {}),
+                **child_secrets.headers(url),
+            },
             timeout=timeout,
         )
     except httpx.HTTPError as error:
@@ -54,7 +58,7 @@ class HostMicroscope:
         self._discovery = discovery
         self._call = call
         self._token = token
-        # The agent host the gateway runs: the Agent page works with no app.
+        # The Agent Server the gateway runs: the Agent page works with no app.
         self._agent_host = agent_host
 
     def _url(self) -> str:
@@ -75,7 +79,7 @@ class HostMicroscope:
 
     def agent_page(self) -> str:
         """The app's Agent page, on the gateway's own port (its calls pass
-        through to the app, else to the agent host), with the operator token
+        through to the app, else to the Agent Server), with the operator token
         in the fragment; refused while neither runs."""
         if self._agent_host() is None:
             self._url()
