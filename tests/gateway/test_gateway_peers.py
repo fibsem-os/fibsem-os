@@ -284,6 +284,8 @@ def test_pair_keeps_both_tokens_and_switch_uses_the_gateways(sem_pc):
         8010,
         None,
     )
+    servers.check()
+    assert servers.state()[0]["gateway_tunnel"] is False  # fakes are never open
     servers._pairings[server.key] = ASKING
     servers._pairing(server, url)
     assert [p[2]["id"] for p in posted] == [None, "the-id"]

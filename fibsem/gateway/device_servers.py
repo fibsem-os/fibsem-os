@@ -81,6 +81,12 @@ class RemoteDeviceServer:
     serves: List[str] = field(default_factory=list)
     # ``user@host`` when the gateway reaches it through an SSH tunnel.
     tunnel: Optional[str] = None
+    # Its tunnel: "open" (the gateway's), "by_hand" (its port already
+    # answered here) or "down"; and since when it has been up.
+    tunnel_state: Optional[str] = None
+    tunnel_since: Optional[float] = None
+    # Whether the tunnel to its PC's gateway (for pairing, Start, Stop) is open.
+    gateway_tunnel: bool = False
     status: str = NOT_CHECKED
     detail: Optional[str] = None
     health: Optional[Dict[str, Any]] = None
@@ -519,6 +525,8 @@ class DeviceServers:
         self._file: Optional[Path] = None
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
+        # Since when each tunnel has been up, by Device Server.
+        self._up_since: Dict[str, float] = {}
 
     # -- watching --------------------------------------------------------------
 
@@ -550,6 +558,7 @@ class DeviceServers:
         for old in self._servers:
             if old.tunnel and old.key not in names:
                 self._tunnels.close(old.key)
+                self._up_since.pop(old.key, None)
         for server in servers:
             self._ask(server)
         with self._lock:
@@ -560,11 +569,16 @@ class DeviceServers:
         server.checked = self._clock()
         server.paired = peers.kept(server.url) is not None
         server.pairing = self._pairings.get(server.key)
+        to_gateway = self._tunnels.get(f"{server.key} gateway")
+        server.gateway_tunnel = to_gateway is not None and to_gateway.open
         if server.tunnel:
             why = self._through_tunnel(server)
             if why is not None:
+                self._up_since.pop(server.key, None)
+                server.tunnel_state = "down"
                 server.status, server.detail = TUNNEL_DOWN, why
                 return
+            server.tunnel_since = self._up_since.setdefault(server.key, self._clock())
         token = self._token(server.url)
         try:
             status, body = self._get(server.url, token)
@@ -606,6 +620,7 @@ class DeviceServers:
         current = self._tunnels.get(server.key)
         if (current is None or not current.open) and self._accepts(server.port):
             # Something here already answers on it: a tunnel opened by hand.
+            server.tunnel_state = "by_hand"
             return None
         try:
             self._tunnels.ensure(
@@ -613,6 +628,7 @@ class DeviceServers:
             )
         except TunnelDown as down:
             return f"The tunnel to {destination} is down: {down}"
+        server.tunnel_state = "open"
         return None
 
     # -- the page's edits ------------------------------------------------------

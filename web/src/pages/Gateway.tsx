@@ -844,6 +844,11 @@ interface DeviceServerState {
   status: string;
   url: string | null;
   tunnel?: string | null;
+  /** "open", "by_hand" or "down", and since when it has been up. */
+  tunnel_state?: string | null;
+  tunnel_since?: number | null;
+  /** Whether the tunnel to its PC's gateway (pairing, Start, Stop) is open. */
+  gateway_tunnel?: boolean;
   serves?: string[];
   /** Paired through the gateways: Start and Stop reach its PC's gateway. */
   paired?: boolean;
@@ -882,6 +887,10 @@ function DeviceRows({
     (n, s) => n + (s.devices.length || (s.serves ?? []).length),
     0,
   );
+  const tunnels = servers.filter((s) => s.tunnel).length;
+  const tunnelsUp = servers.filter(
+    (s) => s.tunnel_state === "open" || s.tunnel_state === "by_hand",
+  ).length;
   const Chevron = shown ? ChevronDown : ChevronRight;
   return (
     <div className="flex flex-col border-t border-border">
@@ -904,6 +913,7 @@ function DeviceRows({
                 : `${servers.length} Device Servers`}
               <span className="text-muted-foreground">
                 · {devices === 1 ? "1 device" : `${devices} devices`}
+                {tunnels > 0 && ` · ${tunnelsUp} of ${tunnels} SSH tunnels up`}
               </span>
               <Chevron className="size-4 text-muted-foreground" aria-hidden />
             </>
@@ -1212,6 +1222,35 @@ function RemoveDeviceServer({
   );
 }
 
+/** A Device Server's SSH tunnel: open (and since when), opened by hand, or down. */
+function TunnelLine({ s }: { s: DeviceServerState }) {
+  const up = s.tunnel_state === "open" || s.tunnel_state === "by_hand";
+  const since = s.tunnel_since
+    ? new Date(s.tunnel_since * 1000).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : null;
+  const words =
+    s.tunnel_state === "open"
+      ? `open${since ? ` since ${since}` : ""}`
+      : s.tunnel_state === "by_hand"
+        ? "opened by hand"
+        : s.tunnel_state === "down"
+          ? "down"
+          : "not opened yet";
+  return (
+    <div className="flex items-center gap-2 py-1 pl-4 text-[13px]">
+      <Dot colour={up ? "ok" : s.tunnel_state === "down" ? "warn" : "off"} />
+      <span>SSH tunnel to {s.tunnel}</span>
+      <span className="text-muted-foreground">
+        {words}
+        {s.gateway_tunnel && " · and one to its gateway"}
+      </span>
+    </div>
+  );
+}
+
 /** Each Device Server's state in words. */
 const STATUS_WORDS: Record<string, string> = {
   running: "running",
@@ -1249,7 +1288,6 @@ function DeviceServerRow({
           <span className="text-muted-foreground" title={s.python ?? ""}>
             {" "}
             · {STATUS_WORDS[s.status] ?? s.status}
-            {s.tunnel && " · by SSH tunnel"}
             {s.url && ` · ${s.url}`}
             {s.health?.version && ` · ${s.health.version}`}
           </span>
@@ -1269,6 +1307,7 @@ function DeviceServerRow({
           </Button>
         )}
       </div>
+      {s.tunnel && <TunnelLine s={s} />}
       {s.devices.length === 0 && (s.serves ?? []).length > 0 && (
         <div className="py-1 pl-4 text-[13px] text-muted-foreground">
           Serves {(s.serves ?? []).join(", ")}
