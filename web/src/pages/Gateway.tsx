@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useState } from "react";
-import { Loader, Square } from "lucide-react";
+import { ChevronDown, ChevronRight, Loader, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -773,6 +773,7 @@ function AppCard({
               />
             </>
           )}
+          <DeviceRows />
           <SubHeading first={!connects}>App</SubHeading>
           <Starting
             state={state}
@@ -791,6 +792,7 @@ function AppCard({
             starting={starting}
             health={state.health?.microscope}
           />
+          <DeviceRows />
           <AppRow
             state={state}
             starting={starting}
@@ -839,41 +841,73 @@ interface DeviceServerState {
   detail: string | null;
 }
 
-/** The Device Server in one row, its devices below: shown only on a PC with
- * a device-server.yaml. A Device Server that ends stays stopped until Start. */
-function DeviceServerCard() {
-  const client = useQueryClient();
+/** The Microscope section's Devices row: how many Device Servers and devices,
+ * expanding to each Device Server with its devices. Shown only when there is
+ * one (this PC's, from its device-server.yaml). */
+function DeviceRows() {
   const query = useQuery({
     queryKey: ["gateway/device-server"],
     queryFn: () => api<DeviceServerState>("/gateway/device-server"),
     refetchInterval: 3000,
     retry: false,
   });
+  const servers = [query.data].filter(
+    (s): s is DeviceServerState => !!s && s.status !== "not_set_up",
+  );
+  const unwell = servers.some(
+    (s) => s.status !== "running" || s.devices.some((d) => !d.ok),
+  );
+  const [open, setOpen] = useState<boolean | null>(null);
+  if (servers.length === 0) return null;
+  const shown = open ?? unwell;
+  const devices = servers.reduce((n, s) => n + s.devices.length, 0);
+  const Chevron = shown ? ChevronDown : ChevronRight;
+  return (
+    <div className="flex flex-col border-t border-border">
+      <button
+        type="button"
+        onClick={() => setOpen(!shown)}
+        aria-expanded={shown}
+        className="grid cursor-pointer grid-cols-1 items-center gap-2 border-0 bg-transparent px-0 py-2.5 text-left text-[13px] text-foreground sm:grid-cols-[96px_minmax(0,1fr)_auto] sm:gap-3"
+      >
+        <span className="text-muted-foreground">Devices</span>
+        <span className="flex min-w-0 items-center gap-2">
+          <Dot colour={unwell ? "warn" : "ok"} />
+          {servers.length === 1 ? "1 Device Server" : `${servers.length} Device Servers`}
+          <span className="text-muted-foreground">
+            {" "}
+            · {devices === 1 ? "1 device" : `${devices} devices`}
+          </span>
+        </span>
+        <Chevron className="size-4 text-muted-foreground" aria-hidden />
+      </button>
+      {shown &&
+        servers.map((s) => <DeviceServerRow key={s.url ?? "here"} s={s} />)}
+    </div>
+  );
+}
+
+/** One Device Server in the expanded list: its state, Start/Stop, its
+ * devices, and its last log lines once stopped. */
+function DeviceServerRow({ s }: { s: DeviceServerState }) {
+  const client = useQueryClient();
   const act = useMutation({
     mutationFn: (what: "start" | "stop") =>
       api<DeviceServerState>(`/gateway/device-server/${what}`, { method: "POST" }),
     onSuccess: (answer) => client.setQueryData(["gateway/device-server"], answer),
   });
-  const s = query.data;
-  if (!s || s.status === "not_set_up") return null;
   const up = s.status !== "stopped";
-  const version = s.health?.version ? ` · ${s.health.version}` : "";
   return (
-    <Card className="flex flex-col gap-0 py-1">
-      <div className="grid grid-cols-1 items-center gap-2 py-2.5 text-[13px] sm:grid-cols-[96px_minmax(0,1fr)_auto] sm:gap-3">
-        <span className="text-muted-foreground">Devices</span>
-        <span className="flex min-w-0 items-center gap-2">
-          <Dot colour={s.status === "running" ? "ok" : up ? "warn" : "off"} />
-          <span className="min-w-0 break-words">
-            {s.status === "running"
-              ? "Device Server running"
-              : s.status === "starting"
-                ? "Device Server starting"
-                : "Device Server stopped"}
-            <span className="text-muted-foreground" title={s.python ?? ""}>
-              {s.url && ` · ${s.url}`}
-              {version}
-            </span>
+    <div className="flex flex-col border-t border-border sm:ml-[108px]">
+      <div className="flex items-center gap-2 py-2 text-[13px]">
+        <Dot colour={s.status === "running" ? "ok" : up ? "warn" : "off"} />
+        <span className="min-w-0 flex-1 break-words">
+          This PC
+          <span className="text-muted-foreground" title={s.python ?? ""}>
+            {" "}
+            · {s.status}
+            {s.url && ` · ${s.url}`}
+            {s.health?.version && ` · ${s.health.version}`}
           </span>
         </span>
         <Button
@@ -885,23 +919,23 @@ function DeviceServerCard() {
         </Button>
       </div>
       {s.devices.map((d) => (
-        <div
-          key={d.name}
-          className="flex items-center gap-2 border-t border-border py-2 text-[13px] sm:pl-[108px]"
-        >
+        <div key={d.name} className="flex items-center gap-2 py-1 pl-4 text-[13px]">
           <Dot colour={d.ok ? "ok" : "warn"} />
           <span>{d.name}</span>
           {d.detail && <span className="text-muted-foreground">{d.detail}</span>}
         </div>
       ))}
-      {(s.status !== "running" && s.detail) && (
-        <p className="m-0 border-t border-border py-2 text-[13px] text-muted-foreground">
+      {s.status !== "running" && s.detail && (
+        <p className="m-0 py-1 text-[13px] text-muted-foreground">
           {s.detail}
           {s.exit_code != null && ` (exit ${s.exit_code})`}
         </p>
       )}
       {s.status !== "running" && s.log_tail.length > 0 && (
-        <pre className="m-0 mb-2 max-h-48 overflow-auto rounded bg-muted p-2 text-xs" title={s.log ?? ""}>
+        <pre
+          className="m-0 mb-2 max-h-48 overflow-auto rounded bg-muted p-2 text-xs"
+          title={s.log ?? ""}
+        >
           {s.log_tail.join("\n")}
         </pre>
       )}
@@ -910,7 +944,7 @@ function DeviceServerCard() {
           {(act.error as Error).message}
         </p>
       )}
-    </Card>
+    </div>
   );
 }
 
@@ -1132,7 +1166,6 @@ function Gateway({
                 starting={appStarting}
                 up={appUp}
               />
-              <DeviceServerCard />
               {gatewayAsk && <ConnectCard key={gatewayAsk.id} ask={gatewayAsk} />}
               <AgentCard
                 appRunning={appUp}
