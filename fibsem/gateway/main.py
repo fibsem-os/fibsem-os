@@ -27,6 +27,7 @@ from typing import Callable, List, Optional, Sequence
 from fibsem import diagnostics
 from fibsem.gateway.agent import GatewayAgent
 from fibsem.gateway.agent_host import AgentHostProcess
+from fibsem.gateway.device_server import DeviceServerProcess
 from fibsem.gateway.gateway import (
     GATEWAY_FILE,
     GATEWAY_PORT,
@@ -171,6 +172,8 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
     auth = GatewayAuth.from_disk()
     # The agent's routes while no app runs: the agent works with no app.
     agent_host = AgentHostProcess(_python())
+    # This PC's devices, when it has a device-server.yaml (a device PC).
+    device_server = DeviceServerProcess(_python())
     agent = GatewayAgent(
         gateway,
         auth.pairing.tokens,
@@ -208,6 +211,7 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
                 passthrough=PassThrough(
                     _app_url, is_connect=auth.is_connect, host=agent_host.url
                 ),
+                device_server=device_server,
             ),
             host="127.0.0.1",
             port=port,
@@ -236,6 +240,7 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
     write_gateway_file(f"http://127.0.0.1:{port}", auth.connect_token)
     # Started once the gateway listens: it passes the host's calls on.
     gateway.watchers.append(agent_host.ensure)
+    gateway.watchers.append(device_server.ensure)
     gateway.start()
     print(f"Gateway at http://127.0.0.1:{port}/ui/gateway")
     try:
@@ -266,6 +271,7 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
             quit_gateway(gateway)
         gateway.close()
         agent_host.close()
+        device_server.close()
         server.should_exit = True
         GATEWAY_FILE.unlink(missing_ok=True)
         # the port is free for the next gateway once the server has stopped

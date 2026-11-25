@@ -174,6 +174,29 @@ newer release is on PyPI, or "Update available" for a source checkout behind Git
 `main` (hover it for how many changes). The gateway asks when it starts and once a day after. Offline, or with a commit that
 was never pushed, it shows nothing.
 
+### The Device Server
+
+On a PC with a `~/.fibsem/device-server.yaml` (a METEOR's or an AFM's PC, or a microscope PC
+whose device needs a vendor's Python), the gateway also runs that PC's Device Server, as it
+starts. It runs it with the Python the file names under `server.python` (another environment
+on this PC, for a vendor's SDK), else its own:
+
+```yaml
+server:
+  port: 8765
+  python: C:\vendor\envs\sdk\python.exe
+```
+
+Overview shows it under Microscope, in Devices: a line with how many Device Servers and
+devices, which opens to each Device Server (running, starting or stopped, its address and
+version) and whether each device it serves answers (from its `/health`, read with this install's Device
+Server token). The list opens by itself when one is not well.
+One that ends is not started again by itself: it shows stopped with its last
+log lines, until Start. Stop ends it by its stop file, so it switches its devices off as it
+ends. Only the operator starts and stops it; a hub reads it at `GET /gateway/device-server`.
+Its log is in `~/.fibsem/logs/gateway/device-server-<time>.log`. Without the file, nothing
+changes.
+
 ## The agent
 
 The gateway can run the agent on this PC, next to the app. The agent reaches the app
