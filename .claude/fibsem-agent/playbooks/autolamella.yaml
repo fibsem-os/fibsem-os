@@ -3,6 +3,9 @@
 extends: fibsem-agent
 description: On-grid lamellae, not correlative.
 skills: [autolamella]
+# The lab's notebook, when its ~/.fibsem/agent/mcp.yaml entry is usable; the
+# session runs without it otherwise.
+mcp: [notebook]
 tools: [item_list, item_get, item_get_output_image, workflow_get_summary, proposal_list, proposal_decide, experiment_add_note, analysis_crop_image, analysis_draw_image, review_add, item_draw_milling, analysis_draw_pair]
 optional:
   - skill: autolamella-lead
@@ -21,6 +24,8 @@ optional:
       - fibsem-worker
   - skill: autolamella-assistant
     when: the operator runs the workflow and asks you to help
+  - skill: lab-notebook
+    when: you have the lab notebook's tools (mcp__notebook__…), at session setup
   - skill: screen-grids
     when: the grid has not been screened and the operator wants sites found
     agents: [autolamella-site-finder]

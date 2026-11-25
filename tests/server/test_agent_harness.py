@@ -474,6 +474,7 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
         "autolamella-coincidence-milling",
         "screen-grids",
         "fibsem-experiment",
+        "lab-notebook",
     }
     for skill in options.skills:
         assert (checkout / ".claude" / "skills" / skill / "SKILL.md").is_file()
@@ -618,11 +619,13 @@ def test_a_labs_extra_mcp_server_is_added_and_its_token_is_never_shown(
     ) in printed
     assert secret not in printed
 
-    # Not stored: fibsem-agent refuses to start, saying how to store it.
+    # Not stored: fibsem-agent starts without it, saying how to store it.
     monkeypatch.delenv("NOTEBOOK_TOKEN")
     monkeypatch.setattr(extra_mcp.keystore, "stored_secret", lambda name: None)
-    assert harness_mod.main(["--show-config"]) == 1
-    assert "fibsem-cli key set NOTEBOOK_TOKEN" in capsys.readouterr().err
+    assert harness_mod.main(["--show-config", "--playbook", "with-notebook"]) == 0
+    printed = capsys.readouterr().out
+    assert "MCP left off" in printed and "fibsem-cli key set NOTEBOOK_TOKEN" in printed
+    assert "mcp__notebook__" not in printed
 
 
 def test_code_mode_is_sandboxed_in_its_work_folder(tmp_path, monkeypatch):

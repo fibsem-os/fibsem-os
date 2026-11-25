@@ -195,6 +195,13 @@ fibsem-agent
   `tools: all`, every tool the server offers is allowed, at the server's
   level, including tools it adds later.
 
+  A server that is set up wrong (no `url` or `command`, a file that isn't
+  YAML, a token not stored) is left off, not a reason to stop: the agent
+  starts without it, the log says why, and `--show-config` lists it under
+  "MCP left off". A server a playbook names that `mcp.yaml` doesn't have
+  is left off too, with a warning in the log. The shipped `autolamella` playbook names `notebook`, and its
+  `lab-notebook` skill says how to use it.
+
   A picture a lab tool answers with shows on the Agent page under its step,
   as the agent saw it. It is kept beside the transcript, in the session's
   `agent/pictures/` folder (under `~/.fibsem/agent/sessions/`).

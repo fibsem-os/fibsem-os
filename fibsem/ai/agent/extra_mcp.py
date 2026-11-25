@@ -42,17 +42,20 @@ names it in its ``mcp`` list (`fibsem.ai.agent.playbooks`); ``fibsem-agent
 
 import asyncio
 import json
+import logging
 import os
 import re
 import threading
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 
 import yaml
 
 from fibsem import keystore, paths
+
+logger = logging.getLogger(__name__)
 
 FILE = "mcp.yaml"
 # The harness's own servers (``harness.SERVER`` and ``HARNESS_SERVER``).
@@ -125,6 +128,49 @@ def load(file: Optional[Path] = None) -> Dict[str, Server]:
         return {str(name): _server(name, entry) for name, entry in data.items()}
     except ExtraMcpError as error:
         raise ExtraMcpError(f"{file}: {error}") from None
+
+
+def usable(file: Optional[Path] = None) -> Tuple[Dict[str, Server], List[str]]:
+    """The extra servers the agent can connect, and why each other one is
+    left off. A file that can't be read, an entry that is wrong, or one whose
+    token isn't stored leaves that server off (logged) instead of stopping
+    the agent from starting: the session runs without it."""
+    file = file or path()
+    if not file.is_file():
+        return {}, []
+    try:
+        data = yaml.safe_load(file.read_text(encoding="utf-8"))
+    except yaml.YAMLError as error:
+        return _left_off({}, [f"{file} can't be read, so none of its servers: {error}"])
+    if data is None:
+        return {}, []
+    if not isinstance(data, dict):
+        return _left_off(
+            {}, [f"{file}: each server is a name with its settings under it"]
+        )
+    servers, problems = {}, []
+    for name, entry in data.items():
+        try:
+            server = _server(name, entry)
+        except ExtraMcpError as error:
+            problems.append(f"{file}: {error}")
+            continue
+        if server.token and not keystore.get_secret(server.token):
+            problems.append(
+                f"{file}: no {server.token} stored for {server.name}: run "
+                f"fibsem-cli key set {server.token}"
+            )
+            continue
+        servers[server.name] = server
+    return _left_off(servers, problems)
+
+
+def _left_off(
+    servers: Dict[str, Server], problems: List[str]
+) -> Tuple[Dict[str, Server], List[str]]:
+    for problem in problems:
+        logger.warning(f"{problem}; the agent starts without it")
+    return servers, problems
 
 
 def _server(name, entry) -> Server:
