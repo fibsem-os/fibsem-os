@@ -69,7 +69,7 @@ Read `server_get_capabilities` (`/capabilities`) before anything else:
 
 No discovery file means no App Server. It starts with the app, with or
 without a microscope connected; tell the operator it is switched on in
-Tools → Host. Don't look for other ways in.
+Tools → App Server. Don't look for other ways in.
 
 `/microscope` answering 409 `not_connected` means the operator hasn't
 connected the microscope yet. You can't connect it: say so and wait.

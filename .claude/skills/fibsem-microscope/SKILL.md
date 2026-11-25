@@ -27,7 +27,7 @@ coincidence check before a position. Say what you are about to do first.
 
 **Check before you start.** In `/capabilities`, `routers.microscope` must be
 true. If it isn't, or your level doesn't allow the action, say plainly which,
-and that the operator changes it (the Agent chip for the level; Tools → Host,
+and that the operator changes it (the Agent chip for the level; Tools → App Server,
 *Serve the microscope*, for the microscope). A hardware tool missing
 from your tool list means the same thing. Don't look for another way in.
 

@@ -2399,11 +2399,11 @@ class Harness:
             check = (
                 unreachable_why(self._url)
                 if self._url
-                else "Start the host (Tools -> Host in AutoLamella)."
+                else "Start the App Server (Tools -> App Server in AutoLamella)."
             )
             if remaining <= 0:
                 log.error(
-                    "No fibsem host answered within %.0f s; fibsem-agent stops. %s",
+                    "No App Server answered within %.0f s; fibsem-agent stops. %s",
                     self._server_wait_s,
                     check,
                 )

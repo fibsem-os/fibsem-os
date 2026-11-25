@@ -23,14 +23,14 @@ observer with a doorbell, not a second driver.
 
 ## Turning it on
 
-1. **Tools → Host**: tick *Serve this session*. It is saved, so the
+1. **Tools → App Server**: tick *Serve this session*. It is saved, so the
    next launch starts the same way. The App Server (one process
    per microscope) serves with or without a microscope; until one is
    connected, `/microscope` answers *not connected* and the web app's
    Microscope page shows a Connect card.
 2. Connect a microscope, from the window or the web app. The server follows
    the connection; it does not restart.
-3. **Tools → Host** also shows the server: whether it is running, which
+3. **Tools → App Server** also shows the server: whether it is running, which
    services it serves, when the agent was last heard from, and the
    event log. *Serve the microscope* there also serves the routes that
    reach the instrument, everything under `/microscope`: who it is, its
@@ -227,7 +227,7 @@ you. At Drive it may decide it.
 
 ## The event log
 
-**Event log** in Tools → Host, and on the agent card, opens the web
+**Event log** in Tools → App Server, and on the agent card, opens the web
 app's Events page in your browser: what the agent, the operator and the run
 did, as one filterable table that follows the event stream live. The page is
 also under Events in the web app's rail.

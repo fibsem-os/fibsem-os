@@ -1601,7 +1601,7 @@ def main(argv=None):
     if missing:
         sys.exit(missing)
     parser = argparse.ArgumentParser(
-        description="MCP sidecar for a fibsem server",
+        description="MCP server for a fibsem App Server",
         epilog="fibsem-mcp watch: print one line per app event worth waking "
         "an agent for (fibsem-mcp watch --help). fibsem-mcp pair <code>: pair "
         "this computer's agent (fibsem-mcp pair --help).",

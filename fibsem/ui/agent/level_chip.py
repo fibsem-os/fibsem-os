@@ -68,7 +68,7 @@ OFFERED_LEVELS = (AgentLevel.OFF, AgentLevel.WATCH, AgentLevel.ASSIST, AgentLeve
 
 _HELP = (
     ".\n\nClick for the agent's card. “Agent” is any client holding the App "
-    "Server's agent token: the fibsem-mcp sidecar, FibsemClient or a script."
+    "Server's agent token: the fibsem-mcp MCP server, FibsemClient or a script."
 )
 
 

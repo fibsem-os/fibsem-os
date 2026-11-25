@@ -956,7 +956,7 @@ def build_server(
 
 
 MICROSCOPE_OFF_MESSAGE = (
-    "The microscope isn't served: the operator turns it on in Tools → Host."
+    "The microscope isn't served: the operator turns it on in Tools → App Server."
 )
 
 

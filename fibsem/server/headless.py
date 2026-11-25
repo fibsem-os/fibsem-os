@@ -1,4 +1,4 @@
-"""The fibsem host: one process per microscope that starts an app's session and
+"""One process per microscope that starts an app's session and
 its App Server, connects the microscope, and either serves until Ctrl-C or
 opens the app's window on the same session. The part every app's command
 shares (``fibsem-volume``, ``fibsem-autolamella-server``, and the window
@@ -116,7 +116,7 @@ def announce_host(session) -> None:
     host = session.app_server
     experiment = session.experiment
     what = experiment.name if experiment is not None else "no experiment"
-    print(f"The fibsem host is serving {what} at {host.url} (agent at Watch).")
+    print(f"The App Server is serving {what} at {host.url} (agent at Watch).")
     # The plain address, never the token: scrollback and service logs keep it.
     # The pages, pairing and agents' asks are the gateway's.
     print(f"Chat and level controls: {host.connect_url}/ui/agent (on the gateway)")
