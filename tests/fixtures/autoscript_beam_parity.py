@@ -23,6 +23,7 @@ import autoscript_stage_parity as S  # noqa: E402  (installs the fake SDK)
 
 logging.disable(logging.NOTSET)
 
+from fibsem.microscope import UNCHECKED_WRITE
 from fibsem.structures.settings import BeamType, FibsemRectangle, Point  # noqa: E402
 
 A, LOG, STRUCTS, Node = S.A, S.LOG, S.STRUCTS, S.Node
@@ -37,7 +38,11 @@ class _Messages(logging.Handler):
         self.records = []
 
     def emit(self, record):
-        self.records.append([record.levelname, record.getMessage()])
+        message = record.getMessage()
+        # a wrapper's warning on a value the device API would refuse is new
+        # (FIB-1623), not one the old branches logged
+        if UNCHECKED_WRITE not in message:
+            self.records.append([record.levelname, message])
 
 
 MESSAGES = _Messages()

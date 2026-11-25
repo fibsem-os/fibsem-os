@@ -4,6 +4,7 @@ and field of view have limits where the driver knows them.
 Thermo's, from the scan, are in ``tests/drivers/autoscript/test_autoscript_beam.py``.
 """
 
+import logging
 import os
 
 import pytest
@@ -11,6 +12,7 @@ import pytest
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.devices.beam import DEFAULT_DWELL_TIME_LIMITS, STANDARD_RESOLUTIONS
+from fibsem.microscope import UNCHECKED_WRITE
 from fibsem.structures.settings import BeamType
 
 E, I = BeamType.ELECTRON, BeamType.ION
@@ -29,11 +31,32 @@ def test_demo_offers_the_standard_resolutions_and_its_ranges(beam_type):
     assert beam.hfw.limits is not None
 
 
-def test_the_old_wrapper_still_writes_without_checking():
-    """``set_resolution`` writes as the old key did; only the device API checks."""
+def test_the_old_wrapper_still_writes_without_checking(caplog):
+    """``set_resolution`` writes as the old key did, and warns that the device API
+    would refuse it; only the device API checks (FIB-1623)."""
     microscope = _demo()
-    microscope.set_resolution((1024, 1024), E)
+    with caplog.at_level(logging.WARNING, logger="fibsem.microscope"):
+        microscope.set_resolution((1024, 1024), E)
     assert tuple(microscope.get_resolution(E)) == (1024, 1024)
+    assert any(
+        "electron.resolution" in m and UNCHECKED_WRITE in m for m in caplog.messages
+    )
+
+
+def test_the_old_wrapper_warns_on_a_number_outside_the_limits(caplog):
+    microscope = _demo()
+    limits = microscope.beams[E].hfw.limits
+    with caplog.at_level(logging.WARNING, logger="fibsem.microscope"):
+        microscope.set_field_of_view(limits.max * 10, E)
+    assert microscope.get_field_of_view(E) == pytest.approx(limits.max * 10)
+    assert any("electron.hfw" in m and "outside" in m for m in caplog.messages)
+
+
+def test_the_old_wrapper_is_quiet_on_a_value_the_device_api_takes(caplog):
+    microscope = _demo()
+    with caplog.at_level(logging.WARNING, logger="fibsem.microscope"):
+        microscope.set_resolution((1536, 1024), E)
+    assert not [m for m in caplog.messages if UNCHECKED_WRITE in m]
 
 
 def test_a_resolution_off_the_list_is_refused():

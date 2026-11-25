@@ -21,7 +21,7 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.microscope import _chamber_state_name
+from fibsem.microscope import UNCHECKED_WRITE, _chamber_state_name
 from fibsem.structures.image import FibsemImage
 from fibsem.structures.settings import (
     BeamType,
@@ -221,7 +221,9 @@ def run(microscope, call):
         root.removeHandler(messages)
         root.setLevel(level)
     # as the recording stored it: JSON, with anything else as its repr
-    ran = {"result": result, "calls": list(LOG), "log": messages.records}
+    # a wrapper's warning on a value the device API would refuse is new (FIB-1623)
+    log = [r for r in messages.records if UNCHECKED_WRITE not in r[1]]
+    ran = {"result": result, "calls": list(LOG), "log": log}
     return json.loads(json.dumps(ran, default=repr))
 
 

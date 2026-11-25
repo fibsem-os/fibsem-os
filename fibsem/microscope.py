@@ -26,6 +26,7 @@ from fibsem.devices.core import IMAGING_CHANNEL, Resources, Session
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.instrument import Instrument, _PerInstance
 from fibsem.structures.image import FibsemImage
+from fibsem.structures.params import RangeLimit
 from fibsem.structures.settings import (
     BeamSettings,
     BeamType,
@@ -107,6 +108,32 @@ _BEAM_DEVICE_NAMES: Dict[BeamType, str] = {
 # `_build_stage`); a backend builds any other type a configuration adds after them.
 BEAM_TYPES = ("beam",)
 STAGE_TYPES = ("stage",)
+
+
+UNCHECKED_WRITE = "a wrapper writes it unchecked"
+"""How every `_warn_unchecked` warning ends."""
+
+
+def _warn_unchecked(param: Any, value: Any) -> None:
+    """Warn when *value* is one ``param.set_value`` would refuse, or clip to its
+    limits: what a beam wrapper writes unchecked. It never raises; the write goes
+    ahead as before."""
+    label = f"{param.device.name}.{param.name}"
+    try:
+        if not param.metadata.settable:
+            return  # read-only by design, as Tescan's dwell time: no warning
+        limits = param.limits
+        if (
+            isinstance(limits, RangeLimit)
+            and isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and limits.clamp(value) != value
+        ):
+            logger.warning(f"{label}: {value} is outside {limits}; {UNCHECKED_WRITE}.")
+            return
+        param.validate(value)
+    except Exception as e:  # a refusal, or a check that couldn't run
+        logger.warning(f"{e}; {UNCHECKED_WRITE}.")
 
 
 class FibsemMicroscope(Instrument):
@@ -1578,11 +1605,16 @@ class FibsemMicroscope(Instrument):
 
     def _write_beam(self, name: str, value: Any, beam_type: BeamType) -> None:
         """A beam wrapper's write: to the beam device's parameter, unvalidated, or
-        nothing where there is no such beam or parameter (absent = unsupported)."""
+        nothing where there is no such beam or parameter (absent = unsupported).
+
+        A value the device API would refuse or change (`BoundParameter.set_value`)
+        is still written as given, with a warning saying what that API would do
+        (FIB-1623)."""
         param = self._beam_parameter(name, beam_type)
         if param is None:
             logger.debug(f"{name} is not supported here ({beam_type}).")
             return
+        _warn_unchecked(param, value)
         param.write_through(value)
 
     def turn_on(self, beam_type: BeamType) -> Optional[bool]:
