@@ -618,11 +618,15 @@ def test_a_labs_extra_mcp_server_is_added_and_its_token_is_never_shown(
     ) in printed
     assert secret not in printed
 
-    # Not stored: fibsem-agent refuses to start, saying how to store it.
+    # Not stored: fibsem-agent starts without it, saying how to set it.
     monkeypatch.delenv("NOTEBOOK_TOKEN")
     monkeypatch.setattr(extra_mcp.keystore, "stored_secret", lambda name: None)
-    assert harness_mod.main(["--show-config"]) == 1
-    assert "fibsem-cli key set NOTEBOOK_TOKEN" in capsys.readouterr().err
+    assert harness_mod.main(["--show-config", "--playbook", "with-notebook"]) == 0
+    printed = capsys.readouterr().out
+    assert (
+        "MCP left off" in printed and "NOTEBOOK_TOKEN environment variable" in printed
+    )
+    assert "mcp__notebook__" not in printed
 
 
 def test_code_mode_is_sandboxed_in_its_work_folder(tmp_path, monkeypatch):
@@ -2661,6 +2665,47 @@ def test_a_lab_tool_s_picture_goes_on_the_transcript_under_its_step():
     # A send carries one picture at most.
     sent = _one_picture(agent.transcript)
     assert sum(line["kind"] == "picture" for line in sent) == 1
+
+
+def test_every_picture_a_subagent_saw_goes_on_its_run():
+    """A subagent's run shows what it looked at: our own tools' pictures too,
+    under its step, where the agent's own show none."""
+    pytest.importorskip("claude_agent_sdk")
+    from claude_agent_sdk import (
+        AssistantMessage,
+        ToolResultBlock,
+        ToolUseBlock,
+        UserMessage,
+    )
+
+    from fibsem.ai.agent.harness import SdkAgent, _show
+
+    agent = SdkAgent(harness_mod.build_options(harness_mod.find_checkout()))
+    image = {"type": "image", "data": "/9j/", "mimeType": "image/jpeg"}
+    asked = {"subagent_type": "fibsem-worker", "description": "Find sites"}
+    _show(
+        AssistantMessage(content=[ToolUseBlock("a1", "Agent", asked)], model="m"),
+        agent,
+    )
+    _show(
+        AssistantMessage(
+            content=[ToolUseBlock("c1", "mcp__fibsem__analysis_crop_image", {})],
+            model="m",
+            parent_tool_use_id="a1",
+        ),
+        agent,
+    )
+    result = [{"type": "text", "text": "{}"}, image]
+    _show(
+        UserMessage(
+            content=[ToolResultBlock("c1", result, False)], parent_tool_use_id="a1"
+        ),
+        agent,
+    )
+    call, crop, done, picture = agent.transcript
+    assert crop["run"] == call["seq"]
+    assert picture["kind"] == "picture" and picture["step"] == crop["seq"]
+    assert (picture["media_type"], picture["image"]) == ("image/jpeg", "/9j/")
 
 
 # --- what wakes the agent (wake_on) ---------------------------------------------

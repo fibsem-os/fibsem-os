@@ -48,7 +48,7 @@ import { useAct } from "./agent/act";
 import { COMMANDS, compose, Composer } from "./agent/Composer";
 import { KnowledgeDialog } from "./agent/Knowledge";
 import { MicroscopeCustomise, MicroscopeMain, MicroscopeTab, useMicroscopeShown } from "./agent/MicroscopeTab";
-import { EvidenceImage } from "./agent/Pictures";
+import { Enlargeable, EvidenceImage } from "./agent/Pictures";
 import { Palette, PALETTE_KEY, type PaletteEntry, usePaletteKey } from "./agent/Palette";
 import { PlanDialog } from "./agent/PlanDialog";
 import { say, since } from "./agent/steps";
@@ -297,8 +297,9 @@ type Pictures = Map<string, TranscriptLine[]>;
 /** A subagent run's lines, by the session and number of the Agent call. */
 type Runs = Map<string, TranscriptLine[]>;
 
-/** A picture a lab's tool answered a step with; a click opens it full size. */
-function StepPicture({ line }: { line: TranscriptLine }) {
+/** A picture a step answered with (a lab's tool's, or what a subagent saw), as
+ * a card like the agent's evidence: a click shows it large. */
+function StepPicture({ line, title }: { line: TranscriptLine; title?: string }) {
   const name = line.path?.split("/").pop() ?? "";
   const { data: url } = useQuery({
     queryKey: ["app/agent/transcript/pictures", name],
@@ -308,9 +309,17 @@ function StepPicture({ line }: { line: TranscriptLine }) {
   });
   if (!url) return null;
   return (
-    <a href={url} target="_blank" rel="noreferrer" title="Open the picture" className="block w-fit">
-      <img src={url} alt={line.text || "The step's picture"} className="max-h-48 max-w-full rounded border object-contain" />
-    </a>
+    <div className="my-1 max-w-[420px]">
+      <Enlargeable title={title || line.text || "The step's picture"}>
+        {(big) => (
+          <img
+            src={url}
+            alt={line.text || "The step's picture"}
+            className={cn("block rounded", big ? "mx-auto max-w-full" : "w-full")}
+          />
+        )}
+      </Enlargeable>
+    </div>
   );
 }
 
@@ -451,7 +460,7 @@ function Lines({
             {l.kind === "step" &&
               pictures.get(stepKey(l.session_id, l.seq))?.map((p) => (
                 <span key={p.seq} className="col-start-2">
-                  <StepPicture line={p} />
+                  <StepPicture line={p} title={said ? `${said.verb} ${said.words}` : undefined} />
                 </span>
               ))}
           </div>

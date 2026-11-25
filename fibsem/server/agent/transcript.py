@@ -8,10 +8,11 @@ own folder (`agent_files`), not the experiment's, and not on the
 record: the record stays the events the app and later agents read.
 Self-reported, like the session.
 
-A picture a lab's MCP server answered with comes as a ``picture`` line, its
-image in it (``image``, base64, and ``media_type``). It is saved beside the
-transcript, ``agent/pictures/<session id>-<line>.<ext>``, the line keeps its
-``path`` instead, and ``GET /app/agent/transcript/pictures/<name>`` serves it.
+A picture a lab's MCP server answered with, or any tool a subagent called,
+comes as a ``picture`` line, its image in it (``image``, base64, and
+``media_type``). It is saved beside the transcript,
+``agent/pictures/<session id>-<line>.<ext>``, the line keeps its ``path``
+instead, and ``GET /app/agent/transcript/pictures/<name>`` serves it.
 
 A subagent's lines carry ``run``, the ``seq`` of the Agent call that started
 it; that call's line carries ``subagent``, the subagent's name, and its ``done``

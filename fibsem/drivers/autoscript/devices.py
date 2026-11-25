@@ -672,9 +672,15 @@ class AutoscriptBeam(Beam):
         logger.info(f"Plasma gas set to {value}.")
 
     def metadata_plasma_gas(self) -> ParameterMetadata:
-        return ParameterMetadata(
-            choices=list(self._beam.source.plasma_gas.available_values)
-        )
+        # xT can fail to list the gases ("Failed to get available states from
+        # ...PlasmaGas") while the gas itself reads: the beam still connects,
+        # with no choices listed.
+        try:
+            gases = list(self._beam.source.plasma_gas.available_values)
+        except Exception as e:  # noqa: BLE001 - any vendor failure to list
+            logger.warning(f"The plasma gases could not be listed: {e}")
+            return ParameterMetadata()
+        return ParameterMetadata(choices=gases)
 
     # Imaging and the autofunctions. The vendor call runs with this beam's channel
     # claimed (claim_channel), and the FibsemImage is built from get_microscope_state.
