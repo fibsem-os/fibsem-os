@@ -257,7 +257,7 @@ def test_a_call_that_says_how_long_it_waits_is_waited_for(tmp_path):
 
 
 def test_with_no_app_the_agent_hosts_routes_go_to_it(tmp_path):
-    """While no App Server runs, the agent host answers its own routes; one
+    """While no App Server runs, the Agent Server answers its own routes; one
     only the app has is the gateway's no_app, not the host's 404, and the
     App Server's secret never goes to the host."""
     import json

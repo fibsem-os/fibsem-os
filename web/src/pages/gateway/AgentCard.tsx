@@ -61,7 +61,7 @@ export interface AgentState {
   microscope: string;
   // Who holds the instrument's one agent slot, as the gateway wrote it down.
   slot?: Slot;
-  // Whether the gateway's agent host runs: the agent works with no app.
+  // Whether the gateway's Agent Server runs: the agent works with no app.
   agent_host?: boolean;
 }
 

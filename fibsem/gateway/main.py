@@ -140,7 +140,7 @@ def _connection(extra: List[str]) -> List[str]:
 
 def _app_url() -> Optional[str]:
     """The App Server running on this PC, whoever started it: the gateway
-    passes calls to it, else to the agent host (`AgentHostProcess`)."""
+    passes calls to it, else to the Agent Server (`AgentHostProcess`)."""
     found = read_discovery_file()
     return found.get("url") if found else None
 

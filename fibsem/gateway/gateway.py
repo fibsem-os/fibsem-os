@@ -584,7 +584,7 @@ class Gateway:
                 raise GatewayRefused(
                     409,
                     "held",
-                    f"Another fibsem host (pid {other.pid}) has control of the microscope: "
+                    f"Another App Server (pid {other.pid}) has control of the microscope: "
                     "close it at the PC first.",
                 )
             if self._state.mode != OFF:

@@ -14,7 +14,7 @@ connection, the gateway answers 503 or 502 ``no_app``; with one that stops
 answering mid-call, 504 ``app_lost``. A client reads both as the App Server
 not answering (`fibsem.client.transport`), as it would reading it directly.
 
-While no App Server runs, calls go to the agent host the gateway runs
+While no App Server runs, calls go to the Agent Server the gateway runs
 (`fibsem.gateway.agent_host`), which serves the agent's own routes: its
 events, session, plan, transcript, messages, level and Stop. A route only the
 app serves (the microscope's, a workflow's) is answered 503 ``no_app`` then,
@@ -153,7 +153,7 @@ NOT_THE_HOSTS = (
 
 class PassThrough:
     """Calls on the gateway passed to the App Server at *upstream* (its url,
-    or None while none runs), else to the agent host at *host*."""
+    or None while none runs), else to the Agent Server at *host*."""
 
     def __init__(
         self,
@@ -186,7 +186,7 @@ class PassThrough:
         await self._stops.aclose()
 
     def _url(self) -> Tuple[Optional[str], bool]:
-        """Where a call goes, and whether that is the agent host."""
+        """Where a call goes, and whether that is the Agent Server."""
         for find, is_host in ((self._upstream, False), (self._host, True)):
             if find is None:
                 continue

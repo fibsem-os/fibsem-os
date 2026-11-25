@@ -812,7 +812,7 @@ function AppCard({
       )}
       {state.other_host && (
         <p className={cn("m-0 pb-2 text-[13px]", WARN)}>
-          Another fibsem host runs here (pid {state.other_host.pid}) that the
+          Another App Server runs here (pid {state.other_host.pid}) that the
           gateway didn't start: close it at the PC before starting the app.
         </p>
       )}

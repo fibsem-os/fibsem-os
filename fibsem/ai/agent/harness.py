@@ -3437,7 +3437,7 @@ def _parser() -> argparse.ArgumentParser:
         const="",
         default=None,
         metavar="URL",
-        help="an agent host (fibsem-agent-host) to hear from and keep the "
+        help="an Agent Server (fibsem-agent-server) to hear from and keep the "
         "agent's record through, in place of the App Server: the one running "
         "on this PC, or at URL. It asks the operator to allow this agent, and "
         "keeps the token it is given; or set the token in "
