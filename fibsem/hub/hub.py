@@ -2,7 +2,7 @@
 
 Each instrument is another PC's gateway, named in ``~/.fibsem/hub.yaml`` with
 where ssh connects to it: the hub opens a tunnel to each and picks the port
-(`fibsem.hub.tunnels`). An instrument can instead give an address to use
+(`fibsem.util.tunnels`). An instrument can instead give an address to use
 as it is. The hub pairs with each one as a hub (the
 code ``fibsem-gateway pair --hub`` shows there), keeps the token it answers,
 and reads each gateway's health in the background: whether it answers, what it
@@ -28,9 +28,9 @@ from urllib.parse import urlsplit
 import yaml
 
 from fibsem.gateway.gateway import GatewayRefused
-from fibsem.hub.tunnels import Tunnel, TunnelDown, Tunnels, valid_destination
 from fibsem.server.discovery import DISCOVERY_DIR
 from fibsem.util.files import write_atomic
+from fibsem.util.tunnels import Tunnel, TunnelDown, Tunnels, valid_destination
 
 __all__ = [
     "HUB_FILE",
@@ -47,6 +47,9 @@ HUB_FILE = DISCOVERY_DIR / "hub.yaml"
 TOKENS_DIR = DISCOVERY_DIR / "hub"
 # The local ports each instrument's tunnel last had, kept beside the tokens.
 PORTS_FILE = "_ports.json"
+# The port an instrument PC's gateway serves on, on that PC only: the one
+# port a tunnel to an instrument forwards.
+GATEWAY_PORT = 8010
 CHECK_EVERY_S = 5.0
 # One instrument's read: a PC that is off answers nothing, and the others
 # are read beside it, not after it.
@@ -373,7 +376,7 @@ class Hub:
         its tunnel when it has one: the one place that decides how an
         instrument is reached. Raises `TunnelDown` when the tunnel isn't open."""
         if instrument.ssh:
-            return self._open(instrument).gateway_url
+            return self._open(instrument).url
         return instrument.url or ""
 
     def _open(self, instrument: Instrument) -> Tunnel:
@@ -388,8 +391,10 @@ class Hub:
         # A list is how it was kept while a tunnel also forwarded the app.
         first = before[0] if isinstance(before, list) and before else before
         port = first if isinstance(first, int) else None
-        tunnel = self._tunnels.ensure(instrument.name, instrument.ssh or "", port)
-        now = tunnel.gateway_port
+        tunnel = self._tunnels.ensure(
+            instrument.name, instrument.ssh or "", GATEWAY_PORT, port
+        )
+        now = tunnel.port
         if before != now:
             with self._lock:
                 try:
@@ -408,7 +413,7 @@ class Hub:
             return None
         return {
             "open": tunnel.open,
-            "gateway_port": tunnel.gateway_port,
+            "gateway_port": tunnel.port,
         }
 
     def _check_one(self, instrument: Instrument) -> None:

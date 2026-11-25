@@ -11,8 +11,8 @@ from fibsem.gateway.gateway import OFF, GatewayRefused, GatewayState, History
 from fibsem.gateway.server import GatewayAuth, build_gateway_app
 from fibsem.hub.hub import Hub, Instrument
 from fibsem.hub.server import build_hub_app, hub_auth
-from fibsem.hub.tunnels import Tunnels, command
 from fibsem.server.pairing import HUB
+from fibsem.util.tunnels import Tunnels, command
 
 OPERATOR_TOKEN = "operator-token"
 URL = "http://scope-1:8010"
@@ -459,11 +459,11 @@ def test_an_ssh_destination_that_could_be_an_option_is_refused(hub, ssh, destina
 def test_without_ssh_installed_the_tunnel_says_so():
     tunnels = Tunnels(which=lambda name: None, spawn=lambda command: 1 / 0)
     with pytest.raises(OSError, match="ssh isn't installed"):
-        tunnels.ensure("Scope 1", "user@scope-1")
+        tunnels.ensure("Scope 1", "user@scope-1", 8010)
 
 
 def test_the_tunnel_command_only_forwards(ssh):
-    tunnel = ssh.tunnels.ensure("Scope 1", "user@scope-1")
+    tunnel = ssh.tunnels.ensure("Scope 1", "user@scope-1", 8010)
     assert command(tunnel)[:2] == ["ssh", "-N"]
 
 
@@ -544,7 +544,7 @@ def test_what_ssh_says_is_read_as_it_says_it():
     """A real process that writes far more than a pipe holds, then ends."""
     import sys
 
-    from fibsem.hub.tunnels import LAST_WORDS, _said, _spawn
+    from fibsem.util.tunnels import LAST_WORDS, _said, _spawn
 
     chatter = "import sys\nfor i in range(20000):\n    sys.stderr.write('channel %d: open failed' % i + chr(10))\nsys.stderr.write('Permission denied (publickey).' + chr(10))\nsys.exit(255)\n"
     process = _spawn([sys.executable, "-c", chatter])

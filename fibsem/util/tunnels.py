@@ -1,11 +1,15 @@
-"""The hub's SSH tunnels: one per instrument, from this PC to the instrument's.
+"""SSH tunnels from this PC to others, kept open by name.
 
-An instrument's gateway listens on that PC only, so the hub reaches it
-through ``ssh -N -L``. The gateway is the one way onto an instrument: the
-tunnel forwards its port and nothing else. The hub picks the local port, keeps each
-tunnel open, opens it again when it drops, and says why when it can't. It
-never types a password: the key is set up once by a person (``BatchMode``),
-and a host this PC hasn't met is refused until someone has connected by hand.
+A server that listens on its own PC only is reached from another PC through
+``ssh -N``: a forward (``-L``) brings one of its ports here, and a reverse
+forward (``-R``) lends it one of ours. A tunnel forwards the ports it is
+given and nothing else. `Tunnels` picks the local port, keeps each tunnel
+open, opens it again when it drops, and says why when it can't. It never
+types a password: the key is set up once by a person (``BatchMode``), and a
+host this PC hasn't met is refused until someone has connected by hand.
+
+Whoever needs a tunnel uses this: a hub to each instrument's gateway, a
+gateway to a device's PC.
 """
 
 from __future__ import annotations
@@ -19,7 +23,7 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 from fibsem.util.process import end
 
@@ -27,19 +31,20 @@ __all__ = ["Tunnel", "TunnelDown", "Tunnels", "valid_destination"]
 
 log = logging.getLogger(__name__)
 
-# The port an instrument PC's gateway serves on, on that PC only.
-GATEWAY_PORT = 8010
 # How long a tunnel that failed waits before it is tried again.
 RETRY_S = 15.0
 # How long a new tunnel is given to accept a connection.
 OPEN_WAIT_S = 8.0
 END_WAIT_S = 3.0
+# How long an ssh with no forward to this PC is watched before it counts as
+# open: one whose forward was refused ends within it (ExitOnForwardFailure).
+SETTLE_S = 1.5
 # ``user@host`` or a name from the ssh configuration: never an option.
 _DESTINATION = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.@-]{0,252}$")
 
 
 class TunnelDown(OSError):
-    """The tunnel to an instrument isn't open, with why."""
+    """A tunnel isn't open, with why."""
 
 
 def valid_destination(destination: str) -> bool:
@@ -106,11 +111,16 @@ def _spawn(command: List[str]) -> subprocess.Popen:
 
 @dataclass
 class Tunnel:
-    """One instrument's tunnel: the local port that reaches its gateway
-    while *process* runs."""
+    """One tunnel to *destination* while *process* runs.
+
+    With a *target*, *port* on this PC reaches that port there. Each pair in
+    *reverse* is (a port there, a port here): the first reaches the second.
+    All of it is on 127.0.0.1 at both ends."""
 
     destination: str
-    gateway_port: int
+    port: int
+    target: Optional[int] = None
+    reverse: Tuple[Tuple[int, int], ...] = ()
     process: Optional[subprocess.Popen] = None
     opened: Optional[float] = None
     failed: Optional[float] = None
@@ -121,8 +131,18 @@ class Tunnel:
         return self.process is not None and self.process.poll() is None
 
     @property
-    def gateway_url(self) -> str:
-        return f"http://127.0.0.1:{self.gateway_port}"
+    def url(self) -> str:
+        return f"http://127.0.0.1:{self.port}"
+
+
+def forwards(tunnel: Tunnel) -> List[str]:
+    """What *tunnel* forwards, as ssh's own options."""
+    said: List[str] = []
+    if tunnel.target is not None:
+        said += ["-L", f"127.0.0.1:{tunnel.port}:127.0.0.1:{tunnel.target}"]
+    for there, here in tunnel.reverse:
+        said += ["-R", f"127.0.0.1:{there}:127.0.0.1:{here}"]
+    return said
 
 
 def command(tunnel: Tunnel, ssh: str = "ssh") -> List[str]:
@@ -138,15 +158,14 @@ def command(tunnel: Tunnel, ssh: str = "ssh") -> List[str]:
         "ServerAliveInterval=15",
         "-o",
         "ServerAliveCountMax=3",
-        "-L",
-        f"127.0.0.1:{tunnel.gateway_port}:127.0.0.1:{GATEWAY_PORT}",
+        *forwards(tunnel),
         "--",
         tunnel.destination,
     ]
 
 
 class Tunnels:
-    """The tunnels by instrument name. `ensure` gives an open one or raises
+    """The tunnels by name. `ensure` gives an open one or raises
     `TunnelDown`; a tunnel that failed is tried again after `RETRY_S`."""
 
     def __init__(
@@ -158,6 +177,7 @@ class Tunnels:
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
         open_wait_s: float = OPEN_WAIT_S,
+        settle_s: float = SETTLE_S,
     ) -> None:
         self._spawn = spawn
         self._port = port
@@ -166,6 +186,7 @@ class Tunnels:
         self._clock = clock
         self._sleep = sleep
         self._open_wait_s = open_wait_s
+        self._settle_s = settle_s
         self._lock = threading.Lock()
         self._locks: Dict[str, threading.Lock] = {}
         self._tunnels: Dict[str, Tunnel] = {}
@@ -174,11 +195,23 @@ class Tunnels:
         with self._lock:
             return self._tunnels.get(name)
 
-    def ensure(self, name: str, destination: str, port: Optional[int] = None) -> Tunnel:
-        """The open tunnel to *name* at *destination*, opened now if it isn't.
-        A tunnel opened again keeps its port, and a first one takes *port*
-        (as kept from an earlier run) when nothing else listens on it, so an
-        address given out for this instrument keeps reaching it."""
+    def ensure(
+        self,
+        name: str,
+        destination: str,
+        target: Optional[int] = None,
+        port: Optional[int] = None,
+        reverse: Sequence[Tuple[int, int]] = (),
+    ) -> Tunnel:
+        """The open tunnel *name* to *destination*, opened now if it isn't.
+
+        *target* is the port there that this PC reaches, and *reverse* the
+        (port there, port here) pairs lent the other way. A tunnel opened
+        again keeps its port, and a first one takes *port* (as kept from an
+        earlier run) when nothing else listens on it, so an address given
+        out for it keeps reaching it. One asked for with other forwards than
+        it has is closed and opened with those, on the same port."""
+        reverse = tuple((int(there), int(here)) for there, here in reverse)
         with self._lock:
             lock = self._locks.setdefault(name, threading.Lock())
         with lock:
@@ -187,7 +220,13 @@ class Tunnels:
                 self._end(tunnel)
                 tunnel = None
             if tunnel is not None:
-                port = tunnel.gateway_port
+                port = tunnel.port
+            if tunnel is not None and (tunnel.target, tunnel.reverse) != (
+                target,
+                reverse,
+            ):
+                self._end(tunnel)
+                tunnel = None
             if tunnel is not None and tunnel.open:
                 return tunnel
             now = self._clock()
@@ -200,19 +239,28 @@ class Tunnels:
             if tunnel is not None and tunnel.process is not None:
                 # It was open and dropped: say so once, then open it again.
                 log.warning("The tunnel to %s dropped; opening it again.", name)
-            tunnel = self._open(name, destination, port)
+            tunnel = self._open(name, destination, target, port, reverse)
             with self._lock:
                 self._tunnels[name] = tunnel
             if not tunnel.open:
                 raise TunnelDown(tunnel.why or "The tunnel is down.")
             return tunnel
 
-    def _open(self, name: str, destination: str, port: Optional[int]) -> Tunnel:
+    def _open(
+        self,
+        name: str,
+        destination: str,
+        target: Optional[int],
+        port: Optional[int],
+        reverse: Tuple[Tuple[int, int], ...],
+    ) -> Tunnel:
         if port is None or self._accepts(port):
             port = self._port()
-        tunnel = Tunnel(destination, port)
+        tunnel = Tunnel(destination, port, target, reverse)
         if not valid_destination(destination):
             return self._failed(tunnel, "Its ssh destination is not user@host.")
+        if target is None and not reverse:
+            return self._failed(tunnel, "It was given nothing to forward.")
         ssh = self._which("ssh")
         if ssh is None:
             return self._failed(tunnel, "ssh isn't installed on this PC.")
@@ -220,8 +268,9 @@ class Tunnels:
             tunnel.process = self._spawn(command(tunnel, ssh))
         except OSError as error:
             return self._failed(tunnel, f"ssh didn't start: {error}")
-        deadline = self._clock() + self._open_wait_s
-        while tunnel.open and not self._accepts(tunnel.gateway_port):
+        started = self._clock()
+        deadline = started + self._open_wait_s
+        while tunnel.open and not self._is_up(tunnel, started):
             if self._clock() >= deadline:
                 self._end(tunnel)
                 return self._failed(
@@ -232,12 +281,20 @@ class Tunnels:
             return self._failed(tunnel, _said(tunnel.process, destination))
         tunnel.opened = self._clock()
         log.info(
-            "Opened the tunnel to %s (%s): gateway on %d.",
+            "Opened the tunnel %s (%s): %s.",
             name,
             destination,
-            tunnel.gateway_port,
+            " ".join(forwards(tunnel)),
         )
         return tunnel
+
+    def _is_up(self, tunnel: Tunnel, started: float) -> bool:
+        """Whether a running ssh has its forwards. One to this PC shows by
+        its port answering. One with reverse forwards only can't be asked
+        from here, so it is up once it has run for the settle time."""
+        if tunnel.target is not None:
+            return self._accepts(tunnel.port)
+        return self._clock() - started >= self._settle_s
 
     def _failed(self, tunnel: Tunnel, why: str) -> Tunnel:
         tunnel.failed, tunnel.why = self._clock(), why
@@ -248,7 +305,7 @@ class Tunnels:
             end(tunnel.process, END_WAIT_S)
 
     def close(self, name: str) -> None:
-        """Close *name*'s tunnel, if it has one."""
+        """Close the tunnel *name*, if there is one."""
         with self._lock:
             tunnel = self._tunnels.pop(name, None)
         if tunnel is not None:
