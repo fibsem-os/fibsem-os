@@ -67,6 +67,7 @@ import json
 import logging
 import os
 import shutil
+import sys
 import threading
 from functools import partial
 from pathlib import Path
@@ -1238,6 +1239,13 @@ def _serve(app: FastAPI, host: str, port: int, stop: Optional[threading.Event]) 
     server.run()
 
 
+def _say_why_not(message: str) -> None:
+    """Why the server is not starting, in the log and on stderr: nothing sets up
+    a log handler this early, and a gateway shows this output's last lines."""
+    logger.error(message)
+    print(f"{PROGRAM}: {message}", file=sys.stderr, flush=True)
+
+
 def serve_for_gateway(argv: List[str], stop: threading.Event) -> int:
     """The Device Server as a gateway runs it (through ``fibsem.gateway.child``):
     ``fibsem-device-server`` with *argv*, until *stop* is set."""
@@ -1317,7 +1325,7 @@ def main(
         try:
             settings = read_server_settings(args.config)
         except Exception as e:
-            logger.error(f"{args.config}: {e}")
+            _say_why_not(f"{args.config}: {e}")
             raise SystemExit(1) from e
         sources.append(settings)
     sources += [
@@ -1329,7 +1337,7 @@ def main(
         try:
             more, closes = configured_devices(source)
         except Exception as e:
-            logger.error(f"{args.config if source is settings else 'FM'}: {e}")
+            _say_why_not(f"{args.config if source is settings else 'FM'}: {e}")
             disconnect_devices(built, cleanups)
             raise SystemExit(1) from e
         built.update(more)
@@ -1339,7 +1347,7 @@ def main(
     if demo_parts:
         served += demo_devices(demo_parts)
     if not served:
-        logger.error("Nothing to serve: no device was built.")
+        _say_why_not("Nothing to serve: no device was built.")
         raise SystemExit(1)
     devices: Mapping[str, Device] = {d.name: d for d in served}
     switch_off_fms(devices.values())
