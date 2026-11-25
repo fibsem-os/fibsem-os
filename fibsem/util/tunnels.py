@@ -91,7 +91,7 @@ def _listen(process: subprocess.Popen) -> None:
             except OSError:
                 pass
 
-    listener = threading.Thread(target=read, name="hub-ssh-said", daemon=True)
+    listener = threading.Thread(target=read, name="ssh-tunnel-said", daemon=True)
     process.last_words = said  # type: ignore[attr-defined]
     process.listener = listener  # type: ignore[attr-defined]
     listener.start()
@@ -158,6 +158,12 @@ def command(tunnel: Tunnel, ssh: str = "ssh") -> List[str]:
         "ServerAliveInterval=15",
         "-o",
         "ServerAliveCountMax=3",
+        # Its own connection, never one shared with a person's session
+        # that ends when they log out.
+        "-o",
+        "ControlMaster=no",
+        "-o",
+        "ControlPath=none",
         *forwards(tunnel),
         "--",
         tunnel.destination,
@@ -210,7 +216,10 @@ class Tunnels:
         again keeps its port, and a first one takes *port* (as kept from an
         earlier run) when nothing else listens on it, so an address given
         out for it keeps reaching it. One asked for with other forwards than
-        it has is closed and opened with those, on the same port."""
+        it has is closed and opened with those, on the same port.
+
+        Opening waits up to the open wait for ssh, once per `RETRY_S` while
+        the other PC is down: a caller that must not wait reads `get`."""
         reverse = tuple((int(there), int(here)) for there, here in reverse)
         with self._lock:
             lock = self._locks.setdefault(name, threading.Lock())
@@ -334,4 +343,11 @@ def _said(process: Optional[subprocess.Popen], destination: str) -> str:
             said = ""
     lines = [line.strip() for line in said.splitlines() if line.strip()]
     last = lines[-1] if lines else "ssh ended without saying why."
-    return f"ssh to {destination} failed: {last[:300]}"
+    why = f"ssh to {destination} failed: {last[:300]}"
+    if any("already in use" in line.lower() for line in lines):
+        # ssh also opens the forwards its configuration gives this host.
+        why += (
+            " If your ssh configuration forwards ports for this host,"
+            " use a host name with no forwards."
+        )
+    return why

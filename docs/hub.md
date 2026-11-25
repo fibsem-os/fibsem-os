@@ -37,7 +37,9 @@ The list is `~/.fibsem/hub.yaml`: each instrument's name and where SSH connects 
 gateway is the one way onto an instrument, so the hub never talks to an App Server or a
 microscope server directly. It picks the local port, and opens a tunnel again when it drops. SSH runs in batch mode: it never asks for a password, and a host
 this PC has not met is refused until a person has connected to it by hand once. See
-[SSH tunnel](ssh-tunnel.md) for setting up the key on a microscope PC.
+[SSH tunnel](ssh-tunnel.md) for setting up the key on a microscope PC. If your SSH configuration
+gives that host its own forwards (`LocalForward`), give the hub a host name that has none: ssh
+opens those too, and a port your own session already holds ends the hub's tunnel.
 
 To add an instrument, pair the hub with its gateway: on the microscope PC run
 `fibsem-gateway pair --hub`, and give the hub the 4-digit code it shows

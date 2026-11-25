@@ -98,3 +98,14 @@ def test_a_tunnel_given_nothing_to_forward_starts_no_ssh(ssh):
     with pytest.raises(TunnelDown, match="nothing to forward"):
         ssh.tunnels.ensure("scope", "user@scope-1")
     assert ssh.started == []
+
+
+def test_a_tunnel_never_rides_on_a_persons_own_ssh_session(ssh):
+    said = command(ssh.tunnels.ensure("scope", "user@scope-1", 8010))
+    assert "ControlMaster=no" in said and "ControlPath=none" in said
+
+
+def test_a_port_the_ssh_configuration_also_forwards_says_what_to_do(ssh):
+    ssh.fails = "bind [127.0.0.1]:8010: Address already in use"
+    with pytest.raises(TunnelDown, match="host name with no forwards"):
+        ssh.tunnels.ensure("scope", "user@scope-1", 8010)
