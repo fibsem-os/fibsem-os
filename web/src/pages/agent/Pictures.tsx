@@ -12,7 +12,7 @@ import type { EvidenceAnswer } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 /** Click to see it large. */
-function Enlargeable({ title, children }: { title: string; children: (big: boolean) => ReactNode }) {
+export function Enlargeable({ title, children }: { title: string; children: (big: boolean) => ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
     <>
