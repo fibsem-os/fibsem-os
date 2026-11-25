@@ -163,6 +163,11 @@ class GatewayState:
     """The running App Server's address, for the link to the app's pages."""
     health: Optional[ServersHealth] = None
     """How the App Server and its microscope are (`fibsem.gateway.health`)."""
+    device_servers: List[Dict[str, Any]] = field(default_factory=list)
+    """The Device Servers the microscope reaches, this PC's own first, each with
+    how it answered (`fibsem.gateway.device_servers`): what a hub reads."""
+    device_servers_file: Optional[str] = None
+    """The configuration they are read from, which the page's Add edits."""
 
 
 @dataclass
@@ -389,6 +394,8 @@ class Gateway:
         health: Optional[HealthWatch] = None,
     ):
         self._connection = list(connection or [])
+        # The flags the running app was started with (`connection_flags`).
+        self._started_connection: Optional[List[str]] = None
         self._home = Path(home) if home is not None else DISCOVERY_DIR
         self._apps = app_registry
         self._last = last
@@ -421,6 +428,9 @@ class Gateway:
         self.before_stop: List[Callable[[], None]] = []
         # Called on the watcher's thread after each poll.
         self.watchers: List[Callable[[], None]] = []
+        # The Device Servers for `GatewayState.device_servers`, set by the run.
+        self.device_servers: Callable[[], List[Dict[str, Any]]] = list
+        self.device_servers_file: Callable[[], Optional[str]] = lambda: None
 
     @property
     def history_file(self) -> Path:
@@ -470,6 +480,8 @@ class Gateway:
         found = self._discovery()
         state.app_url = found["url"] if found else None
         state.health = self.health.state()
+        state.device_servers = self.device_servers()
+        state.device_servers_file = self.device_servers_file()
         return state
 
     def refresh_facts(self) -> dict:
@@ -713,6 +725,16 @@ class Gateway:
             )
         return found
 
+    def connection_flags(self) -> List[str]:
+        """The flags the microscope connects with: the running app's, else
+        the gateway's own (``--config <file>``, say); none when neither
+        says."""
+        with self._lock:
+            running = self._state.mode != OFF
+        if running and self._started_connection is not None:
+            return list(self._started_connection)
+        return list(self._connection)
+
     def _start_connection(
         self, connect: Optional[bool], configuration: Optional[str]
     ) -> List[str]:
@@ -781,6 +803,7 @@ class Gateway:
         create: bool = False,
         flags: Optional[List[str]] = None,
     ) -> None:
+        self._started_connection = list(connection)
         stamp = time.strftime("%Y%m%d-%H%M%S")
         logs = self._home / "logs" / "gateway"
         logs.mkdir(parents=True, exist_ok=True)
