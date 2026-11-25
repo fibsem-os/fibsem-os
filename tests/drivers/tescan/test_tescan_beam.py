@@ -27,6 +27,7 @@ import pytest
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.drivers.tescan.devices import TescanBeam
+from fibsem.microscope import UNCHECKED_WRITE
 from fibsem.structures.settings import BeamType, Point
 from tests.fixtures.demoted_messages import as_logged_now
 from tests.fixtures.tescan_sdk import connect
@@ -85,7 +86,9 @@ def _run(microscope, fake, call):
         root.removeHandler(handler)
         root.setLevel(level)
     # as the recording stored it: JSON, with anything else as its repr
-    ran = {"result": result, "sdk": list(fake.log), "log": handler.messages}
+    # a wrapper's warning on a value the device API would refuse is new (FIB-1623)
+    log = [m for m in handler.messages if UNCHECKED_WRITE not in m[1]]
+    ran = {"result": result, "sdk": list(fake.log), "log": log}
     return json.loads(json.dumps(ran, default=repr))
 
 
