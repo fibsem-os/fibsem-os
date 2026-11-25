@@ -16,7 +16,6 @@ import {
 } from "@/pages/gateway/AgentCard";
 import { ConnectCard, useGatewayAsk } from "@/pages/agent/Cards";
 import { History } from "@/pages/gateway/History";
-import { Customise } from "@/pages/gateway/Customise";
 import { type AppFacts, type Defaults, forApp, Settings } from "@/pages/gateway/Settings";
 // The same icon as the gateway's window and its Desktop shortcut.
 import gatewayIcon from "../../../fibsem/ui/icons/gateway.svg?raw";
@@ -895,12 +894,11 @@ function Restarting() {
   );
 }
 
-type Tab = "overview" | "history" | "pairing" | "customise" | "settings";
+type Tab = "overview" | "history" | "pairing" | "settings";
 const TABS: [Tab, string][] = [
   ["overview", "Overview"],
   ["history", "History"],
   ["pairing", "Pairing"],
-  ["customise", "Customise"],
   ["settings", "Settings"],
 ];
 
@@ -1062,7 +1060,6 @@ function Gateway({
               <Connections roles={["operator", "agent", "hub"]} />
             </Card>
           )}
-          {tab === "customise" && <Customise />}
           {tab === "settings" && state && (
             <Settings
               apps={state.apps}

@@ -568,34 +568,22 @@ def cmd_pair_device(args) -> int:
 def cmd_key(args) -> int:
     """This PC's API keys and tokens (`fibsem.keystore`): store one, remove it,
     or say where it comes from. Never prints a key."""
-    from fibsem.ai.agent import extra_mcp
-
     name = args.name
     try:
-        connectors = extra_mcp.load()
-    except extra_mcp.ExtraMcpError:
-        connectors = {}
-    try:
-        if args.verb == "set" or name in keystore.RESERVED:
-            keystore.check_name(name, extra_mcp.token_names())
         if args.verb == "set":
             value = getpass.getpass(f"{name} (hidden as you type or paste): ").strip()
             if not value:
                 print("Nothing entered, so nothing stored.", file=sys.stderr)
                 return 1
             keystore.set_secret(name, value)
-            extra_mcp.pin_token(name, connectors)
             print(f"Stored {name} in {keystore.store_name()}.")
-            places = extra_mcp.places_for(name, connectors)
-            if places:
-                print(f"It is sent only to {', '.join(places)}.")
         elif args.verb == "remove":
             removed = keystore.delete_secret(name)
             print(f"Removed {name}." if removed else f"No {name} was stored.")
         else:
             stored = keystore.stored_secret(name) is not None
             print(f"{name}: {'stored' if stored else 'not stored'}.")
-    except (keystore.SecretStoreError, keystore.KeyNameRefused) as e:
+    except keystore.SecretStoreError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
     if os.environ.get(name):
@@ -1037,9 +1025,7 @@ def _add_key_parser(sub) -> None:
         help="Store this PC's API keys and tokens",
         description="Keep a key in this PC's own store (Windows Credential Manager, "
         "or the Keychain on a Mac), where fibsemOS reads it when the environment "
-        f"variable of the same name isn't set. The keys: {names}, and the token "
-        "name of each connector in mcp.yaml, which is sent only to where that "
-        "connector pointed when it was stored. Turn a key off "
+        f"variable of the same name isn't set. The keys: {names}. Turn a key off "
         "where it was issued; removing it here only stops this PC using it.",
     )
     verbs = p.add_subparsers(dest="verb", metavar="VERB")
@@ -1049,7 +1035,9 @@ def _add_key_parser(sub) -> None:
         ("remove", "Remove the stored key"),
         ("status", "Say whether a key is stored, never the key"),
     ):
-        verbs.add_parser(verb, help=help).add_argument("name", metavar="NAME")
+        verbs.add_parser(verb, help=help).add_argument(
+            "name", metavar="NAME", choices=list(keystore.KEYS)
+        )
     p.set_defaults(func=cmd_key, needs_server=False)
 
 

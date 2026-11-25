@@ -289,7 +289,7 @@ function SessionForm({
           "model",
           <input
             className={cn(field, "min-w-0 flex-1")}
-            placeholder={shown("model", {}, "Claude Code's default")}
+            placeholder={shown("model", {}, "Default")}
             value={text(value.model)}
             onChange={(e) => set("model", e.target.value)}
           />,

@@ -267,68 +267,13 @@ def definitions(extras: Dict[str, Server]) -> Dict[str, dict]:
     return entries
 
 
-def where(server: Server) -> str:
-    """Where *server*'s token goes: its address's scheme and host (and port),
-    or its command line. A stored token goes only where it was stored for
-    (`keystore.pinned`)."""
-    if server.url:
-        from urllib.parse import urlsplit
-
-        parts = urlsplit(server.url)
-        return f"{parts.scheme}://{parts.netloc.lower()}"
-    return "command: " + " ".join(server.command)
-
-
-def places_for(token: str, extras: Dict[str, Server]) -> List[str]:
-    """Where each server using *token* sends it, as `where` writes it."""
-    return sorted({where(s) for s in extras.values() if s.token == token})
-
-
-def pin_token(token: str, extras: Dict[str, Server]) -> None:
-    """Keep where the token stored as *token* may go: the servers using it
-    now. Called as it is stored."""
-    places = places_for(token, extras)
-    if places:
-        keystore.pin(token, places)
-
-
-def misdirected(server: Server) -> Optional[str]:
-    """Why *server* may not have its stored token: it now points somewhere
-    the token wasn't stored for. None when it may, or when the token comes
-    from the environment (set by hand, for this run). A token stored before
-    pins were kept is pinned to where it goes now, on its first use."""
-    if not server.token or os.environ.get(server.token):
-        return None
-    pins = keystore.pinned(server.token)
-    here = where(server)
-    if pins is None:
-        try:
-            keystore.pin(server.token, [here])
-        except keystore.SecretStoreError:
-            pass
-        return None
-    if here in pins:
-        return None
-    return (
-        f"{server.name}: it now points at {here}, and {server.token} was stored for "
-        f"{', '.join(pins)}. Set the token again (on the gateway page, or "
-        f"fibsem-cli key set {server.token}) to send it there."
-    )
-
-
 def tokens(extras: Dict[str, Server]) -> Dict[str, str]:
     """The extra servers' tokens by name, for the CLI's environment: each from
-    the environment variable of its name, else the key store, and a stored
-    one only where it was stored for (`misdirected`). Never print or log
-    them."""
+    the environment variable of its name, else the key store. Never print or
+    log them."""
     found, missing = {}, []
     for server in extras.values():
-        if not server.token:
-            continue
-        refused = keystore.stored_secret(server.token) and misdirected(server)
-        if refused:
-            raise ExtraMcpError(f"{path()}: {refused}")
-        if server.token in found:
+        if not server.token or server.token in found:
             continue
         value = keystore.get_secret(server.token)
         if value:
@@ -342,16 +287,6 @@ def tokens(extras: Dict[str, Server]) -> Dict[str, str]:
             f"fibsem-cli key set {first.token}"
         )
     return found
-
-
-def token_names(file: Optional[Path] = None) -> List[str]:
-    """The token names the connectors in *file* (``mcp.yaml``) use: the names
-    a key may be stored under besides `keystore.KEYS`. None for a file that
-    can't be read."""
-    try:
-        return sorted({s.token for s in load(file).values() if s.token})
-    except ExtraMcpError:
-        return []
 
 
 def allowed(extras: Dict[str, Server]) -> List[str]:

@@ -110,33 +110,14 @@ on the left has four pages:
   opens to show its playbook, spend, how it ended and what it last said, and **Resume**.
 - **Pairing.** The paired computers, agents and hubs, and a code to pair another
   (see [Pairing](#pairing)).
-- **Customise.** What shapes the agent's work on this PC.
-  - **Playbooks, Skills, Subagents:** the Agent page's Knowledge browser, through the
-    gateway: what fibsemOS ships and the lab's own, each with its form or its file. Editing
-    a shipped one saves the lab's copy. It works with no app running (the gateway's agent
-    host serves it). Editing is the operator's.
-  - **Connectors:** the lab's MCP servers (`~/.fibsem/agent/mcp.yaml`), each with
-    **Test** (the tools it offers, asked as the agent asks), **Edit** and **Remove**, and
-    its token's key. A connector is checked as the agent reads it, so one that wouldn't
-    load can't be saved; the file before is kept as `mcp.yaml.bak`. A command connector
-    runs a program on this PC at each agent start: it is added, changed, removed and
-    tested only at this PC, and a new or changed command is saved only once you confirm
-    its command line.
 - **Settings.**
-  - **Keys:** whether each key fibsemOS reads (and each connector's token) is set on this
-    PC, and where from (the environment or the key store). Keys are write-only: the
-    operator at this PC sets, replaces or removes one, and the page never shows it back.
-    A computer paired as operator, a hub or an agent never changes a key; it gets
-    **Copy command** (the `fibsem-cli key set` command to run on the PC). A connector's
-    token is stored with where it may go (the scheme and host of its address, or its
-    command line), and is sent nowhere else: edit a connector's address and its token
-    must be set again.
-  - **This PC:** whether a new app session lets agents use the microscope, whether an
-    agent on this PC connects without your click (set at this PC only), the gateway's
-    port (used from its next start), and the update check.
+  - **Secrets:** whether each key fibsemOS reads is set on this PC, and where from (the
+    environment or the key store). The page never shows or takes a key. **Copy command**
+    copies the `fibsem-cli key set` command to run on the PC.
   - **Defaults:** what Overview fills in for the microscope, the app and the agent, kept in
     `~/.fibsem/gateway-defaults.json`, for each app: choosing an app shows its own, so one
     app's playbook and settings don't replace another's. Only the operator saves them.
+  - **Playbooks:** the playbooks on this PC, read-only.
   - **Gateway:** the version, **Restart** and **Stop**. Stopping the gateway from the page
     stops the app and any agent run. Start it again at the computer.
 
@@ -282,7 +263,7 @@ ask again.
 
 ### The API key
 
-Store it once on this PC, on the gateway's page (**Settings**, **Keys**, **Set…**) or with:
+Store it once on this PC:
 
 ```
 fibsem-cli key set ANTHROPIC_API_KEY

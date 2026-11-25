@@ -7,7 +7,15 @@ import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { HoverCard } from "@/components/ui/hover-card";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { FIELD, LEVELS, type Playbook, title } from "@/pages/gateway/AgentCard";
+import {
+  type Configuration,
+  ConfigurationFacts,
+  dollars,
+  FIELD,
+  LEVELS,
+  type Playbook,
+  title,
+} from "@/pages/gateway/AgentCard";
 
 /** What the page fills in for the next start; unset is the page's own
  * choice. */
@@ -37,26 +45,16 @@ export interface AppFacts {
 }
 
 /** *key*'s own saved choices: its entry, else the saved ones when they are its. */
-export function forApp(
-  d: Defaults | undefined,
-  key: string | null | undefined,
-): Defaults | undefined {
+export function forApp(d: Defaults | undefined, key: string | null | undefined): Defaults | undefined {
   if (!d || !key) return undefined;
   return d.apps?.[key] ?? (d.app === key ? d : undefined);
 }
 
-export interface Secret {
+interface Secret {
   name: string;
   about: string;
   set: boolean;
   source: string | null;
-  /** Whether this caller may set it: the operator at this PC only. */
-  can_set?: boolean;
-  /** The connectors that use it, for a connector's token. */
-  connectors?: string[];
-  /** Where the stored token may go, and where its connectors point now. */
-  sent_to?: string[] | null;
-  goes_to?: string[];
 }
 
 const WARN = "text-[var(--fibsem-semantic-warning-color)]";
@@ -109,171 +107,8 @@ function CopyCommand({ command }: { command: string }) {
   );
 }
 
-/** One key: whether it is set and where from, and for the operator at this
- * PC, Set or Replace (pasted once, never shown again) and Remove. */
-export function KeyRow({ s }: { s: Secret }) {
-  const client = useQueryClient();
-  const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState("");
-  const [confirm, setConfirm] = useState(false);
-  const done = () => {
-    setEditing(false);
-    setValue("");
-    setConfirm(false);
-    client.invalidateQueries({ queryKey: ["gateway/secrets"] });
-  };
-  const save = useMutation({
-    mutationFn: () =>
-      api<Secret>(`/gateway/secrets/${encodeURIComponent(s.name)}`, {
-        method: "PUT",
-        body: JSON.stringify({ value }),
-      }),
-    onSuccess: done,
-  });
-  const remove = useMutation({
-    mutationFn: () =>
-      api<Secret>(`/gateway/secrets/${encodeURIComponent(s.name)}`, {
-        method: "DELETE",
-      }),
-    onSuccess: done,
-  });
-  const command = `fibsem-cli key set ${s.name}`;
-  const error = (save.error ?? remove.error) as Error | null;
-  const about = s.about.charAt(0).toUpperCase() + s.about.slice(1);
-  return (
-    <div className="flex flex-col gap-1.5 border-t border-border py-2 text-[13px]">
-      <div className="grid grid-cols-1 items-center gap-1 sm:grid-cols-[190px_minmax(0,1fr)_auto] sm:gap-3">
-        <span className="font-mono text-xs text-muted-foreground" title={about}>
-          {s.name}
-        </span>
-        <span className="min-w-0">
-          <Dot on={s.set} />
-          {s.set ? (
-            `Set · from ${s.source}`
-          ) : (
-            <span className="text-muted-foreground">Not set</span>
-          )}
-          <span className="block text-xs text-muted-foreground">
-            {about}
-            {s.sent_to?.length ? ` · sent only to ${s.sent_to.join(", ")}` : ""}
-          </span>
-          {s.set &&
-          s.goes_to?.length &&
-          s.sent_to?.length &&
-          s.goes_to.some((place) => !s.sent_to?.includes(place)) ? (
-            <span className={cn("block text-xs", WARN)}>
-              Its connector now points at {s.goes_to.join(", ")}: set the token
-              again to send it there.
-            </span>
-          ) : null}
-        </span>
-        <span className="flex items-center gap-2">
-          {s.can_set ? (
-            s.source === "environment" ? (
-              <span className="text-xs text-muted-foreground">
-                Set in the environment
-              </span>
-            ) : (
-              <>
-                <Button onClick={() => setEditing(!editing)}>
-                  {s.set ? "Replace…" : "Set…"}
-                </Button>
-                {s.set &&
-                  (confirm ? (
-                    <Button
-                      variant="danger"
-                      disabled={remove.isPending}
-                      onClick={() => remove.mutate()}
-                    >
-                      Remove it
-                    </Button>
-                  ) : (
-                    <Button onClick={() => setConfirm(true)}>Remove</Button>
-                  ))}
-              </>
-            )
-          ) : (
-            <>
-              <CopyCommand command={command} />
-              <HoverCard
-                trigger={
-                  <button
-                    aria-label={`How to set ${s.name}`}
-                    className="flex cursor-pointer border-0 bg-transparent p-1 text-muted-foreground hover:text-foreground"
-                  >
-                    <Info size={15} />
-                  </button>
-                }
-              >
-                <p className="m-0 text-[13px]">
-                  Keys are set only at this PC: on the gateway's own page there,
-                  or with <span className="font-mono text-xs">{command}</span>.
-                </p>
-              </HoverCard>
-            </>
-          )}
-        </span>
-      </div>
-      {confirm && (
-        <p className="m-0 text-xs text-muted-foreground">
-          This PC stops using it. Turn it off where it was issued too.{" "}
-          <button
-            className="cursor-pointer border-0 bg-transparent p-0 underline"
-            onClick={() => setConfirm(false)}
-          >
-            Keep it
-          </button>
-        </p>
-      )}
-      {editing && (
-        <form
-          className="flex flex-wrap items-center gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (value.trim()) save.mutate();
-          }}
-        >
-          <input
-            type="password"
-            autoComplete="off"
-            value={value}
-            onChange={(event) => setValue(event.target.value)}
-            placeholder={`Paste ${s.name}`}
-            aria-label={`New ${s.name}`}
-            className={cn(FIELD, "w-full sm:w-80")}
-            autoFocus
-          />
-          <Button
-            variant="primary"
-            type="submit"
-            disabled={!value.trim() || save.isPending}
-          >
-            Save
-          </Button>
-          <Button
-            type="button"
-            onClick={() => {
-              setEditing(false);
-              setValue("");
-            }}
-          >
-            Cancel
-          </Button>
-          <span className="w-full text-xs text-muted-foreground">
-            Stored in this PC's key store; it isn't shown again.
-            {s.goes_to?.length
-              ? ` It is sent only to ${s.goes_to.join(", ")}.`
-              : ""}
-          </span>
-        </form>
-      )}
-      {error && <p className="m-0 text-xs text-destructive">{error.message}</p>}
-    </div>
-  );
-}
-
-/** This PC's keys: the ones fibsemOS reads, and each connector's token.
- * Write-only: whether each is set and where from, never the key. */
+/** Which keys this PC has, and where from. Never the key: it is set on the
+ * PC itself. */
 function Secrets() {
   const secrets = useQuery({
     queryKey: ["gateway/secrets"],
@@ -281,26 +116,58 @@ function Secrets() {
   });
   return (
     <Card className="flex flex-col gap-1">
-      <CardTitle className="mb-1.5">Keys</CardTitle>
+      <CardTitle className="mb-1.5">Secrets</CardTitle>
       {secrets.error && (
         <p className="m-0 text-[13px] text-destructive">
           {(secrets.error as Error).message}
         </p>
       )}
-      {secrets.data?.map((s) => (
-        <KeyRow key={s.name} s={s} />
-      ))}
+      {secrets.data?.map((s) => {
+        const command = `fibsem-cli key set ${s.name}`;
+        return (
+          <div
+            key={s.name}
+            className="grid grid-cols-1 items-center gap-1 border-t border-border py-2 text-[13px] sm:grid-cols-[190px_minmax(0,1fr)_auto] sm:gap-3"
+          >
+            <span className="font-mono text-xs text-muted-foreground">
+              {s.name}
+            </span>
+            <span>
+              <Dot on={s.set} />
+              {s.set ? (
+                `Set · from ${s.source}`
+              ) : (
+                <span className="text-muted-foreground">Not set</span>
+              )}
+            </span>
+            <span className="flex items-center gap-2">
+              <CopyCommand command={command} />
+              <HoverCard
+                trigger={
+                  <button
+                    aria-label={`About ${s.name}`}
+                    className="flex cursor-pointer border-0 bg-transparent p-1 text-muted-foreground hover:text-foreground"
+                  >
+                    <Info size={15} />
+                  </button>
+                }
+              >
+                <p className="m-0 text-[13px]">
+                  {s.about.charAt(0).toUpperCase() + s.about.slice(1)}. Set or
+                  replace it on this PC with{" "}
+                  <span className="font-mono text-xs">{command}</span>, then
+                  restart the gateway.
+                </p>
+              </HoverCard>
+            </span>
+          </div>
+        );
+      })}
     </Card>
   );
 }
 
-function SubHeading({
-  first,
-  children,
-}: {
-  first?: boolean;
-  children: string;
-}) {
+function SubHeading({ first, children }: { first?: boolean; children: string }) {
   return (
     <h3
       className={cn(
@@ -357,15 +224,9 @@ function DefaultsCard({
   const set = (change: Partial<Defaults>) => setEdit({ ...d, ...change });
   // Choosing an app shows its own saved choices.
   const pick = (app: string | null) =>
-    setEdit({
-      ...d,
-      ...(forApp(d, app) ?? { settings: {} }),
-      apps: d.apps,
-      app,
-    });
+    setEdit({ ...d, ...(forApp(d, app) ?? { settings: {} }), apps: d.apps, app });
   const facts = apps.find((a) => a.key === (d.app ?? apps[0]?.key));
-  const shownBudget =
-    budget ?? (d.budget_usd != null ? String(d.budget_usd) : "");
+  const shownBudget = budget ?? (d.budget_usd != null ? String(d.budget_usd) : "");
   const changed = edit !== null || budget !== null;
   const usable = (playbooks.data ?? []).filter((p) => !p.error);
   const select = (
@@ -395,20 +256,16 @@ function DefaultsCard({
       <p className="m-0 pb-2 text-[13px] text-muted-foreground">
         What Overview fills in, for each app. You can still change each start.
       </p>
-      {facts?.connects_microscope !== false && (
-        <SubHeading first>Microscope</SubHeading>
-      )}
-      {facts?.connects_microscope !== false && (
-        <Row label="Configuration">
-          {select(
-            d.configuration,
-            (configuration) => set({ configuration }),
-            configurations.map((c) => [c.name, c.name]),
-            `The default (${configurations.find((c) => c.default)?.name ?? configurations[0]?.name ?? "none"})`,
-            "Default configuration",
-          )}
-        </Row>
-      )}
+      {facts?.connects_microscope !== false && <SubHeading first>Microscope</SubHeading>}
+      {facts?.connects_microscope !== false && <Row label="Configuration">
+        {select(
+          d.configuration,
+          (configuration) => set({ configuration }),
+          configurations.map((c) => [c.name, c.name]),
+          `The default (${configurations.find((c) => c.default)?.name ?? configurations[0]?.name ?? "none"})`,
+          "Default configuration",
+        )}
+      </Row>}
       {facts?.connects_microscope !== false && (
         <Row label="Connect when the app starts">
           <input
@@ -443,11 +300,7 @@ function DefaultsCard({
         <Row key={setting.name} label={setting.label}>
           <input
             value={d.settings?.[setting.name] ?? ""}
-            onChange={(event) =>
-              set({
-                settings: { ...d.settings, [setting.name]: event.target.value },
-              })
-            }
+            onChange={(event) => set({ settings: { ...d.settings, [setting.name]: event.target.value } })}
             placeholder={setting.default || "Unset"}
             aria-label={setting.label}
             className={cn(FIELD, "w-full sm:w-72")}
@@ -506,8 +359,7 @@ function DefaultsCard({
           onClick={() =>
             save.mutate({
               ...d,
-              budget_usd:
-                budget !== null ? budget.trim() || null : d.budget_usd,
+              budget_usd: budget !== null ? budget.trim() || null : d.budget_usd,
             })
           }
         >
@@ -518,138 +370,72 @@ function DefaultsCard({
   );
 }
 
-interface ThisPc {
-  microscope: boolean;
-  allow_local_agents: boolean;
-  port: number;
-  update_check: boolean;
-  /** Whether this caller is the operator at this PC. */
-  at_this_pc: boolean;
+function PlaybookRow({ playbook }: { playbook: Playbook }) {
+  const [open, setOpen] = useState(false);
+  const config = useQuery({
+    queryKey: ["gateway/agent/playbooks", playbook.name],
+    queryFn: () =>
+      api<Configuration>(
+        `/gateway/agent/playbooks/${encodeURIComponent(playbook.name)}`,
+      ),
+    enabled: !playbook.error,
+    staleTime: 30_000,
+  });
+  const c = config.data;
+  return (
+    <div className="flex flex-col gap-2 border-t border-border py-2 text-[13px]">
+      <div className="grid grid-cols-1 gap-1 sm:grid-cols-[190px_minmax(0,1fr)_auto] sm:gap-3">
+        <span className="text-muted-foreground">{playbook.name}</span>
+        {playbook.error ? (
+          <span className="text-destructive">{playbook.error}</span>
+        ) : (
+          <span>
+            {c
+              ? [
+                  title(c.level ?? "watch"),
+                  c.max_budget_usd != null
+                    ? dollars(c.max_budget_usd)
+                    : "no budget",
+                ].join(" · ")
+              : "…"}
+            {playbook.hash && (
+              <span className="text-muted-foreground"> · {playbook.hash}</span>
+            )}
+          </span>
+        )}
+        {!playbook.error && (
+          <button
+            onClick={() => setOpen(!open)}
+            className="w-fit cursor-pointer border-0 bg-transparent p-0 text-xs text-[var(--primary)] hover:underline"
+          >
+            {open ? "Hide configuration" : "Show configuration"}
+          </button>
+        )}
+      </div>
+      {open && <ConfigurationFacts name={playbook.name} />}
+    </div>
+  );
 }
 
-/** This PC's install settings. Each switch saves at once; the port is used
- * from the gateway's next start. Agents connecting without a click is the
- * operator's at this PC only. */
-function ThisPcCard() {
-  const client = useQueryClient();
-  const shown = useQuery({
-    queryKey: ["gateway/this-pc"],
-    queryFn: () => api<ThisPc>("/gateway/this-pc"),
+function Playbooks() {
+  const playbooks = useQuery({
+    queryKey: ["gateway/agent/playbooks"],
+    queryFn: () => api<Playbook[]>("/gateway/agent/playbooks"),
+    staleTime: 30_000,
+    retry: false,
   });
-  const [port, setPort] = useState<string | null>(null);
-  const [askAgents, setAskAgents] = useState(false);
-  const save = useMutation({
-    mutationFn: (change: Partial<ThisPc>) =>
-      api<ThisPc>("/gateway/this-pc", {
-        method: "PUT",
-        body: JSON.stringify(change),
-      }),
-    onSuccess: (answer) => {
-      client.setQueryData(["gateway/this-pc"], answer);
-      setPort(null);
-      setAskAgents(false);
-    },
-  });
-  const d = shown.data;
-  if (!d)
-    return shown.error ? (
-      <Card>
-        <p className="m-0 text-[13px] text-destructive">
-          {(shown.error as Error).message}
-        </p>
-      </Card>
-    ) : null;
-  const toggle = (name: keyof ThisPc, label: string, disabled = false) => (
-    <input
-      type="checkbox"
-      checked={Boolean(d[name])}
-      disabled={disabled || save.isPending}
-      onChange={(event) => save.mutate({ [name]: event.target.checked })}
-      aria-label={label}
-    />
-  );
-  const portChanged = port !== null && port.trim() !== String(d.port);
   return (
     <Card className="flex flex-col gap-1">
-      <CardTitle className="mb-1.5">This PC</CardTitle>
-      <Row label="Agents may use the microscope">
-        {toggle("microscope", "Agents may use the microscope")}
-      </Row>
-      <p className="m-0 pb-1 text-xs text-muted-foreground">
-        Off: agents see the app and the experiment, but not the stage, beams or
-        milling. Used from the app's next start; the agent's level still decides
-        what it may do.
+      <CardTitle>Playbooks</CardTitle>
+      <p className="m-0 pb-1 text-[13px] text-muted-foreground">
+        On this PC. Read-only.
       </p>
-      <Row label="Agents on this PC connect without a click">
-        <span className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={d.allow_local_agents}
-            disabled={!d.at_this_pc || save.isPending}
-            onChange={(event) =>
-              event.target.checked
-                ? setAskAgents(true)
-                : save.mutate({ allow_local_agents: false })
-            }
-            aria-label="Agents on this PC connect without a click"
-          />
-          {!d.at_this_pc && (
-            <span className="text-xs text-muted-foreground">
-              Set at this PC only
-            </span>
-          )}
-        </span>
-      </Row>
-      {askAgents && (
-        <div className="flex flex-col gap-2 rounded-md border border-border px-3 py-2 text-[13px]">
-          <p className={cn("m-0", WARN)}>
-            Any program on this PC that asks to connect is then let in at once,
-            with no Allow from you.
-          </p>
-          <div className="flex justify-end gap-2.5">
-            <Button onClick={() => setAskAgents(false)}>Cancel</Button>
-            <Button
-              variant="primary"
-              disabled={save.isPending}
-              onClick={() => save.mutate({ allow_local_agents: true })}
-            >
-              Let them connect
-            </Button>
-          </div>
-        </div>
-      )}
-      <Row label="Gateway port">
-        <span className="flex items-center gap-2">
-          <input
-            value={port ?? String(d.port)}
-            onChange={(event) => setPort(event.target.value)}
-            inputMode="numeric"
-            aria-label="Gateway port"
-            className={cn(FIELD, "w-24")}
-          />
-          {portChanged && (
-            <Button
-              disabled={save.isPending}
-              onClick={() => save.mutate({ port: Number(port!.trim()) })}
-            >
-              Save
-            </Button>
-          )}
-        </span>
-      </Row>
-      <p className="m-0 pb-1 text-xs text-muted-foreground">
-        A new port is used once the gateway restarts (Gateway, below). This page
-        then opens at the new port, and a second computer's SSH forward must
-        name it.
-      </p>
-      <Row label="Check for a newer fibsemOS">
-        {toggle("update_check", "Check for a newer fibsemOS")}
-      </Row>
-      {save.error && (
+      {playbooks.error && (
         <p className="m-0 text-[13px] text-destructive">
-          {(save.error as Error).message}
+          {(playbooks.error as Error).message}
         </p>
       )}
+      {playbooks.data?.map((p) => <PlaybookRow key={p.name} playbook={p} />)}
     </Card>
   );
 }
@@ -767,8 +553,8 @@ export function Settings({
   return (
     <div className="flex flex-col gap-3">
       <Secrets />
-      <ThisPcCard />
       <DefaultsCard apps={apps} configurations={configurations} />
+      <Playbooks />
       <GatewayCard
         version={version}
         newer={newer}
