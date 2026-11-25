@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import socket
 import threading
 import time
 from dataclasses import asdict, dataclass, field
@@ -31,6 +32,8 @@ import yaml
 from fibsem.client.pairing import device_server_token
 from fibsem.codec.upgrades.configuration import upgrade
 from fibsem.devices.wire import version_problem
+from fibsem.gateway import peers
+from fibsem.server.discovery import GATEWAY_PORT
 from fibsem.structures.system import (
     CONFIGURED_DEVICES,
     DEVICE_TYPES,
@@ -64,6 +67,8 @@ NOT_PAIRED = "not_paired"
 TUNNEL_DOWN = "tunnel_down"
 TOO_OLD_OR_NEW = "version_mismatch"
 NOT_CHECKED = "not_checked"
+# A pairing asked from here, waiting for the operator at the device PC.
+ASKING = "asking"
 
 
 @dataclass
@@ -80,11 +85,19 @@ class RemoteDeviceServer:
     # answered here) or "down"; and since when it has been up.
     tunnel_state: Optional[str] = None
     tunnel_since: Optional[float] = None
+    # Whether the tunnel to its PC's gateway (for pairing, Start, Stop) is open.
+    gateway_tunnel: bool = False
     status: str = NOT_CHECKED
     detail: Optional[str] = None
     health: Optional[Dict[str, Any]] = None
     devices: List[Dict[str, Any]] = field(default_factory=list)
     checked: Optional[float] = None
+    # Paired through the gateways: its gateway's token is kept here, so
+    # Start and Stop work (`fibsem.gateway.peers`).
+    paired: bool = False
+    # Pairing now: "asking" while its gateway waits for the operator there,
+    # else how the last pairing ended; None when none was asked.
+    pairing: Optional[str] = None
 
     @property
     def key(self) -> str:
@@ -440,6 +453,32 @@ def _get(url: str, token: Optional[str]) -> Tuple[int, Any]:
     return r.status_code, body
 
 
+def _post(
+    url: str, route: str, body: Optional[dict], token: Optional[str], timeout: float
+) -> Tuple[int, Any]:
+    import httpx
+
+    r = httpx.post(
+        f"{url}{route}",
+        json=body or {},
+        headers={"Authorization": f"Bearer {token}"} if token else {},
+        timeout=timeout,
+    )
+    try:
+        answer = r.json()
+    except ValueError:
+        answer = None
+    return r.status_code, answer
+
+
+class PairRefused(RuntimeError):
+    """A pairing or a start that can't be done, with why."""
+
+    def __init__(self, message: str, status: int = 409) -> None:
+        super().__init__(message)
+        self.status = status
+
+
 def _accepts(port: int) -> bool:
     import socket
 
@@ -464,8 +503,16 @@ class DeviceServers:
         accepts: Callable[[int], bool] = _accepts,
         clock: Callable[[], float] = time.time,
         every_s: float = EVERY_S,
+        post: Callable[..., Tuple[int, Any]] = _post,
+        name: Callable[[], str] = socket.gethostname,
+        pair_lapse_s: float = peers.ASK_LAPSE_S,
     ) -> None:
         self._configuration = configuration
+        self._post = post
+        self._name = name
+        self._pair_lapse_s = pair_lapse_s
+        # How each pairing asked from here stands, by Device Server.
+        self._pairings: Dict[str, str] = {}
         self._tunnels = tunnels if tunnels is not None else Tunnels()
         self._get = get
         self._token = token
@@ -520,6 +567,10 @@ class DeviceServers:
 
     def _ask(self, server: RemoteDeviceServer) -> None:
         server.checked = self._clock()
+        server.paired = peers.kept(server.url) is not None
+        server.pairing = self._pairings.get(server.key)
+        to_gateway = self._tunnels.get(f"{server.key} gateway")
+        server.gateway_tunnel = to_gateway is not None and to_gateway.open
         if server.tunnel:
             why = self._through_tunnel(server)
             if why is not None:
@@ -593,10 +644,122 @@ class DeviceServers:
         return path
 
     def remove(self, device: str) -> Optional[Path]:
+        """`remove_entry`; a Device Server left serving nothing has both its
+        tokens forgotten here."""
         path = self._configuration()
+        before, _ = listed(path)
         remove_entry(path, device)
+        after, _ = listed(path)
+        left = {s.key for s in after}
+        for server in before:
+            if device in server.serves and server.key not in left:
+                peers.forget(server.url)
+                self._pairings.pop(server.key, None)
         self._again()
         return path
+
+    # -- pairing through the gateways (C1) -------------------------------------
+
+    def _server(self, key: str) -> RemoteDeviceServer:
+        servers, _ = listed(self._configuration())
+        found = next((s for s in servers if s.key == key), None)
+        if found is None:
+            raise PairRefused(f"The configuration has no Device Server at {key}.", 404)
+        return found
+
+    def _gateway_url(self, server: RemoteDeviceServer) -> str:
+        """The device PC's gateway, through a tunnel of its own: it listens on
+        its own PC only, so there is no reaching it without one."""
+        if not server.tunnel:
+            raise PairRefused(
+                "Pairing goes through the device PC's gateway, which only its own PC "
+                "reaches: give this Device Server an SSH tunnel (user@host) first."
+            )
+        try:
+            tunnel = self._tunnels.ensure(
+                f"{server.key} gateway", server.tunnel, target=GATEWAY_PORT
+            )
+        except TunnelDown as down:
+            raise PairRefused(
+                f"The tunnel to {server.tunnel} is down: {down}"
+            ) from None
+        return tunnel.url
+
+    def pair(self, key: str) -> None:
+        """Ask the Device Server's gateway to pair, in the background: the
+        operator there allows it, and both tokens are kept here."""
+        server = self._server(key)
+        if self._pairings.get(key) == ASKING:
+            return
+        url = self._gateway_url(server)
+        self._pairings[key] = ASKING
+        threading.Thread(target=self._pairing, args=(server, url), daemon=True).start()
+        self._again()
+
+    def _pairing(self, server: RemoteDeviceServer, url: str) -> None:
+        key, ask_id = server.key, None
+        until = self._clock() + self._pair_lapse_s
+        outcome = "It lapsed: nobody allowed it at the device PC."
+        while not self._stop.is_set() and self._clock() < until:
+            try:
+                status, answer = self._post(
+                    url,
+                    "/gateway/peers/ask",
+                    {"name": self._name(), "id": ask_id, "wait_s": 20},
+                    None,
+                    30.0,
+                )
+            except Exception as error:  # noqa: BLE001 - said on the row
+                outcome = f"Its gateway didn't answer: {type(error).__name__}."
+                break
+            if status != 200 or not isinstance(answer, dict):
+                message = (
+                    (answer or {}).get("detail", {}) if isinstance(answer, dict) else {}
+                )
+                outcome = (
+                    message.get("message") if isinstance(message, dict) else None
+                ) or f"Its gateway answered {status}."
+                break
+            state = answer.get("state")
+            if state == "waiting":
+                ask_id = answer.get("id")
+                continue
+            if state == "allowed":
+                peers.keep(server.url, answer["device_token"], answer["gateway_token"])
+                outcome = "Paired."
+                logger.info("Paired with the Device Server at %s", key)
+            else:
+                outcome = answer.get("message") or f"Not paired ({state})."
+            break
+        self._pairings[key] = outcome
+        self._check_quietly()
+
+    def switch(self, key: str, act: str) -> dict:
+        """Start or stop the Device Server through its PC's gateway, with
+        the token pairing kept. Its answer, as that gateway gives it."""
+        if act not in ("start", "stop"):
+            raise PairRefused(f"Start or stop, not {act!r}.", 422)
+        server = self._server(key)
+        token = peers.kept(server.url)
+        if token is None:
+            raise PairRefused("Pair with it first: Pair, then Allow at the device PC.")
+        url = self._gateway_url(server)
+        try:
+            status, answer = self._post(
+                url, f"/gateway/device-server/{act}", None, token, 15.0
+            )
+        except Exception as error:  # noqa: BLE001
+            raise PairRefused(
+                f"Its gateway didn't answer: {type(error).__name__}.", 502
+            ) from None
+        if status in (401, 403):
+            raise PairRefused(
+                "Its gateway refused: it was unpaired there. Pair again.", 403
+            )
+        if status != 200 or not isinstance(answer, dict):
+            raise PairRefused(f"Its gateway answered {status}.", 502)
+        self._again()
+        return answer
 
     def _again(self) -> None:
         threading.Thread(target=self._check_quietly, daemon=True).start()

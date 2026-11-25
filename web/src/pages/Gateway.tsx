@@ -847,7 +847,14 @@ interface DeviceServerState {
   /** "open", "by_hand" or "down", and since when it has been up. */
   tunnel_state?: string | null;
   tunnel_since?: number | null;
+  /** Whether the tunnel to its PC's gateway (pairing, Start, Stop) is open. */
+  gateway_tunnel?: boolean;
   serves?: string[];
+  /** Paired through the gateways: Start and Stop reach its PC's gateway. */
+  paired?: boolean;
+  /** "asking" while the device PC's operator hasn't answered; else how the
+   * last pairing ended. */
+  pairing?: string | null;
   python?: string | null;
   since?: number | null;
   health: { program?: string; version?: string; api_version?: string } | null;
@@ -1047,6 +1054,118 @@ function AddDeviceServer({
   );
 }
 
+/** Pair, then Start or Stop, on a Device Server on another PC: each goes
+ * through that PC's gateway, over the entry's SSH tunnel. */
+function RemoteActions({
+  s,
+  changed,
+}: {
+  s: DeviceServerState;
+  changed: () => void;
+}) {
+  const key = (s.url ?? "").replace(/^https?:\/\//, "");
+  const act = useMutation({
+    mutationFn: (what: "pair" | "start" | "stop") =>
+      api<GatewayState>(
+        `/gateway/device-servers/${encodeURIComponent(key)}/${what}`,
+        { method: "POST" },
+      ),
+    onSuccess: changed,
+  });
+  if (!s.tunnel) return null;
+  if (!s.paired)
+    return (
+      <span className="flex flex-col items-end gap-1">
+        <Button
+          disabled={act.isPending || s.pairing === "asking"}
+          onClick={() => act.mutate("pair")}
+        >
+          {s.pairing === "asking" ? "Asked…" : "Pair"}
+        </Button>
+        {act.error && (
+          <span className="text-xs text-destructive">
+            {(act.error as Error).message}
+          </span>
+        )}
+      </span>
+    );
+  const up = s.status === "running";
+  return (
+    <span className="flex flex-col items-end gap-1">
+      <Button
+        variant={up ? "danger" : "default"}
+        disabled={act.isPending}
+        onClick={() => act.mutate(up ? "stop" : "start")}
+      >
+        {up ? "Stop" : "Start"}
+      </Button>
+      {act.error && (
+        <span className="text-xs text-destructive">
+          {(act.error as Error).message}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** On the device PC: another PC's gateway asking to pair with this PC's
+ * Device Server, with Allow and Deny. */
+function PeerAskCard() {
+  const client = useQueryClient();
+  const asks = useQuery({
+    queryKey: ["gateway/peers/asks"],
+    queryFn: () => api<PeerAsk[]>("/gateway/peers/asks"),
+    refetchInterval: 2000,
+    retry: false,
+  });
+  const answer = useMutation({
+    mutationFn: ({ ask, allow }: { ask: string; allow: boolean }) =>
+      api(`/gateway/peers/asks/${ask}/${allow ? "allow" : "deny"}`, {
+        method: "POST",
+      }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["gateway/peers/asks"] }),
+  });
+  const ask = asks.data?.[0];
+  if (!ask) return null;
+  return (
+    <Card className="flex flex-col gap-2">
+      <CardTitle>{ask.name} asks to pair with this PC's Device Server</CardTitle>
+      <p className="m-0 text-[13px]">
+        From {ask.origin}. Allowing lets that PC use the devices this PC serves, and
+        start and stop its Device Server. It is listed in Pairing, where Unpair ends
+        both.
+      </p>
+      {answer.error && (
+        <p className="m-0 text-[13px] text-destructive">
+          {(answer.error as Error).message}
+        </p>
+      )}
+      <div className="flex justify-end gap-2.5">
+        <Button
+          disabled={answer.isPending}
+          onClick={() => answer.mutate({ ask: ask.ask, allow: false })}
+        >
+          Deny
+        </Button>
+        <Button
+          variant="primary"
+          disabled={answer.isPending}
+          onClick={() => answer.mutate({ ask: ask.ask, allow: true })}
+        >
+          Allow
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
+interface PeerAsk {
+  ask: string;
+  name: string;
+  origin: string;
+  asked_at: number;
+}
+
 /** Remove one device's Device Server from the configuration, after a yes. */
 function RemoveDeviceServer({
   device,
@@ -1124,7 +1243,10 @@ function TunnelLine({ s }: { s: DeviceServerState }) {
     <div className="flex items-center gap-2 py-1 pl-4 text-[13px]">
       <Dot colour={up ? "ok" : s.tunnel_state === "down" ? "warn" : "off"} />
       <span>SSH tunnel to {s.tunnel}</span>
-      <span className="text-muted-foreground">{words}</span>
+      <span className="text-muted-foreground">
+        {words}
+        {s.gateway_tunnel && " · and one to its gateway"}
+      </span>
     </div>
   );
 }
@@ -1170,6 +1292,7 @@ function DeviceServerRow({
             {s.health?.version && ` · ${s.health.version}`}
           </span>
         </span>
+        {!here && <RemoteActions s={s} changed={changed} />}
         {!here &&
           (s.serves ?? []).map((device) => (
             <RemoveDeviceServer key={device} device={device} changed={changed} />
@@ -1197,6 +1320,13 @@ function DeviceServerRow({
           {d.detail && <span className="text-muted-foreground">{d.detail}</span>}
         </div>
       ))}
+      {s.pairing && (
+        <p className="m-0 py-1 text-[13px] text-muted-foreground">
+          {s.pairing === "asking"
+            ? "Asked to pair: waiting for Allow on the device PC's gateway page."
+            : s.pairing}
+        </p>
+      )}
       {s.status !== "running" && s.detail && (
         <p className="m-0 py-1 text-[13px] text-muted-foreground">
           {s.detail}
@@ -1438,6 +1568,7 @@ function Gateway({
                 starting={appStarting}
                 up={appUp}
               />
+              <PeerAskCard />
               {gatewayAsk && <ConnectCard key={gatewayAsk.id} ask={gatewayAsk} />}
               <AgentCard
                 appRunning={appUp}

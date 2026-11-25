@@ -39,6 +39,7 @@ from typing import Any, Callable, Optional
 from fibsem import unreleased
 from fibsem.acting import AGENT, OPERATOR
 from fibsem.cancellation import NothingToStop
+from fibsem.server import gateway_secret
 from fibsem.workflows.events import EventBuffer
 
 logger = logging.getLogger(__name__)
@@ -332,6 +333,11 @@ class AppServerHost:
         # An agent on this PC asks to connect at the gateway, not here: no
         # connect token in the discovery file, no asks.
         self.auth.connect_token = None
+        # Started by this PC's gateway: its secret for this start, from the
+        # environment, and every call must carry it.
+        handed = gateway_secret.take()
+        if handed is not None:
+            self.auth.gateway_secret, self.auth.from_gateway = handed, True
         app = build_server(
             session=session,
             app_context=self._app_context(),
@@ -384,8 +390,10 @@ class AppServerHost:
             path=self._discovery_path,
             # Only the App Server the gateway is in front of (this PC's usual
             # file): another beside it (an eval, a test) isn't refused.
+            # One the gateway handed it is never written down.
             gateway_secret=self._discovery_path is None
-            and not os.environ.get(DISCOVERY_FILE_ENV),
+            and not os.environ.get(DISCOVERY_FILE_ENV)
+            and not self.auth.from_gateway,
         )
         self._wrote_discovery = True
         atexit.register(self._remove_discovery)

@@ -71,6 +71,7 @@ from fibsem.server.devices import (
     stream_live,
 )
 from fibsem.server.discovery import API_VERSION, fibsem_folder, health_answer
+from fibsem.server.gateway_secret import GatewayOnly
 from fibsem.server.kept_reads import KeptReads, read_wait, with_age
 from fibsem.server.knowledge_routes import build_knowledge_router
 from fibsem.server.leases import LEASE_HEADER
@@ -594,6 +595,9 @@ def build_server(
 
     app = FastAPI(title="fibsem server", version=API_VERSION)
     app.add_middleware(_AgentActs)
+    # Outermost: a call that skipped the gateway that started this server
+    # reaches nothing.
+    app.add_middleware(GatewayOnly)
     app.state.auth = auth
     served = ServedInstrument(microscope, session, instruments)
     app.state.served = served

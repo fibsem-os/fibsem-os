@@ -63,7 +63,7 @@ from fibsem.analysis.root import FileRefusal
 from fibsem.analysis.tools import ImageTools
 from fibsem.client.transport import HOST_TOKEN_ENV
 from fibsem.keystore import get_secret
-from fibsem.server import discovery
+from fibsem.server import discovery, gateway_secret
 from fibsem.server.agent.files import AgentFiles
 from fibsem.server.agent.handoff import build_agent_handoff_router
 from fibsem.server.agent.library import build_library_router
@@ -87,6 +87,7 @@ from fibsem.server.bodies import (
     refuse_invalid_requests,
 )
 from fibsem.server.discovery import API_VERSION, fibsem_folder, health_answer
+from fibsem.server.gateway_secret import GatewayOnly
 from fibsem.server.operator_token import load_operator_token
 from fibsem.server.pairing import PAIRED_FILE, ROLES, PairedTokens, Pairing
 from fibsem.server.responses import Refusal
@@ -493,6 +494,8 @@ def build_agent_host(
     app.state.agent_files = host.files
     app.state.agent_plan = host.plan
     refuse_invalid_requests(app)
+    # A call that skipped the gateway that started this host reaches nothing.
+    app.add_middleware(GatewayOnly)
 
     @app.get("/health")
     def health():
@@ -602,6 +605,11 @@ def own_auth(paired: Optional[Path] = None) -> AuthConfig:
     auth.pairing = Pairing(PairedTokens(paired or PAIRED_FILE), roles=ROLES)
     # Agents ask to connect at the gateway, never here.
     auth.connect_token = None
+    # Started by this PC's gateway: its secret for this start, from the
+    # environment, and every call must carry it.
+    handed = gateway_secret.take()
+    if handed is not None:
+        auth.gateway_secret, auth.from_gateway = handed, True
     return auth
 
 

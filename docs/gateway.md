@@ -235,6 +235,21 @@ device's entry in the configuration (its `remote:` and `tunnel:`), keeping the f
 beside it the first time (`<name>.yaml.bak`), and counts from the app's next connect. Only the
 operator adds and removes them.
 
+#### Pairing through the gateways
+
+A Device Server with a tunnel can be paired from Overview, with no token copied by hand.
+Pair on its row asks the gateway on the device PC (through a second tunnel to that PC's
+gateway port: it listens on its own PC only, so pairing needs the entry's `tunnel:`). Nothing
+comes back until the operator at the device PC allows it on its gateway's page: Overview there
+shows "sem-pc asks to pair" with Allow and Deny, one ask at a time, and the ask lapses after
+10 minutes. Allow pairs this PC twice there: with the Device Server (as `--pair` would), and
+with that gateway, which then lets this PC start and stop its Device Server and nothing else.
+Both tokens go only to the gateway that asked, and this PC keeps them in `~/.fibsem/remote/`
+(user-only files, where `fibsem-cli pair-device` keeps its own), so the app's remote driver
+uses the first as it is. Start and Stop then appear on the row. Unpairing that gateway in the
+device PC's Pairing ends its Device Server pairing too, and Remove of the Device Server's last
+device here forgets both tokens.
+
 ## The agent
 
 The gateway can run the agent on this PC, next to the app. The agent reaches the app
@@ -315,10 +330,19 @@ While the gateway runs, an agent never goes to the App Server directly: an App S
 instead, so the one-agent slot, the Allow card and History apply to every agent. Without a
 gateway, a client still finds an App Server running alone (tests, scripts).
 
-The App Server enforces it too. As it starts it makes a secret and writes it into its
-`app-server.json` (this user's alone); the gateway adds it to every call it passes on. While
-a gateway runs, an agent's call without it is refused (`401 through_gateway`, naming the
-gateway). An app started by hand or by a desktop launch works the same way. The operator's
+The servers enforce it too. Each time the gateway starts the App Server (with or without its
+window) or the Agent Server, it makes a new secret and hands it through that server's
+environment (`FIBSEM_GATEWAY_SECRET`), never on disk. The server takes it out of its
+environment as it starts, so the programs it starts in turn (the agent, a code sandbox) never
+see it, and the gateway adds it to every call it makes or passes on (`X-Fibsem-Gateway`).
+While the gateway runs, such a server refuses every call without it, whoever makes it, the
+operator's token included (`401 through_gateway`, naming the gateway); the caller's token is
+still checked after. Its `/health` and the stops are never refused, and a server left running
+after its gateway closed answers as before.
+
+An App Server the gateway didn't start (its window opened by hand) makes its own secret and
+writes it into its `app-server.json` (this user's alone); the gateway adds that to the calls
+it passes on, and while a gateway runs an agent's call without it is refused. The operator's
 token and the App Server's own (an App Server run alone: tests, evals, scripts) never need
 it, and giving control up is never refused. Only the App Server with this PC's usual
 `app-server.json` makes one, so a second App Server with its own file (an eval) is never

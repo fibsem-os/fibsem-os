@@ -315,3 +315,33 @@ def test_a_library_save_through_the_gateway_goes_in_history(
         assert r.status_code == 200, r.text
         history = gateway.get("/gateway/history", headers=_as(OPERATOR_TOKEN))
     assert "made playbook my-lamellae" in history.text
+
+
+def test_each_server_gets_its_own_secret(tmp_path):
+    """The App Server's secret goes only to it, the agent host's only to the
+    host."""
+    import json
+
+    seen = []
+
+    def server(request):
+        seen.append((request.url.host, request.headers.get("x-fibsem-gateway")))
+        return httpx.Response(
+            200,
+            headers={"content-type": "application/json"},
+            stream=httpx.ByteStream(json.dumps({}).encode()),
+        )
+
+    app = {"url": None}
+    passthrough = PassThrough(
+        lambda: app["url"],
+        transport=httpx.MockTransport(server),
+        secret=lambda: "app-secret",
+        host=lambda: "http://host.test",
+        host_secret=lambda: "host-secret",
+    )
+    through = TestClient(_gateway_app(tmp_path, None, passthrough))
+    through.get("/app/agent/plan", headers=_as(AGENT))
+    app["url"] = "http://app.test"
+    through.get("/app/agent/plan", headers=_as(AGENT))
+    assert seen == [("host.test", "host-secret"), ("app.test", "app-secret")]

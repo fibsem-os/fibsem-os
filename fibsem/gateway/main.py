@@ -41,11 +41,14 @@ from fibsem.gateway.gateway import (
     write_gateway_file,
 )
 from fibsem.gateway.host import HostMicroscope
+from fibsem.gateway.peers import PeerAsks
+from fibsem.server.device_auth import DEVICE_PAIRED_FILE
 from fibsem.server.discovery import (
     gateway_port,
     read_discovery_file,
 )
 from fibsem.server.operator_token import read_operator_token
+from fibsem.server.pairing import PairedTokens
 from fibsem.unreleased import refuse
 
 logger = logging.getLogger(__name__)
@@ -186,6 +189,8 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
             saved_configurations(),
         )
     )
+    # A SEM PC's gateway asking to pair with this PC's Device Server.
+    peer_asks = PeerAsks(auth.pairing.tokens, lambda: PairedTokens(DEVICE_PAIRED_FILE))
     gateway.device_servers_file = remote_servers.file
     gateway.device_servers = lambda: [
         *device_server.listed(),
@@ -230,6 +235,7 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
                 ),
                 device_server=device_server,
                 remote_servers=remote_servers,
+                peers=peer_asks,
             ),
             host="127.0.0.1",
             port=port,
@@ -260,6 +266,8 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
     gateway.watchers.append(agent_host.ensure)
     gateway.watchers.append(device_server.ensure)
     gateway.watchers.append(remote_servers.ensure)
+    # Unpairing a SEM PC's gateway in Pairing ends its Device Server pairing.
+    gateway.watchers.append(peer_asks.forget_orphans)
     gateway.start()
     print(f"Gateway at http://127.0.0.1:{port}/ui/gateway")
     try:
