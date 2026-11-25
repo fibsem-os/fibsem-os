@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { CircleAlert, Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
@@ -376,6 +376,9 @@ function ConnectorRow({
             title={key.set ? `${key.name} is set` : `${key.name} isn't set`}
             onClick={() => setKeyOpen(!keyOpen)}
           >
+            {!key.set && (
+              <CircleAlert size={13} className="text-amber-500" aria-hidden />
+            )}
             {key.set ? "Key" : "Set key"}
           </Button>
         )}
