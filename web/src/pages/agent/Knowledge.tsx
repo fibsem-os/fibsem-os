@@ -583,8 +583,6 @@ const TAB_ABOUT: Partial<Record<Tab, string>> = {
     "Workflows: the skills, rules, reminders and subagents one kind of work uses, and the settings a session started on it runs with.",
   skills: "How to do a kind of task.",
   agents: "Second opinions and analysis, each in a fresh context. Several can run at once, but not on the microscope.",
-  connectors:
-    "MCP servers the agent may use, such as the lab notebook. A playbook turns one on by naming it.",
   tools: "Any level works at Watch and up. Acts need Drive, or your approval at Assist. Never touches is refused at every level.",
 };
 
@@ -682,7 +680,7 @@ export function KnowledgeDialog({
             </div>
           ))}
         </div>
-        {TAB_ABOUT[tab] && (
+        {TAB_ABOUT[tab] && tab !== "connectors" && (
           <p className="m-0 border-b border-border px-4 py-2 text-[12px] text-muted-foreground">{TAB_ABOUT[tab]}</p>
         )}
         {tab === "entries" ? (

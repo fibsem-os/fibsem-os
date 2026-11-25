@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { KeyRound, Trash2 } from "lucide-react";
+import { Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
@@ -376,12 +376,6 @@ function ConnectorRow({
             title={key.set ? `${key.name} is set` : `${key.name} isn't set`}
             onClick={() => setKeyOpen(!keyOpen)}
           >
-            <KeyRound
-              size={13}
-              className={
-                key.set ? "" : "text-[var(--fibsem-semantic-warning-color)]"
-              }
-            />
             {key.set ? "Key" : "Set key"}
           </Button>
         )}
@@ -398,9 +392,11 @@ function ConnectorRow({
             <Button
               variant="ghost"
               className={small}
+              title="Edit"
+              aria-label={`Edit ${c.name}`}
               onClick={() => setEditing(!editing)}
             >
-              Edit
+              <Pencil size={13} />
             </Button>
             {confirm ? (
               <Button
@@ -500,40 +496,49 @@ export function Connectors({ enabled }: { enabled: boolean }) {
   const [adding, setAdding] = useState(false);
   const data = found.data;
   return (
-    <div className="flex h-[min(560px,76vh)] flex-col gap-1 overflow-y-auto px-4 py-3">
-      <div className="flex justify-end">
+    <div className="flex h-[min(560px,76vh)] flex-col">
+      <div className="flex items-center gap-3 border-b border-border px-4 py-1.5">
+        <p className="m-0 flex-1 text-[12px] text-muted-foreground">
+          MCP servers the agent may use, such as the lab notebook. A playbook
+          turns one on by naming it.
+        </p>
         <Button
+          variant="ghost"
+          className="shrink-0 px-2 py-1 text-[12px]"
           title={`Kept in ${data?.file ?? "mcp.yaml"}; used from the next agent start`}
           onClick={() => setAdding(!adding)}
         >
+          <Plus size={14} />
           New
         </Button>
       </div>
-      {found.error && (
-        <p className="m-0 text-[13px] text-destructive">
-          {(found.error as Error).message}
-        </p>
-      )}
-      {data?.problem && (
-        <p className={cn("m-0 text-[13px]", WARN)}>{data.problem}</p>
-      )}
-      {adding && (
-        <ConnectorForm
-          start={toForm("", { tools: [] })}
-          isNew
-          atThisPc={!!data?.at_this_pc}
-          onDone={() => setAdding(false)}
-        />
-      )}
-      <BuiltIn />
-      {data?.connectors.map((c) => (
-        <ConnectorRow
-          key={c.name}
-          c={c}
-          keys={keys.data ?? []}
-          atThisPc={!!data.at_this_pc}
-        />
-      ))}
+      <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-4 py-1">
+        {found.error && (
+          <p className="m-0 text-[13px] text-destructive">
+            {(found.error as Error).message}
+          </p>
+        )}
+        {data?.problem && (
+          <p className={cn("m-0 text-[13px]", WARN)}>{data.problem}</p>
+        )}
+        {adding && (
+          <ConnectorForm
+            start={toForm("", { tools: [] })}
+            isNew
+            atThisPc={!!data?.at_this_pc}
+            onDone={() => setAdding(false)}
+          />
+        )}
+        <BuiltIn />
+        {data?.connectors.map((c) => (
+          <ConnectorRow
+            key={c.name}
+            c={c}
+            keys={keys.data ?? []}
+            atThisPc={!!data.at_this_pc}
+          />
+        ))}
+      </div>
     </div>
   );
 }
