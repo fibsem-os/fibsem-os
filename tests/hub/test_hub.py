@@ -553,3 +553,13 @@ def test_what_ssh_says_is_read_as_it_says_it():
         "ssh to user@host failed: Permission denied (publickey)."
     )
     assert len(process.last_words) == LAST_WORDS
+
+
+def test_a_token_kept_under_another_name_is_not_used(hub, instruments, tmp_path):
+    hub.add("Scope 1", URL)
+    hub.pair("Scope 1", instruments.auth.pairing.open(role=HUB))
+    kept = tmp_path / "hub" / "scope-1.json"
+    saved = json.loads(kept.read_text())
+    saved["name"] = "scope-1"
+    kept.write_text(json.dumps(saved))
+    assert hub.token("Scope 1") is None

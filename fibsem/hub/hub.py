@@ -328,6 +328,10 @@ class Hub:
         try:
             kept = json.loads(self._token_file(name).read_text())
             token, issued = kept.get("token"), kept.get("address")
+            if kept.get("name") != name:
+                # Another instrument's file: a list written by hand can
+                # hold two names that come to one file name.
+                return None
         except (OSError, ValueError, AttributeError):
             return None
         now = next((_address(i) for i in self.instruments() if i.name == name), None)
