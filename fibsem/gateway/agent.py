@@ -1,7 +1,10 @@
 """The gateway's agent: one ``fibsem-agent`` for this PC's microscope, started
 and ended from the gateway's page or window, kept by an `AgentSessionManager`.
 
-Start needs the app running, with or without a microscope connected. It pairs the agent's
+Start works with the app running, with or without a microscope connected,
+or with no app while the agent host runs (`fibsem.gateway.agent_host`): the
+agent then talks, plans and keeps its record there, and reaches the
+microscope once the app answers. It pairs the agent's
 token straight into the shared ``paired.json`` (the operator starting it is
 the Allow), sets the App Server's level, then starts
 ``fibsem-agent --playbook NAME``, with the gateway's own address: the agent
@@ -81,6 +84,8 @@ class AgentState:
     microscope: str = ""
     # Who holds the instrument's one agent slot (`fibsem.gateway.slot`).
     slot: Dict[str, Any] = field(default_factory=dict)
+    # Whether the agent host runs: the agent works with no app through it.
+    agent_host: bool = False
 
 
 @dataclass
@@ -265,6 +270,7 @@ class GatewayAgent:
         microscope: Optional[str] = None,
         own_url: Optional[str] = None,
         slot_file: Optional[Path] = None,
+        host: Callable[[], Optional[dict]] = lambda: None,
     ) -> None:
         self._gateway = gateway
         self._root = root
@@ -274,6 +280,9 @@ class GatewayAgent:
         # The gateway's own address: the agent reaches the App Server through
         # it (`fibsem.gateway.passthrough`), else directly.
         self._own_url = own_url
+        # The agent host's discovery file (`fibsem.gateway.agent_host`): the
+        # agent works through it while no app answers.
+        self._host = host
         self._tokens = tokens
         self._discovery = discovery
         self._level = level
@@ -310,6 +319,9 @@ class GatewayAgent:
         self._parked_on: Tuple[Optional[str], Optional[str]] = (None, None)
         # Whether no app answered since it was parked (its pid unread then).
         self._parked_gone = False
+        # Whether the agent carried on on the agent host when its app stopped
+        # (not parked): the next app is checked as a parked agent's is.
+        self._moved = False
         self._allowed_read = float("-inf")
         self._allowed_at = float("-inf")
         self._lost_holder()
@@ -362,6 +374,7 @@ class GatewayAgent:
             api_key=self._has_key(),
             microscope=self.microscope,
             slot=self.slot.read(),
+            agent_host=self._host_running(),
         )
 
     def sessions(self, limit: int = SESSIONS_PAGE) -> SessionsPage:
@@ -487,7 +500,7 @@ class GatewayAgent:
                 "who": who,
                 "via": via,
                 "budget_usd": budget_usd,
-                "app_pid": self._app_pid(),
+                "app_pid": self._server_pid(),
             }
             try:
                 started = self._manager.start(
@@ -574,7 +587,7 @@ class GatewayAgent:
                 "via": via,
                 "budget_usd": budget_usd,
                 "resumed": True,
-                "app_pid": self._app_pid(),
+                "app_pid": self._server_pid(),
             }
             try:
                 self._manager.resume(
@@ -621,20 +634,24 @@ class GatewayAgent:
             names = ", ".join(lvl.value for lvl in AgentLevel)
             raise GatewayRefused(422, "bad_level", f"The level is one of {names}.")
         waits = wait and self._own_url is not None
-        if self._gateway.state().mode != RUNNING and not waits:
-            raise GatewayRefused(
-                409, "no_app", "Run the app first: the agent acts through it."
-            )
-        url = self._url()
-        if waits and (url is None or self._app_starting()):
-            url = None
-        elif self._app_starting():
-            raise GatewayRefused(
-                409,
-                "app_starting",
-                "The app is still starting: try again when its health shows ok.",
-            )
-        elif url is None:
+        starting = self._app_starting()
+        server = self._server()
+        if server is not None and not server["host"]:
+            if self._gateway.state().mode != RUNNING or starting:
+                # Not an app to start on yet: the agent host, if it runs.
+                server = self._host_server()
+        url = server["url"] if server is not None else None
+        if url is None and not waits:
+            if starting:
+                raise GatewayRefused(
+                    409,
+                    "app_starting",
+                    "The app is still starting: try again when its health shows ok.",
+                )
+            if self._gateway.state().mode != RUNNING:
+                raise GatewayRefused(
+                    409, "no_app", "Run the app first: the agent acts through it."
+                )
             raise GatewayRefused(
                 409, "no_app", "The app's server isn't up yet: try again shortly."
             )
@@ -697,6 +714,11 @@ class GatewayAgent:
             self._parked_pid = self._app_pid()
             self._parked_on = self._app_and_experiment()
             self._parked_gone = False
+            if agent.state == "running" and self._host_server() is not None:
+                # It carries on with no app, on the agent host: its calls
+                # pass there once the app has stopped.
+                self._moved = True
+                return
             parked = self._manager.park(self.microscope)
             if parked is not None and parked.state == "ended":
                 # It didn't stop and was killed: it no longer holds the slot.
@@ -711,7 +733,10 @@ class GatewayAgent:
         another answers: never on the app that was being stopped. A new app
         or experiment ends it instead: a session is one experiment's."""
         agent = self._manager.agent(self.microscope)
-        if agent is None or not agent.parked or agent.state == "ended":
+        if agent is None or agent.state == "ended":
+            self._moved = False
+            return
+        if not agent.parked and not self._moved:
             return
         pid = self._app_pid()
         if pid is None:
@@ -721,10 +746,12 @@ class GatewayAgent:
             self._parked_pid is None and not self._parked_gone
         ):
             return
+        self._moved = False
         if self._app_and_experiment() != self._parked_on:
             self.end("gateway", "gateway")
             return
-        self._manager.unpark(self.microscope)
+        if agent.parked:
+            self._manager.unpark(self.microscope)
 
     def left(self) -> None:
         """The gateway is quitting on purpose: an agent it leaves running
@@ -825,14 +852,15 @@ class GatewayAgent:
         if time.monotonic() - self._level_read < LEVEL_READ_S:
             return
         self._level_read = time.monotonic()
-        url = self._url()
-        if url is None:
+        server = self._server()
+        if server is None:
             return
-        pid = self._app_pid()
+        url, pid = server["url"], server.get("pid")
         about = read_json(agent.folder / MANAGED).get("about") or {}
         if about.get("app_pid") is not None and pid != about["app_pid"]:
-            # The app restarted under a running agent (it waited for it): the
-            # new app is at Watch, so the level last set is set back first.
+            # The app restarted under a running agent, or it moved between
+            # the app and the agent host: that server is at Watch, so the
+            # level last set is set back first.
             self._again(about)
             self._manager.note(self.microscope, app_pid=pid)
             return
@@ -852,7 +880,7 @@ class GatewayAgent:
         url = self._url()
         if url is None:
             return
-        if about.get("app_pid") is not None and about["app_pid"] == self._app_pid():
+        if about.get("app_pid") is not None and about["app_pid"] == self._server_pid():
             return
         level = _last_level(about)
         if not level or level in (AgentLevel.WATCH.value, AgentLevel.OFF.value):
@@ -863,10 +891,39 @@ class GatewayAgent:
             logger.warning("The agent's level wasn't set again: %s", refusal)
 
     def _url(self) -> Optional[str]:
+        """The server the agent works through now: the App Server, else the
+        agent host; None when neither answers."""
+        server = self._server()
+        return server["url"] if server is not None else None
+
+    def _server(self) -> Optional[dict]:
+        """The App Server's ``{url, pid, host: False}`` while it answers,
+        else the agent host's (``host: True``), else None."""
         found = self._discovery()
+        if found is not None and self._answers(found["url"]):
+            return {"url": found["url"], "pid": found.get("pid"), "host": False}
+        return self._host_server()
+
+    def _host_server(self) -> Optional[dict]:
+        try:
+            found = self._host()
+        except Exception:  # noqa: BLE001 - an unreadable file is no host
+            found = None
         if found is None or not self._answers(found["url"]):
             return None
-        return found["url"]
+        return {"url": found["url"], "pid": found.get("pid"), "host": True}
+
+    def _host_running(self) -> bool:
+        """Whether the agent host's discovery file is live: read every time
+        the page asks, so no call to it."""
+        try:
+            return self._host() is not None
+        except Exception:  # noqa: BLE001 - an unreadable file is no host
+            return False
+
+    def _server_pid(self) -> Optional[int]:
+        server = self._server()
+        return server.get("pid") if server is not None else None
 
     def _api_key(self) -> Optional[str]:
         """The environment's key, else the stored one: read at each start."""

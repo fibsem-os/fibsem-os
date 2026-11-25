@@ -26,17 +26,18 @@ from typing import Callable, List, Optional, Sequence
 
 from fibsem import diagnostics
 from fibsem.gateway.agent import GatewayAgent
+from fibsem.gateway.agent_host import AgentHostProcess
 from fibsem.gateway.gateway import (
     GATEWAY_FILE,
     GATEWAY_PORT,
     Gateway,
     GatewayRefused,
+    _python,
     read_gateway_file,
     write_gateway_file,
 )
 from fibsem.gateway.host import HostMicroscope
 from fibsem.server.discovery import (
-    HOST_DISCOVERY_FILE,
     gateway_port,
     read_discovery_file,
 )
@@ -134,10 +135,9 @@ def _connection(extra: List[str]) -> List[str]:
 
 
 def _app_url() -> Optional[str]:
-    """The server the gateway passes calls to: the App Server running on this
-    PC, whoever started it, else an agent host running here (an agent with no
-    App Server: it has the same /app/agent routes)."""
-    found = read_discovery_file() or read_discovery_file(HOST_DISCOVERY_FILE)
+    """The App Server running on this PC, whoever started it: the gateway
+    passes calls to it, else to the agent host (`AgentHostProcess`)."""
+    found = read_discovery_file()
     return found.get("url") if found else None
 
 
@@ -169,10 +169,15 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
         return 1
     gateway = Gateway(connection)
     auth = GatewayAuth.from_disk()
+    # The agent's routes while no app runs: the agent works with no app.
+    agent_host = AgentHostProcess(_python())
     agent = GatewayAgent(
-        gateway, auth.pairing.tokens, own_url=f"http://127.0.0.1:{port}"
+        gateway,
+        auth.pairing.tokens,
+        own_url=f"http://127.0.0.1:{port}",
+        host=agent_host.found,
     )
-    microscope = HostMicroscope()
+    microscope = HostMicroscope(agent_host=agent_host.found)
     # Set by the quit route; *again* starts a new one.
     stopping = threading.Event()
     again = threading.Event()
@@ -200,7 +205,9 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
                 microscope,
                 on_quit,
                 on_show,
-                passthrough=PassThrough(_app_url, is_connect=auth.is_connect),
+                passthrough=PassThrough(
+                    _app_url, is_connect=auth.is_connect, host=agent_host.url
+                ),
             ),
             host="127.0.0.1",
             port=port,
@@ -227,6 +234,8 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
         gateway.close()
         return 1
     write_gateway_file(f"http://127.0.0.1:{port}", auth.connect_token)
+    # Started once the gateway listens: it passes the host's calls on.
+    gateway.watchers.append(agent_host.ensure)
     gateway.start()
     print(f"Gateway at http://127.0.0.1:{port}/ui/gateway")
     try:
@@ -256,6 +265,7 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
             agent.left()
             quit_gateway(gateway)
         gateway.close()
+        agent_host.close()
         server.should_exit = True
         GATEWAY_FILE.unlink(missing_ok=True)
         # the port is free for the next gateway once the server has stopped

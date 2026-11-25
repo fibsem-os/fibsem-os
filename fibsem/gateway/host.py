@@ -49,10 +49,13 @@ class HostMicroscope:
         discovery: Callable[[], Optional[dict]] = read_discovery_file,
         call: Callable[..., Any] = call_host,
         token: Callable[[], Optional[str]] = read_operator_token,
+        agent_host: Callable[[], Optional[dict]] = lambda: None,
     ) -> None:
         self._discovery = discovery
         self._call = call
         self._token = token
+        # The agent host the gateway runs: the Agent page works with no app.
+        self._agent_host = agent_host
 
     def _url(self) -> str:
         found = self._discovery()
@@ -72,7 +75,8 @@ class HostMicroscope:
 
     def agent_page(self) -> str:
         """The app's Agent page, on the gateway's own port (its calls pass
-        through to the app), with the operator token in the fragment; refused
-        while no app runs."""
-        self._url()
+        through to the app, else to the agent host), with the operator token
+        in the fragment; refused while neither runs."""
+        if self._agent_host() is None:
+            self._url()
         return f"/ui/agent#token={self._token() or ''}"

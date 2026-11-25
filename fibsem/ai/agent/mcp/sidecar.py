@@ -248,6 +248,16 @@ def _probe(url, token, connect=_connect):
         transport.close()
 
 
+def _matched(capabilities, record):
+    """The *capabilities* to offer tools for: None (every tool) when an
+    instrument's agent (*record* None) found the gateway's agent host
+    answering, its app off: the app's tools are offered all the same, and
+    answer once the app runs."""
+    if record is None and capabilities and capabilities.get("host") == "agent":
+        return None
+    return capabilities
+
+
 # The tool running and its arguments, for the server's words (`_flag_failures`).
 _calling: "ContextVar[Optional[Tuple[str, dict]]]" = ContextVar(
     "fibsem_mcp_calling", default=None
@@ -1664,7 +1674,7 @@ def main(argv=None):
         return
     # Answer the MCP client's handshake first, and wait for a server in the
     # first call.
-    capabilities = _probe(args.url, args.token)
+    capabilities = _matched(_probe(args.url, args.token), args.record)
     if capabilities is None:
         print(
             "fibsem-mcp: no fibsem server answered yet; the first tool call "

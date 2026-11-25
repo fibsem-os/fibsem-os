@@ -14,6 +14,12 @@ connection, the gateway answers 503 or 502 ``no_app``; with one that stops
 answering mid-call, 504 ``app_lost``. A client reads both as the App Server
 not answering (`fibsem.client.transport`), as it would reading it directly.
 
+While no App Server runs, calls go to the agent host the gateway runs
+(`fibsem.gateway.agent_host`), which serves the agent's own routes: its
+events, session, plan, transcript, messages, level and Stop. A route only the
+app serves (the microscope's, a workflow's) is answered 503 ``no_app`` then,
+as with nothing running, not the host's 404.
+
 The routes are the gateway's own async handlers: a parked long-poll holds no
 thread of the gateway's. A stop (the workflow's, a task's, the agent's, or a
 device's stop or halt command) goes through a client of its own, so it never
@@ -22,13 +28,14 @@ waits behind the other traffic for a connection.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from typing import Callable, Iterable, Optional, Tuple
 
 import httpx
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from starlette.background import BackgroundTask
 
 from fibsem.server import discovery
@@ -137,9 +144,16 @@ def app_server_secret() -> Optional[str]:
     return secret
 
 
+# What a FastAPI server answers for a route it doesn't have.
+NOT_FOUND = {"detail": "Not Found"}
+NOT_THE_HOSTS = (
+    "The app isn't running, and this needs it: start it on the gateway's page."
+)
+
+
 class PassThrough:
     """Calls on the gateway passed to the App Server at *upstream* (its url,
-    or None while none runs)."""
+    or None while none runs), else to the agent host at *host*."""
 
     def __init__(
         self,
@@ -147,8 +161,10 @@ class PassThrough:
         transport: Optional[httpx.AsyncBaseTransport] = None,
         is_connect: Callable[[Optional[str]], bool] = lambda token: False,
         secret: Optional[Callable[[], Optional[str]]] = None,
+        host: Optional[Callable[[], Optional[str]]] = None,
     ) -> None:
         self._upstream = upstream
+        self._host = host
         # The App Server's secret (its discovery file's): every call passed on
         # carries it, so the App Server knows it came through the gateway.
         self._secret = secret or app_server_secret
@@ -166,12 +182,19 @@ class PassThrough:
         await self._client.aclose()
         await self._stops.aclose()
 
-    def _url(self) -> Optional[str]:
-        try:
-            return self._upstream()
-        except Exception:  # noqa: BLE001 - no file is no app
-            logger.debug("could not find the App Server", exc_info=True)
-            return None
+    def _url(self) -> Tuple[Optional[str], bool]:
+        """Where a call goes, and whether that is the agent host."""
+        for find, is_host in ((self._upstream, False), (self._host, True)):
+            if find is None:
+                continue
+            try:
+                url = find()
+            except Exception:  # noqa: BLE001 - no file is no server
+                logger.debug("could not find the server", exc_info=True)
+                url = None
+            if url is not None:
+                return url, is_host
+        return None, False
 
     async def forward(self, request: Request):
         bearer = request.headers.get("authorization", "")
@@ -187,7 +210,7 @@ class PassThrough:
                 },
                 status_code=403,
             )
-        url = self._url()
+        url, to_host = self._url()
         if url is None:
             return _no_app(
                 503, "The app isn't running: start it on the gateway's page."
@@ -207,7 +230,8 @@ class PassThrough:
             (k.decode("latin-1"), v.decode("latin-1")) for k, v in request.headers.raw
         )
         try:
-            secret = self._secret()
+            # The App Server's own: never sent to the host.
+            secret = None if to_host else self._secret()
         except Exception:  # noqa: BLE001 - no secret: the App Server says so
             logger.debug("could not read the App Server's secret", exc_info=True)
             secret = None
@@ -238,6 +262,21 @@ class PassThrough:
                     }
                 },
                 status_code=504,
+            )
+        if to_host and answer.status_code == 404:
+            # A route the host doesn't have is the app's.
+            body = await answer.aread()
+            await answer.aclose()
+            try:
+                not_found = json.loads(body) == NOT_FOUND
+            except ValueError:
+                not_found = False
+            if not_found:
+                return _no_app(503, NOT_THE_HOSTS)
+            return Response(
+                body,
+                status_code=404,
+                headers=dict(_headers(answer.headers.multi_items())),
             )
         response = StreamingResponse(
             answer.aiter_raw(),
