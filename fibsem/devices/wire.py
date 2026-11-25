@@ -35,6 +35,50 @@ from fibsem.codec import Tagged, decode, encode
 
 logger = logging.getLogger(__name__)
 
+# The version of a Device Server's routes, in its /health. A change an older
+# client can't work with raises the minor number, and the remote driver refuses
+# a server of another minor (`version_problem`). A change clients can ignore
+# raises the patch.
+DEVICE_API_VERSION = "0.1.0"
+
+
+def _minor(version: object) -> Optional[Tuple[int, int]]:
+    parts = str(version).split(".") if version else []
+    if len(parts) < 2 or not all(part.isdigit() for part in parts[:2]):
+        return None
+    return int(parts[0]), int(parts[1])
+
+
+def version_problem(health: Mapping[str, Any], where: str) -> Tuple[bool, str]:
+    """What is wrong between this computer and the Device Server at *where*,
+    from its /health: (True, why) when its routes are another minor version's
+    than `DEVICE_API_VERSION`, (False, why) for a warning (another fibsem
+    version, or a server too old to say), (False, "") when they match."""
+    from fibsem import __version__ as ours
+
+    served, version = health.get("api_version"), health.get("version")
+    if served is None:
+        return False, (
+            f"The Device Server at {where} doesn't report its version, so it runs "
+            f"an older fibsem than this computer ({ours}). Install the same fibsem "
+            "version on both computers."
+        )
+    if _minor(served) != _minor(DEVICE_API_VERSION):
+        return True, (
+            f"The Device Server at {where} serves routes version {served} (fibsem "
+            f"{version or 'unknown'}), and this computer is built for "
+            f"{DEVICE_API_VERSION} (fibsem {ours}). Install the same fibsem version "
+            "on both computers."
+        )
+    if version and version != ours:
+        return False, (
+            f"The Device Server at {where} runs fibsem {version} and this computer "
+            f"runs {ours}. Their routes match, but install the same version on "
+            "both when you can."
+        )
+    return False, ""
+
+
 # How the server sends an array (a camera frame) and the remote driver recognises one.
 NPY_MEDIA_TYPE = "application/x-npy"
 
