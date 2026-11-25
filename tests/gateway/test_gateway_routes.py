@@ -981,3 +981,52 @@ def test_a_command_connector_is_changed_only_at_this_pc_once_confirmed(keys, tmp
     )
     r = client.delete("/gateway/connectors/tool", headers=_as(OPERATOR_TOKEN))
     assert r.status_code == 200 and "tool" not in yaml.safe_load(file.read_text())
+
+
+# -- this PC ---------------------------------------------------------------------
+
+
+def test_this_pc_settings_and_who_may_change_them(keys, tmp_path, monkeypatch):
+    from fibsem import config
+
+    kept = {"prefs": config.UserPreferences()}
+    monkeypatch.setattr(config, "load_user_preferences", lambda: kept["prefs"])
+    monkeypatch.setattr(
+        config, "save_user_preferences", lambda p: kept.__setitem__("prefs", p)
+    )
+    client, _ = keys
+    shown = client.get("/gateway/this-pc", headers=_as(OPERATOR_TOKEN)).json()
+    assert shown == {
+        "microscope": True,
+        "allow_local_agents": False,
+        "port": 8010,
+        "update_check": False,
+        "at_this_pc": True,
+    }
+    laptop = _paired_operator(client)
+    r = client.put(
+        "/gateway/this-pc",
+        json={"port": 8020, "microscope": False},
+        headers=_as(laptop),
+    )
+    assert r.status_code == 200, r.text
+    assert kept["prefs"].install.gateway.port == 8020
+    assert kept["prefs"].install.app_server.microscope is False
+    assert r.json()["at_this_pc"] is False
+    # Agents without a click: the operator at this PC only.
+    r = client.put(
+        "/gateway/this-pc", json={"allow_local_agents": True}, headers=_as(laptop)
+    )
+    assert (r.status_code, r.json()["detail"]["error_type"]) == (403, "at_this_pc_only")
+    r = client.put(
+        "/gateway/this-pc",
+        json={"allow_local_agents": True},
+        headers=_as(OPERATOR_TOKEN),
+    )
+    assert r.status_code == 200
+    assert kept["prefs"].install.app_server.allow_local_agents is True
+    for bad in ({"port": 80}, {"port": "8010"}, {"other": 1}, {"microscope": 1}, {}):
+        r = client.put("/gateway/this-pc", json=bad, headers=_as(OPERATOR_TOKEN))
+        assert r.status_code == 422, bad
+    hub = _pair_hub(client, [])
+    assert client.get("/gateway/this-pc", headers=_as(hub["token"])).status_code == 403

@@ -579,6 +579,26 @@ def build_gateway_app(
         except gateway_settings.KeyRefused as refused:
             raise _connector_refused(refused) from None
 
+    @app.get("/gateway/this-pc")
+    def get_this_pc(found: Caller = Depends(caller)) -> dict:
+        """This PC's install settings, and whether this caller may change the
+        ones kept to the operator at this PC."""
+        operator_only(found, "reads this PC's settings")
+        return {**gateway_settings.this_pc(), "at_this_pc": found.local}
+
+    @app.put("/gateway/this-pc")
+    def put_this_pc(body: Dict[str, Any], found: Caller = Depends(caller)) -> dict:
+        """The fields to change: ``microscope``, ``allow_local_agents`` (at
+        this PC only), ``port`` (from the next start), ``update_check``."""
+        operator_only(found, "changes this PC's settings")
+        try:
+            saved = gateway_settings.save_this_pc(body, found.local)
+        except gateway_settings.KeyRefused as refused:
+            raise _connector_refused(refused) from None
+        changed = ", ".join(f"{k} {v}" for k, v in sorted((body or {}).items()))
+        gateway.record_access(found.who, "page", f"set {changed}")
+        return {**saved, "at_this_pc": found.local}
+
     @app.post("/gateway/show")
     def show_window(found: Caller = Depends(caller)) -> dict:
         """``{shown}``: bring the gateway's window to the front (the desktop

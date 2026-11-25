@@ -598,6 +598,137 @@ function Playbooks() {
   );
 }
 
+interface ThisPc {
+  microscope: boolean;
+  allow_local_agents: boolean;
+  port: number;
+  update_check: boolean;
+  /** Whether this caller is the operator at this PC. */
+  at_this_pc: boolean;
+}
+
+/** This PC's install settings. Each switch saves at once; the port is used
+ * from the gateway's next start. Agents connecting without a click is the
+ * operator's at this PC only. */
+function ThisPcCard() {
+  const client = useQueryClient();
+  const shown = useQuery({
+    queryKey: ["gateway/this-pc"],
+    queryFn: () => api<ThisPc>("/gateway/this-pc"),
+  });
+  const [port, setPort] = useState<string | null>(null);
+  const [askAgents, setAskAgents] = useState(false);
+  const save = useMutation({
+    mutationFn: (change: Partial<ThisPc>) =>
+      api<ThisPc>("/gateway/this-pc", {
+        method: "PUT",
+        body: JSON.stringify(change),
+      }),
+    onSuccess: (answer) => {
+      client.setQueryData(["gateway/this-pc"], answer);
+      setPort(null);
+      setAskAgents(false);
+    },
+  });
+  const d = shown.data;
+  if (!d)
+    return shown.error ? (
+      <Card>
+        <p className="m-0 text-[13px] text-destructive">
+          {(shown.error as Error).message}
+        </p>
+      </Card>
+    ) : null;
+  const toggle = (name: keyof ThisPc, label: string, disabled = false) => (
+    <input
+      type="checkbox"
+      checked={Boolean(d[name])}
+      disabled={disabled || save.isPending}
+      onChange={(event) => save.mutate({ [name]: event.target.checked })}
+      aria-label={label}
+    />
+  );
+  const portChanged = port !== null && port.trim() !== String(d.port);
+  return (
+    <Card className="flex flex-col gap-1">
+      <CardTitle className="mb-1.5">This PC</CardTitle>
+      <Row label="Serve the microscope to agents">
+        {toggle("microscope", "Serve the microscope to agents")}
+      </Row>
+      <Row label="Agents on this PC connect without a click">
+        <span className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={d.allow_local_agents}
+            disabled={!d.at_this_pc || save.isPending}
+            onChange={(event) =>
+              event.target.checked
+                ? setAskAgents(true)
+                : save.mutate({ allow_local_agents: false })
+            }
+            aria-label="Agents on this PC connect without a click"
+          />
+          {!d.at_this_pc && (
+            <span className="text-xs text-muted-foreground">
+              Set at this PC only
+            </span>
+          )}
+        </span>
+      </Row>
+      {askAgents && (
+        <div className="flex flex-col gap-2 rounded-md border border-border px-3 py-2 text-[13px]">
+          <p className={cn("m-0", WARN)}>
+            Any program on this PC that asks to connect is then let in at once,
+            with no Allow from you.
+          </p>
+          <div className="flex justify-end gap-2.5">
+            <Button onClick={() => setAskAgents(false)}>Cancel</Button>
+            <Button
+              variant="primary"
+              disabled={save.isPending}
+              onClick={() => save.mutate({ allow_local_agents: true })}
+            >
+              Let them connect
+            </Button>
+          </div>
+        </div>
+      )}
+      <Row label="Gateway port">
+        <span className="flex items-center gap-2">
+          <input
+            value={port ?? String(d.port)}
+            onChange={(event) => setPort(event.target.value)}
+            inputMode="numeric"
+            aria-label="Gateway port"
+            className={cn(FIELD, "w-24")}
+          />
+          {portChanged && (
+            <Button
+              disabled={save.isPending}
+              onClick={() => save.mutate({ port: Number(port!.trim()) })}
+            >
+              Save
+            </Button>
+          )}
+        </span>
+      </Row>
+      <p className="m-0 pb-1 text-xs text-muted-foreground">
+        A new port is used once the gateway restarts (Gateway, below). This page
+        then opens at the new port, and a second computer's SSH forward must
+        name it.
+      </p>
+      <Row label="Check for a newer fibsemOS">
+        {toggle("update_check", "Check for a newer fibsemOS")}
+      </Row>
+      {save.error && (
+        <p className="m-0 text-[13px] text-destructive">
+          {(save.error as Error).message}
+        </p>
+      )}
+    </Card>
+  );
+}
+
 type Ask = "stop" | "restart" | null;
 
 /** The gateway's version, and stopping or restarting it. Stopping ends the
@@ -711,6 +842,7 @@ export function Settings({
   return (
     <div className="flex flex-col gap-3">
       <Secrets />
+      <ThisPcCard />
       <DefaultsCard apps={apps} configurations={configurations} />
       <Playbooks />
       <GatewayCard

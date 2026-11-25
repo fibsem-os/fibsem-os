@@ -41,8 +41,10 @@ __all__ = [
     "remove_connector",
     "remove_key",
     "save_connector",
+    "save_this_pc",
     "set_key",
     "test_connector",
+    "this_pc",
 ]
 
 # Longer than any API key or token, short enough that a pasted file isn't one.
@@ -304,3 +306,66 @@ def test_connector(name: str, local: bool, file: Optional[Path] = None) -> dict:
     raise ConnectorRefused(
         502, "connector_failed", f"{name} couldn't be listed: {why}."
     )
+
+
+# -- this PC (install preferences) --------------------------------------------
+
+THIS_PC_FIELDS = ("microscope", "allow_local_agents", "port", "update_check")
+
+
+def this_pc() -> dict:
+    """The install preferences the page shows: whether a new app session
+    serves the microscope, whether an agent on this PC connects without a
+    click, the gateway's port, and the update check."""
+    from fibsem import config
+
+    install = config.load_user_preferences().install
+    return {
+        "microscope": bool(install.app_server.microscope),
+        "allow_local_agents": bool(install.app_server.allow_local_agents),
+        "port": int(install.gateway.port),
+        "update_check": bool(install.update_check_enabled),
+    }
+
+
+def save_this_pc(body: Any, local: bool) -> dict:
+    """Change the fields *body* names, read and saved over the file as it
+    is now. Any operator, except an agent connecting without a click, which
+    only the operator at this PC (*local*) turns on or off. A new port is
+    used from the gateway's next start. Raises `KeyRefused`."""
+    from fibsem import config
+
+    if not isinstance(body, dict) or not body:
+        raise KeyRefused(422, "no_change", "Nothing to change was given.")
+    unknown = sorted(set(body) - set(THIS_PC_FIELDS))
+    if unknown:
+        raise KeyRefused(422, "bad_field", f"No setting {', '.join(unknown)}.")
+    for name in ("microscope", "allow_local_agents", "update_check"):
+        if name in body and not isinstance(body[name], bool):
+            raise KeyRefused(422, "bad_value", f"{name} is on or off.")
+    if "allow_local_agents" in body and not local:
+        raise KeyRefused(
+            403,
+            "at_this_pc_only",
+            "Whether agents on this PC connect without a click is set only "
+            "at this PC, on the gateway's own page.",
+        )
+    port = body.get("port")
+    if "port" in body and (
+        isinstance(port, bool) or not isinstance(port, int) or not 1024 <= port <= 65535
+    ):
+        raise KeyRefused(422, "bad_port", "The port is a number from 1024 to 65535.")
+
+    def change(preferences) -> None:
+        install = preferences.install
+        if "microscope" in body:
+            install.app_server.microscope = body["microscope"]
+        if "allow_local_agents" in body:
+            install.app_server.allow_local_agents = body["allow_local_agents"]
+        if "port" in body:
+            install.gateway.port = port
+        if "update_check" in body:
+            install.update_check_enabled = body["update_check"]
+
+    config.update_user_preferences(change)
+    return this_pc()
