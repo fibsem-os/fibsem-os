@@ -164,6 +164,9 @@ class PassThrough:
         host: Optional[Callable[[], Optional[str]]] = None,
     ) -> None:
         self._upstream = upstream
+        # Told of each call answered (method, path, status, bearer token):
+        # the gateway's History records the changes it cares about.
+        self.on_answered: Optional[Callable[[str, str, int, str], None]] = None
         self._host = host
         # The App Server's secret (its discovery file's): every call passed on
         # carries it, so the App Server knows it came through the gateway.
@@ -278,6 +281,13 @@ class PassThrough:
                 status_code=404,
                 headers=dict(_headers(answer.headers.multi_items())),
             )
+        if self.on_answered is not None:
+            try:
+                self.on_answered(
+                    request.method, path, answer.status_code, bearer[7:].strip()
+                )
+            except Exception:  # noqa: BLE001 - a record never fails the call
+                logger.warning("could not record a passed call", exc_info=True)
         response = StreamingResponse(
             answer.aiter_raw(),
             status_code=answer.status_code,

@@ -29,7 +29,9 @@ class MemoryStore:
 
 
 @pytest.fixture
-def store(monkeypatch):
+def store(monkeypatch, tmp_path):
+    # The connectors' file read is the test's own.
+    monkeypatch.setenv("FIBSEM_HOME", str(tmp_path / "home"))
     kept = MemoryStore()
     monkeypatch.setattr(keystore, "_store", lambda: kept)
     monkeypatch.setattr(keystore, "sys", SimpleNamespace(platform="win32"))
@@ -110,8 +112,35 @@ def test_key_says_when_the_environment_overrides_the_stored_key(
 
 
 def test_key_takes_only_the_keys_fibsem_reads(store, run):
-    code, _ = run("key", "set", "SOME_OTHER_KEY", typed="x")
-    assert code == 2 and store.kept == {}
+    code, out = run("key", "set", "SOME_OTHER_KEY", typed="x")
+    assert code == 1 and store.kept == {}
+    assert "add the connector first" in out
+
+
+def test_the_pairing_tokens_are_never_set_by_hand(store, run):
+    for name in keystore.RESERVED:
+        code, out = run("key", "set", name, typed="x")
+        assert code == 1 and "never set by hand" in out
+    assert store.kept == {}
+
+
+def test_a_connectors_token_is_stored_with_where_it_may_go(
+    store, run, tmp_path, monkeypatch
+):
+    monkeypatch.delenv("NOTEBOOK_TOKEN", raising=False)
+    folder = tmp_path / "home" / "agent"
+    folder.mkdir(parents=True)
+    (folder / "mcp.yaml").write_text(
+        "notebook:\n  url: https://Notebook.example:8443/mcp\n"
+        "  token: NOTEBOOK_TOKEN\n  tools: [search]\n",
+        encoding="utf-8",
+    )
+    code, out = run("key", "set", "NOTEBOOK_TOKEN", typed="tok")
+    assert code == 0, out
+    assert "sent only to https://notebook.example:8443" in out
+    assert keystore.pinned("NOTEBOOK_TOKEN") == ["https://notebook.example:8443"]
+    run("key", "remove", "NOTEBOOK_TOKEN")
+    assert keystore.pinned("NOTEBOOK_TOKEN") is None and store.kept == {}
 
 
 def test_key_without_a_store_says_to_use_the_environment(run, monkeypatch):
