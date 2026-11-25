@@ -973,6 +973,7 @@ Work that uses only the devices of one device PC can run there, next to the hard
 as a service: a scan, an approach, an autofocus of its own. The driver that builds the
 devices says which services it builds over them:
 
+<!-- not run -->
 ```python
 DriverEntry(
     manufacturer="FakeScan",
@@ -981,6 +982,7 @@ DriverEntry(
 )
 ```
 
+<!-- not run -->
 ```python
 def build_line_scan(devices):
     scanner = devices.get("fake_scanner")
@@ -999,15 +1001,15 @@ the file.
 The App Server that reaches the Device Server through a `remote:` entry takes these
 services on as its own when it connects: they are listed in `microscope.services` and
 served under `/microscope/services` with its other services, behind the same level
-and lock. No code for them is needed on the microscope PC.
+and lock. No code for them is needed on the microscope PC. A name the microscope
+already has (`milling`, say) is left out with a warning.
 
 A Safety Halt on the App Server refuses new writes and commands to a remote device
 and to a service taken from a Device Server, before anything is sent; reads, stops
 and the commands the server lists as safety commands still go. A remote device keeps
 its own locks, so it never waits for the microscope's. The halt does not reach the
 Device Server itself: a command already running there carries on, and a program that
-calls the Device Server directly is not refused. A name the microscope already has (`milling`, say) is left out with a
-warning.
+calls the Device Server directly is not refused.
 
 Keep to the rule: a service on a device PC uses that PC's devices and nothing else.
 Work that also needs the microscope's devices, or decides when something may move,
