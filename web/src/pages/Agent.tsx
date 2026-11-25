@@ -1493,6 +1493,11 @@ export function AgentPage() {
       id: "chat",
       label: "Chat",
       icon: <MessageSquare size={14} />,
+      // Shown on the tab and the folded rail, as the chat may be behind another tab.
+      badge:
+        request || suggestion || a.asking || gatewayAsk ? (
+          <span className="block size-1.5 rounded-full bg-[#e0a030]" aria-label="waiting on you" />
+        ) : undefined,
       fill: true,
       render: () => chat,
     });
@@ -1502,7 +1507,14 @@ export function AgentPage() {
       label: "Microscope",
       icon: <Microscope size={14} />,
       menu: <MicroscopeCustomise fibsem={fibsem} shown={shown} onChange={setShown} />,
-      render: () => <MicroscopeTab fibsem={fibsem} shown={shown} onOpenPage={() => openPage("/ui/microscope")} />,
+      render: () => (
+        <MicroscopeTab
+          fibsem={fibsem}
+          shown={shown}
+          live={<LiveLine agent={a} heard={isWorking && !a.stopped} hide={false} />}
+          onOpenPage={() => openPage("/ui/microscope")}
+        />
+      ),
     });
   tabs.push({
     id: "side",
@@ -1559,6 +1571,7 @@ export function AgentPage() {
   }
   // A message found in the quick search: shown (Actions alone hides messages), scrolled to and lit briefly.
   const jumpTo = (at: string) => {
+    if (main === "microscope") setFocus("chat");
     if (show === "actions") setShow("all");
     pinned.current = false;
     setTimeout(() => {

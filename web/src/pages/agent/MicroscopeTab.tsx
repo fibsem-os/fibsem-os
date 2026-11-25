@@ -8,7 +8,7 @@ import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Popup } from "@/components/ui/popup";
 import { api, reading } from "@/lib/api";
 import * as fmt from "@/lib/format";
-import type { DeviceListing, DeviceSpec, DeviceValues, DisplayImages, ImagePayload, WorkflowStatus } from "@/lib/types";
+import type { DeviceListing, DeviceSpec, DeviceValues, DisplayImages, ImagePayload } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { IMAGE_LABEL, Shown } from "../Microscope";
 
@@ -149,55 +149,6 @@ function ImageDialog({ image, label, onClose }: { image: ImagePayload | null; la
   );
 }
 
-/** What runs now: a workflow's task and lamella, else a running step's label, with its progress. */
-function useRunning() {
-  const status = useQuery({
-    queryKey: ["app/workflow/status"],
-    queryFn: () => api<WorkflowStatus>("/app/workflow/status"),
-  });
-  const workflow = status.data?.workflow;
-  const progress = status.data?.progress;
-  const task = workflow?.running
-    ? [workflow.current_task ?? "A task", workflow.current_item].filter(Boolean).join(" · ")
-    : progress && !progress.outcome
-      ? progress.label
-      : null;
-  return { task, progress };
-}
-
-function ProgressBar({ fraction }: { fraction: number }) {
-  return (
-    <div className="mt-1.5 h-[3px] rounded-sm bg-accent">
-      <div
-        className="h-full rounded-sm bg-[var(--fibsem-primary-color)]"
-        style={{ width: `${Math.min(100, 100 * fraction)}%` }}
-      />
-    </div>
-  );
-}
-
-function Running() {
-  const { task, progress } = useRunning();
-  return (
-    <Section title="Running">
-      {task ? (
-        <>
-          <p className="m-0 break-words">{task}</p>
-          {progress?.fraction != null && <ProgressBar fraction={progress.fraction} />}
-          {progress && (progress.step || progress.numbers) && (
-            <p className="m-0 mt-1 flex gap-2 text-muted-foreground">
-              <span className="min-w-0 break-words">{progress.step}</span>
-              <span className="ml-auto shrink-0">{progress.numbers}</span>
-            </p>
-          )}
-        </>
-      ) : (
-        <p className="m-0 text-muted-foreground">Nothing running</p>
-      )}
-    </Section>
-  );
-}
-
 function beamLine(v: Values): string {
   const state = v.on === false ? "Off" : v.blanked ? "Blanked" : "On";
   return [state, fmt.voltage(num(v.voltage)), fmt.current(num(v.current))].filter((p) => p && p !== "–").join(" · ");
@@ -238,14 +189,27 @@ function useDevices(enabled: boolean) {
 
 /** What the instrument is doing, beside the chat: its last images, what runs,
  * its beams and its stage. A click on an image opens it large. */
-export function MicroscopeTab({ fibsem, shown, onOpenPage }: { fibsem: boolean; shown: ShowChoices; onOpenPage: () => void }) {
+export function MicroscopeTab({
+  fibsem,
+  shown,
+  live,
+  onOpenPage,
+}: {
+  fibsem: boolean;
+  shown: ShowChoices;
+  /** The page's line for what runs now, as the main view and the chat show it. */
+  live?: ReactNode;
+  onOpenPage: () => void;
+}) {
   const devices = useDevices(on(shown, "beams") || on(shown, "stage"));
   const beams = devices.filter((d) => d.spec.type === "beam");
   const stage = devices.find((d) => d.spec.type === "stage");
   return (
     <div className="flex flex-col gap-3.5 text-[13px] leading-[1.45]">
       <LastImages fibsem={fibsem} shown={shown} />
-      {on(shown, "running") && <Running />}
+      {on(shown, "running") && (
+        <Section title="Running">{live ?? <p className="m-0 text-muted-foreground">Nothing running</p>}</Section>
+      )}
       {on(shown, "beams") && beams.length > 0 && (
         <Section title="Beams">
           <Facts rows={beams.map((b) => [beamName(b.spec), b.values ? beamLine(b.values) : "Reading…"])} />
@@ -266,10 +230,10 @@ export function MicroscopeTab({ fibsem, shown, onOpenPage }: { fibsem: boolean; 
   );
 }
 
-/** The microscope as the agent page's main view: *live*, the page's line for
- * what runs now (the chat's, with its progress and time), across the top, the last image of each view in a two-column grid (SEM and FIB,
- * then FM), each at its own shape and as large as the room allows, and
- * the beams and stage under them. *switcher* and *menu* sit at the top right. */
+/** The microscope as the agent page's main view: the last image of each view
+ * in a two-column grid (SEM and FIB, then FM), each at its own shape and as
+ * large as the room allows; under them *live*, the page's line for what runs
+ * now; then the beams and stage. *switcher* and *menu* sit at the top right. */
 export function MicroscopeMain({
   fibsem,
   shown,
@@ -294,12 +258,9 @@ export function MicroscopeMain({
   const big = pairs.find(([key]) => key === open);
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col gap-3 px-4 pb-4 text-[13px] leading-[1.45] md:px-5">
-      <div className="flex min-h-[30px] items-start gap-3 pt-2.5">
-        <div className="min-w-0 flex-1 pt-1">{on(shown, "running") && live}</div>
-        <span className="flex shrink-0 items-center gap-2">
-          {menu}
-          {switcher}
-        </span>
+      <div className="flex min-h-[30px] items-center justify-end gap-2 pt-2.5">
+        {menu}
+        {switcher}
       </div>
       {pairs.length > 0 ? (
         <div
@@ -343,6 +304,7 @@ export function MicroscopeMain({
         <div className="flex flex-1 items-center justify-center text-muted-foreground">No images chosen to show</div>
       )}
       <ImageDialog image={big?.[2] ?? null} label={big?.[1] ?? ""} onClose={() => setOpen(null)} />
+      {on(shown, "running") && live && <div className="shrink-0">{live}</div>}
       {(beams.length > 0 || stage) && (
         <div className="grid shrink-0 grid-cols-1 gap-x-6 gap-y-3 border-t border-border pt-3 md:grid-cols-2">
           {beams.length > 0 && (
