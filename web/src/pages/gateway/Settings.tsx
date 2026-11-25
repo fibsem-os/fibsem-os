@@ -45,16 +45,26 @@ export interface AppFacts {
 }
 
 /** *key*'s own saved choices: its entry, else the saved ones when they are its. */
-export function forApp(d: Defaults | undefined, key: string | null | undefined): Defaults | undefined {
+export function forApp(
+  d: Defaults | undefined,
+  key: string | null | undefined,
+): Defaults | undefined {
   if (!d || !key) return undefined;
   return d.apps?.[key] ?? (d.app === key ? d : undefined);
 }
 
-interface Secret {
+export interface Secret {
   name: string;
   about: string;
   set: boolean;
   source: string | null;
+  /** Whether this caller may set it: the operator at this PC only. */
+  can_set?: boolean;
+  /** The connectors that use it, for a connector's token. */
+  connectors?: string[];
+  /** Where the stored token may go, and where its connectors point now. */
+  sent_to?: string[] | null;
+  goes_to?: string[];
 }
 
 const WARN = "text-[var(--fibsem-semantic-warning-color)]";
@@ -107,45 +117,96 @@ function CopyCommand({ command }: { command: string }) {
   );
 }
 
-/** Which keys this PC has, and where from. Never the key: it is set on the
- * PC itself. */
-function Secrets() {
-  const secrets = useQuery({
-    queryKey: ["gateway/secrets"],
-    queryFn: () => api<Secret[]>("/gateway/secrets"),
+/** One key: whether it is set and where from, and for the operator at this
+ * PC, Set or Replace (pasted once, never shown again) and Remove. */
+export function KeyRow({ s }: { s: Secret }) {
+  const client = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState("");
+  const [confirm, setConfirm] = useState(false);
+  const done = () => {
+    setEditing(false);
+    setValue("");
+    setConfirm(false);
+    client.invalidateQueries({ queryKey: ["gateway/secrets"] });
+  };
+  const save = useMutation({
+    mutationFn: () =>
+      api<Secret>(`/gateway/secrets/${encodeURIComponent(s.name)}`, {
+        method: "PUT",
+        body: JSON.stringify({ value }),
+      }),
+    onSuccess: done,
   });
+  const remove = useMutation({
+    mutationFn: () =>
+      api<Secret>(`/gateway/secrets/${encodeURIComponent(s.name)}`, {
+        method: "DELETE",
+      }),
+    onSuccess: done,
+  });
+  const command = `fibsem-cli key set ${s.name}`;
+  const error = (save.error ?? remove.error) as Error | null;
+  const about = s.about.charAt(0).toUpperCase() + s.about.slice(1);
   return (
-    <Card className="flex flex-col gap-1">
-      <CardTitle className="mb-1.5">Secrets</CardTitle>
-      {secrets.error && (
-        <p className="m-0 text-[13px] text-destructive">
-          {(secrets.error as Error).message}
-        </p>
-      )}
-      {secrets.data?.map((s) => {
-        const command = `fibsem-cli key set ${s.name}`;
-        return (
-          <div
-            key={s.name}
-            className="grid grid-cols-1 items-center gap-1 border-t border-border py-2 text-[13px] sm:grid-cols-[190px_minmax(0,1fr)_auto] sm:gap-3"
-          >
-            <span className="font-mono text-xs text-muted-foreground">
-              {s.name}
+    <div className="flex flex-col gap-1.5 border-t border-border py-2 text-[13px]">
+      <div className="grid grid-cols-1 items-center gap-1 sm:grid-cols-[190px_minmax(0,1fr)_auto] sm:gap-3">
+        <span className="font-mono text-xs text-muted-foreground" title={about}>
+          {s.name}
+        </span>
+        <span className="min-w-0">
+          <Dot on={s.set} />
+          {s.set ? (
+            `Set · from ${s.source}`
+          ) : (
+            <span className="text-muted-foreground">Not set</span>
+          )}
+          <span className="block text-xs text-muted-foreground">
+            {about}
+            {s.sent_to?.length ? ` · sent only to ${s.sent_to.join(", ")}` : ""}
+          </span>
+          {s.set &&
+          s.goes_to?.length &&
+          s.sent_to?.length &&
+          s.goes_to.some((place) => !s.sent_to?.includes(place)) ? (
+            <span className={cn("block text-xs", WARN)}>
+              Its connector now points at {s.goes_to.join(", ")}: set the token
+              again to send it there.
             </span>
-            <span>
-              <Dot on={s.set} />
-              {s.set ? (
-                `Set · from ${s.source}`
-              ) : (
-                <span className="text-muted-foreground">Not set</span>
-              )}
-            </span>
-            <span className="flex items-center gap-2">
+          ) : null}
+        </span>
+        <span className="flex items-center gap-2">
+          {s.can_set ? (
+            s.source === "environment" ? (
+              <span className="text-xs text-muted-foreground">
+                Set in the environment
+              </span>
+            ) : (
+              <>
+                <Button onClick={() => setEditing(!editing)}>
+                  {s.set ? "Replace…" : "Set…"}
+                </Button>
+                {s.set &&
+                  (confirm ? (
+                    <Button
+                      variant="danger"
+                      disabled={remove.isPending}
+                      onClick={() => remove.mutate()}
+                    >
+                      Remove it
+                    </Button>
+                  ) : (
+                    <Button onClick={() => setConfirm(true)}>Remove</Button>
+                  ))}
+              </>
+            )
+          ) : (
+            <>
               <CopyCommand command={command} />
               <HoverCard
                 trigger={
                   <button
-                    aria-label={`About ${s.name}`}
+                    aria-label={`How to set ${s.name}`}
                     className="flex cursor-pointer border-0 bg-transparent p-1 text-muted-foreground hover:text-foreground"
                   >
                     <Info size={15} />
@@ -153,21 +214,101 @@ function Secrets() {
                 }
               >
                 <p className="m-0 text-[13px]">
-                  {s.about.charAt(0).toUpperCase() + s.about.slice(1)}. Set or
-                  replace it on this PC with{" "}
-                  <span className="font-mono text-xs">{command}</span>, then
-                  restart the gateway.
+                  Keys are set only at this PC: on the gateway's own page there,
+                  or with <span className="font-mono text-xs">{command}</span>.
                 </p>
               </HoverCard>
-            </span>
-          </div>
-        );
-      })}
+            </>
+          )}
+        </span>
+      </div>
+      {confirm && (
+        <p className="m-0 text-xs text-muted-foreground">
+          This PC stops using it. Turn it off where it was issued too.{" "}
+          <button
+            className="cursor-pointer border-0 bg-transparent p-0 underline"
+            onClick={() => setConfirm(false)}
+          >
+            Keep it
+          </button>
+        </p>
+      )}
+      {editing && (
+        <form
+          className="flex flex-wrap items-center gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (value.trim()) save.mutate();
+          }}
+        >
+          <input
+            type="password"
+            autoComplete="off"
+            value={value}
+            onChange={(event) => setValue(event.target.value)}
+            placeholder={`Paste ${s.name}`}
+            aria-label={`New ${s.name}`}
+            className={cn(FIELD, "w-full sm:w-80")}
+            autoFocus
+          />
+          <Button
+            variant="primary"
+            type="submit"
+            disabled={!value.trim() || save.isPending}
+          >
+            Save
+          </Button>
+          <Button
+            type="button"
+            onClick={() => {
+              setEditing(false);
+              setValue("");
+            }}
+          >
+            Cancel
+          </Button>
+          <span className="w-full text-xs text-muted-foreground">
+            Stored in this PC's key store; it isn't shown again.
+            {s.goes_to?.length
+              ? ` It is sent only to ${s.goes_to.join(", ")}.`
+              : ""}
+          </span>
+        </form>
+      )}
+      {error && <p className="m-0 text-xs text-destructive">{error.message}</p>}
+    </div>
+  );
+}
+
+/** This PC's keys: the ones fibsemOS reads, and each connector's token.
+ * Write-only: whether each is set and where from, never the key. */
+function Secrets() {
+  const secrets = useQuery({
+    queryKey: ["gateway/secrets"],
+    queryFn: () => api<Secret[]>("/gateway/secrets"),
+  });
+  return (
+    <Card className="flex flex-col gap-1">
+      <CardTitle className="mb-1.5">Keys</CardTitle>
+      {secrets.error && (
+        <p className="m-0 text-[13px] text-destructive">
+          {(secrets.error as Error).message}
+        </p>
+      )}
+      {secrets.data?.map((s) => (
+        <KeyRow key={s.name} s={s} />
+      ))}
     </Card>
   );
 }
 
-function SubHeading({ first, children }: { first?: boolean; children: string }) {
+function SubHeading({
+  first,
+  children,
+}: {
+  first?: boolean;
+  children: string;
+}) {
   return (
     <h3
       className={cn(
@@ -224,9 +365,15 @@ function DefaultsCard({
   const set = (change: Partial<Defaults>) => setEdit({ ...d, ...change });
   // Choosing an app shows its own saved choices.
   const pick = (app: string | null) =>
-    setEdit({ ...d, ...(forApp(d, app) ?? { settings: {} }), apps: d.apps, app });
+    setEdit({
+      ...d,
+      ...(forApp(d, app) ?? { settings: {} }),
+      apps: d.apps,
+      app,
+    });
   const facts = apps.find((a) => a.key === (d.app ?? apps[0]?.key));
-  const shownBudget = budget ?? (d.budget_usd != null ? String(d.budget_usd) : "");
+  const shownBudget =
+    budget ?? (d.budget_usd != null ? String(d.budget_usd) : "");
   const changed = edit !== null || budget !== null;
   const usable = (playbooks.data ?? []).filter((p) => !p.error);
   const select = (
@@ -256,16 +403,20 @@ function DefaultsCard({
       <p className="m-0 pb-2 text-[13px] text-muted-foreground">
         What Overview fills in, for each app. You can still change each start.
       </p>
-      {facts?.connects_microscope !== false && <SubHeading first>Microscope</SubHeading>}
-      {facts?.connects_microscope !== false && <Row label="Configuration">
-        {select(
-          d.configuration,
-          (configuration) => set({ configuration }),
-          configurations.map((c) => [c.name, c.name]),
-          `The default (${configurations.find((c) => c.default)?.name ?? configurations[0]?.name ?? "none"})`,
-          "Default configuration",
-        )}
-      </Row>}
+      {facts?.connects_microscope !== false && (
+        <SubHeading first>Microscope</SubHeading>
+      )}
+      {facts?.connects_microscope !== false && (
+        <Row label="Configuration">
+          {select(
+            d.configuration,
+            (configuration) => set({ configuration }),
+            configurations.map((c) => [c.name, c.name]),
+            `The default (${configurations.find((c) => c.default)?.name ?? configurations[0]?.name ?? "none"})`,
+            "Default configuration",
+          )}
+        </Row>
+      )}
       {facts?.connects_microscope !== false && (
         <Row label="Connect when the app starts">
           <input
@@ -300,7 +451,11 @@ function DefaultsCard({
         <Row key={setting.name} label={setting.label}>
           <input
             value={d.settings?.[setting.name] ?? ""}
-            onChange={(event) => set({ settings: { ...d.settings, [setting.name]: event.target.value } })}
+            onChange={(event) =>
+              set({
+                settings: { ...d.settings, [setting.name]: event.target.value },
+              })
+            }
             placeholder={setting.default || "Unset"}
             aria-label={setting.label}
             className={cn(FIELD, "w-full sm:w-72")}
@@ -359,7 +514,8 @@ function DefaultsCard({
           onClick={() =>
             save.mutate({
               ...d,
-              budget_usd: budget !== null ? budget.trim() || null : d.budget_usd,
+              budget_usd:
+                budget !== null ? budget.trim() || null : d.budget_usd,
             })
           }
         >
@@ -435,7 +591,9 @@ function Playbooks() {
           {(playbooks.error as Error).message}
         </p>
       )}
-      {playbooks.data?.map((p) => <PlaybookRow key={p.name} playbook={p} />)}
+      {playbooks.data?.map((p) => (
+        <PlaybookRow key={p.name} playbook={p} />
+      ))}
     </Card>
   );
 }

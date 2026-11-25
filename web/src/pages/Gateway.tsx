@@ -16,7 +16,13 @@ import {
 } from "@/pages/gateway/AgentCard";
 import { ConnectCard, useGatewayAsk } from "@/pages/agent/Cards";
 import { History } from "@/pages/gateway/History";
-import { type AppFacts, type Defaults, forApp, Settings } from "@/pages/gateway/Settings";
+import { Customise } from "@/pages/gateway/Customise";
+import {
+  type AppFacts,
+  type Defaults,
+  forApp,
+  Settings,
+} from "@/pages/gateway/Settings";
 // The same icon as the gateway's window and its Desktop shortcut.
 import gatewayIcon from "../../../fibsem/ui/icons/gateway.svg?raw";
 
@@ -157,7 +163,9 @@ function Starting({
   setApp: (app: string) => void;
 }) {
   const [window, setWindow] = useState(defaults?.window ?? true);
-  const [settings, setSettings] = useState<Record<string, string>>(defaults?.settings ?? {});
+  const [settings, setSettings] = useState<Record<string, string>>(
+    defaults?.settings ?? {},
+  );
   // Another app's own choices when the app changes.
   useEffect(() => {
     setWindow(defaults?.window ?? true);
@@ -196,7 +204,9 @@ function Starting({
         ? { experiment }
         : {};
   const ready = !host || !creating || !!newFolder;
-  const given = Object.fromEntries(Object.entries(settings).filter(([, v]) => v.trim()));
+  const given = Object.fromEntries(
+    Object.entries(settings).filter(([, v]) => v.trim()),
+  );
   return (
     <>
       <label className="flex flex-col gap-1 text-xs text-muted-foreground">
@@ -274,11 +284,16 @@ function Starting({
         </div>
       )}
       {(chosen?.settings ?? []).map((setting) => (
-        <label key={setting.name} className="flex flex-col gap-1 text-xs text-muted-foreground">
+        <label
+          key={setting.name}
+          className="flex flex-col gap-1 text-xs text-muted-foreground"
+        >
           {setting.label}
           <input
             value={settings[setting.name] ?? ""}
-            onChange={(event) => setSettings({ ...settings, [setting.name]: event.target.value })}
+            onChange={(event) =>
+              setSettings({ ...settings, [setting.name]: event.target.value })
+            }
             placeholder={setting.default || "Unset"}
             className={cn(FIELD, "sm:w-80")}
           />
@@ -295,7 +310,8 @@ function Starting({
         </label>
       ) : (
         <p className="m-0 text-xs text-muted-foreground">
-          {chosen?.name} has no window of its own: it runs here, and its pages are its window.
+          {chosen?.name} has no window of its own: it runs here, and its pages
+          are its window.
         </p>
       )}
       {windowed && !window && !chosen?.headless && (
@@ -306,7 +322,12 @@ function Starting({
       <div className="flex justify-end">
         <Button
           variant="primary"
-          disabled={busy || !chosen || (windowed && !window && !chosen?.headless) || !ready}
+          disabled={
+            busy ||
+            !chosen ||
+            (windowed && !window && !chosen?.headless) ||
+            !ready
+          }
           onClick={() =>
             start({
               app,
@@ -722,7 +743,9 @@ function AppCard({
   });
   const busy = state.switching || act.isPending;
   const [app, setApp] = useState(
-    state.apps.find((a) => a.key === defaults?.app)?.key ?? state.apps[0]?.key ?? "",
+    state.apps.find((a) => a.key === defaults?.app)?.key ??
+      state.apps[0]?.key ??
+      "",
   );
   const chosen = state.apps.find((a) => a.key === app);
   const own = forApp(defaults, app);
@@ -730,15 +753,16 @@ function AppCard({
   const [choice, setChoice] = useState<MicroscopeChoice>({
     connect: own?.connect ?? true,
     configuration:
-      state.configurations.find((c) => c.name === own?.configuration)
-        ?.name ?? "",
+      state.configurations.find((c) => c.name === own?.configuration)?.name ??
+      "",
   });
   // Each app's own microscope choice.
   useEffect(() => {
     setChoice({
       connect: own?.connect ?? true,
       configuration:
-        state.configurations.find((c) => c.name === own?.configuration)?.name ?? "",
+        state.configurations.find((c) => c.name === own?.configuration)?.name ??
+        "",
     });
   }, [app, own, state.configurations]);
   // The gateway's own flags stand when it has some; else the page's choice.
@@ -894,11 +918,12 @@ function Restarting() {
   );
 }
 
-type Tab = "overview" | "history" | "pairing" | "settings";
+type Tab = "overview" | "history" | "pairing" | "customise" | "settings";
 const TABS: [Tab, string][] = [
   ["overview", "Overview"],
   ["history", "History"],
   ["pairing", "Pairing"],
+  ["customise", "Customise"],
   ["settings", "Settings"],
 ];
 
@@ -1041,7 +1066,9 @@ function Gateway({
                 starting={appStarting}
                 up={appUp}
               />
-              {gatewayAsk && <ConnectCard key={gatewayAsk.id} ask={gatewayAsk} />}
+              {gatewayAsk && (
+                <ConnectCard key={gatewayAsk.id} ask={gatewayAsk} />
+              )}
               <AgentCard
                 appRunning={appUp}
                 appStarting={appStarting}
@@ -1060,6 +1087,7 @@ function Gateway({
               <Connections roles={["operator", "agent", "hub"]} />
             </Card>
           )}
+          {tab === "customise" && <Customise />}
           {tab === "settings" && state && (
             <Settings
               apps={state.apps}
