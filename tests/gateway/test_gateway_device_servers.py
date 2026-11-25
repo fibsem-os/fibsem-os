@@ -138,6 +138,7 @@ def _watcher(config, answer=(200, HEALTH), tunnels=None, accepts=False):
         get=get,
         token=lambda url: f"token-for-{url}",
         accepts=lambda port: accepts,
+        clock=lambda: 1000.0,
     )
     return servers, asked
 
@@ -154,6 +155,12 @@ def test_each_is_asked_for_its_health_with_its_paired_token(config):
     assert asked[0] == ("http://127.0.0.1:8765", "token-for-http://127.0.0.1:8765")
     # the fm's tunnel is opened on the configuration's own port
     assert tunnels.opened == [("127.0.0.1:8765", "meteor@meteor-pc", 8765, 8765)]
+    # and the page sees it up, and since when; the other has no tunnel
+    assert (rows[0]["tunnel_state"], rows[0]["tunnel_since"]) == ("open", 1000.0)
+    assert rows[1]["tunnel_state"] is None
+    servers._clock = lambda: 2000.0
+    servers.check()
+    assert servers.state()[0]["tunnel_since"] == 1000.0  # up all along
 
 
 def test_a_port_that_already_answers_is_used_as_it_is(config):
@@ -162,6 +169,7 @@ def test_a_port_that_already_answers_is_used_as_it_is(config):
     servers.check()
     assert tunnels.opened == []
     assert servers.state()[0]["status"] == RUNNING
+    assert servers.state()[0]["tunnel_state"] == "by_hand"
 
 
 def test_a_tunnel_that_wont_open_says_ssh_s_words(config):
@@ -170,6 +178,7 @@ def test_a_tunnel_that_wont_open_says_ssh_s_words(config):
     servers.check()
     row = servers.state()[0]
     assert row["status"] == TUNNEL_DOWN and "Permission denied" in row["detail"]
+    assert (row["tunnel_state"], row["tunnel_since"]) == ("down", None)
     assert all("8765" not in url for url, _ in asked)
 
 
