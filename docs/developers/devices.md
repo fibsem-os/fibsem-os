@@ -999,8 +999,7 @@ the file.
 The App Server that reaches the Device Server through a `remote:` entry takes these
 services on as its own when it connects: they are listed in `microscope.services` and
 served under `/microscope/services` with its other services, behind the same level
-and lock, and they refuse during its Safety Halt. No code for them is needed on the
-microscope PC. A name the microscope already has (`milling`, say) is left out with a
+and lock. No code for them is needed on the microscope PC. A name the microscope already has (`milling`, say) is left out with a
 warning.
 
 Keep to the rule: a service on a device PC uses that PC's devices and nothing else.
