@@ -50,7 +50,7 @@ fibsem/autofunctions/autofocus.py 8
 fibsem/autofunctions/brightness_contrast.py 3
 fibsem/autofunctions/charge_neutralisation.py 1
 fibsem/autofunctions/plotting.py 5
-fibsem/cli.py 15
+fibsem/cli.py 16
 fibsem/client/pairing.py 1
 fibsem/client/remote_microscope.py 4
 fibsem/codec/upgrades/fluorescence.py 1
@@ -122,7 +122,7 @@ fibsem/segmentation/model.py 1
 fibsem/segmentation/onnx_model.py 1
 fibsem/segmentation/utils.py 1
 fibsem/server/devices.py 7
-fibsem/server/discovery.py 2
+fibsem/server/discovery.py 3
 fibsem/server/exports.py 8
 fibsem/server/files.py 13
 fibsem/server/headless.py 1

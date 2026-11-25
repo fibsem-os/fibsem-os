@@ -30,6 +30,10 @@ class FakeGateway:
     def __init__(self):
         self.calls = []
         self.refuse = None
+        self.access = []
+
+    def record_access(self, who, via, result):
+        self.access.append((who, via, result))
 
     def state(self):
         return GatewayState(mode=OFF, version="test")
@@ -760,10 +764,296 @@ def test_secrets_say_where_a_key_is_never_what(with_defaults, monkeypatch):
     rows = {row["name"]: row for row in r.json()}
     assert rows["ANTHROPIC_API_KEY"]["set"] is True
     assert rows["ANTHROPIC_API_KEY"]["source"] == "environment"
-    assert rows["FIBSEM_SLACK_TOKEN"] == {
-        "name": "FIBSEM_SLACK_TOKEN",
-        "about": keystore.KEYS["FIBSEM_SLACK_TOKEN"],
-        "set": False,
-        "source": None,
-    }
+    assert rows["FIBSEM_SLACK_TOKEN"]["about"] == keystore.KEYS["FIBSEM_SLACK_TOKEN"]
+    assert (
+        rows["FIBSEM_SLACK_TOKEN"]["set"],
+        rows["FIBSEM_SLACK_TOKEN"]["source"],
+    ) == (
+        False,
+        None,
+    )
+    assert rows["FIBSEM_SLACK_TOKEN"]["can_set"] is True
     assert client.get("/gateway/secrets").status_code == 401
+
+
+def test_the_agent_page_opens_with_no_app_while_the_agent_host_runs():
+    from fibsem.gateway.gateway import GatewayRefused
+
+    microscope = HostMicroscope(
+        discovery=lambda: None,
+        token=lambda: "op",
+        agent_host=lambda: {"url": "http://127.0.0.1:8030", "pid": 5},
+    )
+    assert microscope.agent_page() == "/ui/agent#token=op"
+    with pytest.raises(GatewayRefused):
+        HostMicroscope(discovery=lambda: None, token=lambda: "op").agent_page()
+
+
+# -- keys set on the page: write-only, at this PC only --------------------------
+
+
+class _Store:
+    def __init__(self):
+        self.kept = {}
+
+    def get_password(self, service, name):
+        return self.kept.get((service, name))
+
+    def set_password(self, service, name, value):
+        self.kept[(service, name)] = value
+
+    def delete_password(self, service, name):
+        del self.kept[(service, name)]
+
+
+@pytest.fixture
+def keys(with_defaults, tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from fibsem import keystore
+
+    store = _Store()
+    monkeypatch.setattr(keystore, "_store", lambda: store)
+    monkeypatch.setattr(keystore, "sys", SimpleNamespace(platform="win32"))
+    monkeypatch.setenv("FIBSEM_HOME", str(tmp_path / "home"))
+    for name in ("ANTHROPIC_API_KEY", "FIBSEM_SLACK_TOKEN", "NOTEBOOK_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+    (tmp_path / "home" / "agent").mkdir(parents=True)
+    (tmp_path / "home" / "agent" / "mcp.yaml").write_text(
+        "notebook:\n  url: https://notebook.example/mcp\n"
+        "  token: NOTEBOOK_TOKEN\n  tools: [search]\n",
+        encoding="utf-8",
+    )
+    client, _ = with_defaults
+    return client, store
+
+
+def test_the_operator_at_this_pc_sets_a_key_never_reading_it_back(keys):
+    from fibsem import keystore
+
+    client, store = keys
+    r = client.put(
+        "/gateway/secrets/NOTEBOOK_TOKEN",
+        json={"value": " tok-not-real \n"},
+        headers=_as(OPERATOR_TOKEN),
+    )
+    assert r.status_code == 200, r.text
+    assert "tok-not-real" not in r.text
+    assert r.json()["set"] is True
+    assert store.kept[(keystore.SERVICE, "NOTEBOOK_TOKEN")] == "tok-not-real"
+    assert keystore.pinned("NOTEBOOK_TOKEN") == ["https://notebook.example"]
+    rows = client.get("/gateway/secrets", headers=_as(OPERATOR_TOKEN))
+    assert "tok-not-real" not in rows.text
+    notebook = {row["name"]: row for row in rows.json()}["NOTEBOOK_TOKEN"]
+    assert notebook["connectors"] == ["notebook"]
+    assert notebook["sent_to"] == ["https://notebook.example"]
+    r = client.delete("/gateway/secrets/NOTEBOOK_TOKEN", headers=_as(OPERATOR_TOKEN))
+    assert r.status_code == 200 and r.json()["set"] is False
+    assert store.kept == {}
+
+
+def test_keys_refuse_other_names_and_the_pairing_tokens(keys):
+    client, store = keys
+    for name, error in (
+        ("SOME_OTHER_KEY", "bad_key_name"),
+        ("FIBSEM_OPERATOR_TOKEN", "bad_key_name"),
+    ):
+        r = client.put(
+            f"/gateway/secrets/{name}", json={"value": "x"}, headers=_as(OPERATOR_TOKEN)
+        )
+        assert (r.status_code, r.json()["detail"]["error_type"]) == (422, error)
+    r = client.put(
+        "/gateway/secrets/ANTHROPIC_API_KEY",
+        json={"value": "a\nb"},
+        headers=_as(OPERATOR_TOKEN),
+    )
+    assert r.status_code == 422
+    assert store.kept == {}
+
+
+def test_only_the_operator_at_this_pc_sets_keys(keys):
+    client, store = keys
+    hub = _pair_hub(client, [])
+    opened = client.post(
+        "/pairing", json={"role": "operator"}, headers=_as(OPERATOR_TOKEN)
+    ).json()
+    # A computer paired as operator, named as this PC's operator is.
+    paired = client.post("/pair", json={"code": opened["code"], "name": "operator"})
+    assert paired.status_code == 200, paired.text
+    for token in (hub["token"], paired.json()["token"]):
+        r = client.put(
+            "/gateway/secrets/ANTHROPIC_API_KEY",
+            json={"value": "sk-x"},
+            headers=_as(token),
+        )
+        assert r.status_code == 403, r.text
+        assert (
+            client.delete(
+                "/gateway/secrets/ANTHROPIC_API_KEY", headers=_as(token)
+            ).status_code
+            == 403
+        )
+    rows = client.get("/gateway/secrets", headers=_as(paired.json()["token"])).json()
+    assert {row["can_set"] for row in rows} == {False}
+    assert store.kept == {}
+
+
+# -- connectors (mcp.yaml) on the page ------------------------------------------
+
+
+def _paired_operator(client):
+    opened = client.post(
+        "/pairing", json={"role": "operator"}, headers=_as(OPERATOR_TOKEN)
+    ).json()
+    paired = client.post("/pair", json={"code": opened["code"], "name": "laptop"})
+    return paired.json()["token"]
+
+
+def test_an_operator_edits_a_url_connector_checked_as_the_agent_reads_it(
+    keys, tmp_path
+):
+    import yaml
+
+    client, _ = keys
+    file = tmp_path / "home" / "agent" / "mcp.yaml"
+    listed = client.get("/gateway/connectors", headers=_as(OPERATOR_TOKEN)).json()
+    assert [row["name"] for row in listed["connectors"]] == ["notebook"]
+    assert listed["connectors"][0]["problem"] is None
+    laptop = _paired_operator(client)
+    entry = {"url": "https://notebook.example/mcp", "level": "watch", "tools": "all"}
+    r = client.put(
+        "/gateway/connectors/notebook", json={"entry": entry}, headers=_as(laptop)
+    )
+    assert r.status_code == 200, r.text
+    assert yaml.safe_load(file.read_text())["notebook"] == entry
+    assert (file.parent / "mcp.yaml.bak").is_file()
+    # A connector that wouldn't load isn't saved.
+    r = client.put(
+        "/gateway/connectors/notebook",
+        json={"entry": {"url": "ftp://x", "tools": "all"}},
+        headers=_as(laptop),
+    )
+    assert (r.status_code, r.json()["detail"]["error_type"]) == (422, "bad_connector")
+    assert yaml.safe_load(file.read_text())["notebook"] == entry
+    hub = _pair_hub(client, [])
+    assert (
+        client.get("/gateway/connectors", headers=_as(hub["token"])).status_code == 403
+    )
+
+
+def test_a_command_connector_is_changed_only_at_this_pc_once_confirmed(keys, tmp_path):
+    import yaml
+
+    client, _ = keys
+    file = tmp_path / "home" / "agent" / "mcp.yaml"
+    entry = {"command": ["python", "tool.py"], "tools": ["run"]}
+    laptop = _paired_operator(client)
+    r = client.put(
+        "/gateway/connectors/tool", json={"entry": entry}, headers=_as(laptop)
+    )
+    assert (r.status_code, r.json()["detail"]["error_type"]) == (403, "at_this_pc_only")
+    r = client.put(
+        "/gateway/connectors/tool", json={"entry": entry}, headers=_as(OPERATOR_TOKEN)
+    )
+    assert (r.status_code, r.json()["detail"]["error_type"]) == (428, "confirm_command")
+    assert "python tool.py" in r.json()["detail"]["message"]
+    assert "tool" not in yaml.safe_load(file.read_text())
+    r = client.put(
+        "/gateway/connectors/tool",
+        json={"entry": entry, "confirm": "python tool.py"},
+        headers=_as(OPERATOR_TOKEN),
+    )
+    assert r.status_code == 200, r.text
+    assert yaml.safe_load(file.read_text())["tool"] == entry
+    # The same command again needs no confirm; removing it is this PC's too.
+    entry["tools"] = ["run", "stop"]
+    r = client.put(
+        "/gateway/connectors/tool", json={"entry": entry}, headers=_as(OPERATOR_TOKEN)
+    )
+    assert r.status_code == 200
+    assert (
+        client.delete("/gateway/connectors/tool", headers=_as(laptop)).status_code
+        == 403
+    )
+    assert (
+        client.post("/gateway/connectors/tool/test", headers=_as(laptop)).status_code
+        == 403
+    )
+    r = client.delete("/gateway/connectors/tool", headers=_as(OPERATOR_TOKEN))
+    assert r.status_code == 200 and "tool" not in yaml.safe_load(file.read_text())
+
+
+# -- this PC ---------------------------------------------------------------------
+
+
+def test_this_pc_settings_and_who_may_change_them(keys, tmp_path, monkeypatch):
+    from fibsem import config
+
+    kept = {"prefs": config.UserPreferences()}
+    monkeypatch.setattr(config, "load_user_preferences", lambda: kept["prefs"])
+    monkeypatch.setattr(
+        config, "save_user_preferences", lambda p: kept.__setitem__("prefs", p)
+    )
+    client, _ = keys
+    shown = client.get("/gateway/this-pc", headers=_as(OPERATOR_TOKEN)).json()
+    assert shown == {
+        "microscope": True,
+        "allow_local_agents": False,
+        "port": 8010,
+        "update_check": False,
+        "at_this_pc": True,
+    }
+    laptop = _paired_operator(client)
+    r = client.put(
+        "/gateway/this-pc",
+        json={"port": 8020, "microscope": False},
+        headers=_as(laptop),
+    )
+    assert r.status_code == 200, r.text
+    assert kept["prefs"].install.gateway.port == 8020
+    assert kept["prefs"].install.app_server.microscope is False
+    assert r.json()["at_this_pc"] is False
+    # Agents without a click: the operator at this PC only.
+    r = client.put(
+        "/gateway/this-pc", json={"allow_local_agents": True}, headers=_as(laptop)
+    )
+    assert (r.status_code, r.json()["detail"]["error_type"]) == (403, "at_this_pc_only")
+    r = client.put(
+        "/gateway/this-pc",
+        json={"allow_local_agents": True},
+        headers=_as(OPERATOR_TOKEN),
+    )
+    assert r.status_code == 200
+    assert kept["prefs"].install.app_server.allow_local_agents is True
+    for bad in ({"port": 80}, {"port": "8010"}, {"other": 1}, {"microscope": 1}, {}):
+        r = client.put("/gateway/this-pc", json=bad, headers=_as(OPERATOR_TOKEN))
+        assert r.status_code == 422, bad
+    hub = _pair_hub(client, [])
+    assert client.get("/gateway/this-pc", headers=_as(hub["token"])).status_code == 403
+
+
+def test_library_changes_through_the_gateway_go_in_history():
+    from types import SimpleNamespace
+
+    from fibsem.gateway.server import _record_library
+
+    kept = []
+    gateway = SimpleNamespace(record_access=lambda *a: kept.append(a))
+    auth = SimpleNamespace(
+        operator=lambda token: "operator" if token == "op" else None,
+        hub=lambda token: SimpleNamespace(name="lab-hub") if token == "hub" else None,
+    )
+    _record_library(
+        gateway, auth, "PUT", "/app/library/playbooks/autolamella", 200, "op"
+    )
+    _record_library(gateway, auth, "DELETE", "/app/library/agents/checker", 200, "hub")
+    # Reads, refusals and other routes are not changes.
+    _record_library(
+        gateway, auth, "GET", "/app/library/playbooks/autolamella", 200, "op"
+    )
+    _record_library(gateway, auth, "PUT", "/app/library/playbooks/x", 403, "op")
+    _record_library(gateway, auth, "PUT", "/app/agent/level", 200, "op")
+    assert kept == [
+        ("operator", "page", "saved playbook autolamella"),
+        ("lab-hub", "page", "removed subagent checker"),
+    ]

@@ -14,6 +14,12 @@ connection, the gateway answers 503 or 502 ``no_app``; with one that stops
 answering mid-call, 504 ``app_lost``. A client reads both as the App Server
 not answering (`fibsem.client.transport`), as it would reading it directly.
 
+While no App Server runs, calls go to the agent host the gateway runs
+(`fibsem.gateway.agent_host`), which serves the agent's own routes: its
+events, session, plan, transcript, messages, level and Stop. A route only the
+app serves (the microscope's, a workflow's) is answered 503 ``no_app`` then,
+as with nothing running, not the host's 404.
+
 The routes are the gateway's own async handlers: a parked long-poll holds no
 thread of the gateway's. A stop (the workflow's, a task's, the agent's, or a
 device's stop or halt command) goes through a client of its own, so it never
@@ -22,14 +28,17 @@ waits behind the other traffic for a connection.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
-from typing import Callable, Iterable, Optional
+from typing import Callable, Iterable, Optional, Tuple
 
 import httpx
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from starlette.background import BackgroundTask
+
+from fibsem.server import discovery
 
 logger = logging.getLogger(__name__)
 
@@ -54,14 +63,22 @@ HOP_BY_HOP = frozenset(
         "upgrade",
         "host",
         "content-length",
+        # The gateway's own, added below: never a caller's.
+        "x-fibsem-gateway",
     }
 )
 
-# The longest an App Server answer may take: a long command answers at once
-# with a run id, so a 120 s move or acquisition, or a parked long-poll (30 s),
-# is the most a call waits.
+# The longest an App Server answer may take when the call doesn't say: a long
+# command answers at once with a run id, so a 120 s move or acquisition, or a
+# parked long-poll (30 s), is the most such a call waits.
 READ_TIMEOUT_S = 300.0
 CONNECT_TIMEOUT_S = 5.0
+# A call that says how long it waits (`fibsem.client.transport.WAIT_HEADER`),
+# such as a long acquisition, is waited for that long and this much more, up
+# to `WAIT_MAX_S`.
+WAIT_HEADER = "x-fibsem-wait-s"
+WAIT_MARGIN_S = 30.0
+WAIT_MAX_S = 3 * 3600.0
 
 _STOP = re.compile(r"(^|_)(stop|halt|abort)(_|$)")
 
@@ -89,21 +106,71 @@ def _no_app(status: int, message: str) -> JSONResponse:
     )
 
 
+def _timeout(said: Optional[str]):
+    """The pass-through's timeout for a call that said it waits *said*
+    seconds: that and `WAIT_MARGIN_S`, at least `READ_TIMEOUT_S` and at most
+    `WAIT_MAX_S`; the usual for a call that said nothing readable."""
+    try:
+        wait = float(said) if said else None
+    except ValueError:
+        wait = None
+    if wait is None or not wait > 0:
+        return httpx.USE_CLIENT_DEFAULT
+    read = min(max(wait + WAIT_MARGIN_S, READ_TIMEOUT_S), WAIT_MAX_S)
+    return httpx.Timeout(read, connect=CONNECT_TIMEOUT_S)
+
+
 def _headers(items: Iterable) -> list:
     return [(k, v) for k, v in items if k.lower() not in HOP_BY_HOP]
 
 
+_kept_secret: Tuple[Optional[float], Optional[str]] = (None, None)
+
+
+def app_server_secret() -> Optional[str]:
+    """This PC's App Server's secret for the gateway, from its discovery file
+    (`fibsem.server.auth`); None while none runs or it has none. Read again
+    only when the file changes: it is asked on every call passed on."""
+    global _kept_secret
+    try:
+        changed = discovery.DISCOVERY_FILE.stat().st_mtime
+    except OSError:
+        changed = None
+    if changed is not None and _kept_secret[0] == changed:
+        return _kept_secret[1]
+    found = discovery.read_discovery_file()
+    secret = found.get("gateway_secret") if found else None
+    _kept_secret = (changed, secret)
+    return secret
+
+
+# What a FastAPI server answers for a route it doesn't have.
+NOT_FOUND = {"detail": "Not Found"}
+NOT_THE_HOSTS = (
+    "The app isn't running, and this needs it: start it on the gateway's page."
+)
+
+
 class PassThrough:
     """Calls on the gateway passed to the App Server at *upstream* (its url,
-    or None while none runs)."""
+    or None while none runs), else to the agent host at *host*."""
 
     def __init__(
         self,
         upstream: Callable[[], Optional[str]],
         transport: Optional[httpx.AsyncBaseTransport] = None,
         is_connect: Callable[[Optional[str]], bool] = lambda token: False,
+        secret: Optional[Callable[[], Optional[str]]] = None,
+        host: Optional[Callable[[], Optional[str]]] = None,
     ) -> None:
         self._upstream = upstream
+        # Told of each call answered (method, path, status, bearer token):
+        # the gateway's History records the changes it cares about.
+        self.on_answered: Optional[Callable[[str, str, int, str], None]] = None
+        self._host = host
+        # The App Server's secret (its discovery file's): every call passed on
+        # carries it, so the App Server knows it came through the gateway.
+        self._secret = secret or app_server_secret
         # gateway.json's token only asks to connect: answered here, never sent on
         self._is_connect = is_connect
         timeout = httpx.Timeout(READ_TIMEOUT_S, connect=CONNECT_TIMEOUT_S)
@@ -118,12 +185,19 @@ class PassThrough:
         await self._client.aclose()
         await self._stops.aclose()
 
-    def _url(self) -> Optional[str]:
-        try:
-            return self._upstream()
-        except Exception:  # noqa: BLE001 - no file is no app
-            logger.debug("could not find the App Server", exc_info=True)
-            return None
+    def _url(self) -> Tuple[Optional[str], bool]:
+        """Where a call goes, and whether that is the agent host."""
+        for find, is_host in ((self._upstream, False), (self._host, True)):
+            if find is None:
+                continue
+            try:
+                url = find()
+            except Exception:  # noqa: BLE001 - no file is no server
+                logger.debug("could not find the server", exc_info=True)
+                url = None
+            if url is not None:
+                return url, is_host
+        return None, False
 
     async def forward(self, request: Request):
         bearer = request.headers.get("authorization", "")
@@ -139,7 +213,7 @@ class PassThrough:
                 },
                 status_code=403,
             )
-        url = self._url()
+        url, to_host = self._url()
         if url is None:
             return _no_app(
                 503, "The app isn't running: start it on the gateway's page."
@@ -149,14 +223,29 @@ class PassThrough:
         target = httpx.URL(f"{url.rstrip('/')}{path}").copy_with(
             query=request.url.query.encode("utf-8") or None
         )
+        # A stop keeps its short client; any other call may say how long it waits.
+        wait = (
+            httpx.USE_CLIENT_DEFAULT
+            if client is self._stops
+            else _timeout(request.headers.get(WAIT_HEADER))
+        )
+        headers = _headers(
+            (k.decode("latin-1"), v.decode("latin-1")) for k, v in request.headers.raw
+        )
+        try:
+            # The App Server's own: never sent to the host.
+            secret = None if to_host else self._secret()
+        except Exception:  # noqa: BLE001 - no secret: the App Server says so
+            logger.debug("could not read the App Server's secret", exc_info=True)
+            secret = None
+        if secret:
+            headers.append(("X-Fibsem-Gateway", secret))
         sent = client.build_request(
             request.method,
             target,
-            headers=_headers(
-                (k.decode("latin-1"), v.decode("latin-1"))
-                for k, v in request.headers.raw
-            ),
+            headers=headers,
             content=request.stream(),
+            timeout=wait,
         )
         try:
             answer = await client.send(sent, stream=True)
@@ -177,6 +266,28 @@ class PassThrough:
                 },
                 status_code=504,
             )
+        if to_host and answer.status_code == 404:
+            # A route the host doesn't have is the app's.
+            body = await answer.aread()
+            await answer.aclose()
+            try:
+                not_found = json.loads(body) == NOT_FOUND
+            except ValueError:
+                not_found = False
+            if not_found:
+                return _no_app(503, NOT_THE_HOSTS)
+            return Response(
+                body,
+                status_code=404,
+                headers=dict(_headers(answer.headers.multi_items())),
+            )
+        if self.on_answered is not None:
+            try:
+                self.on_answered(
+                    request.method, path, answer.status_code, bearer[7:].strip()
+                )
+            except Exception:  # noqa: BLE001 - a record never fails the call
+                logger.warning("could not record a passed call", exc_info=True)
         response = StreamingResponse(
             answer.aiter_raw(),
             status_code=answer.status_code,

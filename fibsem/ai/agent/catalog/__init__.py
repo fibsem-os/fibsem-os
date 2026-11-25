@@ -271,7 +271,11 @@ def route_call(
     for name in names:
         path = path.replace("{" + name + "}", encode(args.pop(name)))
     if shape is None:
-        body = args
+        # An optional argument left out comes from the MCP server as None
+        # (its signature's default): left out of the body too, so the route's
+        # own default holds. Sent as null, a body with a plain default (level:
+        # str = "done") refused the call.
+        body = {k: v for k, v in args.items() if not (v is None and k in spec.optional)}
     if not body:
         # A POST with no arguments still sends its (empty) object: a route
         # that reads a body refuses none at all.

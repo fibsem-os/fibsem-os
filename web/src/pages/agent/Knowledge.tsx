@@ -8,6 +8,7 @@ import { api, imageUrl } from "@/lib/api";
 import { Markdown } from "@/lib/markdown";
 import { cn } from "@/lib/utils";
 import { AgentRules } from "./Customisation";
+import { Connectors } from "./Connectors";
 import { LibraryBrowser, type LibraryKind } from "./Library";
 
 export type KnowledgeSection = "instrument" | "sample" | "playbook" | "experiment";
@@ -559,7 +560,8 @@ export function KnowledgeBrowser({
   );
 }
 
-type Tab = "entries" | LibraryKind | "tools";
+export type KnowledgeTab = "entries" | LibraryKind | "tools" | "connectors";
+type Tab = KnowledgeTab;
 // In groups: what the lab knows; how the agent works; what it can act on.
 const TABS: [Tab, string][][] = [
   [["entries", "Entries"]],
@@ -568,7 +570,10 @@ const TABS: [Tab, string][][] = [
     ["skills", "Skills"],
     ["agents", "Subagents"],
   ],
-  [["tools", "Tools"]],
+  [
+    ["tools", "Tools"],
+    ["connectors", "Connectors"],
+  ],
 ];
 
 /** What each tab holds, in a line. */
@@ -585,14 +590,26 @@ const TAB_ABOUT: Partial<Record<Tab, string>> = {
  * this microscope, its samples and playbooks, and past runs; the agent's own
  * entries to review first; the agent's playbooks, skills and subagents,
  * the shipped and the lab's own; and, read-only, its tools and what it never touches. */
-export function KnowledgeDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+export function KnowledgeDialog({
+  open,
+  onOpenChange,
+  start = "entries",
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  /** The tab it opens on. */
+  start?: Tab;
+}) {
   const client = useQueryClient();
-  const [tab, setTab] = useState<Tab>("entries");
+  const [tab, setTab] = useState<Tab>(start);
+  useEffect(() => {
+    if (open) setTab(start);
+  }, [open, start]);
   const index = useQuery({
     queryKey: ["knowledge"],
     queryFn: () =>
       api<{ entries: KnowledgeRow[]; samples: string[]; playbooks: string[] }>("/app/knowledge?resolved=true"),
-    enabled: open,
+    enabled: open && tab === "entries",
   });
   const [row, setRow] = useState<KnowledgeRow | null>(null);
   const entry = useQuery({
@@ -663,7 +680,7 @@ export function KnowledgeDialog({ open, onOpenChange }: { open: boolean; onOpenC
             </div>
           ))}
         </div>
-        {TAB_ABOUT[tab] && (
+        {TAB_ABOUT[tab] && tab !== "connectors" && (
           <p className="m-0 border-b border-border px-4 py-2 text-[12px] text-muted-foreground">{TAB_ABOUT[tab]}</p>
         )}
         {tab === "entries" ? (
@@ -706,6 +723,8 @@ export function KnowledgeDialog({ open, onOpenChange }: { open: boolean; onOpenC
           </>
         ) : tab === "tools" ? (
           <AgentRules enabled={open} />
+        ) : tab === "connectors" ? (
+          <Connectors enabled={open} />
         ) : (
           <LibraryBrowser kind={tab} enabled={open} />
         )}

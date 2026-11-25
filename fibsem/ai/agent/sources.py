@@ -118,19 +118,35 @@ def lab_agents() -> List[str]:
     return sorted(p.stem for p in folder.glob("*.md"))
 
 
-def assemble(
-    target: Path, root: Path, skills: Iterable[str], agents: Iterable[str] = ()
-) -> List[str]:
-    """Make ``target/.claude`` hold *skills* and *agents*, each from where it
-    is found, and nothing else: it is rebuilt every start, so nothing left
-    there (a settings file with hooks) outlives a session. Answers the names
-    of the skills copied from the lab's folder."""
-    target.mkdir(parents=True, exist_ok=True)
-    claude = target / CLAUDE
+def _clear(claude: Path) -> None:
     if claude.is_symlink() or claude.is_file():
         claude.unlink()
     elif claude.exists():
         shutil.rmtree(claude)
+
+
+def assemble(
+    target: Path,
+    root: Path,
+    skills: Iterable[str],
+    agents: Iterable[str] = (),
+    pinned: Optional[Path] = None,
+) -> List[str]:
+    """Make ``target/.claude`` hold *skills* and *agents*, each from where it
+    is found, and nothing else: it is rebuilt every start, so nothing left
+    there (a settings file with hooks) outlives a session. Answers the names
+    of the skills copied from the lab's folder.
+
+    With *pinned* (a folder of the session's own), the session's skills are
+    the ones it started with: the first start keeps a copy there, and each
+    later one (a resume) rebuilds from that copy, not today's files."""
+    target.mkdir(parents=True, exist_ok=True)
+    claude = target / CLAUDE
+    _clear(claude)
+    kept = pinned / CLAUDE if pinned is not None else None
+    if kept is not None and (kept / "skills").is_dir():
+        shutil.copytree(kept, claude)
+        return []
     (claude / "skills").mkdir(parents=True)
     from_lab = []
     lab = lab_folder("skills")
@@ -151,6 +167,9 @@ def assemble(
                 f"No subagent {name} in {lab_folder('agents')} or {root}"
             )
         shutil.copyfile(found, claude / "agents" / f"{name}.md")
+    if kept is not None:
+        kept.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(claude, kept)
     return from_lab
 
 

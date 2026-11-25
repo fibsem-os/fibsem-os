@@ -1627,11 +1627,14 @@ export interface components {
             channel_id: string;
         };
         /** @description POST /app/experiment/messages: the agent's message to the operator,
-         *     ``reply_to`` the message it answers. */
+         *     ``reply_to`` the message it answers; ``waits``, it has stopped until the
+         *     operator answers. */
         OperatorMessageBody: {
             item_name?: string | null;
             reply_to?: string | null;
             text: string;
+            /** @default false */
+            waits?: boolean;
         };
         /** @description What the playbook and subagent forms offer to pick from. */
         Options: {
@@ -1994,6 +1997,8 @@ export interface components {
             read: string;
             text: string;
             tone: string;
+            /** @default false */
+            waits: boolean;
             when: string;
             /** @default  */
             why: string;
@@ -2169,9 +2174,15 @@ export interface components {
                 [key: string]: unknown;
             }[] | null;
             images?: string[] | null;
+            /** @default  */
+            item_name?: string;
             /** @default done */
             level?: string;
             options?: string[] | null;
+            /** @default  */
+            score?: string;
+            /** @default  */
+            task_name?: string;
             /** @default  */
             text?: string;
             title: string;
@@ -2782,6 +2793,7 @@ export interface components {
             queue_version: number | null;
             running: boolean;
             step: string | null;
+            task_started: string | null;
             waiting_on: string | null;
             waiting_since: string | null;
         };

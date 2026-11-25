@@ -516,7 +516,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "item_name": "the item's name",
             "task_names": arg(
-                "the milling tasks to draw, e.g. [mill_rough, mill_polishing]: the first in colour, the rest behind it",
+                'the milling tasks to draw, by task name, e.g. ["Rough Milling", "Polishing"]: the first in colour, the rest behind it',
                 List[str],
             ),
             "image_path": "optional: an ion image inside the experiment to draw on (default the item's latest FIB image)",
@@ -628,7 +628,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="experiment_message_operator",
         returns="Recorded",
-        description="Tell the operator something they should read now: you have stopped and need them (a hardware error, a site you can't fix), or you answer their message (a MESSAGE line from fibsem-mcp watch: pass its id as reply_to). It goes on the record like a note, shown to the operator as a message, not a note. A message asks nothing of the run and approves nothing: a decision is a proposal or a request. Answers the message's id.",
+        description="Tell the operator something they should read now: you have stopped and need them (a hardware error, a site you can't fix), or you answer their message (a MESSAGE line from fibsem-mcp watch: pass its id as reply_to). It goes on the record like a note, shown to the operator as a message, not a note. A message asks nothing of the run and approves nothing: a decision is a proposal or a request. When you stop until the operator answers (a question, a go-ahead, a hardware error), set waits: the page shows it as waiting on them until they reply. Say you'll go ahead on your own after a while only once wake_after has answered that the wake-up is set. Answers the message's id.",
         method="POST",
         path="/app/experiment/messages",
         level="watch",  # Watch tells the operator: a message changes nothing
@@ -637,8 +637,13 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "text": "the message, at most 4000 characters",
             "item_name": "optional: the item it concerns",
             "reply_to": "optional: the id of the operator's message this answers",
+            "waits": arg(
+                "optional: true when you have stopped until the operator answers",
+                bool,
+                default=False,
+            ),
         },
-        optional=("item_name", "reply_to"),
+        optional=("item_name", "reply_to", "waits"),
     ),
     ToolSpec(
         name="request_create",
@@ -904,7 +909,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="app_get_events",
         returns="Events",
-        description="Events after a sequence number or an event id: milling/acquisition progress, stage moves, task lifecycle. Each has an id that stays unique across restarts. Long-polls up to timeout seconds.",
+        description="Events after a sequence number or an event id: milling/acquisition progress, stage moves, task lifecycle. Each has an id that stays unique across restarts. Long-polls up to timeout seconds. Ask for what is new: after the last id you read, or since a recent seq. since=0 is every event held, hundreds of KB in a long run, too much to read at once.",
         method="GET",
         path="/app/events",
         level="watch",

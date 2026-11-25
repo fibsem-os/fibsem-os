@@ -178,6 +178,9 @@ class ReviewAddBody:
     images: Optional[List[str]] = None
     facts: Optional[List[Dict[str, Any]]] = None
     options: Optional[List[str]] = None
+    score: str = ""
+    item_name: str = ""
+    task_name: str = ""
 
 
 @dataclass
@@ -877,9 +880,11 @@ class NoteBody:
 @dataclass
 class OperatorMessageBody(NoteBody):
     """POST /app/experiment/messages: the agent's message to the operator,
-    ``reply_to`` the message it answers."""
+    ``reply_to`` the message it answers; ``waits``, it has stopped until the
+    operator answers."""
 
     reply_to: Optional[str] = None
+    waits: bool = False
 
 
 @dataclass

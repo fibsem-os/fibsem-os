@@ -32,12 +32,13 @@ from the `fibsem-mcp` sidecar; if they are missing, it isn't registered in
 this session's MCP config (`claude mcp add -s user fibsem -- fibsem-mcp`), and
 plain HTTP works regardless. The first connection asks the operator to
 allow you: a call that answers `connect_waiting` means they haven't clicked
-Allow yet, so tell them and try again. Once allowed, your token is kept on this
-PC:
+Allow yet, so tell them and try again. Every call goes through this PC's
+gateway (port 8010), never straight to the App Server. Once allowed, your
+token is kept on this PC:
 
 ```bash
-TOKEN=$(python3 -c "import json;print(json.load(open('$HOME/.fibsem/agent/127.0.0.1_8001.json'))['token'])")
-curl -s "http://127.0.0.1:8001/capabilities" -H "Authorization: Bearer $TOKEN"
+TOKEN=$(python3 -c "import json;print(json.load(open('$HOME/.fibsem/agent/127.0.0.1_8010.json'))['token'])")
+curl -s "http://127.0.0.1:8010/capabilities" -H "Authorization: Bearer $TOKEN"
 ```
 
 On the curl path your own harness may gate commands that change state: a
@@ -374,6 +375,12 @@ a note (*Write down why*): messages about what
 can wait teach the operator to ignore them. A message decides nothing: a
 decision you want is a proposal or a request.
 
+When you stop until the operator answers (a question, a go-ahead, an error
+only they can clear), set `waits: true` on that message: the page shows
+"Waiting on you" until they reply, and Slack tells them. Say what you'll do
+once they answer. To carry on by yourself if they don't, set `wake_after`
+first and say so only once it answers that the wake-up is set.
+
 **Keep a plan.** Your plan for the session is plan.md, which the operator
 reads and edits on the Agent page. Write it at intake under the playbook's
 plan headings (Brief, Playbook, Rules, Steps, Progress, What worked, Summary
@@ -444,7 +451,10 @@ item, with any marks they drew; a Reject asks you to look again (an Accept
 of a `done` item with no note is kept on the list, not sent). Review ids (`r1`,
 `r2`) name review items, not lamellae: never pass one as an `item`. Read a slice
 with `review_list` (`show: waiting`) when you need it, not the whole list,
-and close an item answered in the chat or no longer needed (`review_close`).
+and close an item answered in the chat or no longer needed (`review_close`). A
+task skill may ask for scored items (`score`): add each one it names, good
+or bad. A `not_saved` refusal means the list could not be written and the
+item was not added: tell the operator in a message, and add it again later.
 
 For a small change, don't resend the section: `plan_append` adds a line
 (a Progress line, a rule, a new box) and `plan_check_step` ticks a box by

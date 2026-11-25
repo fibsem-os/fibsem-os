@@ -21,6 +21,7 @@ from fibsem.ai.agent.manager import (
     SessionRunning,
     read_json,
 )
+from fibsem.util.process import process_started
 
 ROOT = Path(__file__).resolve().parents[2]
 STAND_IN = Path(__file__).with_name("stand_in.py")
@@ -238,23 +239,78 @@ def test_a_new_manager_resumes_an_agent_that_lost_its_app_while_none_ran(make):
     assert taken.state == "running"
 
 
+def test_an_agent_left_by_a_gateway_closed_on_purpose_waits_for_resume(make):
+    first, env = make("1,wait")
+    agent = start(first, env)
+    until(lambda: agent.process.poll() is not None)
+    first.left()
+
+    second, _ = make("1,wait")
+    taken = second.agent("arctis-1")
+    second.poll()
+    assert taken.state == "ended"
+    assert taken.ended == "did not finish (the gateway closed)"
+    assert len(runs(taken)) == 1, "never resumed by itself"
+    assert read_json(agent.folder / MANAGED)["ended"] == taken.ended
+
+
+def test_an_agent_quiet_too_long_before_the_gateway_started_waits_for_resume(make):
+    first, env = make("1,wait")
+    agent = start(first, env)
+    until(lambda: agent.process.poll() is not None)
+
+    later = Clock()
+    later.now += manager.RESUME_YOUNG_S + 60
+    second, _ = make("1,wait", clock=later)
+    taken = second.agent("arctis-1")
+    second.poll()
+    assert taken.state == "ended"
+    assert taken.ended.startswith("did not finish (last heard 16 min")
+    assert len(runs(taken)) == 1
+
+
+def test_an_agent_still_running_when_its_gateway_comes_back_carries_on(make):
+    first, env = make("wait")
+    agent = start(first, env)
+    until(lambda: len(runs(agent)) == 1)
+    first.left()
+
+    second, _ = make("wait")
+    taken = second.agent("arctis-1")
+    second.poll()
+    assert taken.state == "running"
+    assert "left" not in read_json(agent.folder / MANAGED)
+    threading.Thread(target=agent.process.wait, daemon=True).start()
+    second.end("arctis-1")
+    until(lambda: agent.process.poll() is not None)
+
+
+def test_a_note_joins_what_each_resume_is_given(make):
+    seen = []
+    mgr, env = make("1,wait", on_resume=lambda microscope, about: seen.append(about))
+    agent = start(mgr, env, about={"level": "drive"})
+    mgr.note("arctis-1", level_now="assist")
+    until(lambda: len(runs(agent)) == 2, mgr)
+    assert seen == [{"level": "drive", "level_now": "assist"}]
+
+
+def test_an_automatic_resume_carries_the_run_on(make):
+    mgr, env = make("1,wait")
+    spawned = []
+    spawn = mgr._spawn
+    mgr._spawn = lambda args, *rest: spawned.append(args) or spawn(args, *rest)
+    agent = start(mgr, env)
+    until(lambda: len(runs(agent)) == 2, mgr)
+    assert "--carry-on" not in spawned[0]
+    assert spawned[1][-3:] == ["--resume", agent.session_id, "--carry-on"]
+
+
 def test_an_ended_session_is_not_taken_back(make):
     first, env = make("0")
     agent = start(first, env)
     until(lambda: agent.state == "ended", first)
     second, _ = make()
     assert second.agent("arctis-1") is None
-
-
-def test_sessions_lists_every_session_with_the_managers_part(make):
-    mgr, env = make("0")
-    one = start(mgr, env)
-    until(lambda: one.state == "ended", mgr)
-    two = start(mgr, env)
-    until(lambda: two.state == "ended", mgr)
-    rows = mgr.sessions()
-    assert {row["session_id"] for row in rows} == {one.session_id, two.session_id}
-    assert all(row["manager"]["microscope"] == "arctis-1" for row in rows)
 
 
 def test_the_last_session_is_the_newest_run_in_the_same_folder(tmp_path):
@@ -269,6 +325,24 @@ def test_the_last_session_is_the_newest_run_in_the_same_folder(tmp_path):
         manager.write_json(folder / RECORD, {"session_id": session_id, "cwd": str(cwd)})
     assert manager.last_session(work, tmp_path) == "second"
     assert manager.last_session(other, tmp_path) == "elsewhere"
+
+
+def test_a_resume_keeps_the_sessions_playbook_and_its_skills(tmp_path):
+    about = {"cwd": "/w", "playbook": "autolamella", "playbook_hash": "h1"}
+    session = SessionFolder.open("abc", about, tmp_path)
+    kept = {
+        "name": "autolamella-lead",
+        "hash": "h2",
+        "chosen_by": "the agent",
+        "skills": [{"skill": "screen-grids", "state": "done", "summary": "ok"}],
+    }
+    session.keep_playbook({"playbook": kept})
+    session.end(0, "stopped")
+
+    again = SessionFolder.open("abc", {**about, "playbook": "default"}, tmp_path)
+    record = again.record()
+    assert record["playbook"] == kept
+    assert record["playbook_hash"] == "h1", "the launch's hash isn't written either"
 
 
 def test_a_session_folder_records_each_run_and_how_it_ended(tmp_path):
@@ -295,6 +369,7 @@ def test_a_session_runs_in_one_process_at_a_time(tmp_path):
     try:
         record = session.record()
         record["runs"][-1]["pid"] = other.pid
+        record["runs"][-1]["pid_started"] = process_started(other.pid)
         manager.write_json(session.folder / RECORD, record)
         with pytest.raises(SessionRunning, match="already running"):
             SessionFolder.open("abc", {}, tmp_path)

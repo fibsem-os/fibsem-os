@@ -34,11 +34,12 @@ import shutil
 import signal
 import sys
 import sysconfig
+import textwrap
 import threading
 import time
 import traceback
 import uuid
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -183,7 +184,8 @@ TRANSCRIPT_KEEP = 2000
 TRANSCRIPT_TEXT = 2000
 # A step's failed line when its run ended before it answered.
 STEP_ENDED = "Ended without an answer: the run stopped."
-# A lab tool's pictures on the transcript (`_show_pictures`): at most this many
+# A lab tool's pictures on the transcript, and a subagent's
+# (`_show_pictures`): at most this many
 # from one result, this many waiting to be sent, and this big (base64, under
 # the server's 5 MB). A send carries one picture at most.
 PICTURES_PER_RESULT = 4
@@ -195,6 +197,8 @@ PICTURE_TYPES = ("image/png", "image/jpeg", "image/gif", "image/webp")
 SUBAGENT_TOOLS = ("Agent", "Task")
 # How much of a subagent's answer its run keeps.
 SUBAGENT_ANSWER = 1500
+# How much of a subagent's brief its run's card keeps.
+SUBAGENT_BRIEF = 8000
 # While a turn goes on, its tokens and the context's fill are reported this
 # often (when they changed), not only as it ends: a turn can run for an hour.
 REPORT_EVERY_S = 30.0
@@ -240,7 +244,7 @@ def harness_prompt(
     fibsem = not servers or SERVER in servers
     tools = NO_CODE if work is None else code_mode.prompt(work, code, fibsem)
     tools = _name_servers(tools, servers)
-    more = extra_mcp.prompt_lines(extra_mcp.load() if extras is None else extras)
+    more = extra_mcp.prompt_lines(extra_mcp.usable()[0] if extras is None else extras)
     if more:
         tools += "\n" + more
     warn = deadline_warn_min or defaults().deadline_warn_min
@@ -300,22 +304,26 @@ def session_names(
     checkout: Optional[Path], playbook: Optional[playbooks.Playbook] = None
 ) -> Loaded:
     """What a session loads. Started on a playbook other than the base one:
-    that playbook's skills and subagents (with what it extends). Else every
+    that playbook's skills and subagents (with what it extends), and those of
+    every playbook built on it, so the session can move on to one of them
+    (autolamella to autolamella-correlative) without a restart. Else every
     playbook's of its instrument kind, as intake may set any of them. The lab's
     own skills and subagents always, a lab copy of a shipped one replacing it."""
-    if playbook is not None and playbook.name != playbooks.DEFAULT:
-        found = [playbook]
-    else:
-        kind = _kind(playbook)
-        found = []
-        for name in playbooks.available(checkout):
-            try:
-                each = playbooks.load(name, checkout)
-            except playbooks.PlaybookError as error:
-                log.warning("Playbook %s is left out: %s", name, error)
-                continue
-            if _kind(each) == kind:
-                found.append(each)
+    named = playbook is not None and playbook.name != playbooks.DEFAULT
+    kind = _kind(playbook)
+    found = [playbook] if named else []
+    for name in playbooks.available(checkout):
+        if named and name == playbook.name:
+            continue
+        try:
+            each = playbooks.load(name, checkout)
+        except playbooks.PlaybookError as error:
+            log.warning("Playbook %s is left out: %s", name, error)
+            continue
+        if _kind(each) != kind:
+            continue
+        if not named or playbook.name in each.chain[:-1]:
+            found.append(each)
     skills: List[str] = []
     agents: List[str] = []
     for each in found:
@@ -1198,6 +1206,7 @@ class Harness:
         goal: Optional[str] = None,
         budget_usd: Optional[float] = None,
         spent_before_usd: Optional[float] = None,
+        keep_budget: Optional[Callable[..., None]] = None,
         about: Optional[dict] = None,
         alarm: Optional[Alarm] = None,
         playbook: Optional[PlaybookControl] = None,
@@ -1283,11 +1292,15 @@ class Harness:
         self._sending: Optional[Tuple[Any, asyncio.Lock]] = None
         self._goal = goal
         self._goal_sent = False
+        # The kinds of answer a refused session report gave, each said once.
+        self._refusals_said: set = set()
         # The skills read, as last reported: sent again when the agent reads one.
         self._skills_sent: List[str] = []
         # What it can do (code mode, effort, skills), sent with the first report.
         self._about = dict(about or {})
         self._budget_usd = budget_usd
+        # Writes a budget the operator sets to the session's record.
+        self._keep_budget = keep_budget or (lambda **budget: None)
         # The CLI's running total when this run started: 0 for a new session;
         # None for a resume whose record doesn't say, and then this run's
         # first turn is not counted (`_count_spend`).
@@ -1884,9 +1897,23 @@ class Harness:
             body.update(ended=True, reason=self._end_reason)
         try:
             body = plain(decode(SessionReport, body, strict=True))
-        except ValueError:
-            log.warning("The session report did not read.", exc_info=True)
-            return
+        except ValueError as error:
+            # Never silent, and never the whole report: without it the App
+            # Server holds no session and refuses the plan. Sent again with
+            # only the fields that always read.
+            log.error(
+                "The session report did not read, sent without its extras: %s", error
+            )
+            body = {
+                key: body[key]
+                for key in ("session_id", "model", "budget_usd", "spent_usd", "ended")
+                if body.get(key) is not None
+            }
+            try:
+                body = plain(decode(SessionReport, body, strict=True))
+            except ValueError:
+                log.error("The session report did not read at all.", exc_info=True)
+                return
         self._goal_sent = True
 
         def post():
@@ -1896,7 +1923,13 @@ class Harness:
                 )
                 if response.status_code == 200:
                     return response.json().get("session")
-            except Exception:
+                # A refused report leaves the App Server without the session
+                # (the plan refuses no_session): said once for each answer.
+                self._report_refused(
+                    f"{response.status_code}: {getattr(response, 'text', '')[:200]}"
+                )
+            except Exception as error:
+                self._report_refused(type(error).__name__)
                 log.debug("Reporting the session failed.", exc_info=True)
             return None
 
@@ -1994,6 +2027,20 @@ class Harness:
                     self._budget_usd or 0,
                 )
                 self._budget_usd = float(budget)
+                try:
+                    self._keep_budget(usd=self._budget_usd)
+                except OSError:
+                    log.warning("The new budget wasn't kept.", exc_info=True)
+
+    def _report_refused(self, why: str) -> None:
+        """A session report the App Server didn't take: a warning the first
+        time for each kind of answer, then quiet (it reports every 30 s)."""
+        said = self._refusals_said
+        kind = why.split(":", 1)[0]
+        if kind in said:
+            return
+        said.add(kind)
+        log.warning("The App Server didn't take the session report (%s).", why)
 
     async def _reread_budget(self) -> None:
         """Ask the App Server for the session's budget, in case the operator
@@ -2101,7 +2148,28 @@ class Harness:
 
         def post():
             try:
-                if send(entries) != 422 or len(entries) == 1:
+                status = send(entries)
+                if status < 400:
+                    return True
+                if status != 422:
+                    if status in (409, 429) or status >= 500:
+                        # It may take them later: kept for the next send.
+                        log.debug(
+                            "The App Server can't take the transcript yet (%d).", status
+                        )
+                        return False
+                    log.warning(
+                        "The App Server refused the transcript (%d): %d line(s) dropped.",
+                        status,
+                        len(entries),
+                    )
+                    return True
+                if len(entries) == 1:
+                    log.warning(
+                        "The App Server refused a transcript line: %s %.80r",
+                        entries[0].get("kind"),
+                        entries[0].get("text"),
+                    )
                     return True
                 # The server refuses a whole send for one line it can't take:
                 # the rest go one at a time, so a step's end isn't lost with it
@@ -2121,7 +2189,12 @@ class Harness:
         sent = await asyncio.get_running_loop().run_in_executor(None, post)
         if sent:
             del lines[: len(batch)]
-        del lines[:-TRANSCRIPT_KEEP]
+        if len(lines) > TRANSCRIPT_KEEP:
+            log.warning(
+                "The App Server hasn't taken the transcript: %d older line(s) dropped.",
+                len(lines) - TRANSCRIPT_KEEP,
+            )
+            del lines[:-TRANSCRIPT_KEEP]
         return sent and bool(lines)
 
     async def _send_transcript_every(self) -> None:
@@ -2676,8 +2749,9 @@ def _images(content) -> List[tuple]:
 
 
 def _show_pictures(agent, content, step: int) -> None:
-    """The pictures a lab tool answered with, on the transcript under its
-    step, so the web page shows what the agent saw. At most
+    """The pictures a lab tool, or any tool in a subagent's run, answered
+    with, on the transcript under its step, so the web page shows what the
+    agent saw. At most
     `PICTURES_WAITING` wait to be sent; one past that is left off."""
     for media_type, data in _images(content)[:PICTURES_PER_RESULT]:
         waiting = sum(
@@ -2831,6 +2905,14 @@ def _show(message, agent: SdkAgent) -> None:
                 extra = dict(run)
                 if block.name in SUBAGENT_TOOLS:
                     extra["subagent"] = _clip(block.input.get("subagent_type", ""), 60)
+                    # Its brief, for the operator to read on the run's card.
+                    brief = block.input.get("prompt")
+                    if isinstance(brief, str) and brief.strip():
+                        # Its lines kept: a brief is read as written.
+                        brief = brief.strip()
+                        if len(brief) > SUBAGENT_BRIEF:
+                            brief = brief[: SUBAGENT_BRIEF - 1] + "…"
+                        extra["brief"] = brief
                 seq = _line(agent, "step", text, verb=verb, **extra)
                 if seq is not None:
                     agent._steps[block.id] = (
@@ -2863,7 +2945,9 @@ def _show(message, agent: SdkAgent) -> None:
                     answer, verdict = _answer(block.content)
                     answer = _clip(answer, SUBAGENT_ANSWER)
                 _line(agent, "done", answer, step=seq, took_s=took, **run, **verdict)
-                if _lab_tool(name):
+                # A lab tool's pictures, and every picture a subagent saw: its
+                # run shows what it looked at, as the agent's messages do.
+                if _lab_tool(name) or run:
                     _show_pictures(agent, block.content, seq)
             runs = getattr(agent, "runs_started", None)
             if runs is not None and not block.is_error:
@@ -2888,6 +2972,26 @@ def _run_of(agent, message) -> dict:
 _JSON_BLOCK = re.compile(r"```json\s*(\{.*?\})\s*```", re.DOTALL)
 
 
+_TOOLS_USED = re.compile(
+    r"<tools-used-before-summary>.*?</tools-used-before-summary>", re.DOTALL
+)
+_HAND_BACK = re.compile(
+    r"\[Subagent hand-back\].*?The report follows:[ \t]*\n?", re.DOTALL
+)
+
+
+def _unframed(text: str) -> str:
+    """A subagent's report without the frame the CLI puts round it: the list
+    of tools it used, the hand-back note before the report, and the two-space
+    indent the CLI gives each of the report's lines."""
+    text = _TOOLS_USED.sub("", text)
+    framed = _HAND_BACK.search(text)
+    if framed is None:
+        return text.strip()
+    report = text[framed.end() :]
+    return textwrap.dedent(report).strip()
+
+
 def _answer(content) -> tuple:
     """A subagent's answer, without the CLI's agentId footer, and what its
     closing JSON block says for the run's card: ``verdict`` (agree or concern)
@@ -2895,7 +2999,7 @@ def _answer(content) -> tuple:
     ``attention``. The answer is then the block's ``summary``, else its
     ``concern``, else the words before the block; any other answer is kept as
     it is."""
-    text = re.split(r"\s*agentId: ", _result_text(content))[0].strip()
+    text = _unframed(re.split(r"\s*agentId: ", _result_text(content))[0])
     blocks = _JSON_BLOCK.findall(text)
     try:
         said = json.loads(blocks[-1]) if blocks else None
@@ -2931,7 +3035,8 @@ def mcp_names(
 ) -> List[str]:
     """The MCP servers *playbook* names (``mcp``): ``fibsem``, the sidecar,
     and any of the lab's (*extras*). Without a playbook, the sidecar alone.
-    Raises `SetupRefused` for a server that isn't there, and, without an
+    A lab server that isn't there is left off, with a warning. Raises
+    `SetupRefused`, without an
     agent *host*, for a playbook without ``fibsem``: the agent's wake-ups and
     its record go through the App Server then. A playbook with no instrument
     (``instrument: none``) has no ``fibsem`` and runs through a host."""
@@ -2953,10 +3058,14 @@ def mcp_names(
         )
     missing = [n for n in names if n != SERVER and n not in extras]
     if missing:
-        raise SetupRefused(
+        # Not set up, or set up wrong (`extra_mcp.usable`): the session runs
+        # without it, and the skills say what to do then.
+        log.warning(
             f"The {playbook.name} playbook uses the MCP server(s) "
-            f"{', '.join(missing)}, which {extra_mcp.path()} doesn't set up."
+            f"{', '.join(missing)}, which {extra_mcp.path()} doesn't set up "
+            "usably; the agent starts without them."
         )
+        names = [n for n in names if n not in missing]
     if SERVER not in names and not host:
         raise SetupRefused(
             f"The {playbook.name} playbook's mcp has no {SERVER}: without "
@@ -3101,7 +3210,7 @@ def build_options(
     from claude_agent_sdk import ClaudeAgentOptions
 
     loaded = loaded or session_names(checkout, playbook)
-    extras = extra_mcp.load() if extras is None else extras
+    extras = extra_mcp.usable()[0] if extras is None else extras
     base = defaults()
     compact = (
         words or texts(playbook.instrument if playbook is not None else None)
@@ -3375,6 +3484,13 @@ def _parser() -> argparse.ArgumentParser:
         "folder given, the last one that worked in its own)",
     )
     parser.add_argument(
+        "--carry-on",
+        action="store_true",
+        # A manager's resume after a crash or an app restart: the run goes
+        # on, on the budget it had (the session's record), not a fresh one.
+        help=argparse.SUPPRESS,
+    )
+    parser.add_argument(
         "--session-id",
         default=None,
         type=_session_id,
@@ -3463,11 +3579,14 @@ class Setup:
     folder: Path
     run: Optional[Path]
     extras: Dict[str, extra_mcp.Server]
+    # Why each of the lab's servers set up wrong is left off (`extra_mcp.usable`).
+    left_off: List[str] = field(default_factory=list)
 
 
 def _setup(args, checkout: Path) -> Setup:
     """Read the playbook and settle the session's folders; fills what *args*
     left out from the playbook. Raises `SetupRefused`."""
+    _from_record(args)
     try:
         playbook = playbooks.load(args.playbook or playbooks.DEFAULT, checkout, EFFORTS)
     except playbooks.PlaybookError as error:
@@ -3486,13 +3605,9 @@ def _setup(args, checkout: Path) -> Setup:
     # What it loads is fixed for the session: a playbook named at launch
     # narrows it (`session_names`).
     loaded = session_names(checkout, playbook if args.playbook else None)
-    try:
-        extras = extra_mcp.load()
-        # Each token stored, or the agent would start without what it was
-        # told it has.
-        extra_mcp.tokens(extras)
-    except extra_mcp.ExtraMcpError as error:
-        raise SetupRefused(str(error)) from None
+    # A lab server that is set up wrong, or whose token isn't stored, is left
+    # off (logged): the session runs without it rather than not at all.
+    extras, left_off = extra_mcp.usable()
     names = mcp_names(playbook, extras, getattr(args, "host", None) is not None)
     # A specialist gets only the lab servers its session has.
     used = used_servers(extras, names)
@@ -3531,7 +3646,9 @@ def _setup(args, checkout: Path) -> Setup:
         refused = code_mode.refusal(work, checkout, code)
         if refused:
             raise SetupRefused(refused)
-    return Setup(playbook, words, loaded, work, code, session_id, folder, run, extras)
+    return Setup(
+        playbook, words, loaded, work, code, session_id, folder, run, extras, left_off
+    )
 
 
 def playbook_list() -> List[dict]:
@@ -3559,6 +3676,7 @@ def playbook_configuration(name: str) -> dict:
         setup.loaded,
         setup.words,
         setup.extras,
+        setup.left_off,
     )
 
 
@@ -3637,7 +3755,7 @@ def _main(argv, opened: List["sessions.SessionFolder"]) -> int:
     folder, run, extras = setup.folder, setup.run, setup.extras
     if args.show_config:
         config = show_config(
-            args, checkout, work, code, playbook, loaded, words, extras
+            args, checkout, work, code, playbook, loaded, words, extras, setup.left_off
         )
         return _print(config, args.json, _config_text)
     missing = missing_extra_message("agent", "fibsem-agent")
@@ -3681,13 +3799,16 @@ def _main(argv, opened: List["sessions.SessionFolder"]) -> int:
             extras, mcp_names(playbook, extras, getattr(args, "host", None) is not None)
         )
     )
+    # The skills and specialists the session started with, kept in its own
+    # folder: a resume runs on them, not on today's files.
+    pinned = session.folder / PINNED
     if work is not None:
-        code_mode.prepare(work, checkout, loaded.skills, loaded.agents)
+        code_mode.prepare(work, checkout, loaded.skills, loaded.agents, pinned)
         subagents.add_tools(work, loaded.agents, extra_tools)
         for line in code_mode.details():
             log.debug(line)
     elif run != checkout:
-        sources.assemble(run, checkout, loaded.skills, loaded.agents)
+        sources.assemble(run, checkout, loaded.skills, loaded.agents, pinned)
         subagents.add_tools(run, loaded.agents, extra_tools)
 
     alarm = Alarm(playbook.session.wake_max_min)
@@ -3766,6 +3887,8 @@ def _main(argv, opened: List["sessions.SessionFolder"]) -> int:
     wake_on.say = control.say
     if named:
         control.say(f"Playbook set: {playbook.name}, {control.reminders.chosen_by}")
+    budget = _budget(args, record)
+    session.keep_budget(**budget)
     harness = Harness(
         agent,
         # Its record and wake-ups: the agent host's, else the App Server's.
@@ -3778,8 +3901,9 @@ def _main(argv, opened: List["sessions.SessionFolder"]) -> int:
         resumed=args.resume is not None,
         server_wait_s=args.server_wait,
         goal=args.goal,
-        budget_usd=args.max_budget_usd,
-        spent_before_usd=_spent_before(record),
+        budget_usd=budget["usd"],
+        spent_before_usd=budget["spent_before_usd"],
+        keep_budget=session.keep_budget,
         playbook=control,
         words=words,
         deadline_warn_s=playbook.session.deadline_warn_min * 60,
@@ -3790,6 +3914,9 @@ def _main(argv, opened: List["sessions.SessionFolder"]) -> int:
         handoff=handoff,
         keep_context=session.keep_context,
         spent_carried_usd=sessions.context_spend(record),
+        # The same timer the wake_after tool sets: bound to the run's loop
+        # here, or every wake-up answers "can't wake you yet".
+        alarm=alarm,
         wake_on=wake_on,
         recover=recover,
         latest_note=lambda: handoff_mod.latest_note(session.folder / sessions.HANDOFF),
@@ -3849,6 +3976,17 @@ def _too_large_to_resume(
     return handoff_mod.TOO_LARGE.format(
         used=usage.short(used), limit=usage.short(limit)
     )
+
+
+def _budget(args, record: dict) -> dict:
+    """This run's budget, as the record keeps it (`sessions.RUN_BUDGET`): the
+    run it carries on's (``--carry-on``), else the one given now, counted
+    from what the session has spent so far."""
+    kept = record.get(sessions.RUN_BUDGET) or {}
+    if getattr(args, "carry_on", False) and "usd" in kept:
+        return {"usd": kept["usd"], "spent_before_usd": kept.get("spent_before_usd")}
+    spent = _spent_before(record) if args.resume else 0.0
+    return {"usd": args.max_budget_usd, "spent_before_usd": spent}
 
 
 def _spent_before(record: dict) -> Optional[float]:
@@ -3923,6 +4061,51 @@ REQUIRED = (
 )
 
 
+# In a session's folder: the skills and specialists it started with.
+PINNED = "pinned"
+
+# What a resume takes from the session's record, not from its command line.
+FROM_RECORD = ("goal", "model", "effort", "max_turns")
+
+
+def _from_record(args) -> None:
+    """A resume of a known session carries on as the session is: its playbook
+    as it keeps it (a change mid-session included) and what it started with
+    (`FROM_RECORD`), whatever the command line says, which is only where to
+    connect. A launch value that differs is logged and not used."""
+    if not args.resume or args.resume == LAST:
+        return
+    folder = sessions.find_folder(args.resume)
+    record = sessions.read_json(folder / sessions.RECORD) if folder else {}
+    if not record:
+        return
+    kept = record.get("playbook")
+    name = kept.get("name") if isinstance(kept, dict) else kept
+    if "playbook" in record:
+        if args.playbook and args.playbook != name:
+            log.warning(
+                "--playbook %s is not used: session %s carries on with %s.",
+                args.playbook,
+                args.resume,
+                name or "no playbook",
+            )
+        args.playbook = name
+    for key in FROM_RECORD:
+        value = record.get(key)
+        if value is None:
+            continue
+        given = getattr(args, key, None)
+        if given is not None and given != value:
+            log.warning(
+                "--%s %s is not used: session %s carries on with %s.",
+                key.replace("_", "-"),
+                given,
+                args.resume,
+                value,
+            )
+        setattr(args, key, value)
+
+
 def _resolve(args, given: playbooks.SessionSettings) -> None:
     """Fill what the command line left out from the playbook's session
     settings, which carry the base playbook's defaults."""
@@ -3951,12 +4134,16 @@ def show_config(
     loaded: Optional[Loaded] = None,
     words: Optional[instruments.Texts] = None,
     extras: Optional[Dict[str, extra_mcp.Server]] = None,
+    left_off: Optional[List[str]] = None,
 ) -> dict:
     """``--show-config``: everything the agent would run with, from the same
     pieces `build_options` uses, without the SDK and without starting. The
-    extra servers with their tokens' names, never the tokens."""
+    extra servers with their tokens' names, never the tokens, and why any of
+    them is left off (*left_off*)."""
     loaded = loaded or session_names(checkout, playbook)
-    extras = extra_mcp.load() if extras is None else extras
+    problems = list(left_off or [])
+    if extras is None:
+        extras, problems = extra_mcp.usable()
     host = getattr(args, "host", None)
     named = mcp_names(playbook, extras, host is not None)
     # The lab's servers this playbook leaves off, so none goes unnoticed.
@@ -3993,6 +4180,8 @@ def show_config(
         # The playbook's servers, and the lab's it doesn't name (off).
         "mcp": servers,
         "mcp_unused": unused,
+        # The lab's servers set up wrong or without their token: left off.
+        "mcp_left_off": problems,
         # The lines that wake the agent, by group; None for every line.
         "wakes": playbook.wakes,
         # The agent host its record and wake-ups go through; None for the
@@ -4138,6 +4327,7 @@ def _config_text(config: dict) -> str:
             f"MCP off (the lab's, not named in this playbook's mcp): "
             f"{', '.join(config['mcp_unused'])}"
         )
+    lines += [f"MCP left off: {problem}" for problem in config.get("mcp_left_off", [])]
     if config.get("wakes") is not None:
         lines.append(
             "Wakes on: "

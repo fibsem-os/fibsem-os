@@ -22,6 +22,18 @@ export interface Session {
   output?: string | null;
   // Started by the gateway, not by hand.
   gateway?: boolean;
+  // The level last set while it ran (Stop agent as Watch), else its start level.
+  last_level?: string | null;
+  // The budget it last ran with, else its start budget.
+  last_budget_usd?: number | null;
+  // From the shared sessions list: running, waiting (for its app), ended,
+  // left (its gateway was closed) or crashed; and why, once known.
+  status?: "running" | "waiting" | "ended" | "left" | "crashed";
+  status_reason?: string | null;
+  // When it last wrote its record, its events or its output.
+  last_active?: string | null;
+  // The experiment it worked on; on_this_pc false when it isn't here.
+  experiment?: { path: string; name: string | null; id: string | null; on_this_pc?: boolean } | null;
 }
 
 export interface Running extends Session {
@@ -47,6 +59,37 @@ export interface AgentState {
   sessions: Session[];
   api_key: boolean;
   microscope: string;
+  // Who holds the instrument's one agent slot, as the gateway wrote it down.
+  slot?: Slot;
+  // Whether the gateway's agent host runs: the agent works with no app.
+  agent_host?: boolean;
+}
+
+export interface Slot {
+  holder?: string;
+  came_in?: "start" | "resume" | "allow";
+  since?: string;
+  level?: string | null;
+  state?: "running" | "waiting" | "ended";
+  why?: string;
+}
+
+const CAME_IN = { start: "started here", resume: "resumed here", allow: "allowed" };
+
+/** Who holds this instrument's agent slot, while someone does. */
+function Holder({ slot }: { slot?: Slot }) {
+  if (!slot?.holder || slot.state === "ended") return null;
+  const since = slot.since ? ` since ${slot.since.slice(11, 16)}` : "";
+  const how = slot.came_in ? `, ${CAME_IN[slot.came_in]}` : "";
+  const level = slot.level ? `, at ${slot.level}` : "";
+  return (
+    <p className="m-0 text-[13px] text-muted-foreground">
+      Holds this instrument: {slot.holder}
+      {how}
+      {since}
+      {level}
+    </p>
+  );
 }
 
 export interface Playbook {
@@ -217,8 +260,10 @@ export function notReady(
   appRunning: boolean,
   appStarting?: boolean,
 ): string | null {
-  if (appStarting) return "Waiting for the app to start…";
-  if (!appRunning) return "Start the app first: the agent acts through it.";
+  if (!state?.agent_host) {
+    if (appStarting) return "Waiting for the app to start…";
+    if (!appRunning) return "Start the app first: the agent acts through it.";
+  }
   if (!state?.api_key) return "No API key on this PC.";
   return null;
 }
@@ -395,13 +440,14 @@ function Start({
             </p>
           )}
           <div className="flex flex-wrap items-center justify-end gap-2.5">
-            {appStarting ? (
+            {(appStarting || !appRunning) && state.agent_host ? (
               <span className="text-xs text-muted-foreground">
-                Waiting for the app to start…
+                With no app, the agent can talk, plan and review; it reaches
+                the microscope once the app runs.
               </span>
-            ) : !appRunning ? (
+            ) : appStarting || !appRunning ? (
               <span className="text-xs text-muted-foreground">
-                Start the app first: the agent acts through it.
+                The agent waits for the app, and starts once it answers.
               </span>
             ) : !state.api_key ? null : (
               <span className="text-xs text-muted-foreground">
@@ -412,7 +458,6 @@ function Start({
               variant="primary"
               disabled={
                 start.isPending ||
-                !appRunning ||
                 !state.api_key ||
                 !chosen
               }
@@ -436,7 +481,7 @@ function Start({
 
 /** The running agent in one line, with the app's Agent page for the rest:
  * what it is doing, and its questions, live there. */
-function Run({ running }: { running: Running }) {
+function Run({ running, noApp }: { running: Running; noApp?: boolean }) {
   const client = useQueryClient();
   // The app's own Agent page, signed in as the operator; absent while it is away.
   const page = useQuery({
@@ -477,7 +522,14 @@ function Run({ running }: { running: Running }) {
       </div>
       {running.state === "waiting" && (
         <p className="m-0 text-[13px] text-[var(--fibsem-semantic-warning-color)]">
-          Waiting for the app to come back, then it resumes.
+          Waiting for the app: it carries on
+          {running.level ? ` at ${title(running.level)}` : ""} once the app answers.
+        </p>
+      )}
+      {running.state === "running" && noApp && (
+        <p className="m-0 text-[13px] text-muted-foreground">
+          No app running: the agent can talk, plan and review, and reaches the
+          microscope once the app runs.
         </p>
       )}
       {lastRestart && (
@@ -652,6 +704,7 @@ export function AgentCard({
             : "No agent is running"}
         </CardTitle>
       </div>
+      <Holder slot={state?.slot} />
       {agent.error && (
         <p className="m-0 text-[13px] text-destructive">
           {(agent.error as Error).message}
@@ -659,7 +712,10 @@ export function AgentCard({
       )}
       {state &&
         (state.running ? (
-          <Run running={state.running} />
+          <Run
+            running={state.running}
+            noApp={!appRunning || appStarting}
+          />
         ) : (
           <>
             <Start
@@ -691,9 +747,11 @@ export function ResumeForm({
   onDone: () => void;
 }) {
   const client = useQueryClient();
-  const [level, setLevel] = useState("watch");
-  // Typed here, or else the playbook's own budget.
-  const [budget, setBudget] = useState<string | null>(null);
+  const [level, setLevel] = useState(session.last_level ?? "watch");
+  // Typed here, or else the session's last budget, or the playbook's own.
+  const [budget, setBudget] = useState<string | null>(
+    session.last_budget_usd != null ? String(session.last_budget_usd) : null,
+  );
   const config = useQuery({
     queryKey: ["gateway/agent/playbooks", session.playbook],
     queryFn: () =>

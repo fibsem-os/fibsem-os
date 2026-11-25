@@ -13,6 +13,7 @@ import sys
 import threading
 import time
 import types
+import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -23,6 +24,7 @@ import pytest
 from fibsem.ai.agent import handoff as handoff_mod
 from fibsem.ai.agent import harness as harness_mod
 from fibsem.ai.agent import instruments, playbooks, subagents, usage, wake_policy
+from fibsem.ai.agent import manager as sessions
 from fibsem.ai.agent import watch as watch_mod
 from fibsem.ai.agent.catalog import CATALOG
 from fibsem.ai.agent.harness import Harness, TurnEnd, Wakes, kickoff
@@ -616,11 +618,15 @@ def test_a_labs_extra_mcp_server_is_added_and_its_token_is_never_shown(
     ) in printed
     assert secret not in printed
 
-    # Not stored: fibsem-agent refuses to start, saying how to store it.
+    # Not stored: fibsem-agent starts without it, saying how to set it.
     monkeypatch.delenv("NOTEBOOK_TOKEN")
     monkeypatch.setattr(extra_mcp.keystore, "stored_secret", lambda name: None)
-    assert harness_mod.main(["--show-config"]) == 1
-    assert "fibsem-cli key set NOTEBOOK_TOKEN" in capsys.readouterr().err
+    assert harness_mod.main(["--show-config", "--playbook", "with-notebook"]) == 0
+    printed = capsys.readouterr().out
+    assert (
+        "MCP left off" in printed and "NOTEBOOK_TOKEN environment variable" in printed
+    )
+    assert "mcp__notebook__" not in printed
 
 
 def test_code_mode_is_sandboxed_in_its_work_folder(tmp_path, monkeypatch):
@@ -904,6 +910,31 @@ def test_each_session_has_a_folder_with_its_record_and_log(tmp_path, monkeypatch
     assert "Session:" in (folder / manager.LOG).read_text(encoding="utf-8")
 
 
+def test_the_agent_s_wake_up_timer_is_the_one_its_run_binds(tmp_path, monkeypatch):
+    """The wake_after tool and the run share one timer: launched by main, a
+    wake-up the agent sets rings (it answered "can't wake you yet" in the
+    24 Nov rehearsal, because the run never got the timer)."""
+    pytest.importorskip("claude_agent_sdk")
+    import uuid
+
+    made = {}
+    real = harness_mod.Harness
+
+    class Kept(real):
+        def __init__(self, *args, **kwargs):
+            made.update(kwargs)
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(harness_mod, "Harness", Kept)
+    monkeypatch.setattr(harness_mod.Path, "home", lambda: tmp_path)
+    monkeypatch.delenv("FIBSEM_SERVER_TOKEN", raising=False)
+    _main_kept_apart(
+        ["--url", "http://127.0.0.1:9", "--server-wait", "0"]
+        + ["--session-id", str(uuid.uuid4()), "--goal", "mill 01"]
+    )
+    assert isinstance(made.get("alarm"), harness_mod.Alarm)
+
+
 def _main_kept_apart(argv):
     """`harness.main`, its log handlers taken off again after."""
     handlers = list(harness_mod.log.handlers)
@@ -976,6 +1007,7 @@ def test_a_session_running_already_is_not_run_again(tmp_path, monkeypatch, capsy
     import uuid
 
     from fibsem.ai.agent import manager
+    from fibsem.util.process import process_started
 
     monkeypatch.setattr(harness_mod.Path, "home", lambda: tmp_path)
     monkeypatch.delenv("FIBSEM_SERVER_TOKEN", raising=False)
@@ -985,6 +1017,7 @@ def test_a_session_running_already_is_not_run_again(tmp_path, monkeypatch, capsy
     try:
         record = session.record()
         record["runs"][-1]["pid"] = other.pid
+        record["runs"][-1]["pid_started"] = process_started(other.pid)
         manager.write_json(session.folder / manager.RECORD, record)
         code = _main_kept_apart(
             ["--url", "http://127.0.0.1:9", "--server-wait", "0"]
@@ -1667,6 +1700,35 @@ def test_the_harness_reports_the_goal_once_and_leaves_later_ones_to_the_agent():
     assert "explicitly" in harness_mod.texts().prompt
 
 
+def test_a_report_that_does_not_read_still_names_the_session(caplog):
+    """A goal the report can't hold never costs the session: the App Server
+    still learns it (else every plan write is refused), and the log says so."""
+
+    class Client:
+        def __init__(self):
+            self.bodies = []
+
+        def request(self, method, path, json=None, timeout=None):
+            self.bodies.append(json)
+
+    from fibsem.ai.agent.report import MAX_GOAL
+
+    agent = ScriptedAgent()
+    agent.session_id = "s-long-goal"
+    harness = Harness(agent, lambda: None, goal="x" * (MAX_GOAL + 1))
+    harness._client = client = Client()
+    with caplog.at_level("ERROR"):
+        asyncio.run(harness._report())
+    assert client.bodies[0]["session_id"] == "s-long-goal"
+    assert "goal" not in client.bodies[0]
+    assert "did not read" in caplog.text
+    # A goal the size an operator writes reads whole.
+    harness = Harness(agent, lambda: None, goal="y" * 600)
+    harness._client = client = Client()
+    asyncio.run(harness._report())
+    assert client.bodies[0]["goal"] == "y" * 600
+
+
 def test_the_harness_says_what_the_agent_can_do_with_its_first_report():
     class Client:
         def __init__(self):
@@ -1784,7 +1846,7 @@ def test_a_subagent_s_lines_are_kept_under_the_call_that_started_it():
     asked = {
         "subagent_type": "autolamella-verifier",
         "description": "Check lamella 02's polishing pass",
-        "prompt": "...",
+        "prompt": "Decision: the next pass.\n\nBased on: final-ib.tif",
     }
     _show(
         AssistantMessage(content=[ToolUseBlock("a1", "Agent", asked)], model="m"),
@@ -1813,6 +1875,8 @@ def test_a_subagent_s_lines_are_kept_under_the_call_that_started_it():
     call, said, read, read_done, done = agent.transcript
     assert (call["verb"], call["text"]) == ("Asked", asked["description"])
     assert call["subagent"] == "autolamella-verifier" and "run" not in call
+    # Its brief, lines and all, for the operator to read on the card.
+    assert call["brief"] == asked["prompt"]
     for line in (said, read, read_done):
         assert line["run"] == call["seq"], line
     assert said["kind"] == "said" and read_done["step"] == read["seq"]
@@ -1874,6 +1938,21 @@ def test_a_subagent_s_json_answer_gives_its_card_a_verdict_or_attention():
     assert _answer(said("Six sites.")) == ("Six sites.", {})
     plain = 'Sites:\n```json\n{"sites": [1]}\n```'
     assert _answer(said(plain)) == (plain, {})
+
+
+def test_a_subagent_s_card_shows_its_report_without_the_cli_s_frame():
+    from fibsem.ai.agent.harness import _answer
+
+    framed = (
+        "<tools-used-before-summary>Read, Bash</tools-used-before-summary>\n"
+        "[Subagent hand-back] The subagent ran out of context and was "
+        "summarised. The report follows:\n"
+        "  Two sites found.\n"
+        "    - square C4\n"
+        "\nagentId: a1\n<usage>total_tokens: 10</usage>"
+    )
+    text, flags = _answer([{"type": "text", "text": framed}])
+    assert (text, flags) == ("Two sites found.\n  - square C4", {})
 
 
 def test_the_session_asks_for_the_subagents_words_too():
@@ -2588,6 +2667,47 @@ def test_a_lab_tool_s_picture_goes_on_the_transcript_under_its_step():
     assert sum(line["kind"] == "picture" for line in sent) == 1
 
 
+def test_every_picture_a_subagent_saw_goes_on_its_run():
+    """A subagent's run shows what it looked at: our own tools' pictures too,
+    under its step, where the agent's own show none."""
+    pytest.importorskip("claude_agent_sdk")
+    from claude_agent_sdk import (
+        AssistantMessage,
+        ToolResultBlock,
+        ToolUseBlock,
+        UserMessage,
+    )
+
+    from fibsem.ai.agent.harness import SdkAgent, _show
+
+    agent = SdkAgent(harness_mod.build_options(harness_mod.find_checkout()))
+    image = {"type": "image", "data": "/9j/", "mimeType": "image/jpeg"}
+    asked = {"subagent_type": "fibsem-worker", "description": "Find sites"}
+    _show(
+        AssistantMessage(content=[ToolUseBlock("a1", "Agent", asked)], model="m"),
+        agent,
+    )
+    _show(
+        AssistantMessage(
+            content=[ToolUseBlock("c1", "mcp__fibsem__analysis_crop_image", {})],
+            model="m",
+            parent_tool_use_id="a1",
+        ),
+        agent,
+    )
+    result = [{"type": "text", "text": "{}"}, image]
+    _show(
+        UserMessage(
+            content=[ToolResultBlock("c1", result, False)], parent_tool_use_id="a1"
+        ),
+        agent,
+    )
+    call, crop, done, picture = agent.transcript
+    assert crop["run"] == call["seq"]
+    assert picture["kind"] == "picture" and picture["step"] == crop["seq"]
+    assert (picture["media_type"], picture["image"]) == ("image/jpeg", "/9j/")
+
+
 # --- what wakes the agent (wake_on) ---------------------------------------------
 
 
@@ -2630,3 +2750,65 @@ def test_at_watch_routine_lines_wait_for_a_line_that_wakes_the_agent(session, ca
     assert wait_for(lambda: len(agent.prompts) >= 4, timeout=20), "no task turn"
     assert agent.prompts[3] == "The watcher printed:\nEVENT task_started 02-b Setup"
     assert running.stop() == 0
+
+
+def test_a_resume_carries_on_as_the_session_is_not_as_launched():
+    session_id = str(uuid.uuid4())
+    about = {"cwd": "/w", "playbook": "autolamella", "goal": "mill 01"}
+    session = sessions.SessionFolder.open(session_id, {**about, "max_turns": 40})
+    session.keep_playbook({"playbook": {"name": "autolamella-lead", "skills": []}})
+    session.end(1, "the app went away")
+
+    args = harness_mod._parser().parse_args(
+        ["--resume", session_id, "--playbook", "autolamella", "--max-turns", "9"]
+    )
+    harness_mod._from_record(args)
+    assert args.playbook == "autolamella-lead", "the playbook it changed to"
+    assert args.goal == "mill 01" and args.max_turns == 40
+
+    new = harness_mod._parser().parse_args(["--playbook", "autolamella"])
+    harness_mod._from_record(new)
+    assert new.playbook == "autolamella" and new.goal is None
+
+
+def test_an_automatic_resume_carries_the_runs_budget_on():
+    session_id = str(uuid.uuid4())
+    session = sessions.SessionFolder.open(session_id, {"cwd": "/w"})
+    session.keep_budget(usd=20.0, spent_before_usd=0.0)
+    session.keep_budget(usd=35.0)  # the operator set a new one
+    session.end(1, "the app went away", spent_usd=12.0)
+    record = sessions.read_json(session.folder / sessions.RECORD)
+    assert record[sessions.RUN_BUDGET] == {"usd": 35.0, "spent_before_usd": 0.0}
+
+    def args(*more):
+        return harness_mod._parser().parse_args(
+            ["--resume", session_id, "--max-budget-usd", "50", *more]
+        )
+
+    carried = harness_mod._budget(args("--carry-on"), record)
+    assert carried == {"usd": 35.0, "spent_before_usd": 0.0}
+    fresh = harness_mod._budget(args(), record)
+    assert fresh["usd"] == 50.0
+
+
+def test_a_refused_session_report_is_said_once_not_silently_dropped(caplog):
+    class Refused:
+        status_code = 401
+        text = "Missing or invalid bearer token"
+
+    class Client:
+        def __init__(self):
+            self.calls = 0
+
+        def request(self, method, path, json=None, timeout=None):
+            self.calls += 1
+            return Refused()
+
+    harness = Harness(ScriptedAgent(), lambda: None, goal="Mill 01")
+    harness._client = client = Client()
+    with caplog.at_level(logging.WARNING, logger=harness_mod.log.name):
+        asyncio.run(harness._report())
+        asyncio.run(harness._report())
+    assert client.calls == 2
+    said = [r for r in caplog.records if "didn't take the session report" in r.message]
+    assert len(said) == 1 and "401" in said[0].message

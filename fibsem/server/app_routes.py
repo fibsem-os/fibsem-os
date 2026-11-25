@@ -778,15 +778,16 @@ def build_app_router(context: "AppContext") -> APIRouter:
         return context.item_task_config(item_name, task_name)
 
     @router.get(
-        "/experiment/items/{item_name}/outputs/{filename}",
+        "/experiment/items/{item_name}/outputs/{filename:path}",
         response_class=Response,
         responses=_JPEG,
         tags=[ITEMS],
     )
     def output_image(item_name: str, filename: str, width: Optional[int] = None):
         # Serves actual image/jpeg (not a JSON payload) so a browser <img>
-        # can consume it; filename must be a basename the item's own
-        # outputs listing names — the context refuses anything else.
+        # can consume it; filename is a basename the item's own outputs
+        # listing names, or a saved image's path (slashes and all) — the
+        # context refuses anything else.
         return _jpeg(
             context.output_image(item_name, filename, files.preview_width(width))
         )
@@ -841,17 +842,6 @@ def build_app_router(context: "AppContext") -> APIRouter:
     def grid_detail(grid_name: str):
         return context.grid_detail(grid_name)
 
-    @router.get(
-        "/experiment/grids/{grid_name}/outputs/{filename}",
-        response_class=Response,
-        responses=_JPEG,
-        tags=[GRIDS],
-    )
-    def grid_output_image(grid_name: str, filename: str, cells: bool = False):
-        # cells: the overview's named cells drawn on it, listed in the
-        # metadata header.
-        return _jpeg(context.grid_output_image(grid_name, filename, cells=cells))
-
     # {filename:path}: any saved image's path in the experiment, slashes and all.
     @router.get(
         "/experiment/grids/{grid_name}/outputs/{filename:path}/stage_position",
@@ -880,6 +870,20 @@ def build_app_router(context: "AppContext") -> APIRouter:
     )
     def grid_markers(grid_name: str, filename: str):
         return context.grid_markers(grid_name, filename)
+
+    # {filename:path}, as the tool says: a saved image's path in the
+    # experiment has slashes. After the routes above, which end in a word
+    # this one would otherwise take as part of the path.
+    @router.get(
+        "/experiment/grids/{grid_name}/outputs/{filename:path}",
+        response_class=Response,
+        responses=_JPEG,
+        tags=[GRIDS],
+    )
+    def grid_output_image(grid_name: str, filename: str, cells: bool = False):
+        # cells: the overview's named cells drawn on it, listed in the
+        # metadata header.
+        return _jpeg(context.grid_output_image(grid_name, filename, cells=cells))
 
     @router.get(
         "/experiment/grid_protocol/task_config/{task_name}",

@@ -45,12 +45,12 @@ claude mcp add -s user fibsem -- fibsem-mcp
 `-s user` registers it for all your projects. *Connect an agent…* on the web
 Agent page gives the same setup with the absolute path filled in, for the agent
 to run itself. Same-machine setups need nothing more: the sidecar autodiscovers
-the running server. For a server on another machine, pair once: the web app's
-*Settings → Paired computers* shows a code, and
+the running server. For a server on another machine, pair once: that PC's
+gateway page shows a code, and
 
 ```bash
-fibsem-mcp pair 1234            # the SSH tunnel's end, http://localhost:8001
-fibsem-mcp pair 1234 --url http://microscope-pc:8001
+fibsem-mcp pair 1234            # the SSH tunnel's end, the gateway at http://localhost:8010
+fibsem-mcp pair 1234 --url http://microscope-pc:8010
 ```
 
 keeps this computer's own agent token in `~/.fibsem/agent/`. Every later launch
@@ -169,9 +169,10 @@ fibsem-agent
                 read_paper, get_folder_notes]
   ```
 
-  Then store the token once: `fibsem-cli key set NOTEBOOK_TOKEN` (Windows
-  Credential Manager or the macOS Keychain; an environment variable of that
-  name wins). A `url` server gets it as `Authorization: Bearer <token>`, a
+  Then set the token as an environment variable of that name, for the
+  program that starts the agent (on Windows `setx NOTEBOOK_TOKEN "<token>"`,
+  then quit and start the gateway again). The key store
+  (`fibsem-cli key set`) holds only the names it lists. A `url` server gets it as `Authorization: Bearer <token>`, a
   `command` one as an environment variable of that name. The token's name is
   in capitals with KEY, TOKEN or SECRET in it, so code mode keeps it from
   commands. It is in no file and on no command line: the server's entry
@@ -194,6 +195,12 @@ fibsem-agent
   it. The agent never sees a tool the server offers that isn't listed. With
   `tools: all`, every tool the server offers is allowed, at the server's
   level, including tools it adds later.
+
+  A server that is set up wrong (no `url` or `command`, a file that isn't
+  YAML, a token not set) is left off, not a reason to stop: the agent
+  starts without it, the log says why, and `--show-config` lists it under
+  "MCP left off". A server a playbook names that `mcp.yaml` doesn't have
+  is left off too, with a warning in the log. The shipped `autolamella` playbook names `notebook`.
 
   A picture a lab tool answers with shows on the Agent page under its step,
   as the agent saw it. It is kept beside the transcript, in the session's

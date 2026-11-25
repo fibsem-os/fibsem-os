@@ -6,6 +6,7 @@ TaskQueue mechanics, the Demo microscope — held by a session with no window
 
 import json
 import os
+from datetime import datetime
 
 import pytest
 from psygnal.containers import EventedDict
@@ -424,6 +425,15 @@ def test_queue_snapshot_uses_item_name_vocabulary(experiment, microscope):
     status = _plain(ctx.status())
     assert status["workflow"]["queue_total"] == 4
     assert status["workflow"]["current_task"] is None  # nothing running
+    assert status["workflow"].get("task_started") is None
+
+    # A running task says when it started: the Agent page's clock reads it.
+    started = manager.queue.next()
+    status = _plain(ctx.status())
+    assert status["workflow"]["current_task"] == started.task_name
+    assert datetime.fromisoformat(status["workflow"]["task_started"]).timestamp() == (
+        pytest.approx(started.started_at, abs=1)
+    )
 
 
 def test_recent_experiments_is_json_safe():

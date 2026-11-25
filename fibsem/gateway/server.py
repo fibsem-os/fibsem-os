@@ -1,7 +1,7 @@
 """The gateway's routes, on its own port, localhost only.
 
 ``GET /gateway``, ``/gateway/health`` and ``/gateway/history`` for anyone
-paired; ``POST /gateway/start`` and ``/gateway/stop`` for the operator, or a
+paired but an agent (an agent's token is refused on the gateway's own routes); ``POST /gateway/start`` and ``/gateway/stop`` for the operator, or a
 hub the operator granted "may start and stop apps" (`SWITCH_MODES`); forcing
 past a running workflow, and ``/gateway/claim`` (a desktop launch on this
 PC), for the operator only. ``/gateway/microscope/...`` connects and
@@ -26,7 +26,6 @@ It serves the web app (``/ui``); the page is ``/ui/gateway``.
 from __future__ import annotations
 
 import logging
-import os
 import secrets
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -37,8 +36,8 @@ from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.requests import HTTPConnection
 from fastapi.responses import RedirectResponse
 
-from fibsem import keystore
 from fibsem.ai.agent.playbooks import DEFAULT as DEFAULT_PLAYBOOK
+from fibsem.gateway import settings as gateway_settings
 from fibsem.gateway.agent import (
     SESSIONS_MAX,
     SESSIONS_PAGE,
@@ -60,6 +59,7 @@ from fibsem.gateway.host import HostMicroscope
 from fibsem.gateway.passthrough import PassThrough
 from fibsem.server.auth import _bearer_token, _matches
 from fibsem.server.bodies import refuse_invalid_requests
+from fibsem.server.discovery import health_answer
 from fibsem.server.hosting import agent_connections
 from fibsem.server.operator_token import load_operator_token
 from fibsem.server.pairing import (
@@ -138,6 +138,9 @@ class Caller:
     who: str
     operator: bool
     may_switch: bool
+    # This install's own operator token: the operator at this PC (the
+    # gateway's window, or the page it opens), never a paired computer.
+    local: bool = False
 
 
 def _settings(body: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -167,6 +170,12 @@ def _ask_view(ask, connections, own: Optional[str] = None) -> dict:
     return {**ask.to_dict(), "replaces": replaces, "if_allowed": words}
 
 
+# The version of the gateway's own routes (/gateway, /agent, pairing), which a
+# hub checks: a change an older hub can't work with raises the minor number, one
+# it can ignore the patch. The App Server's routes it passes on have their own.
+GATEWAY_API_VERSION = "0.1.0"
+
+
 def _refused(status: int, error_type: str, message: str) -> HTTPException:
     return HTTPException(status, detail={"error_type": error_type, "message": message})
 
@@ -187,7 +196,9 @@ def build_gateway_app(
         if passthrough is not None:
             await passthrough.close()
 
-    app = FastAPI(title="fibsem gateway", lifespan=lifespan)
+    app = FastAPI(
+        title="fibsem gateway", version=GATEWAY_API_VERSION, lifespan=lifespan
+    )
     refuse_invalid_requests(app)
     app.state.auth = auth
 
@@ -195,7 +206,8 @@ def build_gateway_app(
         token = _bearer_token(request)
         who = auth.operator(token)
         if who is not None:
-            return Caller(who=who, operator=True, may_switch=True)
+            local = _matches(token, auth.token)
+            return Caller(who=who, operator=True, may_switch=True, local=local)
         hub = auth.hub(token)
         if hub is not None:
             return Caller(
@@ -230,7 +242,9 @@ def build_gateway_app(
 
     @app.get("/health")
     def health():
-        return {"status": "ok"}
+        """Open to anyone: the program, its version and its routes' version,
+        the same shape as the App Server's and the agent host's."""
+        return health_answer("fibsem-gateway", GATEWAY_API_VERSION)
 
     @app.get("/gateway", response_model=GatewayState)
     def get_gateway(found: Caller = Depends(caller)):
@@ -475,26 +489,115 @@ def build_gateway_app(
 
     @app.get("/gateway/secrets")
     def get_secrets(found: Caller = Depends(caller)) -> List[dict]:
-        """Each key fibsemOS reads: whether it is set here and where from.
-        The key itself never leaves this PC."""
-        store = keystore.store_name()
-        rows = []
-        for name, about in keystore.KEYS.items():
-            if os.environ.get(name):
-                source = "environment"
-            elif keystore.stored_secret(name):
-                source = store or "key store"
-            else:
-                source = None
-            rows.append(
-                {
-                    "name": name,
-                    "about": about,
-                    "set": source is not None,
-                    "source": source,
-                }
+        """Each key fibsemOS reads, and each connector's token: whether it is
+        set here and where from, and whether this caller may change it (the
+        operator at this PC). The key itself never leaves this PC."""
+        here = found.local
+        return [{**row, "can_set": here} for row in gateway_settings.key_rows()]
+
+    def at_this_pc(found: Caller) -> None:
+        """Keys are set only by the operator at this PC: this install's own
+        token, never a paired computer, a hub or an agent."""
+        if not found.local:
+            raise _refused(
+                403,
+                "at_this_pc_only",
+                "Keys are set only at this PC, on the gateway's own page.",
             )
-        return rows
+
+    @app.put("/gateway/secrets/{name}")
+    def put_secret(name: str, body: Dict[str, Any], found: Caller = Depends(caller)):
+        """``{value}``: store a key. Write-only: the answer says it is set,
+        never what it is."""
+        at_this_pc(found)
+        try:
+            row = gateway_settings.set_key(name, (body or {}).get("value"))
+        except gateway_settings.KeyRefused as refused:
+            raise _refused(refused.status, refused.error_type, str(refused)) from None
+        gateway.record_access(found.who, "page", f"set key {name}")
+        return {**row, "can_set": True}
+
+    @app.delete("/gateway/secrets/{name}")
+    def delete_secret(name: str, found: Caller = Depends(caller)):
+        """Remove a stored key: this PC stops using it (turn it off where it
+        was issued too)."""
+        at_this_pc(found)
+        try:
+            row = gateway_settings.remove_key(name)
+        except gateway_settings.KeyRefused as refused:
+            raise _refused(refused.status, refused.error_type, str(refused)) from None
+        gateway.record_access(found.who, "page", f"removed key {name}")
+        return {**row, "can_set": True}
+
+    def operator_only(found: Caller, what: str) -> None:
+        if not found.operator:
+            raise _refused(403, "operator_only", f"Only the operator {what}.")
+
+    def _connector_refused(refused: gateway_settings.KeyRefused):
+        return _refused(refused.status, refused.error_type, str(refused))
+
+    @app.get("/gateway/connectors")
+    def get_connectors(found: Caller = Depends(caller)) -> dict:
+        """The lab's connectors (``mcp.yaml``) as the file has them, each
+        with why it can't be used, if it can't; and whether this caller may
+        change a command connector (the operator at this PC)."""
+        operator_only(found, "reads the connectors")
+        return {**gateway_settings.connectors(), "at_this_pc": found.local}
+
+    @app.put("/gateway/connectors/{name}")
+    def put_connector(name: str, body: Dict[str, Any], found: Caller = Depends(caller)):
+        """``{entry, confirm?}``: add or replace a connector, checked as the
+        agent reads it. A command connector: at this PC only, a new or
+        changed command once *confirm* repeats it (428 until then)."""
+        operator_only(found, "changes the connectors")
+        body = body or {}
+        try:
+            saved = gateway_settings.save_connector(
+                name, body.get("entry"), found.local, body.get("confirm")
+            )
+        except gateway_settings.KeyRefused as refused:
+            raise _connector_refused(refused) from None
+        gateway.record_access(found.who, "page", f"saved connector {name}")
+        return saved
+
+    @app.delete("/gateway/connectors/{name}")
+    def delete_connector(name: str, found: Caller = Depends(caller)) -> dict:
+        operator_only(found, "changes the connectors")
+        try:
+            gateway_settings.remove_connector(name, found.local)
+        except gateway_settings.KeyRefused as refused:
+            raise _connector_refused(refused) from None
+        gateway.record_access(found.who, "page", f"removed connector {name}")
+        return {"removed": name}
+
+    @app.post("/gateway/connectors/{name}/test")
+    def test_connector(name: str, found: Caller = Depends(caller)) -> dict:
+        """``{tools}``: the tools it offers, asked as the agent asks."""
+        operator_only(found, "tests the connectors")
+        try:
+            return gateway_settings.test_connector(name, found.local)
+        except gateway_settings.KeyRefused as refused:
+            raise _connector_refused(refused) from None
+
+    @app.get("/gateway/this-pc")
+    def get_this_pc(found: Caller = Depends(caller)) -> dict:
+        """This PC's install settings, and whether this caller may change the
+        ones kept to the operator at this PC."""
+        operator_only(found, "reads this PC's settings")
+        return {**gateway_settings.this_pc(), "at_this_pc": found.local}
+
+    @app.put("/gateway/this-pc")
+    def put_this_pc(body: Dict[str, Any], found: Caller = Depends(caller)) -> dict:
+        """The fields to change: ``microscope``, ``allow_local_agents`` (at
+        this PC only), ``port`` (from the next start), ``update_check``."""
+        operator_only(found, "changes this PC's settings")
+        try:
+            saved = gateway_settings.save_this_pc(body, found.local)
+        except gateway_settings.KeyRefused as refused:
+            raise _connector_refused(refused) from None
+        changed = ", ".join(f"{k} {v}" for k, v in sorted((body or {}).items()))
+        gateway.record_access(found.who, "page", f"set {changed}")
+        return {**saved, "at_this_pc": found.local}
 
     @app.post("/gateway/show")
     def show_window(found: Caller = Depends(caller)) -> dict:
@@ -529,6 +632,7 @@ def build_gateway_app(
                 f"Allowed {computer.name}"
                 + (f", replacing {replaced}" if replaced else ""),
             )
+            agent.allowed(computer.name, "always allow", replaced)
 
         auth.connections.on_allowed_always(always_allowed)
 
@@ -553,22 +657,25 @@ def build_gateway_app(
         connections = _connections()
         if not any(ask.id == ask_id for ask in connections.asking()):
             raise _refused(404, "not_found", "No agent is asking with that id.")
-        # The agent the gateway started stops first, as its End does: the
-        # card said allowing ends it.
         own = _own()
-        if own is not None:
-            agent.end(found.who, "page")
         replaced = connections.tokens.agent()
+        # The Allow first: one that fails (the ask expired) leaves the agent
+        # running as it was. Then the agent the gateway started ends, as its
+        # End does (the card said allowing ends it); its token is gone already.
         try:
             computer = connections.allow(ask_id)
         except LookupError as exc:
             raise _refused(404, "not_found", str(exc)) from None
+        if own is not None:
+            agent.end(found.who, "page")
         replacing = own or (replaced.name if replaced else None)
         allowed = f"Allowed {computer.name}" + (
             f", replacing {replacing}" if replacing else ""
         )
         logger.info("%s: %s", found.who, allowed)
         gateway.record_access(found.who, "page", allowed)
+        if agent is not None:
+            agent.allowed(computer.name, found.who, replacing)
         return {"id": ask_id, "allowed": True, "name": computer.name}
 
     @app.post("/gateway/connections/{ask_id}/deny")
@@ -594,7 +701,34 @@ def build_gateway_app(
     app.include_router(build_pairing_router(auth))
     app.include_router(web_app_router())
     if passthrough is not None:
+        passthrough.on_answered = lambda *call: _record_library(gateway, auth, *call)
         # Last: the gateway's own routes are found first.
         app.include_router(passthrough.router())
 
     return app
+
+
+_LIBRARY_KINDS = {"playbooks": "playbook", "skills": "skill", "agents": "subagent"}
+_LIBRARY_VERBS = {"PUT": "saved", "POST": "made", "DELETE": "removed"}
+
+
+def _record_library(
+    gateway, auth: GatewayAuth, method: str, path: str, status: int, token: str
+) -> None:
+    """A playbook, skill or subagent saved, made or removed through the
+    gateway (the Knowledge window) goes in History, with who did it."""
+    parts = path.strip("/").split("/")
+    verb = _LIBRARY_VERBS.get(method)
+    if (
+        verb is None
+        or not 200 <= status < 300
+        or len(parts) != 4
+        or parts[:2] != ["app", "library"]
+        or parts[2] not in _LIBRARY_KINDS
+    ):
+        return
+    who = auth.operator(token)
+    if who is None:
+        hub = auth.hub(token)
+        who = hub.name if hub is not None else "someone"
+    gateway.record_access(who, "page", f"{verb} {_LIBRARY_KINDS[parts[2]]} {parts[3]}")

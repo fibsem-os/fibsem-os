@@ -180,6 +180,19 @@ def test_the_agents_message_and_a_failure_are_sent_at_once():
     assert len(slack.posts()) == 2
 
 
+def test_a_message_that_waits_on_the_operator_says_so():
+    session, slack = FakeSession(), FakeSlack()
+    alerts = _alerts(session, slack)
+    session.event_buffer.append(
+        "note",
+        {"text": "Ready to load Grid-01. Go?", "to": "operator", "waits": True},
+        actor=AGENT,
+    )
+    alerts.tick()
+    assert _headlines(slack) == ["The agent is waiting for you"]
+    assert "Grid-01" in json.dumps(slack.posts()[0]["blocks"])
+
+
 def test_what_happened_before_it_started_is_not_sent():
     session, slack = FakeSession(), FakeSlack()
     _message(session)

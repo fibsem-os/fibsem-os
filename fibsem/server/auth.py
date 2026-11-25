@@ -47,6 +47,7 @@ from fibsem.acting import ActorKind, current_actor
 from fibsem.ai.agent.calls import current_call
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.control import MicroscopeBusy
+from fibsem.server.discovery import read_gateway_file
 from fibsem.server.leases import LEASE_HEADER
 from fibsem.server.pairing import AGENT, OPERATOR, PairedComputer, Pairing
 
@@ -111,6 +112,10 @@ class AuthConfig:
     # The agent's session as its harness reports it (fibsem.server.agent.session):
     # model, goal, budget and spend. Self-reported, like agent_client.
     agent_session: Optional[Dict[str, Any]] = None
+    # The App Server's own secret, made when it writes its discovery file and
+    # kept there for this PC's gateway to read: while a gateway runs, an agent's
+    # call must carry it (`GATEWAY_HEADER`), so it came through the gateway.
+    gateway_secret: Optional[str] = None
     # Called after each level change and on Stop agent (on_level_change).
     _listeners: List[Callable[[], Optional[Callable]]] = field(
         default_factory=list, repr=False, compare=False
@@ -287,8 +292,48 @@ def refusal_error(
     )
 
 
+# What the gateway's pass-through adds to every call it passes on.
+GATEWAY_HEADER = "X-Fibsem-Gateway"
+
+
+def _skipped_gateway(request: HTTPConnection, auth: AuthConfig, token) -> bool:
+    """Whether an agent's call skipped this PC's gateway: a gateway runs, this
+    App Server made a secret for it, and the call doesn't carry it. The App
+    Server's own token (an App Server run alone: tests, evals, scripts) and
+    the operator's never need it."""
+    secret = auth.gateway_secret
+    if secret is None or _matches(token, auth.token):
+        return False
+    if request.scope.get("type") == "websocket":
+        # The gateway passes no websockets on yet: they come here direct.
+        return False
+    if _matches(request.headers.get(GATEWAY_HEADER), secret):
+        return False
+    return read_gateway_file() is not None
+
+
+def _through_gateway() -> HTTPException:
+    gateway = read_gateway_file() or {}
+    return refusal_error(
+        401,
+        "through_gateway",
+        "While this PC's gateway runs, an agent connects through it "
+        f"({gateway.get('url', 'port 8010')}), never straight to the App Server.",
+    )
+
+
 def _unauthorized() -> HTTPException:
-    return refusal_error(401, "unauthorized", "Missing or invalid bearer token.")
+    message = "Missing or invalid bearer token."
+    gateway = read_gateway_file()
+    if gateway is not None:
+        # Said whether the call came through the gateway or not: a server
+        # behind it can't tell.
+        message += (
+            f" An agent on this PC connects through its gateway ({gateway['url']}), "
+            "which asks the operator to allow it; a token kept for another "
+            "address isn't valid here."
+        )
+    return refusal_error(401, "unauthorized", message)
 
 
 def _operator_only() -> HTTPException:
@@ -373,6 +418,8 @@ def require_level(needed: AgentLevel):
             if auth.is_connect(token):
                 raise _connect_first(_app_name(request))
             raise _unauthorized()
+        if _skipped_gateway(request, auth, token):
+            raise _through_gateway()
         lent = _lent.get()
         # A valid token is proof of life whatever happens next -- a level
         # refusal below is still the agent talking. An approved request's call
@@ -421,6 +468,7 @@ def require_token():
     def dependency(request: Request) -> None:
         auth: AuthConfig = request.app.state.auth
         token = _bearer_token(request)
+        # Never refused for skipping the gateway: giving control up never is.
         if auth.is_agent(token) or auth.is_operator(token):
             return
         raise _unauthorized()

@@ -33,10 +33,11 @@ from fibsem.server.discovery import (
     GATEWAY_PORT,
     read_discovery_file,
     read_gateway_file,
+    this_process,
 )
 from fibsem.tools.apps import App, apps
 from fibsem.update_check import Newer, check_newer
-from fibsem.util.process import kill_pid, pid_alive
+from fibsem.util.process import kill_pid, pid_alive, process_started, same_process
 
 logger = logging.getLogger(__name__)
 
@@ -209,7 +210,7 @@ def write_gateway_file(
     the connect token lets a program here ask the operator to let it in."""
     path = Path(path or GATEWAY_FILE)
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {"url": url, "pid": os.getpid()}
+    payload = {"url": url, **this_process()}
     if connect_token is not None:
         payload["connect_token"] = connect_token
     # Written whole, then moved into place: a reader never sees it half written.
@@ -335,17 +336,33 @@ def _python() -> str:
     return str(exe)
 
 
-def workflow_running(url: str) -> bool:
-    """Whether the App Server at *url* is running a workflow. One that doesn't
-    answer isn't."""
+def workflow_running(url: str) -> Optional[str]:
+    """What the App Server at *url* is busy with, so stopping it now would
+    cut it off: a workflow, milling or imaging still in progress (an agent's
+    or the operator's by hand), or someone holding the microscope. None when
+    it isn't, or doesn't answer."""
     # Here, not at the top: host.py imports GatewayRefused from this module.
     from fibsem.gateway.host import call_host
 
     try:
         status = call_host(url, "GET", "/app/workflow/status", timeout=3.0)
-        return bool(status["workflow"]["running"])
-    except (GatewayRefused, ValueError, KeyError, TypeError):
-        return False
+    except (GatewayRefused, ValueError):
+        return None
+    if not isinstance(status, dict):
+        return None
+    if (status.get("workflow") or {}).get("running"):
+        return "A workflow is running"
+    progress = status.get("progress")
+    if (
+        isinstance(progress, dict)
+        and progress.get("label")
+        and not progress.get("outcome")
+    ):
+        return f"{progress['label']} is in progress"
+    held = status.get("in_control")
+    if isinstance(held, dict) and held.get("action"):
+        return f"The {held.get('by') or 'agent'} is {held['action']}"
+    return None
 
 
 class Gateway:
@@ -365,7 +382,7 @@ class Gateway:
         new_folder: Callable[[], str] = experiments_folder,
         configurations: Callable[[], List[dict]] = saved_configurations,
         discovery: Callable[[], Optional[dict]] = read_discovery_file,
-        running: Callable[[str], bool] = workflow_running,
+        running: Callable[[str], Any] = workflow_running,
         python: Optional[str] = None,
         stop_wait_s: float = STOP_WAIT_S,
         newer: Callable[[], Optional[Newer]] = check_newer,
@@ -507,9 +524,10 @@ class Gateway:
             ours = {self._state.pid, self._claimed}
         return None if pid in ours else OtherHost(pid=pid, url=found["url"])
 
-    def _run_going(self) -> bool:
+    def _run_going(self):
+        """What the app is busy with (`workflow_running`), else None."""
         found = self._discovery()
-        return found is not None and self._running(found["url"])
+        return self._running(found["url"]) if found is not None else None
 
     # -- starting and stopping ---------------------------------------------
 
@@ -547,8 +565,8 @@ class Gateway:
             else []
         )
         with self._take(who, via, RUNNING, app, experiment, window):
-            if self._state.mode != OFF:
-                self._stop_current(force)
+            # Everything that can refuse first: a refused start never leaves
+            # the running app stopped. (Its own host isn't another's.)
             other = self._other_host()
             if other is not None:
                 raise GatewayRefused(
@@ -557,6 +575,10 @@ class Gateway:
                     f"Another fibsem host (pid {other.pid}) has control of the microscope: "
                     "close it at the PC first.",
                 )
+            if self._state.mode != OFF:
+                was = self._state.app, self._state.experiment, self._state.window
+                self._stop_current(force)
+                self._record(RUNNING, OFF, who, via, "stopped", *was)
             self._start(
                 app, chosen, window, experiment, last, connection, create, flags
             )
@@ -617,6 +639,8 @@ class Gateway:
             state, stop_file, log = self._state, self._stop_file, self._log
         run = {
             "pid": state.pid,
+            # so a later gateway never takes another process with its pid
+            "pid_started": process_started(state.pid),
             "app": state.app,
             "window": state.window,
             "experiment": state.experiment,
@@ -643,7 +667,7 @@ class Gateway:
         with self._lock:
             if self._state.mode != OFF:
                 return self.state()
-        if not pid_alive(pid):
+        if not same_process(pid, run.get("pid_started")):
             self.run_file.unlink(missing_ok=True)
             return self.state()
         found = self._discovery()
@@ -819,11 +843,13 @@ class Gateway:
                 "window_open",
                 "The app's window is open: only the operator closes it.",
             )
-        if not force and self._run_going():
+        why = None if force else self._run_going()
+        if why:
+            why = why if isinstance(why, str) else "A workflow is running"
             raise GatewayRefused(
                 409,
                 "run_in_progress",
-                "A workflow is running. Stop it first, or force the stop at the PC.",
+                f"{why}. Stop it first, or force the stop at the PC.",
             )
         for hook in self.before_stop:
             hook()

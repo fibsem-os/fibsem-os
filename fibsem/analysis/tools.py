@@ -101,7 +101,18 @@ class ImageTools:
         """A saved beam image's full metadata, as its file records it."""
         target = self.image(path)
         _fibsem_file(target, path, "the image's metadata")
-        image = FibsemImage.load(target)
+        if is_fluorescence_image(target):
+            raise ImageRefused(
+                "invalid",
+                f"{path} is a fluorescence stack, not a beam image: its channels, "
+                "planes and objective positions come with experiment_read_file.",
+            )
+        try:
+            image = FibsemImage.load(target)
+        except Exception:  # noqa: BLE001 - a file this reader can't take is refused
+            raise ImageRefused(
+                "invalid", f"{path} can't be read as a beam image."
+            ) from None
         if image.metadata is None:
             raise ImageRefused("not_found", f"{path} carries no beam image metadata.")
         return SavedImageMetadata(path, image.metadata)
@@ -135,8 +146,14 @@ class ImageTools:
         _fibsem_file(target, path, "where a stage position falls")
         try:
             positions = [FibsemStagePosition.from_dict(p) for p in stage_positions]
-        except (TypeError, KeyError, AttributeError) as exc:
-            raise ImageRefused("invalid", f"Not a stage position: {exc}") from None
+        except (TypeError, KeyError, AttributeError, ValueError) as exc:
+            # A missing coordinate_system is a pydantic ValueError: refused
+            # as the caller's, never a server error.
+            raise ImageRefused(
+                "invalid",
+                "Not a stage position: give each as x, y, z, r, t and "
+                f"coordinate_system (RAW or SPECIMEN): {exc}",
+            ) from None
         block, project = stage_projector(target)
         points = []
         for position in positions:

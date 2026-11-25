@@ -13,14 +13,138 @@ import { type Mark, listMarks, toMarks } from "@/lib/marks";
 import type { EvidenceAnswer, ReviewItem, ReviewList } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-type Show = "all" | ReviewItem["state"];
+type Show = "all" | "to_score" | ReviewItem["state"];
 const SHOWS: { show: Show; name: string }[] = [
   { show: "all", name: "All" },
   { show: "waiting", name: "Waiting on you" },
   { show: "to_check", name: "To check" },
+  { show: "to_score", name: "To score" },
   { show: "answered", name: "Answered" },
   { show: "done", name: "Done" },
 ];
+
+const toScore = (i: ReviewItem) => !!i.score && !i.answer && !i.closed;
+const shows = (i: ReviewItem, show: Show) => show === "all" || (show === "to_score" ? toScore(i) : i.state === show);
+
+// What a fail asks the operator to mark, so the right answer is kept with it.
+const MARK_ON_FAIL: Record<NonNullable<ReviewItem["score"]>, string> = {
+  "site-selection": "Say why in the note, and mark a better square if there is one.",
+  "site-coverage": "Mark the good squares it missed.",
+  "site-setup": "Mark where the lamella should go.",
+  target: "Mark the right target.",
+  polishing: "Say why in the note: too thick, too thin, damaged.",
+};
+
+const KINDS: NonNullable<ReviewItem["score"]>[] = [
+  "site-selection",
+  "site-coverage",
+  "site-setup",
+  "target",
+  "polishing",
+];
+const RESULT: Record<string, string> = { Accept: "Pass", Reject: "Fail" };
+
+// A grid's or lamella's name as the server compares it ("Lamella 01" is "lamella-01").
+const same = (name?: string) => (name ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
+/** The run's scored items: the server's tally per kind (one score per grid or
+ * lamella, its first answer), then each item; one opens in the viewer. */
+function Scores({
+  items,
+  counts,
+  onOpen,
+  onClose,
+}: {
+  items: ReviewItem[];
+  counts: NonNullable<ReviewList["counts"]["scores"]>;
+  onOpen: (id: string) => void;
+  onClose: () => void;
+}) {
+  const scored = items.filter((i) => i.score);
+  // A later answer for the same lamella (a redo after a Reject) isn't its score.
+  // What an item scores, as the server groups it: its lamella's id, else its about.
+  const key = (i: ReviewItem) => `${i.score}:${i.item_id ?? same(i.about)}`;
+  const first = new Set<string>();
+  const redo = new Set<string>();
+  const unanswered = new Set<string>();
+  for (const i of [...scored].reverse()) {
+    if (!i.closed && !i.answer) unanswered.add(key(i));
+    if (!i.answer) continue;
+    if (first.has(key(i))) redo.add(i.id);
+    else first.add(key(i));
+  }
+  const none = { passed: 0, failed: 0, open: 0 };
+  const tally = KINDS.map((kind) => ({ kind, ...(counts[kind] ?? none) })).filter(
+    (t) => t.passed + t.failed + t.open > 0,
+  );
+  // A lamella whose items the agent all closed unanswered fails as closed.
+  const closedFail = (i: ReviewItem) => !first.has(key(i)) && !unanswered.has(key(i));
+  const result = (i: ReviewItem) =>
+    i.answer
+      ? (RESULT[i.answer.choice] ?? i.answer.choice)
+      : !i.closed
+        ? "To score"
+        : closedFail(i)
+          ? "Closed · Fail"
+          : "Closed";
+  const missing = KINDS.flatMap((kind) => (counts[kind]?.missing ?? []).map((about) => ({ kind, about })));
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent title="Scores" className="w-[min(560px,calc(100vw-32px))]">
+        <div className="flex flex-col gap-4 overflow-y-auto px-4 py-3 text-[13px]">
+          <table className="w-full border-collapse tabular-nums">
+            <thead className="text-[12px] text-muted-foreground">
+              <tr>
+                <th className="py-1 text-left font-normal" />
+                <th className="py-1 text-right font-normal">Pass</th>
+                <th className="py-1 text-right font-normal">Fail</th>
+                <th className="py-1 text-right font-normal">To score</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tally.map((t) => (
+                <tr key={t.kind} className="border-t border-border">
+                  <td className="py-1.5">{t.kind}</td>
+                  <td className="py-1.5 text-right">{t.passed}</td>
+                  <td className="py-1.5 text-right">{t.failed}</td>
+                  <td className="py-1.5 text-right text-muted-foreground">{t.open || ""}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="flex flex-col">
+            {scored.map((i) => (
+              <button
+                key={i.id}
+                className="flex cursor-pointer items-baseline gap-3 border-0 border-t border-border bg-transparent px-0 py-2 text-left hover:bg-muted/40"
+                onClick={() => onOpen(i.id)}
+              >
+                <span className="w-24 shrink-0 text-muted-foreground">{i.about}</span>
+                <span className="w-28 shrink-0 text-muted-foreground">{i.score}</span>
+                <span className="min-w-0 flex-1">
+                  {i.title}
+                  {i.answer?.note && <span className="block text-[12px] text-muted-foreground">“{i.answer.note}”</span>}
+                </span>
+                <span className={cn("shrink-0", (!i.answer || redo.has(i.id)) && "text-muted-foreground")}>
+                  {result(i)}
+                  {redo.has(i.id) && " after help"}
+                </span>
+              </button>
+            ))}
+            {missing.map((m) => (
+              <div key={`${m.kind}:${m.about}`} className="flex items-baseline gap-3 border-t border-border py-2">
+                <span className="w-24 shrink-0 text-muted-foreground">{m.about}</span>
+                <span className="w-28 shrink-0 text-muted-foreground">{m.kind}</span>
+                <span className="min-w-0 flex-1 text-muted-foreground">No item filed</span>
+                <span className="shrink-0">Fail</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 // A small dot says what an item wants: orange waits on the operator, grey asks for a look.
 const DOT: Partial<Record<ReviewItem["state"], string>> = { waiting: "#e0a030", to_check: "#8a8f98" };
@@ -70,7 +194,7 @@ function Row({ item, selected, onOpen }: { item: ReviewItem; selected: boolean; 
   const marked = useEvidence(item.evidence);
   const shown = imagesOf(item, marked?.image ?? null).slice(0, 2);
   const choice = item.answer?.choice;
-  const line = [item.about, SAYS[item.state], choice && `${choice}${item.answer?.note ? `: “${item.answer.note}”` : ""}`]
+  const line = [item.about, item.score, SAYS[item.state], choice && `${choice}${item.answer?.note ? `: “${item.answer.note}”` : ""}`]
     .filter(Boolean)
     .join(" · ");
   return (
@@ -122,7 +246,9 @@ function Answer({
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
-  const open = item.state === "waiting" || item.state === "to_check" || item.state === "done";
+  // An answer given may be changed: the new one counts, the one before is kept.
+  const [changing, setChanging] = useState(false);
+  const open = item.state === "waiting" || item.state === "to_check" || item.state === "done" || changing;
   const send = async () => {
     setError(null);
     setSending(true);
@@ -135,6 +261,7 @@ function Answer({
         body: JSON.stringify({ choice, note: note.trim(), ...marks }),
       });
       editor.clear();
+      setChanging(false);
       onDone();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -147,7 +274,9 @@ function Answer({
   return (
     <section className="flex flex-col gap-3 text-[13px]">
       <span className="text-[12px] text-muted-foreground">
-        {[item.about, SAYS[item.state], fmt.clock(item.at)].filter(Boolean).join(" · ")}
+        {[item.about, item.score && `scores ${item.score}`, SAYS[item.state], fmt.clock(item.at)]
+          .filter(Boolean)
+          .join(" · ")}
       </span>
       {item.text && <p className="m-0 leading-snug">{item.text}</p>}
       {item.facts.length > 0 && (
@@ -161,9 +290,19 @@ function Answer({
         </dl>
       )}
       {item.answer && (
-        <p className="m-0 border-t border-border pt-3">
-          You said <b className="font-semibold">{item.answer.choice}</b>
-          {item.answer.note ? `: “${item.answer.note}”` : ""}
+        <p className="m-0 flex items-baseline gap-2 border-t border-border pt-3">
+          <span className="flex-1">
+            You said <b className="font-semibold">{item.answer.choice}</b>
+            {item.answer.note ? `: “${item.answer.note}”` : ""}
+          </span>
+          {!item.closed && !changing && (
+            <button
+              className="cursor-pointer border-0 bg-transparent p-0 text-[12px] text-muted-foreground underline hover:text-foreground"
+              onClick={() => setChanging(true)}
+            >
+              Change
+            </button>
+          )}
         </p>
       )}
       {item.closed && <p className="m-0 text-muted-foreground">Closed by the agent: {item.closed.reason}</p>}
@@ -174,17 +313,23 @@ function Answer({
               <Button
                 key={o}
                 aria-pressed={choice === o}
-                className={cn("px-3", choice === o && "border-primary")}
+                variant={choice === o ? "primary" : "default"}
+                className="px-3"
                 onClick={() => setChoice(choice === o ? null : o)}
               >
                 {o}
               </Button>
             ))}
           </div>
+          {item.score && (
+            <p className="m-0 text-[12px] text-muted-foreground">
+              {choice === "Reject" ? MARK_ON_FAIL[item.score] : "Accept is a pass, Reject a fail."}
+            </p>
+          )}
           <textarea
             rows={3}
             aria-label="Note for the agent"
-            placeholder="Note for the agent (optional)"
+            placeholder={item.score ? "Why (optional)" : "Note for the agent (optional)"}
             className="resize-y rounded border border-input bg-background px-2 py-1.5 text-[13px]"
             value={note}
             onChange={(e) => setNote(e.target.value)}
@@ -194,8 +339,13 @@ function Answer({
             <span className="flex-1 text-[12px] text-muted-foreground">
               {editor.marks.length ? `With ${editor.marks.length} mark${editor.marks.length > 1 ? "s" : ""}` : ""}
             </span>
+            {changing && (
+              <Button onClick={() => setChanging(false)} disabled={sending}>
+                Cancel
+              </Button>
+            )}
             <Button variant="primary" disabled={!choice || sending} onClick={send}>
-              Send
+              {changing ? "Change" : "Send"}
             </Button>
           </div>
         </div>
@@ -249,7 +399,10 @@ export function ReviewTab({ open }: { open?: { id: string } | null }) {
     if (open) setOpenId(open.id);
   }, [open]);
   const items = [...(review.data?.items ?? [])].reverse();
-  const shown = show === "all" ? items : items.filter((i) => i.state === show);
+  const shown = items.filter((i) => shows(i, show));
+  const [scores, setScores] = useState(false);
+  const missing = Object.values(review.data?.counts.scores ?? {}).some((t) => t.missing?.length);
+  const anyScored = missing || items.some((i) => i.score);
   const opened = items.find((i) => i.id === openId);
   const count = review.data?.counts.all ?? 0;
   return (
@@ -259,6 +412,14 @@ export function ReviewTab({ open }: { open?: { id: string } | null }) {
           {count} item{count === 1 ? "" : "s"}
           {show !== "all" && ` · ${SHOWS.find((s) => s.show === show)?.name.toLowerCase()}`}
         </span>
+        {anyScored && (
+          <button
+            className="cursor-pointer rounded border-0 bg-transparent px-1.5 py-0.5 text-[12.5px] text-muted-foreground hover:text-foreground"
+            onClick={() => setScores(true)}
+          >
+            Scores
+          </button>
+        )}
         <Popup
           label="Show"
           align="right"
@@ -306,6 +467,9 @@ export function ReviewTab({ open }: { open?: { id: string } | null }) {
         <Row key={item.id} item={item} selected={item.id === openId} onOpen={() => setOpenId(item.id)} />
       ))}
       {opened && <Viewer item={opened} onClose={() => setOpenId(null)} />}
+      {scores && !opened && (
+        <Scores items={items} counts={review.data?.counts.scores ?? {}} onOpen={(id) => setOpenId(id)} onClose={() => setScores(false)} />
+      )}
     </div>
   );
 }

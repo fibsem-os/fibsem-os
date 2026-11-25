@@ -66,6 +66,7 @@ from fibsem.keystore import get_secret
 from fibsem.server import discovery
 from fibsem.server.agent.files import AgentFiles
 from fibsem.server.agent.handoff import build_agent_handoff_router
+from fibsem.server.agent.library import build_library_router
 from fibsem.server.agent.notes import latest_notes
 from fibsem.server.agent.operator import build_operator_router
 from fibsem.server.agent.plan import (
@@ -85,7 +86,7 @@ from fibsem.server.auth import (
 from fibsem.server.bodies import (
     refuse_invalid_requests,
 )
-from fibsem.server.discovery import API_VERSION, fibsem_folder
+from fibsem.server.discovery import API_VERSION, fibsem_folder, health_answer
 from fibsem.server.operator_token import load_operator_token
 from fibsem.server.pairing import PAIRED_FILE, ROLES, PairedTokens, Pairing
 from fibsem.server.responses import Refusal
@@ -288,7 +289,7 @@ class AgentHost:
         host's record (`fibsem.server.agent.notes`)."""
 
         held = self.buffer.events_since(0).get("events") or []
-        return latest_notes(held, self.events_file, tags, each)
+        return latest_notes(held, [self.events_file], tags, each)
 
     @property
     def following(self) -> bool:
@@ -342,6 +343,7 @@ class AgentHost:
         item_name: Optional[str] = None,
         reply_to: Optional[str] = None,
         evidence: Optional[str] = None,
+        waits: bool = False,
     ) -> Any:
         if item_name is not None:
             return _no_items()
@@ -349,7 +351,12 @@ class AgentHost:
         self.record(
             NOTE,
             note_record(
-                text, to=OPERATOR, id=message_id, reply_to=reply_to, evidence=evidence
+                text,
+                to=OPERATOR,
+                id=message_id,
+                reply_to=reply_to,
+                evidence=evidence,
+                waits=True if waits else None,
             ),
             actor=AGENT,
         )
@@ -485,7 +492,7 @@ def build_agent_host(
 
     @app.get("/health")
     def health():
-        return {"status": "ok"}
+        return health_answer("fibsem-agent-host", API_VERSION)
 
     base = APIRouter(dependencies=[Depends(require_monitoring())])
 
@@ -536,6 +543,9 @@ def build_agent_host(
     # The operator's side, what the Agent page does: the App Server's own
     # routes, over the host as a session (`_HostSession`).
     app.include_router(build_operator_router(AgentControl(_HostSession(host))))
+    # The playbooks, skills and subagents (the Knowledge window, and the
+    # gateway's Customise), with no app: the App Server's own routes.
+    app.include_router(build_library_router())
     if data is not None:
         _serve_data(app, host, Path(data))
     return app
@@ -639,7 +649,36 @@ def serve(
     return 0
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def _run_until(stop: threading.Event) -> Callable[..., None]:
+    """A *run* for `serve` that ends once *stop* is set."""
+
+    def run(app: FastAPI, host: str, port: int, log_level: str) -> None:
+        import uvicorn
+
+        server = uvicorn.Server(
+            uvicorn.Config(app, host=host, port=port, log_level=log_level)
+        )
+
+        def ending() -> None:
+            stop.wait()
+            server.should_exit = True
+
+        threading.Thread(target=ending, name="agent-host-stop", daemon=True).start()
+        server.run()
+
+    return run
+
+
+def serve_for_gateway(argv: List[str], stop: threading.Event) -> int:
+    """The host as the gateway runs it (`fibsem.gateway.agent_host`, through
+    ``fibsem.gateway.child``): ``fibsem-agent-host`` with *argv*, until
+    *stop* is set."""
+    return main(argv, run=_run_until(stop))
+
+
+def main(
+    argv: Optional[List[str]] = None, run: Optional[Callable[..., None]] = None
+) -> int:
     """``fibsem-agent-host``: serve the agent host on this PC."""
     import argparse
 
@@ -727,6 +766,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         args.bind,
         args.port,
         discover=discovery.HOST_DISCOVERY_FILE if own else None,
+        run=run,
         open_page=args.open,
     )
 

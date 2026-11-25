@@ -19,8 +19,8 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 from fibsem.acting import AGENT, OPERATOR
 from fibsem.ai.agent import aside
 from fibsem.ai.agent.levels import AgentLevel, if_allowed
+from fibsem.server.agent.files import record_files
 from fibsem.workflows.actions import ACTION, NOTE, action_record, note_record
-from fibsem.workflows.events.recording import EVENTS_FILENAME
 from fibsem.workflows.evidence import EVIDENCE
 from fibsem.workflows.proposals import DecisionResult
 
@@ -144,6 +144,13 @@ def session_facts(session: Optional[Dict[str, Any]]) -> List[Tuple[str, str]]:
         new = {True: " (resumed)", False: " (new)"}.get(session.get("resumed"), "")
         facts.append(("Session id", f"{session['session_id']}{new}"))
     return facts
+
+
+# Asks to connect are allowed on this PC's gateway page, not by the App Server.
+NOT_HERE = (
+    "Agents are allowed on the gateway's page (port 8010), not by the App "
+    "Server: no ask waits here."
+)
 
 
 class AgentControl:
@@ -436,7 +443,7 @@ class AgentControl:
         ``LookupError`` when nothing asks with that id."""
         connections = self.connections
         if connections is None:
-            raise LookupError("The App Server isn't running.")
+            raise LookupError(NOT_HERE)
         replaces = self._paired_agent()
         computer = connections.allow(ask_id)
         logger.info("Operator allowed %s to connect", computer.name)
@@ -451,7 +458,7 @@ class AgentControl:
         ``LookupError`` when nothing asks with that id."""
         connections = self.connections
         if connections is None:
-            raise LookupError("The App Server isn't running.")
+            raise LookupError(NOT_HERE)
         ask = connections.deny(ask_id, reason)
         logger.info("Operator denied %s", ask.name)
         self._record_connection(f"Deny {ask.name}", reason=reason.strip())
@@ -716,20 +723,22 @@ class AgentControl:
             self._earlier = EarlierRecords()
         return read_rows(
             held,
-            self._events_file(),
+            self._record_files(),
             size or SIZE,
             self._earlier,
             getattr(recorder.buffer, "stream", None),
         )
 
-    def _events_file(self) -> Optional[Path]:
-        """The file the session's record is written to: the host's own, or
-        the experiment's."""
-        own = getattr(self._session.recorder, "events_file", None)
+    def _record_files(self) -> List[Path]:
+        """The files the chat is read from: the host's own, or the agent
+        session's and the experiment's."""
+        recorder = self._session.recorder
+        own = getattr(recorder, "events_file", None)
         if own is not None:
-            return Path(own)
-        root = self.experiment_path()
-        return Path(root) / EVENTS_FILENAME if root is not None else None
+            return [Path(own)]
+        return record_files(
+            getattr(recorder, "agent_session_id", None), self.experiment_path()
+        )
 
     def citing(self, evidence_id: str) -> Optional[str]:
         """What the agent was doing when it cited the evidence *evidence_id*,

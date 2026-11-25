@@ -68,10 +68,10 @@ It also reaches every agent route as the operator, at any level (Off too): the
 operator's app on another computer (`fibsem.client.remote_microscope`). Its acts
 take control as the operator and a stop needs no reason; the blocklist still
 applies (venting, the manipulator and the GIS stay at the microscope).
-To connect from another computer: open an SSH tunnel to the App Server port
-(`ssh -N -L 8001:localhost:8001 <pc>`), copy the operator token at the PC
-(Tools → Host → Copy operator token), and pass it in:
-`RemoteMicroscope.connect("http://localhost:8001", token)`, or set
+To connect from another computer: open an SSH tunnel to the PC's gateway, its
+one way in (`ssh -N -L 8010:localhost:8010 <pc>`), copy the operator token at
+the PC (Tools → Host → Copy operator token), and pass it in:
+`RemoteMicroscope.connect("http://localhost:8010", token)`, or set
 `FIBSEM_SERVER_URL` and `FIBSEM_SERVER_TOKEN`. The remote computer keeps no copy;
 "New operator token" revokes it.
 `fibsem-cli` is such a client: on the PC it finds the App Server and reads the
@@ -86,10 +86,10 @@ header run inside the lease; anyone else is refused, naming it. `PUT
 `DELETE /microscope/control/{lease}` gives it up at any level. `GET
 /microscope/control` says who is in control. `RemoteMicroscope.control` does all
 of this: a remote run holds the microscope as a local run does.
-Or **pair** the computer, with no token to copy: Tools → Host → *Pair a
-computer* (or the web app's Settings page) shows a 4-digit code for 5
+Or **pair** the computer, with no token to copy: the gateway's page (the
+gateway alone pairs, for every server on the PC) shows a 4-digit code for 5
 minutes, and `RemoteMicroscope.pair("1234")` sends it (to the tunnel's end,
-`http://localhost:8001`, unless given a url), keeps the token in
+`http://localhost:8010`, unless given a url), keeps the token in
 `~/.fibsem/remote/` and connects; later `RemoteMicroscope.connect()` finds it. A
 browser pairs from the web app the same way. Each paired computer has its own
 token, an operator token, kept hashed in `~/.fibsem/paired.json`; *Unpair* cuts off
@@ -166,7 +166,7 @@ from fibsem.structures.settings import BeamType, FibsemStagePosition
 
 # With no url and token, the App Server on this machine (~/.fibsem/app-server.json),
 # else FIBSEM_SERVER_URL and FIBSEM_SERVER_TOKEN.
-with FibsemClient("http://192.168.1.100:8001", "<token>") as client:
+with FibsemClient("http://localhost:8010", "<token>") as client:
     electron = client.devices["electron"]
     electron.get("hfw")                          # a live read, as a float
     electron.get("stigmation")                   # a Point

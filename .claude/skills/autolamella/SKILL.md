@@ -406,7 +406,9 @@ you mean*):
   the bars show and the FIB view at the milling angle hides them. Use it to
   check a fiducial or trench is clear of a bar and the gap between
   neighbours' cuts (`nearest`, `closest`) before the first mill; its outlines
-  can sit a few µm off (its `caveats`).
+  can sit a few µm off (its `caveats`). It is the layout from above, never
+  the placement: say so when you show it, and show the FIB drawing
+  (`item_draw_milling`) for where the cuts go.
 
 Where a site came from (grid, square, rank, why it was chosen) belongs on the
 lamella, not in a note: `item_update` with `{"patch": {"description":
@@ -435,7 +437,7 @@ HTTP; basenames have spaces in them, so URL-encode them:
 
 ```bash
 curl -s -o out.jpg -H "Authorization: Bearer $TOKEN" \
-  "http://127.0.0.1:8001/app/experiment/items/01-tough-mako/outputs/ref_Mill%20Fiducial_start_ib.tif"
+  "http://127.0.0.1:8010/app/experiment/items/01-tough-mako/outputs/ref_Mill%20Fiducial_start_ib.tif"
 ```
 
 `app_get_status` gives the experiment's folder (`experiment.path`). On the
@@ -583,3 +585,37 @@ As fibsem-agent says, and:
   and its reason.
 - Overnight, report failures as they happen and the summary at the end; stay
   quiet about tasks that went as expected.
+
+## Scored results
+
+Five results get a review item each, at any level, with `score` set,
+whether they went well or not: they are how the run is scored.
+
+- **site-selection**: each site you picked, once it is a position, with
+  `item_name` the position and `about` its grid (`about: "Grid 1"`), and
+  the overview cropped or marked at that site. One item per site: three
+  sites are three scores.
+- **site-coverage**: each grid's whole list, about the grid, with the
+  overview marked with all your picks: whether you missed good squares.
+- **site-setup**: each lamella's Setup placement, once it is set, with
+  `item_name` the lamella, and the FIB image with the milling patterns
+  drawn.
+- **target**: each lamella's FM target on a correlative run, once it is
+  chosen, with `item_name` the lamella, and the FM image marked with the
+  target.
+- **polishing**: each lamella's polishing, when it stops or fails, with
+  `item_name` the lamella, and its final SEM and FIB images as a pair, the
+  SEM first.
+
+The operator answers Accept (a pass) or Reject (a fail) with a note, and on a
+fail marks what was right: the target, a better placement, or the good
+squares you missed.
+A lamella that fails before a scored step gets no item for it; one that
+reaches the step and has none counts as a fail of its own. Add the item
+even when you think the result is bad: a fail you name is still a fail,
+but one you leave out counts twice. `item_name` is the lamella exactly as
+the experiment names it (`item_name: "Lamella 01"`); the server ties the
+item to the lamella and its Setup or polishing run, which is how a picked
+site, a placed lamella or a polished one with no item is found, and refuses another name, listing the valid ones. A
+redo after a Reject gets a new item; the first answer stays the lamella's
+score.

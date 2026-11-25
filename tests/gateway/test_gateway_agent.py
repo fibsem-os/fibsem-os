@@ -8,6 +8,7 @@ import json
 import sys
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -26,6 +27,7 @@ from fibsem.server.pairing import AGENT, PairedTokens
 ROOT = Path(__file__).resolve().parents[2]
 STAND_IN = ROOT / "tests" / "agent" / "stand_in.py"
 URL = "http://127.0.0.1:8001"
+HOST_URL = "http://127.0.0.1:8030"
 DEFAULT = {"playbook": {"name": "default"}, "mode": "none", "model": None}
 
 
@@ -41,7 +43,9 @@ class FakeGateway:
         self.access.append((who, via, result))
 
     def state(self):
-        return GatewayState(mode=self.mode, version="test")
+        return GatewayState(
+            mode=self.mode, version="test", experiment=getattr(self, "experiment", None)
+        )
 
     def stop(self, who, via, force=False, window=False):
         for hook in self.before_stop:
@@ -50,11 +54,23 @@ class FakeGateway:
         self.mode = OFF
 
 
+class Host:
+    """The agent host the gateway runs, as its discovery file says."""
+
+    def __init__(self, up=True):
+        self.up = up
+        self.pid = 50
+
+    def discovery(self):
+        return {"url": HOST_URL, "pid": self.pid} if self.up else None
+
+
 class App:
     """The App Server, as the gateway's agent reaches it."""
 
     def __init__(self):
         self.up = True
+        self.pid = 1
         self.levels = []
         self.refuse = None
         self.last_heard_s = None
@@ -63,7 +79,7 @@ class App:
         return {"last_heard_s": self.last_heard_s}
 
     def discovery(self):
-        return {"url": URL, "pid": 1} if self.up else None
+        return {"url": URL, "pid": self.pid} if self.up else None
 
     def level(self, url, level):
         if self.refuse:
@@ -86,9 +102,11 @@ def made(tmp_path, monkeypatch):
         key="sk-test",
         stored=None,
         own_url=None,
+        host=None,
     ):
         gateway = gateway or FakeGateway()
         app = app or App()
+        host = host or Host(up=False)
         configs = configs if configs is not None else {"default": DEFAULT}
 
         def configuration(name):
@@ -104,7 +122,7 @@ def made(tmp_path, monkeypatch):
             end_wait_s=5.0,
             discovery=app.discovery,
             level=app.level,
-            reachable=lambda url: app.up,
+            reachable=lambda url: host.up if url == HOST_URL else app.up,
             last_heard=app.heard,
             playbooks=lambda: [{"name": name} for name in configs],
             configuration=configuration,
@@ -113,6 +131,7 @@ def made(tmp_path, monkeypatch):
             platform=platform,
             microscope="arctis-pc",
             own_url=own_url,
+            host=host.discovery,
         )
         built.append(agent)
         return agent, gateway, app
@@ -229,6 +248,18 @@ def test_start_needs_the_app_server_to_answer(made):
     assert refused.value.error_type == "no_app"
 
 
+def test_start_waits_for_an_app_that_is_starting(made):
+    gateway = FakeGateway()
+    gateway.health = SimpleNamespace(
+        state=lambda: SimpleNamespace(app=SimpleNamespace(status="starting"))
+    )
+    agent, _, app = made(gateway=gateway)
+    with pytest.raises(GatewayRefused) as refused:
+        agent.start("default", None, "watch", "operator", "page")
+    assert refused.value.error_type == "app_starting"
+    assert app.levels == []
+
+
 def test_start_needs_no_microscope(made):
     # The App Server answers with no microscope connected: an agent can work on
     # an experiment, or on devices served without a microscope.
@@ -325,12 +356,25 @@ def test_end_and_stop_the_app(made, tmp_path):
     assert agent.state().running is None
 
 
-def test_stopping_the_app_ends_the_agent_first(made, tmp_path):
-    agent, gateway, _ = made()
+def test_stopping_the_app_leaves_the_agent_waiting_for_the_next_one(made, tmp_path):
+    agent, gateway, app = made()
     agent.start("default", None, "watch", "operator", "page")
     # Started, so the stop is not taken for a stale one and cleared.
     assert until(lambda: _record(tmp_path).get("runs"))
     gateway.stop("hub-mac", "hub")
+    assert agent.state().running["state"] == "waiting"
+    # Still paired: it carries on as itself.
+    assert PairedTokens(tmp_path / "paired.json").agent() is not None
+    # Never on the app that was being stopped, however long it answers.
+    for _ in range(3):
+        agent._unpark()
+        agent._manager.poll()
+    assert agent.state().running["state"] == "waiting"
+    assert len(_record(tmp_path)["runs"]) == 1
+    app.pid = 2  # a new app
+    agent._unpark()
+    assert until(lambda: len(_record(tmp_path).get("runs", [])) == 2, agent)
+    agent.end("operator", "page")
     assert agent.state().running is None
     assert PairedTokens(tmp_path / "paired.json").agent() is None
 
@@ -339,10 +383,119 @@ def test_the_level_is_set_again_when_the_agent_resumes(made, tmp_path, monkeypat
     monkeypatch.setenv("STAND_IN_PLAN", "1,wait")
     agent, _, app = made()
     agent.start("default", None, "drive", "operator", "page")
+    app.pid = 2  # the app restarted, back at Watch
     assert until(lambda: len(_record(tmp_path).get("runs", [])) == 2, agent)
     assert app.levels == [(URL, "drive"), (URL, "drive")]
     assert agent.state().running["state"] == "running"
     assert len(agent.state().running["restarts"]) == 1
+
+
+def test_a_resume_leaves_the_level_of_an_app_that_kept_running(
+    made, tmp_path, monkeypatch
+):
+    """The operator may have lowered it or pressed Stop agent: it stands."""
+    monkeypatch.setenv("STAND_IN_PLAN", "1,wait")
+    agent, _, app = made()
+    agent.start("default", None, "drive", "operator", "page")
+    assert until(lambda: len(_record(tmp_path).get("runs", [])) == 2, agent)
+    assert app.levels == [(URL, "drive")]
+
+
+@pytest.mark.parametrize("last", ["assist", "drive"])
+def test_a_resume_after_an_app_restart_comes_back_at_the_level_last_set(
+    made, tmp_path, monkeypatch, last
+):
+    monkeypatch.setenv("STAND_IN_PLAN", "wait")
+    agent, _, app = made()
+    monkeypatch.setattr(
+        "fibsem.gateway.agent.call_host", lambda url, method, path: {"level": last}
+    )
+    agent.start("default", None, "assist", "operator", "page")
+    assert until(lambda: _record(tmp_path).get("runs"))
+    agent._follow_level()  # the operator set *last*
+    about = read_json(folders(tmp_path / "sessions")[0] / MANAGED)["about"]
+    assert about["level_now"] == last
+
+    app.pid = 2
+    agent._again(about)
+    assert app.levels == [(URL, "assist"), (URL, last)]
+
+
+def test_an_app_restarted_under_a_running_agent_gets_the_level_back(
+    made, tmp_path, monkeypatch
+):
+    agent, _, app = made()
+    monkeypatch.setattr(
+        "fibsem.gateway.agent.call_host", lambda url, method, path: {"level": "assist"}
+    )
+    agent.start("default", None, "drive", "operator", "page")
+    assert until(lambda: _record(tmp_path).get("runs"))
+    agent._follow_level()  # the operator lowered it to Assist
+    app.pid = 2  # the app restarted; the agent waited for it
+    agent._level_read = float("-inf")
+    agent._follow_level()
+    assert app.levels == [(URL, "drive"), (URL, "assist")]
+    about = read_json(folders(tmp_path / "sessions")[0] / MANAGED)["about"]
+    assert about["app_pid"] == 2 and about["level_now"] == "assist"
+
+
+def test_a_resume_after_a_stop_agent_and_an_app_restart_stays_at_watch(made):
+    agent, _, app = made()
+    app.pid = 2
+    agent._again({"level": "drive", "level_now": "watch", "app_pid": 1})
+    assert app.levels == []
+
+
+def test_end_sets_the_app_to_watch_but_the_record_keeps_the_level_set(
+    made, tmp_path, monkeypatch
+):
+    agent, _, app = made()
+    monkeypatch.setattr(
+        "fibsem.gateway.agent.call_host", lambda url, method, path: {"level": "drive"}
+    )
+    agent.start("default", None, "drive", "operator", "page")
+    assert until(lambda: _record(tmp_path).get("runs"))
+    agent._after_end()
+    agent._follow_level()
+    agent.end("operator", "page")
+    assert app.levels == [(URL, "drive"), (URL, "watch")]
+    managed = read_json(folders(tmp_path / "sessions")[0] / MANAGED)
+    assert managed["about"]["level_now"] == "drive", "Resume comes back at Drive"
+
+
+def test_an_agent_that_ends_by_itself_sets_the_app_to_watch_once(
+    made, tmp_path, monkeypatch
+):
+    monkeypatch.setenv("STAND_IN_PLAN", "0")
+    agent, _, app = made()
+    agent.start("default", None, "assist", "operator", "page")
+    agent._after_end()  # seen running
+    assert until(lambda: agent._manager.agent("arctis-pc").state == "ended", agent)
+    agent._after_end()
+    agent._after_end()
+    assert app.levels == [(URL, "assist"), (URL, "watch")]
+
+
+def test_an_old_ended_session_never_sets_the_level(made, tmp_path, monkeypatch):
+    """Another agent may hold the slot: only an end this gateway saw."""
+    monkeypatch.setenv("STAND_IN_PLAN", "0")
+    first, _, app = made()
+    first.start("default", None, "assist", "operator", "page")
+    assert until(lambda: first._manager.agent("arctis-pc").state == "ended", first)
+    again, _, _ = made(gateway=FakeGateway(), app=app)
+    again._after_end()
+    assert app.levels == [(URL, "assist")]
+
+
+def test_resume_is_offered_at_the_level_last_set():
+    from fibsem.gateway.agent import _row
+
+    def row(about):
+        return _row({"session_id": "s1", "manager": {"about": about}})
+
+    assert row({"level": "drive", "level_now": "assist"})["last_level"] == "assist"
+    assert row({"level": "drive"})["last_level"] == "drive"
+    assert row({})["last_level"] is None
 
 
 def test_a_watch_agent_is_resumed_without_a_level_call(made, tmp_path, monkeypatch):
@@ -644,6 +797,25 @@ def test_allowing_an_agent_ends_the_one_the_gateway_started(made, tmp_path):
     assert result.startswith("Allowed claude-code on this PC, replacing the agent")
 
 
+def test_an_allow_that_fails_leaves_the_gateways_agent_running(
+    made, tmp_path, monkeypatch
+):
+    """The Allow before the end (L3): an ask that expired ends nothing."""
+    agent, gateway, _ = made()
+    agent.start("default", None, "watch", "operator", "page")
+    assert until(lambda: _record(tmp_path).get("runs"))
+    client, connections = _allowing(agent, gateway, tmp_path)
+    connections.ask("claude-code 2.1", "this PC", "lab", wait_s=0)
+    card = client.get("/gateway/connections").json()["asking"]
+
+    def expired(ask_id):
+        raise LookupError("That ask has expired.")
+
+    monkeypatch.setattr(connections, "allow", expired)
+    assert client.post(f"/gateway/connections/{card['id']}/allow").status_code == 404
+    assert agent.state().running["state"] == "running"
+
+
 def test_always_allow_never_replaces_an_agent_in_use(made, tmp_path):
     agent, gateway, _ = made()
     agent.start("default", None, "watch", "operator", "page")
@@ -666,3 +838,303 @@ def test_always_allow_takes_a_free_slot_and_says_so_on_the_history(made, tmp_pat
     assert gateway.access == [
         ("always allow", "setting", "Allowed claude-code on this PC")
     ]
+
+
+# --- the slot record ------------------------------------------------------------
+
+
+def test_the_slot_record_follows_the_gateways_agent(made, tmp_path, monkeypatch):
+    agent, _, _ = made()
+    monkeypatch.setattr(
+        "fibsem.gateway.agent.call_host", lambda url, method, path: {"level": "assist"}
+    )
+    agent.start("default", None, "drive", "operator", "page")
+    slot = agent.state().slot
+    assert slot["holder"] == AGENT_NAME and slot["came_in"] == "start"
+    assert slot["state"] == "running" and slot["level"] == "drive"
+    assert slot["why"] == "started by operator (page)"
+    assert until(lambda: _record(tmp_path).get("runs"))
+    agent._follow_level()
+    assert agent.slot.read()["level"] == "assist"
+    agent.end("operator", "page")
+    slot = agent.slot.read()
+    assert slot["state"] == "ended" and slot["why"] == "ended by the operator"
+    assert (tmp_path / "slot.json").is_file(), "written down, beside the sessions"
+
+
+def test_an_allowed_agent_takes_the_slot(made, tmp_path):
+    agent, gateway, _ = made()
+    agent.start("default", None, "watch", "operator", "page")
+    assert until(lambda: _record(tmp_path).get("runs"))
+    client, connections = _allowing(agent, gateway, tmp_path)
+    connections.ask("claude-code 2.1", "this PC", "lab", wait_s=0)
+    card = client.get("/gateway/connections").json()["asking"]
+    client.post(f"/gateway/connections/{card['id']}/allow")
+    agent._follow_slot()  # the old agent's end never overwrites the new holder
+    slot = agent.slot.read()
+    assert slot["holder"] == "claude-code on this PC"
+    assert slot["came_in"] == "allow" and slot["state"] == "running"
+    assert slot["why"].startswith("allowed by operator, replacing the agent")
+
+
+def test_resume_is_offered_with_the_budget_it_last_ran_with():
+    from fibsem.gateway.agent import _row
+
+    def row(about, kept=None):
+        record = {"session_id": "s1", "manager": {"about": about}}
+        if kept is not None:
+            record["budget"] = kept
+        return _row(record)["last_budget_usd"]
+
+    assert row({"budget_usd": 5}) == 5.0
+    # One the operator changed while it ran wins over the start budget.
+    assert row({"budget_usd": 5}, {"usd": 8, "spent_before_usd": 0.5}) == 8.0
+    assert row({}) is None
+
+
+def test_a_parked_agent_stopping_is_not_taken_for_an_end(made, tmp_path):
+    # The manager's poll may see the stopped agent before park does.
+    agent, _, _ = made()
+    agent.start("default", None, "watch", "operator", "page")
+    assert until(lambda: _record(tmp_path).get("runs"))
+    managed = agent._manager.agent(agent.microscope)
+    managed.parked = True
+    (managed.folder / "stop").touch()
+    assert until(lambda: not agent._manager._alive(managed))
+    agent._manager.poll()
+    assert managed.state == "waiting"
+    assert "ended" not in read_json(managed.folder / MANAGED)
+    agent.end("operator", "page")
+
+
+def test_a_parked_agent_ends_when_the_next_app_opens_another_experiment(made, tmp_path):
+    agent, gateway, app = made()
+    agent.start("default", None, "watch", "operator", "page")
+    assert until(lambda: _record(tmp_path).get("runs"))
+    gateway.stop("operator", "page")
+    assert agent.state().running["state"] == "waiting"
+    gateway.experiment = "another"
+    app.pid = 2
+    agent._unpark()
+    assert agent.state().running is None
+    assert len(_record(tmp_path)["runs"]) == 1
+    assert PairedTokens(tmp_path / "paired.json").agent() is None
+
+
+def test_start_with_no_app_waits_and_starts_at_its_level_when_the_app_answers(
+    made, tmp_path
+):
+    app = App()
+    app.up = False
+    agent, _, _ = made(
+        gateway=FakeGateway(OFF), app=app, own_url="http://127.0.0.1:8010"
+    )
+    state = agent.start("default", "Mill 01", "assist", "operator", "page")
+    assert state.running["state"] == "waiting"
+    assert app.levels == []
+    agent._manager.poll()
+    assert not _record(tmp_path).get("runs"), "nothing runs before the app"
+    app.up = True
+    assert until(lambda: _record(tmp_path).get("args"), agent)
+    assert app.levels == [(URL, "assist")]
+    assert _record(tmp_path)["args"][-2:] == ["--url", "http://127.0.0.1:8010"]
+    assert agent.state().running["state"] == "running"
+    agent.end("operator", "page")
+
+
+def test_start_with_no_app_and_no_gateway_address_is_refused(made):
+    agent, _, _ = made(gateway=FakeGateway(OFF))
+    with pytest.raises(GatewayRefused) as refused:
+        agent.start("default", None, "watch", "operator", "page")
+    assert refused.value.error_type == "no_app"
+
+
+def test_a_start_waiting_for_its_app_ends_when_the_gateway_quits(made, tmp_path):
+    app = App()
+    app.up = False
+    agent, _, _ = made(
+        gateway=FakeGateway(OFF), app=app, own_url="http://127.0.0.1:8010"
+    )
+    agent.start("default", None, "assist", "operator", "page")
+    folder = agent._manager.agent(agent.microscope).folder
+    agent.left()
+    assert agent.state().running is None
+    assert PairedTokens(tmp_path / "paired.json").agent() is None
+    managed = read_json(folder / MANAGED)
+    assert managed["ended"] == "did not start (the gateway closed first)"
+
+
+def test_start_refuses_a_goal_too_long_to_report(made):
+    from fibsem.ai.agent.report import MAX_GOAL
+
+    agent, _, app = made()
+    with pytest.raises(GatewayRefused) as refused:
+        agent.start("default", "g" * (MAX_GOAL + 1), "watch", "operator", "page")
+    assert refused.value.error_type == "goal_too_long"
+    assert app.levels == []
+
+
+def test_history_says_each_sessions_status_and_experiment(made, tmp_path):
+    ended = _by_hand(tmp_path)
+    (ended / "agent").mkdir()
+    (ended / "agent" / "experiment.json").write_text(
+        json.dumps(
+            {"session_id": "by-hand", "path": "/x/exp", "name": "exp", "id": "e-1"}
+        )
+    )
+    # The gateway's agent, parked when its app was stopped: not ended.
+    parked = SessionFolder.open(
+        "parked", {"playbook": "default", "mode": "none"}, tmp_path / "sessions"
+    )
+    parked.end(0, "stopped")
+    (parked.folder / MANAGED).write_text(json.dumps({"about": {"level": "assist"}}))
+    agent, _, _ = made()
+    rows = {row["session_id"]: row for row in agent.sessions().sessions}
+    assert rows["by-hand"]["status"] == "ended"
+    assert rows["by-hand"]["experiment"] == {
+        "path": "/x/exp",
+        "name": "exp",
+        "id": "e-1",
+    }
+    assert rows["parked"]["status"] == "waiting"
+
+
+def test_an_allowed_agent_leaves_the_slot_when_unpaired_or_quiet(made, tmp_path):
+    agent, _, app = made()
+    tokens = PairedTokens(tmp_path / "paired.json")
+    paired, _ = tokens.add("claude-code on this PC", role=AGENT)
+    agent.allowed("claude-code on this PC", "operator", None)
+    agent._follow_slot()
+    assert agent.slot.read()["state"] == "running", "just allowed: not yet heard"
+    app.last_heard_s = 4.0
+    agent._allowed_at = agent._allowed_read = float("-inf")
+    agent._follow_slot()
+    assert agent.slot.read()["state"] == "running"
+    app.last_heard_s = 600.0
+    agent._allowed_read = float("-inf")
+    agent._follow_slot()
+    held = agent.slot.read()
+    assert held["state"] == "ended" and held["why"].startswith("not heard from")
+    app.last_heard_s = 3.0  # back again
+    agent._allowed_read = float("-inf")
+    agent._follow_slot()
+    assert agent.slot.read()["state"] == "running"
+    tokens.remove(paired.id)
+    agent._allowed_read = float("-inf")
+    agent._follow_slot()
+    held = agent.slot.read()
+    assert (held["state"], held["why"]) == ("ended", "no longer paired")
+
+
+def test_a_new_gateway_frees_a_slot_and_pairing_nothing_carries_on(made, tmp_path):
+    agent, _, app = made()
+    app.up = False
+    agent.slot.take(AGENT_NAME, "start", "started by operator (page)", state="waiting")
+    PairedTokens(tmp_path / "paired.json").add(AGENT_NAME, role=AGENT)
+    again, _, _ = made()
+    assert again.slot.read()["state"] == "ended"
+    assert PairedTokens(tmp_path / "paired.json").agent() is None
+
+
+# -- the agent host: the agent works with no app ----------------------------
+
+
+def _levels_on(app, monkeypatch, level):
+    monkeypatch.setattr(
+        "fibsem.gateway.agent.call_host", lambda url, method, path: {"level": level}
+    )
+
+
+def test_start_with_no_app_runs_on_the_agent_host_and_moves_to_the_app(
+    made, tmp_path, monkeypatch
+):
+    app, host = App(), Host()
+    app.up = False
+    gateway = FakeGateway(OFF)
+    agent, _, _ = made(
+        gateway=gateway, app=app, host=host, own_url="http://127.0.0.1:8010"
+    )
+    state = agent.start("default", "Plan the run", "assist", "operator", "page")
+    # It runs at once, through the gateway, which passes its calls to the host.
+    assert state.running["state"] == "running"
+    assert state.agent_host
+    assert app.levels == [(HOST_URL, "assist")]
+    assert until(lambda: _record(tmp_path).get("args"), agent)
+    assert _record(tmp_path)["args"][-2:] == ["--url", "http://127.0.0.1:8010"]
+    # The app answers: it gets the level the agent runs at, and nothing restarts.
+    _levels_on(app, monkeypatch, "assist")
+    app.up, app.pid, gateway.mode = True, 2, RUNNING
+    agent._follow_level()
+    assert app.levels == [(HOST_URL, "assist"), (URL, "assist")]
+    assert len(_record(tmp_path)["runs"]) == 1
+    agent.end("operator", "page")
+
+
+def test_stopping_the_app_moves_a_running_agent_to_the_agent_host(
+    made, tmp_path, monkeypatch
+):
+    host = Host()
+    agent, gateway, app = made(host=host, own_url="http://127.0.0.1:8010")
+    agent.start("default", None, "drive", "operator", "page")
+    assert until(lambda: _record(tmp_path).get("runs"))
+    _levels_on(app, monkeypatch, "drive")
+    gateway.stop("operator", "page")
+    # Not parked: it carries on, and its calls go to the host once the app is gone.
+    assert agent.state().running["state"] == "running"
+    app.up = False
+    agent._level_read = float("-inf")
+    agent._follow_level()
+    assert app.levels == [(URL, "drive"), (HOST_URL, "drive")]
+    agent._unpark()
+    # The same app and experiment again: it carries on there.
+    app.up, app.pid, gateway.mode = True, 2, RUNNING
+    agent._unpark()
+    agent._level_read = float("-inf")
+    agent._follow_level()
+    assert agent.state().running["state"] == "running"
+    assert app.levels[-1] == (URL, "drive")
+    assert len(_record(tmp_path)["runs"]) == 1
+    agent.end("operator", "page")
+
+
+def test_an_agent_on_the_host_ends_when_the_next_app_opens_another_experiment(
+    made, tmp_path
+):
+    agent, gateway, app = made(host=Host(), own_url="http://127.0.0.1:8010")
+    agent.start("default", None, "watch", "operator", "page")
+    assert until(lambda: _record(tmp_path).get("runs"))
+    gateway.stop("operator", "page")
+    app.up = False
+    agent._unpark()
+    assert agent.state().running["state"] == "running"
+    gateway.experiment = "another"
+    app.up, app.pid = True, 2
+    agent._unpark()
+    assert agent.state().running is None
+    assert PairedTokens(tmp_path / "paired.json").agent() is None
+
+
+def test_resume_with_no_app_runs_on_the_agent_host(made, tmp_path):
+    app, host = App(), Host()
+    agent, gateway, _ = made(app=app, host=host, own_url="http://127.0.0.1:8010")
+    agent.start("default", None, "assist", "operator", "page")
+    assert until(lambda: _record(tmp_path).get("runs"))
+    session_id = agent._manager.agent(agent.microscope).session_id
+    agent.end("operator", "page")
+    app.up, gateway.mode = False, OFF
+    state = agent.resume(session_id, "assist", "operator", "page")
+    assert state.running["state"] == "running"
+    assert app.levels[-1] == (HOST_URL, "assist")
+    agent.end("operator", "page")
+
+
+def test_with_no_app_and_no_agent_host_start_still_waits(made):
+    app = App()
+    app.up = False
+    agent, _, _ = made(
+        gateway=FakeGateway(OFF), app=app, own_url="http://127.0.0.1:8010"
+    )
+    state = agent.start("default", None, "watch", "operator", "page")
+    assert state.running["state"] == "waiting"
+    assert not state.agent_host
+    agent.end("operator", "page")

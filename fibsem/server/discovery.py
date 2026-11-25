@@ -14,12 +14,14 @@ one owns the file.
 
 import json
 import os
+import secrets
+import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import fibsem
 from fibsem import paths
-from fibsem.util.process import pid_alive
+from fibsem.util.process import process_started, same_process
 
 if TYPE_CHECKING:
     # Typing only: auth needs FastAPI, and the sidecar and ``fibsem-mcp watch``
@@ -52,10 +54,33 @@ GATEWAY_PORT = 8010
 SERVER_TOKEN_ENV = "FIBSEM_SERVER_TOKEN"
 
 
+def this_process() -> dict:
+    """This process, as a file it writes names it: its pid, when it started
+    (so a reader never takes another process with the same pid for it,
+    `same_process`) and its program."""
+    return {
+        "pid": os.getpid(),
+        "started": process_started(os.getpid()),
+        "program": Path(sys.argv[0]).name if sys.argv and sys.argv[0] else None,
+    }
+
+
+def gateway_port() -> int:
+    """The port this PC's gateway listens on: the preferences'
+    (``install.gateway.port``), else `GATEWAY_PORT`."""
+    try:
+        from fibsem.config import load_user_preferences
+
+        port = int(load_user_preferences().install.gateway.port)
+    except Exception:  # noqa: BLE001 - unreadable preferences are the default
+        return GATEWAY_PORT
+    return port if 0 < port < 65536 else GATEWAY_PORT
+
+
 def gateway_url() -> str:
     """This PC's gateway: the running one's address, else its usual port."""
     found = read_gateway_file()
-    return found["url"] if found is not None else f"http://127.0.0.1:{GATEWAY_PORT}"
+    return found["url"] if found is not None else f"http://127.0.0.1:{gateway_port()}"
 
 
 # The version of the App Server's routes. A change that an older client can't
@@ -63,6 +88,22 @@ def gateway_url() -> str:
 # meaning) raises the minor number, and clients built for another minor refuse
 # to connect (`api_mismatch`). A change clients can ignore raises the patch.
 API_VERSION = "0.3.0"
+
+
+def health_answer(
+    program: str, api_version: str, state: str = "ready"
+) -> Dict[str, Any]:
+    """What every fibsem program's ``/health`` answers, open to anyone: the
+    program, its fibsem version, the version of its routes, and its state
+    ("ready", or "starting" while it can't serve its routes yet). ``status``
+    stays "ok" for readers that only look at that."""
+    return {
+        "status": "ok",
+        "program": program,
+        "version": fibsem.__version__,
+        "api_version": api_version,
+        "state": state,
+    }
 
 
 class ApiMismatch(ConnectionError):
@@ -154,16 +195,30 @@ def _client_host(bind_host: str) -> str:
 
 
 def write_discovery_file(
-    host: str, port: int, auth: "AuthConfig", path: Optional[Path] = None
+    host: str,
+    port: int,
+    auth: "AuthConfig",
+    path: Optional[Path] = None,
+    gateway_secret: bool = False,
 ) -> Path:
+    """Write the running server's connection info to *path*. With
+    *gateway_secret* (the App Server's), it makes the secret the gateway adds
+    to every call it passes on."""
     path = Path(path) if path is not None else DISCOVERY_FILE
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "url": f"http://{_client_host(host)}:{port}",
-        "pid": os.getpid(),
+        **this_process(),
         # No level: it changes while the server runs and a file
         # would go stale. /capabilities is the live answer.
     }
+    if gateway_secret:
+        if auth.gateway_secret is None:
+            auth.gateway_secret = secrets.token_urlsafe(32)
+        # For this PC's gateway alone (the file is this user's): it adds it to
+        # each call it passes on, and an agent's call without it is refused
+        # while the gateway runs (`fibsem.server.auth`).
+        payload["gateway_secret"] = auth.gateway_secret
     if auth.connect_token is not None:
         # Only asks to connect: the operator allows an agent on this PC
         # (fibsem.server.connections). Never the agent's own token. The App
@@ -202,7 +257,7 @@ def _read(path: Path) -> Optional[dict]:
         return None
     if not isinstance(data, dict) or "url" not in data:
         return None
-    if not pid_alive(data.get("pid")):
+    if not same_process(data.get("pid"), data.get("started")):
         return None
     return data
 
@@ -217,7 +272,7 @@ def read_gateway_file(path: Optional[Path] = None) -> Optional[dict]:
         return None
     if not isinstance(data, dict) or "url" not in data:
         return None
-    return data if pid_alive(data.get("pid")) else None
+    return data if same_process(data.get("pid"), data.get("started")) else None
 
 
 def remove_discovery_file(path: Optional[Path] = None) -> None:

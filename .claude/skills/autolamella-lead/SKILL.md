@@ -52,6 +52,16 @@ context and the next session find it:
 - **The review list** (fibsem-agent, *Keep a review list*): one item per
   key decision (the site list, each placement, each lamella's polishing),
   with its images, your decision, and the Verifier's answer as a fact.
+  A placement's or a mill's first image is its patterns on the FIB image
+  (`item_draw_milling`), as the operator checks it at the microscope; the
+  SEM overview drawing (`grid_draw_milling`) only when it shows a bar or a
+  neighbour too close.
+  A site's first images are its wide SEM and FIB pair (100-150 µm, its
+  square, bars and neighbours in view; screen-grids), then the 50 µm pair.
+  Check each item's images are of that site before you add it.
+  Each site, its Setup placement, its target and its polishing is a scored
+  item of its own, and each grid's site list one more (autolamella,
+  *Scored results*).
   The Verifier puts its own `[verdict]` note on the record as well.
 - **The knowledge base**, at the review, for the next run.
 
@@ -109,8 +119,9 @@ from one list.
    (*Workers*). Call the Verifier with the
    marked overview, the intake's rules and the list; drop or replace each
    site it flags, and ask it again about the replacements. Then write the
-   sites in the plan's Steps, and add the list to the review list with the
-   marked overview as its picture.
+   sites in the plan's Steps, add the list to the review list with the
+   marked overview as its picture (score `site-coverage`), and one scored
+   item per site (`site-selection`; autolamella, *Scored results*).
 2. **Setup** is always supervised. At each position question, check focus,
    contrast and coincidence (autolamella, *Before a position or a POI*). If Setup's
    autofocus moved the working distance badly (its `AUTOFOCUS` line says

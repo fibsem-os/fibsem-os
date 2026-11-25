@@ -266,7 +266,16 @@ export interface ReviewItem {
   evidence: string | null;
   facts: { label: string; value: string }[];
   options: string[];
+  /** The result it scores, when it is a scored item: Accept is a pass, Reject a fail. */
+  score?: "site-selection" | "site-coverage" | "site-setup" | "target" | "polishing";
+  /** The lamella and task run it is about, as the server resolved them from the names the agent gave. */
+  item_id?: string;
+  item_name?: string;
+  task_id?: string;
+  task_name?: string;
   answer?: { choice: string; note: string; evidence: string | null; at: string } | null;
+  /** Answers the operator changed, oldest first: the answer above counts. */
+  earlier?: { choice: string; note: string; evidence: string | null; at: string }[];
   closed?: { reason: string; at: string } | null;
 }
 
@@ -274,7 +283,27 @@ export interface ReviewItem {
 export interface ReviewList {
   session_id: string | null;
   items: ReviewItem[];
-  counts: { waiting: number; to_check: number; rejected: number; all: number };
+  counts: {
+    waiting: number;
+    to_check: number;
+    rejected: number;
+    all: number;
+    /** Per kind scored, one score per grid or lamella: its first answer passes
+     * (Accept) or fails (Reject); later answers for it are after_help. A lamella
+     * the run took through the step with no item is missing, and a fail; one
+     * whose items the agent closed unanswered is closed, and a fail too. */
+    scores?: Record<
+      string,
+      {
+        passed: number;
+        failed: number;
+        open: number;
+        after_help?: number;
+        missing?: string[];
+        closed?: string[];
+      }
+    >;
+  };
 }
 
 /** One row of GET /app/agent/recent. */
@@ -304,6 +333,8 @@ export interface TranscriptLine {
   /** For the Agent call that starts a subagent: the subagent's name. Its "done"
    * line's text is the subagent's answer. */
   subagent?: string;
+  /** For the Agent call that starts a subagent: the brief it was given. */
+  brief?: string;
   /** On a subagent call's "done": whether it agreed with the decision it checked. */
   verdict?: "agree" | "concern";
   /** On a subagent call's "done": the subagent says someone should look before going on. */

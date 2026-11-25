@@ -14,6 +14,7 @@ import {
   ListChecks,
   ListFilter,
   MessageCircle,
+  MessageSquare,
   Loader,
   Microscope,
   PanelRight,
@@ -46,14 +47,24 @@ import { SentFiles } from "./agent/Attachments";
 import { useAct } from "./agent/act";
 import { COMMANDS, compose, Composer } from "./agent/Composer";
 import { KnowledgeDialog } from "./agent/Knowledge";
-import { MicroscopeCustomise, MicroscopeTab, useMicroscopeShown } from "./agent/MicroscopeTab";
-import { EvidenceImage } from "./agent/Pictures";
+import { MicroscopeCustomise, MicroscopeMain, MicroscopeTab, useMicroscopeShown } from "./agent/MicroscopeTab";
+import { Enlargeable, EvidenceImage } from "./agent/Pictures";
 import { Palette, PALETTE_KEY, type PaletteEntry, usePaletteKey } from "./agent/Palette";
 import { PlanDialog } from "./agent/PlanDialog";
 import { say, since } from "./agent/steps";
 import { asking, SideChat } from "./agent/SideChat";
+import { waitingOn } from "@/shell/Notices";
 import { ReviewTab, useReview } from "./agent/ReviewTab";
-import { type ColumnTab, SafetyRow, SideColumn, useSafetyActions } from "./agent/SideColumn";
+import {
+  type ColumnTab,
+  MainSwitch,
+  type MainView,
+  SafetyRow,
+  SideColumn,
+  useMainView,
+  useSafetyActions,
+  useWide,
+} from "./agent/SideColumn";
 import { hasPanel, SidePanel } from "./agent/SidePanel";
 
 // The agent's news (lib/events.ts) reads it, its session and its plan again at once.
@@ -286,8 +297,9 @@ type Pictures = Map<string, TranscriptLine[]>;
 /** A subagent run's lines, by the session and number of the Agent call. */
 type Runs = Map<string, TranscriptLine[]>;
 
-/** A picture a lab's tool answered a step with; a click opens it full size. */
-function StepPicture({ line }: { line: TranscriptLine }) {
+/** A picture a step answered with (a lab's tool's, or what a subagent saw), as
+ * a card like the agent's evidence: a click shows it large. */
+function StepPicture({ line, title }: { line: TranscriptLine; title?: string }) {
   const name = line.path?.split("/").pop() ?? "";
   const { data: url } = useQuery({
     queryKey: ["app/agent/transcript/pictures", name],
@@ -297,9 +309,17 @@ function StepPicture({ line }: { line: TranscriptLine }) {
   });
   if (!url) return null;
   return (
-    <a href={url} target="_blank" rel="noreferrer" title="Open the picture" className="block w-fit">
-      <img src={url} alt={line.text || "The step's picture"} className="max-h-48 max-w-full rounded border object-contain" />
-    </a>
+    <div className="my-1 max-w-[420px]">
+      <Enlargeable title={title || line.text || "The step's picture"}>
+        {(big) => (
+          <img
+            src={url}
+            alt={line.text || "The step's picture"}
+            className={cn("block rounded", big ? "mx-auto max-w-full" : "w-full")}
+          />
+        )}
+      </Enlargeable>
+    </div>
   );
 }
 
@@ -440,7 +460,7 @@ function Lines({
             {l.kind === "step" &&
               pictures.get(stepKey(l.session_id, l.seq))?.map((p) => (
                 <span key={p.seq} className="col-start-2">
-                  <StepPicture line={p} />
+                  <StepPicture line={p} title={said ? `${said.verb} ${said.words}` : undefined} />
                 </span>
               ))}
           </div>
@@ -492,6 +512,9 @@ function runState(call: TranscriptLine, answer: TranscriptLine | undefined, runs
   return { failed, badge, text };
 }
 
+/** A run's name in a line: its kind and what it was for. */
+const runTitle = (call: TranscriptLine) => `${agentName(call.subagent ?? "")}${call.text ? ` · ${call.text}` : ""}`;
+
 function RunBadge({ badge }: { badge: { text: string; warn: boolean } | null }) {
   if (!badge) return null;
   return (
@@ -515,13 +538,16 @@ function RunCard({
   answer,
   live,
   tab = false,
+  parent,
   ...shared
-}: { call: TranscriptLine; answer?: TranscriptLine; live: boolean; tab?: boolean } & Shared) {
+}: { call: TranscriptLine; answer?: TranscriptLine; live: boolean; tab?: boolean; parent?: TranscriptLine } & Shared) {
   const [open, setOpen] = useState(false);
-  const clock = useClock(live);
   const lines = shared.runs.get(stepKey(call.session_id, call.seq)) ?? [];
   const steps = lines.filter((l) => l.kind === "step").length;
   const runs = !answer && shared.running(call);
+  // Its own clock ticks while it runs, whether or not the turn around it is
+  // still live: a card in a finished group showed a frozen time.
+  const clock = useClock(live || runs);
   const state = runState(call, answer, runs, clock);
   const shown = tab || open;
   return (
@@ -547,10 +573,34 @@ function RunCard({
           {state.text}
         </span>
       </div>
+      {tab && parent && (
+        <div className="text-[12px] text-muted-foreground">
+          Asked by{" "}
+          {shared.onOpen ? (
+            <button
+              className="cursor-pointer border-0 bg-transparent p-0 text-left text-[12px] text-primary underline underline-offset-2"
+              onClick={() => shared.onOpen?.(parent)}
+              title="Show the run that asked for this one"
+            >
+              {runTitle(parent)}
+            </button>
+          ) : (
+            runTitle(parent)
+          )}
+        </div>
+      )}
       {answer?.text && (
         <div className={cn("whitespace-pre-wrap break-words", state.failed ? "text-muted-foreground" : "text-foreground")}>
           {answer.text}
         </div>
+      )}
+      {call.brief && (
+        <details className="text-[12px] text-muted-foreground">
+          <summary className="w-fit cursor-pointer hover:text-foreground">Brief</summary>
+          <div className="mt-1 max-h-[320px] overflow-y-auto whitespace-pre-wrap break-words rounded-sm bg-muted/40 px-2 py-1.5 text-foreground">
+            {call.brief}
+          </div>
+        </details>
       )}
       {!tab && (lines.length > 0 || shared.onOpen) && (
         <div className="flex items-center justify-between gap-3">
@@ -585,8 +635,37 @@ function RunCard({
   );
 }
 
-/** The subagent runs, newest first, those still running above the finished
- * ones: each opens in the Subagents tab. */
+type RunGroup = "state" | "kind" | "none";
+type RunSort = "started" | "finished" | "kind" | "longest";
+const RUN_GROUPS: { key: RunGroup; name: string }[] = [
+  { key: "state", name: "Current state" },
+  { key: "kind", name: "Kind" },
+  { key: "none", name: "Nothing" },
+];
+const RUN_SORTS: { key: RunSort; name: string }[] = [
+  { key: "started", name: "Started, newest first" },
+  { key: "finished", name: "Finished, newest first" },
+  { key: "kind", name: "Kind" },
+  { key: "longest", name: "Longest first" },
+];
+// The order the states' groups show in: what needs a look first.
+const RUN_STATES = ["Running", "Needs attention", "Concern", "Failed", "Stopped", "Done"];
+const RUN_VIEW_KEY = "fibsem-subagent-runs-view";
+
+function readRunView(): { group: RunGroup; sort: RunSort } {
+  try {
+    const kept = JSON.parse(localStorage.getItem(RUN_VIEW_KEY) ?? "null");
+    if (kept && RUN_GROUPS.some((g) => g.key === kept.group) && RUN_SORTS.some((s) => s.key === kept.sort))
+      return kept;
+  } catch {
+    // no storage here: the default view
+  }
+  return { group: "state", sort: "started" };
+}
+
+/** The subagent runs, grouped (by state, the default, or kind) and sorted
+ * (started, finished, kind or longest) as the operator picks, kept in this
+ * browser: each opens in the Subagents tab. */
 function SubagentList({
   calls,
   answered,
@@ -598,16 +677,105 @@ function SubagentList({
   running: (step: TranscriptLine) => boolean;
   onOpen: (call: TranscriptLine) => void;
 }) {
+  const [view, setView] = useState(readRunView);
+  const choose = (next: Partial<typeof view>) => {
+    const kept = { ...view, ...next };
+    setView(kept);
+    try {
+      localStorage.setItem(RUN_VIEW_KEY, JSON.stringify(kept));
+    } catch {
+      // kept for this page only
+    }
+  };
   const runs = (c: TranscriptLine) => !answered.has(stepKey(c.session_id, c.seq)) && running(c);
   const clock = useClock(calls.some(runs));
   if (!calls.length) return null;
-  const newest = [...calls].reverse();
-  const groups: [string, TranscriptLine[]][] = [
-    ["Running", newest.filter(runs)],
-    ["Finished", newest.filter((c) => !runs(c))],
-  ];
+  const answerOf = (c: TranscriptLine) => answered.get(stepKey(c.session_id, c.seq));
+  const stateOf = (c: TranscriptLine) => {
+    if (runs(c)) return "Running";
+    const state = runState(c, answerOf(c), false, clock);
+    // A Verifier that agreed is done; a concern or a flag is its own group.
+    if (state.badge && state.badge.warn) return state.badge.text;
+    if (state.failed) return "Failed";
+    return state.text.startsWith("Stopped") ? "Stopped" : "Done";
+  };
+  const kind = (c: TranscriptLine) => agentName(c.subagent ?? "");
+  const parentOf = (c: TranscriptLine) =>
+    calls.find((p) => p.session_id === c.session_id && c.run != null && p.seq === c.run);
+  const started = (c: TranscriptLine) => time(c.t);
+  const finished = (c: TranscriptLine) => {
+    const answer = answerOf(c);
+    return answer ? time(answer.t) : runs(c) ? Infinity : started(c);
+  };
+  const took = (c: TranscriptLine) => answerOf(c)?.took_s ?? (runs(c) ? (clock - started(c)) / 1000 : 0);
+  const order: Record<RunSort, (a: TranscriptLine, b: TranscriptLine) => number> = {
+    started: (a, b) => started(b) - started(a),
+    finished: (a, b) => finished(b) - finished(a),
+    kind: (a, b) => kind(a).localeCompare(kind(b)) || started(b) - started(a),
+    longest: (a, b) => took(b) - took(a),
+  };
+  const sorted = [...calls].sort(order[view.sort]);
+  let groups: [string, TranscriptLine[]][];
+  if (view.group === "none") groups = [["All", sorted]];
+  else {
+    const by = view.group === "state" ? stateOf : kind;
+    const names = [...new Set(sorted.map(by))];
+    if (view.group === "state") names.sort((a, b) => RUN_STATES.indexOf(a) - RUN_STATES.indexOf(b));
+    else names.sort((a, b) => a.localeCompare(b));
+    groups = names.map((n) => [n, sorted.filter((c) => by(c) === n)]);
+  }
+  const option = (on: boolean, name: string, pick: () => void, close: () => void) => (
+    <button
+      key={name}
+      className={cn(
+        "cursor-pointer border-0 bg-transparent px-3 py-1.5 text-left text-[13px] whitespace-nowrap hover:bg-muted",
+        on && "font-semibold",
+      )}
+      onClick={() => {
+        pick();
+        close();
+      }}
+    >
+      {name}
+    </button>
+  );
   return (
     <div className="flex flex-col gap-3.5">
+      <div className="-mb-2 flex items-center gap-2 text-[12px] text-muted-foreground">
+        <span className="flex-1">
+          {calls.length} run{calls.length === 1 ? "" : "s"} · by{" "}
+          {RUN_GROUPS.find((g) => g.key === view.group)?.name.toLowerCase()},{" "}
+          {RUN_SORTS.find((s) => s.key === view.sort)?.name.toLowerCase()}
+        </span>
+        <Popup
+          label="Group and sort"
+          align="right"
+          side="below"
+          trigger={(on, toggle) => (
+            <button
+              className={cn(
+                "flex size-6 cursor-pointer items-center justify-center rounded border-0 bg-transparent text-muted-foreground hover:text-foreground",
+                on && "text-foreground",
+              )}
+              aria-label="Group and sort"
+              onClick={toggle}
+            >
+              <ListFilter size={14} />
+            </button>
+          )}
+        >
+          {(close) => (
+            <div className="flex flex-col py-1">
+              <span className="px-3 pt-1 pb-0.5 text-[11px] font-semibold text-muted-foreground uppercase">Group by</span>
+              {RUN_GROUPS.map((g) => option(view.group === g.key, g.name, () => choose({ group: g.key }), close))}
+              <span className="mt-1 border-t border-border px-3 pt-2 pb-0.5 text-[11px] font-semibold text-muted-foreground uppercase">
+                Sort by
+              </span>
+              {RUN_SORTS.map((o) => option(view.sort === o.key, o.name, () => choose({ sort: o.key }), close))}
+            </div>
+          )}
+        </Popup>
+      </div>
       {groups.map(([title, shown]) =>
         shown.length ? (
           <section key={title} className="border-b border-border/60 pb-3.5 last:border-b-0 last:pb-0">
@@ -615,7 +783,7 @@ function SubagentList({
               {title} · {shown.length}
             </h4>
             {shown.map((c) => {
-              const answer = answered.get(stepKey(c.session_id, c.seq));
+              const answer = answerOf(c);
               const state = runState(c, answer, runs(c), clock);
               return (
                 <button
@@ -639,6 +807,11 @@ function SubagentList({
                     {state.text}
                     {!runs(c) && <span className="text-muted-foreground/70"> · {when(c.t, clock)}</span>}
                   </span>
+                  {c.run != null && (
+                    <span className="min-w-0 truncate text-[12px] text-muted-foreground">
+                      Asked by {parentOf(c) ? runTitle(parentOf(c)!) : "another run"}
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -739,11 +912,14 @@ function withAllRuns(idx: ReturnType<typeof indexLines>, all: TranscriptLine[], 
     } else if (l.kind === "picture" && l.step != null && l.path) {
       const key = stepKey(l.session_id, l.step);
       if (!idx.pictures.has(key)) pictures.set(key, [...(pictures.get(key) ?? []), l]);
-    } else if (l.run != null) {
-      const key = stepKey(l.session_id, l.run);
-      if (!idx.runs.has(key)) runs.set(key, [...(runs.get(key) ?? []), l]);
-    } else if (l.kind === "step" && l.subagent != null) {
-      byKey.set(stepKey(l.session_id, l.seq), l);
+    } else {
+      if (l.run != null) {
+        const key = stepKey(l.session_id, l.run);
+        if (!idx.runs.has(key)) runs.set(key, [...(runs.get(key) ?? []), l]);
+      }
+      // A run a subagent started (a worker asking the Verifier) is a line of
+      // its parent's run and a run of its own.
+      if (l.kind === "step" && l.subagent != null) byKey.set(stepKey(l.session_id, l.seq), l);
     }
   }
   // The loaded lines win: they are the newest read.
@@ -874,10 +1050,13 @@ function LiveLine({ agent, heard, hide }: { agent: AgentState; heard: boolean; h
     .filter(Boolean)
     .join(" · ");
   const running = !!(task || progress);
-  // Counted from when this page first saw it run: the line has no start time.
+  // A task counts from when it started, as the status says; the agent's own
+  // mill has no start time, so it counts from when this page first saw it.
   const key = task ?? progress?.label ?? null;
   const since = useRef<{ key: string | null; at: number }>({ key: null, at: 0 });
   if (since.current.key !== key) since.current = { key, at: Date.now() };
+  const started = task && workflow?.task_started ? Date.parse(workflow.task_started) : NaN;
+  const from = Number.isNaN(started) ? since.current.at : started;
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     if (!running) return;
@@ -895,8 +1074,8 @@ function LiveLine({ agent, heard, hide }: { agent: AgentState; heard: boolean; h
         <span className="min-w-0 truncate" title={text}>
           {text}
         </span>
-        <span className="ml-auto shrink-0 tabular-nums" title="How long it has run, since this page saw it start">
-          {elapsed((now - since.current.at) / 1000)}
+        <span className="ml-auto shrink-0 tabular-nums" title="How long it has run">
+          {elapsed((now - from) / 1000)}
         </span>
         {heard && (
           <span className="shrink-0" title="The agent waits on the microscope's events and wakes on the next one">
@@ -1140,6 +1319,11 @@ export function AgentPage() {
   const safety = useSafetyActions(instrument);
   const gatewayAsk = useGatewayAsk();
   const [shown, setShown] = useMicroscopeShown();
+  // The chat or the microscope in the main area, the other in the side column;
+  // the chat stays main where there is no microscope or no room for the column.
+  const [mainChoice, setMainChoice] = useMainView();
+  const wide = useWide();
+  const main: MainView = instrument && wide ? mainChoice : "chat";
   const rowsNow = recent.data?.rows ?? [];
   const since = rowsNow.find((r) => r.at)?.at;
   const transcript = useQuery({
@@ -1180,6 +1364,8 @@ export function AgentPage() {
   const asides = (recent.data?.rows ?? []).filter((r) => r.aside);
   const rows = all.filter((r) => !(r.kind === "you" && r.message_id && !r.read));
   const unread = all.filter((r) => r.kind === "you" && r.message_id && !r.read);
+  // The agent's message that waits for an answer, until the operator writes.
+  const waits = waitingOn(all);
   const a = agent.data;
   // What fibsem-agent printed: shown from its first step, before any message.
   const lines = transcript.data?.entries ?? [];
@@ -1282,6 +1468,12 @@ export function AgentPage() {
       onOpenRun={openRun}
     />
   ) : null;
+  const switchMain = (view: MainView) => {
+    setMainChoice(view);
+    // What leaves the main area comes to the front of the column.
+    setFocus(view === "microscope" ? "chat" : "microscope");
+  };
+  const switcher = instrument && wide ? <MainSwitch view={main} onChange={switchMain} /> : null;
   const tabs: ColumnTab[] = [
     {
       id: "session",
@@ -1305,13 +1497,33 @@ export function AgentPage() {
       ) : undefined,
       render: () => <ReviewTab open={reviewOpen} />,
     });
-  if (instrument)
+  if (main === "microscope")
+    tabs.unshift({
+      id: "chat",
+      label: "Chat",
+      icon: <MessageSquare size={14} />,
+      // Shown on the tab and the folded rail, as the chat may be behind another tab.
+      badge:
+        request || suggestion || a.asking || gatewayAsk ? (
+          <span className="block size-1.5 rounded-full bg-[#e0a030]" aria-label="waiting on you" />
+        ) : undefined,
+      fill: true,
+      render: () => chat,
+    });
+  else if (instrument)
     tabs.push({
       id: "microscope",
       label: "Microscope",
       icon: <Microscope size={14} />,
       menu: <MicroscopeCustomise fibsem={fibsem} shown={shown} onChange={setShown} />,
-      render: () => <MicroscopeTab fibsem={fibsem} shown={shown} onOpenPage={() => openPage("/ui/microscope")} />,
+      render: () => (
+        <MicroscopeTab
+          fibsem={fibsem}
+          shown={shown}
+          live={<LiveLine agent={a} heard={isWorking && !a.stopped} hide={false} />}
+          onOpenPage={() => openPage("/ui/microscope")}
+        />
+      ),
     });
   tabs.push({
     id: "side",
@@ -1347,6 +1559,12 @@ export function AgentPage() {
               call={call}
               answer={answer}
               live={!answer && idx.running(call)}
+              parent={
+                call.run != null
+                  ? idx.calls.find((p) => stepKey(p.session_id, p.seq) === stepKey(call.session_id, call.run))
+                  : undefined
+              }
+              onOpen={openRun}
               answered={idx.answered}
               pictures={idx.pictures}
               runs={idx.runs}
@@ -1362,6 +1580,7 @@ export function AgentPage() {
   }
   // A message found in the quick search: shown (Actions alone hides messages), scrolled to and lit briefly.
   const jumpTo = (at: string) => {
+    if (main === "microscope") setFocus("chat");
     if (show === "actions") setShow("all");
     pinned.current = false;
     setTimeout(() => {
@@ -1396,234 +1615,262 @@ export function AgentPage() {
     onRun: openRun,
     onMessage: jumpTo,
   });
-  return (
-    <div className="flex h-full">
-      <div
-        className="mx-auto flex h-full w-full max-w-[880px] min-w-0 flex-col px-4 md:px-5"
-        onDragEnter={(e) => {
-          if (!carriesFiles(e)) return;
-          drags.current += 1;
-          setDragging(true);
-        }}
-        onDragLeave={(e) => {
-          if (carriesFiles(e) && --drags.current <= 0) setDragging(false);
-        }}
-        onDragOver={(e) => carriesFiles(e) && e.preventDefault()}
-        onDrop={(e) => {
-          if (!carriesFiles(e)) return;
-          e.preventDefault();
-          drags.current = 0;
-          setDragging(false);
-          if (a.experiment) attach.add(e.dataTransfer.files);
-        }}
-      >
-        <div className="flex items-center justify-end gap-3 pt-2.5">
-          <button
-            className="mr-auto flex cursor-pointer items-center gap-1.5 rounded border-0 bg-transparent px-2 py-1 text-[12px] text-muted-foreground hover:bg-accent hover:text-foreground"
-            onClick={() => setPalette(true)}
-            aria-keyshortcuts="Meta+K Control+K"
-          >
-            <Search size={14} />
-            Search
-            <kbd className="rounded border border-border px-1 text-[11px]">{PALETTE_KEY}</kbd>
-          </button>
-          <Palette open={palette} onOpenChange={setPalette} entries={found} />
-          <button
-            className="flex cursor-pointer items-center gap-1.5 rounded border-0 bg-transparent px-2 py-1 text-[12px] text-muted-foreground hover:bg-accent hover:text-foreground"
-            onClick={() => setKnowledge(true)}
-          >
-            <BookOpen size={14} />
-            Knowledge
-          </button>
-          <KnowledgeDialog open={knowledge} onOpenChange={setKnowledge} />
-          <Popup
-            label="Show"
-            align="right"
-            className="top-[calc(100%+4px)] bottom-auto w-44"
-            trigger={(open, toggle) => (
-              <button
-                className="flex cursor-pointer items-center gap-1.5 rounded border-0 bg-transparent px-2 py-1 text-[12px] text-muted-foreground hover:bg-accent hover:text-foreground"
-                aria-haspopup="menu"
-                aria-expanded={open}
-                onClick={toggle}
-              >
-                <ListFilter size={14} />
-                {label}
-              </button>
-            )}
-          >
-            {(close) => (
-              <div role="menu" className="flex flex-col">
-                {SHOWS.map(([key, word]) => (
-                  <button
-                    key={key}
-                    role="menuitemradio"
-                    aria-checked={key === show}
-                    className={cn(
-                      "cursor-pointer rounded border-0 bg-transparent px-2 py-1.5 text-left text-[13px] text-foreground hover:bg-accent",
-                      key === show && "bg-accent",
-                    )}
-                    onClick={() => {
-                      setShow(key);
-                      close();
-                    }}
-                  >
-                    {word}
-                  </button>
-                ))}
-                <div className="my-1 border-t border-border" />
+  const chat = (
+    <div
+      className="mx-auto flex h-full w-full max-w-[880px] min-w-0 flex-col px-4 md:px-5"
+      onDragEnter={(e) => {
+        if (!carriesFiles(e)) return;
+        drags.current += 1;
+        setDragging(true);
+      }}
+      onDragLeave={(e) => {
+        if (carriesFiles(e) && --drags.current <= 0) setDragging(false);
+      }}
+      onDragOver={(e) => carriesFiles(e) && e.preventDefault()}
+      onDrop={(e) => {
+        if (!carriesFiles(e)) return;
+        e.preventDefault();
+        drags.current = 0;
+        setDragging(false);
+        if (a.experiment) attach.add(e.dataTransfer.files);
+      }}
+    >
+      <div className="flex items-center justify-end gap-3 pt-2.5">
+        <button
+          className="mr-auto flex cursor-pointer items-center gap-1.5 rounded border-0 bg-transparent px-2 py-1 text-[12px] text-muted-foreground hover:bg-accent hover:text-foreground"
+          onClick={() => setPalette(true)}
+          aria-keyshortcuts="Meta+K Control+K"
+        >
+          <Search size={14} />
+          Search
+          <kbd className="rounded border border-border px-1 text-[11px]">{PALETTE_KEY}</kbd>
+        </button>
+        <Palette open={palette} onOpenChange={setPalette} entries={found} />
+        <button
+          className="flex cursor-pointer items-center gap-1.5 rounded border-0 bg-transparent px-2 py-1 text-[12px] text-muted-foreground hover:bg-accent hover:text-foreground"
+          onClick={() => setKnowledge(true)}
+        >
+          <BookOpen size={14} />
+          Knowledge
+        </button>
+        <KnowledgeDialog open={knowledge} onOpenChange={setKnowledge} />
+        <Popup
+          label="Show"
+          align="right"
+          className="top-[calc(100%+4px)] bottom-auto w-44"
+          trigger={(open, toggle) => (
+            <button
+              className="flex cursor-pointer items-center gap-1.5 rounded border-0 bg-transparent px-2 py-1 text-[12px] text-muted-foreground hover:bg-accent hover:text-foreground"
+              aria-haspopup="menu"
+              aria-expanded={open}
+              onClick={toggle}
+            >
+              <ListFilter size={14} />
+              {label}
+            </button>
+          )}
+        >
+          {(close) => (
+            <div role="menu" className="flex flex-col">
+              {SHOWS.map(([key, word]) => (
                 <button
-                  role="menuitemcheckbox"
-                  aria-checked={calls}
-                  className="flex cursor-pointer items-center justify-between rounded border-0 bg-transparent px-2 py-1.5 text-left text-[13px] text-foreground hover:bg-accent"
+                  key={key}
+                  role="menuitemradio"
+                  aria-checked={key === show}
+                  className={cn(
+                    "cursor-pointer rounded border-0 bg-transparent px-2 py-1.5 text-left text-[13px] text-foreground hover:bg-accent",
+                    key === show && "bg-accent",
+                  )}
                   onClick={() => {
-                    keepCalls(!calls);
-                    setCalls(!calls);
+                    setShow(key);
                     close();
                   }}
                 >
-                  Show tool calls
-                  {calls && <Check size={14} />}
+                  {word}
+                </button>
+              ))}
+              <div className="my-1 border-t border-border" />
+              <button
+                role="menuitemcheckbox"
+                aria-checked={calls}
+                className="flex cursor-pointer items-center justify-between rounded border-0 bg-transparent px-2 py-1.5 text-left text-[13px] text-foreground hover:bg-accent"
+                onClick={() => {
+                  keepCalls(!calls);
+                  setCalls(!calls);
+                  close();
+                }}
+              >
+                Show tool calls
+                {calls && <Check size={14} />}
+              </button>
+            </div>
+          )}
+        </Popup>
+        {panel && (
+          <div className="lg:hidden">
+            <Popup
+              label="Goal and to do"
+              align="right"
+              className="top-[calc(100%+4px)] bottom-auto w-[min(18rem,calc(100vw-2rem))] p-3"
+              trigger={(open, toggle) => (
+                <button
+                  className="flex cursor-pointer items-center gap-1.5 rounded border-0 bg-transparent px-2 py-1 text-[12px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                  aria-expanded={open}
+                  onClick={toggle}
+                >
+                  <ListChecks size={14} />
+                  Goal and to do
+                </button>
+              )}
+            >
+              {() => panel}
+            </Popup>
+          </div>
+        )}
+        {main === "chat" && switcher}
+      </div>
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <section
+          aria-label="Record"
+          ref={list}
+          className="min-h-0 flex-1 overflow-y-auto py-1"
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+            if (pinned.current) setNewer(false);
+          }}
+        >
+          <div>
+            {a.session && <div className="py-1.5 pl-2.5 text-[13px] text-muted-foreground">{a.session}</div>}
+            {recent.data?.more && (
+              <div className="flex justify-center py-1.5">
+                <button
+                  type="button"
+                  className="rounded-md border px-2.5 py-1 text-[13px] text-muted-foreground hover:bg-muted disabled:opacity-60"
+                  disabled={recent.isPlaceholderData}
+                  onClick={showEarlier}
+                >
+                  {recent.isPlaceholderData ? "Reading…" : "Show earlier"}
                 </button>
               </div>
             )}
-          </Popup>
-          {panel && (
-            <div className="lg:hidden">
-              <Popup
-                label="Goal and to do"
-                align="right"
-                className="top-[calc(100%+4px)] bottom-auto w-[min(18rem,calc(100vw-2rem))] p-3"
-                trigger={(open, toggle) => (
-                  <button
-                    className="flex cursor-pointer items-center gap-1.5 rounded border-0 bg-transparent px-2 py-1 text-[12px] text-muted-foreground hover:bg-accent hover:text-foreground"
-                    aria-expanded={open}
-                    onClick={toggle}
-                  >
-                    <ListChecks size={14} />
-                    Goal and to do
-                  </button>
-                )}
-              >
-                {() => panel}
-              </Popup>
-            </div>
-          )}
-        </div>
-        <div className="relative flex min-h-0 flex-1 flex-col">
-          <section
-            aria-label="Record"
-            ref={list}
-            className="min-h-0 flex-1 overflow-y-auto py-1"
-            onScroll={(e) => {
-              const el = e.currentTarget;
-              pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-              if (pinned.current) setNewer(false);
-            }}
-          >
-            <div>
-              {a.session && <div className="py-1.5 pl-2.5 text-[13px] text-muted-foreground">{a.session}</div>}
-              {recent.data?.more && (
-                <div className="flex justify-center py-1.5">
-                  <button
-                    type="button"
-                    className="rounded-md border px-2.5 py-1 text-[13px] text-muted-foreground hover:bg-muted disabled:opacity-60"
-                    disabled={recent.isPlaceholderData}
-                    onClick={showEarlier}
-                  >
-                    {recent.isPlaceholderData ? "Reading…" : "Show earlier"}
-                  </button>
-                </div>
-              )}
-              {all.length || lines.length ? (
-                <Record
-                  rows={rows}
-                  lines={lines}
-                  show={show}
-                  heard={heard}
-                  live={reported.data?.session?.session_id}
-                  now={a.now}
-                  calls={calls}
-                  onOpen={openRun}
-                />
-              ) : isWorking && !agent.data?.stopped ? (
-                <div className="flex items-center justify-center gap-1.5 py-8 text-[13px] text-muted-foreground">
-                  <Loader size={13} className="shrink-0 animate-spin" aria-hidden />
-                  The agent is starting: it connects, then reads its skills and playbook. Its steps show here as it takes
-                  them.
-                </div>
-              ) : (
-                <div className="py-8 text-center text-[13px] text-muted-foreground">
-                  No messages yet. What you write here waits for the agent: it reads it on its next turn, or when one
-                  connects.
-                </div>
-              )}
-            </div>
-          </section>
-          {dragging && (
-            <div className="pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-dashed border-primary bg-primary/5 text-center">
-              {a.experiment ? (
-                <>
-                  <div className="text-[15px]">Drop to attach</div>
-                  <div className="text-[13px] text-muted-foreground">
-                    Saved in the experiment folder, under notes/, where the agent reads them
-                  </div>
-                </>
-              ) : (
-                <div className="text-[15px]">Open an experiment to attach files</div>
-              )}
-            </div>
-          )}
-          {newer && (
-            <button
-              className="absolute bottom-3 left-1/2 flex -translate-x-1/2 cursor-pointer items-center gap-1.5 rounded-md border border-input bg-popover px-3 py-1.5 text-[12px] text-foreground shadow-[0_4px_14px_rgba(0,0,0,0.4)] hover:bg-accent"
-              onClick={toNewest}
-            >
-              <ArrowDown size={14} />
-              Newer messages
-            </button>
-          )}
-        </div>
-        {unread.length > 0 && (
-          <section
-            aria-label="Not read yet"
-            className="max-h-[30vh] overflow-y-auto border-t border-dashed border-border pt-1"
-          >
-            {unread.map((row) => (
-              <Message key={row.message_id} row={row} unread={unreadWhy(a)} />
-            ))}
-          </section>
-        )}
-        <div className="flex flex-col gap-2.5 border-t border-border pt-3 pb-4">
-          {/* Kept while a session runs, so the composer doesn't move as commands start and end.
-              Live while something runs; else the running step says it in the record, and
-              here only when no step shows it. */}
-          <LiveLine agent={a} heard={isWorking && !a.stopped} hide={nowOnStep} />
-          {a.waiting &&
-            (a.waiting.agent_reviewing ? (
-              <div className="text-[13px]">
-                <b>Agent is reviewing:</b> {a.waiting.proposal}
+            {all.length || lines.length ? (
+              <Record
+                rows={rows}
+                lines={lines}
+                show={show}
+                heard={heard}
+                live={reported.data?.session?.session_id}
+                now={a.now}
+                calls={calls}
+                onOpen={openRun}
+              />
+            ) : isWorking && !agent.data?.stopped ? (
+              <div className="flex items-center justify-center gap-1.5 py-8 text-[13px] text-muted-foreground">
+                <Loader size={13} className="shrink-0 animate-spin" aria-hidden />
+                The agent is starting: it connects, then reads its skills and playbook. Its steps show here as it takes
+                them.
               </div>
             ) : (
-              <div className="text-[13px]">
-                <b>Waiting on a decision:</b> {a.waiting.proposal}{" "}
-                <span className="text-muted-foreground">· {a.waiting.who}</span>
+              <div className="py-8 text-center text-[13px] text-muted-foreground">
+                No messages yet. What you write here waits for the agent: it reads it on its next turn, or when one
+                connects.
               </div>
-            ))}
-          {gatewayAsk && <ConnectCard key={gatewayAsk.id} ask={gatewayAsk} />}
-          {a.asking && <ConnectCard key={a.asking.id} ask={a.asking} decide="/app/agent/connections" />}
-          {request && <RequestCard key={request.request_id} request={request} agent={a} />}
-          {!request && suggestion && <SuggestionCard key={suggestion.proposal_id} suggestion={suggestion} agent={a} />}
-          <div
-            className={cn(
-              "rounded-md",
-              dragging && a.experiment && "outline-2 outline-offset-2 outline-primary outline-dashed",
             )}
-          >
-            <Composer agent={a} attach={attach} onSent={() => (pinned.current = true)} />
           </div>
+        </section>
+        {dragging && (
+          <div className="pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-dashed border-primary bg-primary/5 text-center">
+            {a.experiment ? (
+              <>
+                <div className="text-[15px]">Drop to attach</div>
+                <div className="text-[13px] text-muted-foreground">
+                  Saved in the experiment folder, under notes/, where the agent reads them
+                </div>
+              </>
+            ) : (
+              <div className="text-[15px]">Open an experiment to attach files</div>
+            )}
+          </div>
+        )}
+        {newer && (
+          <button
+            className="absolute bottom-3 left-1/2 flex -translate-x-1/2 cursor-pointer items-center gap-1.5 rounded-md border border-input bg-popover px-3 py-1.5 text-[12px] text-foreground shadow-[0_4px_14px_rgba(0,0,0,0.4)] hover:bg-accent"
+            onClick={toNewest}
+          >
+            <ArrowDown size={14} />
+            Newer messages
+          </button>
+        )}
+      </div>
+      {unread.length > 0 && (
+        <section
+          aria-label="Not read yet"
+          className="max-h-[30vh] overflow-y-auto border-t border-dashed border-border pt-1"
+        >
+          {unread.map((row) => (
+            <Message key={row.message_id} row={row} unread={unreadWhy(a)} />
+          ))}
+        </section>
+      )}
+      <div className="flex flex-col gap-2.5 border-t border-border pt-3 pb-4">
+        {/* Kept while a session runs, so the composer doesn't move as commands start and end.
+            Live while something runs; else the running step says it in the record, and
+            here only when no step shows it. */}
+        <LiveLine agent={a} heard={isWorking && !a.stopped} hide={nowOnStep} />
+        {a.waiting &&
+          (a.waiting.agent_reviewing ? (
+            <div className="text-[13px]">
+              <b>Agent is reviewing:</b> {a.waiting.proposal}
+            </div>
+          ) : (
+            <div className="text-[13px]">
+              <b>Waiting on a decision:</b> {a.waiting.proposal}{" "}
+              <span className="text-muted-foreground">· {a.waiting.who}</span>
+            </div>
+          ))}
+        {gatewayAsk && <ConnectCard key={gatewayAsk.id} ask={gatewayAsk} />}
+        {a.asking && <ConnectCard key={a.asking.id} ask={a.asking} decide="/app/agent/connections" />}
+        {request && <RequestCard key={request.request_id} request={request} agent={a} />}
+        {!request && suggestion && <SuggestionCard key={suggestion.proposal_id} suggestion={suggestion} agent={a} />}
+        {waits && (
+          <div
+            role="status"
+            className="flex items-start gap-2 rounded-md border border-[var(--fibsem-warn-color)] bg-[color-mix(in_srgb,var(--fibsem-warn-color)_10%,transparent)] px-3 py-2 text-[13px]"
+          >
+            <span className="mt-[7px] block size-2 shrink-0 rounded-full bg-[var(--fibsem-warn-color)]" aria-hidden />
+            <span className="min-w-0">
+              <b className="font-semibold">Waiting on you</b>
+              <span className="text-muted-foreground"> · the agent has stopped until you answer</span>
+              <span className="line-clamp-2 break-words text-foreground">{waits.text}</span>
+            </span>
+          </div>
+        )}
+        <div
+          className={cn(
+            "rounded-md",
+            dragging && a.experiment && "outline-2 outline-offset-2 outline-primary outline-dashed",
+          )}
+        >
+          <Composer agent={a} attach={attach} onSent={() => (pinned.current = true)} />
         </div>
       </div>
+    </div>
+  );
+  return (
+    <div className="flex h-full">
+      {main === "microscope" ? (
+        <MicroscopeMain
+          fibsem={fibsem}
+          shown={shown}
+          live={<LiveLine agent={a} heard={isWorking && !a.stopped} hide={false} />}
+          menu={<MicroscopeCustomise fibsem={fibsem} shown={shown} onChange={setShown} />}
+          switcher={switcher}
+          onOpenPage={() => openPage("/ui/microscope")}
+        />
+      ) : (
+        chat
+      )}
       <SideColumn
         tabs={tabs}
         focus={focus}

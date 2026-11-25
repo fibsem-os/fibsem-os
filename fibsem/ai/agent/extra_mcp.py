@@ -1,7 +1,7 @@
 """MCP servers a lab adds to the agent's own, set up in one place,
 ``<state root>/agent/mcp.yaml``: each server's address (``url``) or the
 command that starts it (``command``), the name its token is stored under
-(``token``, set with ``fibsem-cli key set <name>``), the tools the agent may
+(``token``, set as an environment variable of that name), the tools the agent may
 call and the ones a specialist may list:
 
     notebook:
@@ -42,17 +42,20 @@ names it in its ``mcp`` list (`fibsem.ai.agent.playbooks`); ``fibsem-agent
 
 import asyncio
 import json
+import logging
 import os
 import re
 import threading
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 
 import yaml
 
 from fibsem import keystore, paths
+
+logger = logging.getLogger(__name__)
 
 FILE = "mcp.yaml"
 # The harness's own servers (``harness.SERVER`` and ``HARNESS_SERVER``).
@@ -125,6 +128,49 @@ def load(file: Optional[Path] = None) -> Dict[str, Server]:
         return {str(name): _server(name, entry) for name, entry in data.items()}
     except ExtraMcpError as error:
         raise ExtraMcpError(f"{file}: {error}") from None
+
+
+def usable(file: Optional[Path] = None) -> Tuple[Dict[str, Server], List[str]]:
+    """The extra servers the agent can connect, and why each other one is
+    left off. A file that can't be read, an entry that is wrong, or one whose
+    token isn't stored leaves that server off (logged) instead of stopping
+    the agent from starting: the session runs without it."""
+    file = file or path()
+    if not file.is_file():
+        return {}, []
+    try:
+        data = yaml.safe_load(file.read_text(encoding="utf-8"))
+    except yaml.YAMLError as error:
+        return _left_off({}, [f"{file} can't be read, so none of its servers: {error}"])
+    if data is None:
+        return {}, []
+    if not isinstance(data, dict):
+        return _left_off(
+            {}, [f"{file}: each server is a name with its settings under it"]
+        )
+    servers, problems = {}, []
+    for name, entry in data.items():
+        try:
+            server = _server(name, entry)
+        except ExtraMcpError as error:
+            problems.append(f"{file}: {error}")
+            continue
+        if server.token and not keystore.get_secret(server.token):
+            problems.append(
+                f"{file}: no {server.token} for {server.name}: set the "
+                f"{server.token} environment variable"
+            )
+            continue
+        servers[server.name] = server
+    return _left_off(servers, problems)
+
+
+def _left_off(
+    servers: Dict[str, Server], problems: List[str]
+) -> Tuple[Dict[str, Server], List[str]]:
+    for problem in problems:
+        logger.warning(f"{problem}; the agent starts without it")
+    return servers, problems
 
 
 def _server(name, entry) -> Server:
@@ -267,13 +313,68 @@ def definitions(extras: Dict[str, Server]) -> Dict[str, dict]:
     return entries
 
 
+def where(server: Server) -> str:
+    """Where *server*'s token goes: its address's scheme and host (and port),
+    or its command line. A stored token goes only where it was stored for
+    (`keystore.pinned`)."""
+    if server.url:
+        from urllib.parse import urlsplit
+
+        parts = urlsplit(server.url)
+        return f"{parts.scheme}://{parts.netloc.lower()}"
+    return "command: " + " ".join(server.command)
+
+
+def places_for(token: str, extras: Dict[str, Server]) -> List[str]:
+    """Where each server using *token* sends it, as `where` writes it."""
+    return sorted({where(s) for s in extras.values() if s.token == token})
+
+
+def pin_token(token: str, extras: Dict[str, Server]) -> None:
+    """Keep where the token stored as *token* may go: the servers using it
+    now. Called as it is stored."""
+    places = places_for(token, extras)
+    if places:
+        keystore.pin(token, places)
+
+
+def misdirected(server: Server) -> Optional[str]:
+    """Why *server* may not have its stored token: it now points somewhere
+    the token wasn't stored for. None when it may, or when the token comes
+    from the environment (set by hand, for this run). A token stored before
+    pins were kept is pinned to where it goes now, on its first use."""
+    if not server.token or os.environ.get(server.token):
+        return None
+    pins = keystore.pinned(server.token)
+    here = where(server)
+    if pins is None:
+        try:
+            keystore.pin(server.token, [here])
+        except keystore.SecretStoreError:
+            pass
+        return None
+    if here in pins:
+        return None
+    return (
+        f"{server.name}: it now points at {here}, and {server.token} was stored for "
+        f"{', '.join(pins)}. Set the token again (on the gateway page, or "
+        f"fibsem-cli key set {server.token}) to send it there."
+    )
+
+
 def tokens(extras: Dict[str, Server]) -> Dict[str, str]:
     """The extra servers' tokens by name, for the CLI's environment: each from
-    the environment variable of its name, else the key store. Never print or
-    log them."""
+    the environment variable of its name, else the key store, and a stored
+    one only where it was stored for (`misdirected`). Never print or log
+    them."""
     found, missing = {}, []
     for server in extras.values():
-        if not server.token or server.token in found:
+        if not server.token:
+            continue
+        refused = keystore.stored_secret(server.token) and misdirected(server)
+        if refused:
+            raise ExtraMcpError(f"{path()}: {refused}")
+        if server.token in found:
             continue
         value = keystore.get_secret(server.token)
         if value:
@@ -283,10 +384,20 @@ def tokens(extras: Dict[str, Server]) -> Dict[str, str]:
     if missing:
         first = missing[0]
         raise ExtraMcpError(
-            f"{path()}: no {first.token} stored for {first.name}: run "
-            f"fibsem-cli key set {first.token}"
+            f"{path()}: no {first.token} for {first.name}: set the "
+            f"{first.token} environment variable"
         )
     return found
+
+
+def token_names(file: Optional[Path] = None) -> List[str]:
+    """The token names the connectors in *file* (``mcp.yaml``) use: the names
+    a key may be stored under besides `keystore.KEYS`. None for a file that
+    can't be read."""
+    try:
+        return sorted({s.token for s in load(file).values() if s.token})
+    except ExtraMcpError:
+        return []
 
 
 def allowed(extras: Dict[str, Server]) -> List[str]:

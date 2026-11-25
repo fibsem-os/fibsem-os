@@ -407,3 +407,26 @@ def test_a_size_off_the_list_is_scanned_at_the_nearest_listed_one():
     )
     assert AutoscriptBeam.scan_resolution(beam, (2048, 2048)) == (2048, 1768)
     assert AutoscriptBeam.scan_resolution(beam, (1536, 1024)) == (1536, 1024)
+
+
+def test_a_gas_list_xt_cannot_read_leaves_the_beam_with_no_choices(caplog):
+    """The Arctis, 25 Nov: xT raised "Failed to get available states from
+    ...PlasmaGas" and the ion beam was never built."""
+    from types import SimpleNamespace
+
+    from fibsem.drivers.autoscript.devices import AutoscriptBeam
+
+    class Gas:
+        value = "Xenon"
+
+        @property
+        def available_values(self):
+            raise RuntimeError("Failed to get available states from PlasmaGas.")
+
+    beam = SimpleNamespace(
+        _beam=SimpleNamespace(source=SimpleNamespace(plasma_gas=Gas()))
+    )
+    with caplog.at_level("WARNING"):
+        metadata = AutoscriptBeam.metadata_plasma_gas(beam)
+    assert not metadata.choices
+    assert "PlasmaGas" in caplog.text

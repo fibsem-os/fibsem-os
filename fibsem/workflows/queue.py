@@ -18,6 +18,7 @@ operation except :meth:`TaskQueue.remove` can change what is in the queue — an
 import copy
 import logging
 import threading
+import time
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import Callable, Iterable, List, Optional, Tuple
@@ -46,6 +47,8 @@ class WorkItem:
     # their tasks (a volume position, once per slice). None for one whose
     # items run their tasks once, as AutoLamella's lamellae and grids do.
     iteration: Optional[int] = None
+    # When it started running (time.time()): the status's task clock reads it.
+    started_at: Optional[float] = None
 
     @property
     def is_pending(self) -> bool:
@@ -337,6 +340,7 @@ class TaskQueue:
             for item in self._items:
                 if item.is_pending and not (skip is not None and skip(item)):
                     item.status = TaskStatus.InProgress
+                    item.started_at = time.time()
                     self._active = item
                     self._version += 1
                     return item

@@ -142,7 +142,8 @@ def test_a_query_and_a_long_poll_pass_through(app_server, gateways):
 def test_the_gateways_own_routes_stay_its_own(app_server, gateways):
     url, _ = app_server
     gateway = gateways(lambda: url)
-    assert gateway.get("/health").json() == {"status": "ok"}
+    health = gateway.get("/health").json()
+    assert (health["status"], health["program"]) == ("ok", "fibsem-gateway")
     assert gateway.get("/gateway", headers=_as(OPERATOR_TOKEN)).status_code == 200
 
 
@@ -224,3 +225,93 @@ def _answers(port):
         return httpx.get(f"http://127.0.0.1:{port}/health", timeout=1).is_success
     except httpx.HTTPError:
         return False
+
+
+def test_a_call_that_says_how_long_it_waits_is_waited_for(tmp_path):
+    """A long acquisition says how long it waits: the gateway waits that
+    long and a margin, not its usual 300 s; a stop keeps its short wait."""
+    from fibsem.client.transport import WAIT_HEADER, _read_s
+
+    waited = {}
+
+    def answer(request):
+        waited[request.url.path] = request.extensions["timeout"]["read"]
+        return httpx.Response(200, stream=httpx.ByteStream(b"{}"))
+
+    passthrough = PassThrough(
+        lambda: "http://app.test", transport=httpx.MockTransport(answer)
+    )
+    through = TestClient(_gateway_app(tmp_path, None, passthrough))
+    through.get("/microscope/acquire", headers={**_as(AGENT), WAIT_HEADER: "1000"})
+    through.get("/app/workflow/status", headers=_as(AGENT))
+    through.get("/app/agent/stop", headers={**_as(AGENT), WAIT_HEADER: "1000"})
+    through.get("/microscope/huge", headers={**_as(AGENT), WAIT_HEADER: "1e9"})
+    assert waited == {
+        "/microscope/acquire": 1030.0,
+        "/app/workflow/status": 300.0,
+        "/app/agent/stop": 30.0,
+        "/microscope/huge": 3 * 3600.0,
+    }
+    assert _read_s(httpx.Timeout(10.0, read=400.0)) == 400.0
+    assert _read_s(None) is None
+
+
+def test_with_no_app_the_agent_hosts_routes_go_to_it(tmp_path):
+    """While no App Server runs, the agent host answers its own routes; one
+    only the app has is the gateway's no_app, not the host's 404, and the
+    App Server's secret never goes to the host."""
+    import json
+
+    seen = []
+
+    def reply(status, body):
+        return httpx.Response(
+            status,
+            headers={"content-type": "application/json"},
+            stream=httpx.ByteStream(json.dumps(body).encode()),
+        )
+
+    def host(request):
+        seen.append((request.url.host, request.headers.get("x-fibsem-gateway")))
+        if request.url.path == "/app/agent/plan":
+            return reply(200, {"plan": "yes"})
+        if request.url.path == "/app/agent/missing":
+            return reply(404, {"detail": {"error_type": "no_plan", "message": "x"}})
+        return reply(404, {"detail": "Not Found"})
+
+    app = {"url": None}
+    passthrough = PassThrough(
+        lambda: app["url"],
+        transport=httpx.MockTransport(host),
+        secret=lambda: "app-secret",
+        host=lambda: "http://host.test",
+    )
+    through = TestClient(_gateway_app(tmp_path, None, passthrough))
+    assert through.get("/app/agent/plan", headers=_as(AGENT)).json() == {"plan": "yes"}
+    answer = through.get("/microscope/connection", headers=_as(AGENT))
+    assert answer.status_code == 503
+    assert answer.json()["detail"]["error_type"] == "no_app"
+    # The host's own refusals come through as it made them.
+    answer = through.get("/app/agent/missing", headers=_as(AGENT))
+    assert answer.status_code == 404
+    assert answer.json()["detail"]["error_type"] == "no_plan"
+    assert {secret for _, secret in seen} == {None}
+    # With the app running again, its calls go to it.
+    app["url"] = "http://app.test"
+    through.get("/app/agent/plan", headers=_as(AGENT))
+    assert seen[-1] == ("app.test", "app-secret")
+
+
+def test_a_library_save_through_the_gateway_goes_in_history(
+    app_server, tmp_path, monkeypatch
+):
+    monkeypatch.setenv("FIBSEM_HOME", str(tmp_path / "home"))
+    url, _ = app_server
+    app = _gateway_app(tmp_path, lambda: url)
+    with TestClient(app) as gateway:
+        r = gateway.post(
+            "/app/library/playbooks/my-lamellae", headers=_as(OPERATOR_TOKEN)
+        )
+        assert r.status_code == 200, r.text
+        history = gateway.get("/gateway/history", headers=_as(OPERATOR_TOKEN))
+    assert "made playbook my-lamellae" in history.text
