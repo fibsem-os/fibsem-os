@@ -4,7 +4,7 @@
 # session settings still hold under it.
 description: Fluorescence imaging on a standalone cryo-FM.
 instrument: cryo-fm
-# Its devices are served by the App Server, through its fibsem sidecar.
+# Its devices are served by the App Server, through its fibsem MCP server.
 mcp: [fibsem]
 skills: [fibsem-agent, cryo-fm]
 # The base's tools are a FIB-SEM's: its own, loaded from the first turn.

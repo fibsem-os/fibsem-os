@@ -28,7 +28,7 @@ run: the task skill says what to do instead.
 **Prefer the native MCP tools.** If `mcp__fibsem__*` tools are in your
 session, use them for everything except the watcher (below). They map
 one-to-one onto the HTTP routes and avoid shell-permission prompts. They come
-from the `fibsem-mcp` sidecar; if they are missing, it isn't registered in
+from the `fibsem-mcp` MCP server; if they are missing, it isn't registered in
 this session's MCP config (`claude mcp add -s user fibsem -- fibsem-mcp`), and
 plain HTTP works regardless. The first connection asks the operator to
 allow you: a call that answers `connect_waiting` means they haven't clicked
