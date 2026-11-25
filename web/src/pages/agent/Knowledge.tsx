@@ -584,7 +584,7 @@ const TAB_ABOUT: Partial<Record<Tab, string>> = {
   skills: "How to do a kind of task.",
   agents: "Second opinions and analysis, each in a fresh context. Several can run at once, but not on the microscope.",
   connectors:
-    "MCP servers the agent may use, such as the lab notebook: a playbook turns one on by naming it. Kept by the gateway; a command one is changed only at this PC.",
+    "MCP servers the agent may use, such as the lab notebook. A playbook turns one on by naming it.",
   tools: "Any level works at Watch and up. Acts need Drive, or your approval at Assist. Never touches is refused at every level.",
 };
 

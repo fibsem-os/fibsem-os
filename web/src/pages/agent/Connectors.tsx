@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { KeyRound, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
@@ -349,43 +350,86 @@ function ConnectorRow({
     c.entry.tools === "all"
       ? "every tool"
       : `${(c.entry.tools ?? []).length} tool${(c.entry.tools ?? []).length === 1 ? "" : "s"}`;
+  const [keyOpen, setKeyOpen] = useState(false);
+  const facts = [
+    c.entry.about,
+    tools,
+    `needs ${c.entry.level === "watch" ? "Watch" : "Drive"}`,
+    isCommand ? "a program on this PC" : null,
+    !local ? "changed only at this PC" : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const small = "px-2 py-1 text-[12px]";
   return (
-    <div className="flex flex-col gap-1.5 border-t border-border py-2.5 text-[13px]">
-      <div className="flex flex-wrap items-center gap-2">
+    <div className="flex flex-col gap-1 border-t border-border py-2 text-[13px]">
+      <div className="flex items-center gap-2" title={facts}>
+        <Dot on={!c.problem} />
         <span className="font-medium text-foreground">{c.name}</span>
         <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
           {isCommand ? (c.entry.command ?? []).join(" ") : c.entry.url}
         </span>
+        {key && (
+          <Button
+            variant="ghost"
+            className={small}
+            title={key.set ? `${key.name} is set` : `${key.name} isn't set`}
+            onClick={() => setKeyOpen(!keyOpen)}
+          >
+            <KeyRound
+              size={13}
+              className={
+                key.set ? "" : "text-[var(--fibsem-semantic-warning-color)]"
+              }
+            />
+            {key.set ? "Key" : "Set key"}
+          </Button>
+        )}
         {local && (
           <>
-            <Button disabled={test.isPending} onClick={() => test.mutate()}>
+            <Button
+              variant="ghost"
+              className={small}
+              disabled={test.isPending}
+              onClick={() => test.mutate()}
+            >
               {test.isPending ? "Testing…" : "Test"}
             </Button>
-            <Button onClick={() => setEditing(!editing)}>Edit</Button>
+            <Button
+              variant="ghost"
+              className={small}
+              onClick={() => setEditing(!editing)}
+            >
+              Edit
+            </Button>
             {confirm ? (
-              <Button variant="danger" onClick={() => remove.mutate()}>
-                Remove it
+              <Button
+                variant="danger"
+                className={small}
+                onClick={() => remove.mutate()}
+              >
+                Remove
               </Button>
             ) : (
-              <Button onClick={() => setConfirm(true)}>Remove</Button>
+              <Button
+                variant="ghost"
+                className={small}
+                title="Remove"
+                aria-label={`Remove ${c.name}`}
+                onClick={() => setConfirm(true)}
+              >
+                <Trash2 size={13} />
+              </Button>
             )}
           </>
         )}
       </div>
-      <span className="text-xs text-muted-foreground">
-        {c.entry.about ? `${c.entry.about} · ` : ""}
-        {tools} · needs {c.entry.level === "watch" ? "Watch" : "Drive"}
-        {isCommand ? " · a program on this PC" : ""}
-        {!local ? " · changed only at this PC" : ""}
-      </span>
       {c.problem && (
         <span className={cn("text-xs", WARN)}>Left off: {c.problem}</span>
       )}
       {test.data && (
         <span className="text-xs text-muted-foreground">
-          Offers {test.data.tools.length} tool
-          {test.data.tools.length === 1 ? "" : "s"}:{" "}
-          {test.data.tools.join(", ") || "none"}
+          {test.data.tools.join(", ") || "No tools"}
         </span>
       )}
       {(test.error ?? remove.error) && (
@@ -393,7 +437,7 @@ function ConnectorRow({
           {((test.error ?? remove.error) as Error).message}
         </span>
       )}
-      {key && <KeyRow s={key} />}
+      {key && keyOpen && <KeyRow s={key} />}
       {editing && (
         <ConnectorForm
           start={toForm(c.name, c.entry)}
@@ -403,6 +447,37 @@ function ConnectorRow({
         />
       )}
     </div>
+  );
+}
+
+/** fibsem's own connector: started by the agent (the fibsem-mcp sidecar),
+ * not in mcp.yaml, on under every playbook of its instrument kind. */
+function BuiltIn() {
+  return (
+    <div
+      className="flex items-center gap-2 border-t border-border py-2 text-[13px]"
+      title="Started by the agent itself; every playbook for this instrument turns it on"
+    >
+      <Dot on />
+      <span className="font-medium text-foreground">fibsem</span>
+      <span className="flex-1" />
+      <span className="rounded border border-border px-1.5 py-0.5 text-[11px] text-muted-foreground">
+        Built In
+      </span>
+    </div>
+  );
+}
+
+function Dot({ on }: { on: boolean }) {
+  return (
+    <span
+      className={cn(
+        "inline-block size-1.5 shrink-0 rounded-full",
+        on
+          ? "bg-[var(--primary)]"
+          : "bg-[var(--fibsem-semantic-warning-color)]",
+      )}
+    />
   );
 }
 
@@ -426,12 +501,13 @@ export function Connectors({ enabled }: { enabled: boolean }) {
   const data = found.data;
   return (
     <div className="flex h-[min(560px,76vh)] flex-col gap-1 overflow-y-auto px-4 py-3">
-      <div className="mb-1 flex items-start justify-between gap-2">
-        <p className="m-0 text-xs text-muted-foreground">
-          Changes apply at the next agent start. Kept in{" "}
-          <span className="font-mono">{data?.file ?? "mcp.yaml"}</span>.
-        </p>
-        <Button onClick={() => setAdding(!adding)}>New</Button>
+      <div className="flex justify-end">
+        <Button
+          title={`Kept in ${data?.file ?? "mcp.yaml"}; used from the next agent start`}
+          onClick={() => setAdding(!adding)}
+        >
+          New
+        </Button>
       </div>
       {found.error && (
         <p className="m-0 text-[13px] text-destructive">
@@ -449,11 +525,7 @@ export function Connectors({ enabled }: { enabled: boolean }) {
           onDone={() => setAdding(false)}
         />
       )}
-      {data?.connectors.length === 0 && !adding && (
-        <p className="m-0 border-t border-border py-2 text-[13px] text-muted-foreground">
-          No connectors yet.
-        </p>
-      )}
+      <BuiltIn />
       {data?.connectors.map((c) => (
         <ConnectorRow
           key={c.name}
