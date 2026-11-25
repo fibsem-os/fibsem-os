@@ -474,7 +474,6 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
         "autolamella-coincidence-milling",
         "screen-grids",
         "fibsem-experiment",
-        "lab-notebook",
     }
     for skill in options.skills:
         assert (checkout / ".claude" / "skills" / skill / "SKILL.md").is_file()

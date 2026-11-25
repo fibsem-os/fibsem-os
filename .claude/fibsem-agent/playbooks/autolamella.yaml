@@ -24,8 +24,6 @@ optional:
       - fibsem-worker
   - skill: autolamella-assistant
     when: the operator runs the workflow and asks you to help
-  - skill: lab-notebook
-    when: you have the lab notebook's tools (mcp__notebook__…), at session setup
   - skill: screen-grids
     when: the grid has not been screened and the operator wants sites found
     agents: [autolamella-site-finder]

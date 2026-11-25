@@ -200,8 +200,7 @@ fibsem-agent
   YAML, a token not set) is left off, not a reason to stop: the agent
   starts without it, the log says why, and `--show-config` lists it under
   "MCP left off". A server a playbook names that `mcp.yaml` doesn't have
-  is left off too, with a warning in the log. The shipped `autolamella` playbook names `notebook`, and its
-  `lab-notebook` skill says how to use it.
+  is left off too, with a warning in the log. The shipped `autolamella` playbook names `notebook`.
 
   A picture a lab tool answers with shows on the Agent page under its step,
   as the agent saw it. It is kept beside the transcript, in the session's
