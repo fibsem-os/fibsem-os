@@ -342,7 +342,19 @@ class BoundParameter:
     def refresh_metadata(self, emit: bool = True) -> ParameterMetadata:
         """Read the metadata again from the backend. Called at bind and on dependencies."""
         source = self._metadata_source
-        metadata = source() if callable(source) else (source or ParameterMetadata())
+        try:
+            metadata = source() if callable(source) else (source or ParameterMetadata())
+        except Exception as e:  # noqa: BLE001 - the vendor's choices or limits
+            # A backend that can't list one parameter's choices (a plasma source
+            # whose gases xT can't read) leaves it on the spec's, and the device
+            # still builds: one bad listing never takes the whole beam down.
+            logger.warning(
+                "Could not read %s.%s's choices or limits: %s",
+                getattr(self.device, "name", "?"),
+                self.spec.name,
+                e,
+            )
+            metadata = ParameterMetadata()
         limits = metadata.limits if metadata.limits is not None else self.spec.limits
         choices = (
             metadata.choices if metadata.choices is not None else self.spec.choices
