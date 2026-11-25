@@ -224,13 +224,19 @@ function ConnectorForm({
         label="Token name"
         hint="Where its token is stored, such as NOTEBOOK_TOKEN."
       >
-        <input
-          value={f.token}
-          onChange={(e) => set({ token: e.target.value.toUpperCase() })}
-          className={cn(FIELD, "font-mono text-xs sm:w-64")}
-        />
+        <span className="flex flex-wrap items-start gap-x-4 gap-y-1">
+          <input
+            value={f.token}
+            onChange={(e) => set({ token: e.target.value.toUpperCase() })}
+            className={cn(FIELD, "font-mono text-xs sm:w-64")}
+          />
+          {keyRow && keyRow.name === f.token && (
+            <span className="min-w-0 flex-1 pt-1">
+              <KeyRow s={keyRow} inline />
+            </span>
+          )}
+        </span>
       </Field>
-      {keyRow && keyRow.name === f.token && <KeyRow s={keyRow} />}
       <Field label="About" hint="What the agent is told it is.">
         <input
           value={f.about}

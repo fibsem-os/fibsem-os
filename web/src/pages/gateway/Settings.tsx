@@ -91,6 +91,7 @@ function CopyCommand({ command }: { command: string }) {
   }, [copied]);
   return (
     <Button
+      type="button"
       title={command}
       onClick={() =>
         navigator.clipboard
@@ -111,7 +112,9 @@ function CopyCommand({ command }: { command: string }) {
 
 /** One key: whether it is set and where from, and for the operator at this
  * PC, Set or Replace (pasted once, never shown again) and Remove. */
-export function KeyRow({ s }: { s: Secret }) {
+/** One key: its state and Set/Replace/Remove. *inline* is the short form
+ * that sits beside a connector's token name in its editor. */
+export function KeyRow({ s, inline = false }: { s: Secret; inline?: boolean }) {
   const client = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState("");
@@ -141,19 +144,41 @@ export function KeyRow({ s }: { s: Secret }) {
   const error = (save.error ?? remove.error) as Error | null;
   const about = s.about.charAt(0).toUpperCase() + s.about.slice(1);
   return (
-    <div className="flex flex-col gap-1.5 border-t border-border py-2 text-[13px]">
-      <div className="grid grid-cols-1 items-center gap-1 sm:grid-cols-[190px_minmax(0,1fr)_auto] sm:gap-3">
-        <span className="font-mono text-xs text-muted-foreground" title={about}>
-          {s.name}
-        </span>
-        <span className="min-w-0">
+    <div
+      className={cn(
+        "flex flex-col gap-1.5 text-[13px]",
+        !inline && "border-t border-border py-2",
+      )}
+    >
+      <div
+        className={cn(
+          "items-center gap-1",
+          inline
+            ? "flex flex-wrap gap-3"
+            : "grid grid-cols-1 sm:grid-cols-[190px_minmax(0,1fr)_auto] sm:gap-3",
+        )}
+      >
+        {!inline && (
+          <span
+            className="font-mono text-xs text-muted-foreground"
+            title={about}
+          >
+            {s.name}
+          </span>
+        )}
+        <span className="min-w-0" title={inline ? about : undefined}>
           <Dot on={s.set} />
           {s.set ? (
             `Set · from ${s.source}`
           ) : (
             <span className="text-muted-foreground">Not set</span>
           )}
-          <span className="block text-xs text-muted-foreground">
+          <span
+            className={cn(
+              "block text-xs text-muted-foreground",
+              inline && "hidden",
+            )}
+          >
             {about}
             {s.sent_to?.length ? ` · sent only to ${s.sent_to.join(", ")}` : ""}
           </span>
@@ -175,12 +200,13 @@ export function KeyRow({ s }: { s: Secret }) {
               </span>
             ) : (
               <>
-                <Button onClick={() => setEditing(!editing)}>
+                <Button type="button" onClick={() => setEditing(!editing)}>
                   {s.set ? "Replace…" : "Set…"}
                 </Button>
                 {s.set &&
                   (confirm ? (
                     <Button
+                      type="button"
                       variant="danger"
                       disabled={remove.isPending}
                       onClick={() => remove.mutate()}
@@ -188,7 +214,9 @@ export function KeyRow({ s }: { s: Secret }) {
                       Remove it
                     </Button>
                   ) : (
-                    <Button onClick={() => setConfirm(true)}>Remove</Button>
+                    <Button type="button" onClick={() => setConfirm(true)}>
+                      Remove
+                    </Button>
                   ))}
               </>
             )
@@ -198,6 +226,7 @@ export function KeyRow({ s }: { s: Secret }) {
               <HoverCard
                 trigger={
                   <button
+                    type="button"
                     aria-label={`How to set ${s.name}`}
                     className="flex cursor-pointer border-0 bg-transparent p-1 text-muted-foreground hover:text-foreground"
                   >
@@ -218,6 +247,7 @@ export function KeyRow({ s }: { s: Secret }) {
         <p className="m-0 text-xs text-muted-foreground">
           This PC stops using it. Turn it off where it was issued too.{" "}
           <button
+            type="button"
             className="cursor-pointer border-0 bg-transparent p-0 underline"
             onClick={() => setConfirm(false)}
           >
@@ -230,6 +260,8 @@ export function KeyRow({ s }: { s: Secret }) {
           className="flex flex-wrap items-center gap-2"
           onSubmit={(event) => {
             event.preventDefault();
+            // Inside a connector's editor: don't also save the connector.
+            event.stopPropagation();
             if (value.trim()) save.mutate();
           }}
         >
