@@ -629,3 +629,14 @@ def test_without_a_data_folder_it_serves_no_image_tools(agent):
     routers = agent.get("/capabilities").json()["routers"]
     assert not routers["analysis"] and not routers["files"]
     assert agent.get("/app/experiment/files").status_code == 404
+
+
+def test_the_playbooks_skills_and_subagents_are_served_with_no_app(agent, operator):
+    # The Knowledge window and the gateway's Customise, with no app running.
+    found = operator.get("/app/library/playbooks")
+    assert found.status_code == 200, found.text
+    assert "autolamella" in {item["name"] for item in found.json()["items"]}
+    assert agent.get("/app/library/options").status_code == 200
+    # Editing is the operator's.
+    r = agent.put("/app/library/playbooks/autolamella", json={"text": "rules: []\n"})
+    assert r.status_code in (401, 403)

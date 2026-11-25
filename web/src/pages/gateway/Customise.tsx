@@ -2,10 +2,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { FIELD } from "@/pages/gateway/AgentCard";
-import { PlaybooksCard } from "@/pages/gateway/PlaybookEditor";
+import { LibraryBrowser, type LibraryKind } from "@/pages/agent/Library";
 import { KeyRow, type Secret } from "@/pages/gateway/Settings";
 
 /** One connector as mcp.yaml has it (`fibsem.ai.agent.extra_mcp`). */
@@ -425,7 +426,7 @@ function ConnectorsCard() {
     <Card className="flex flex-col gap-1">
       <div className="mb-1 flex items-center justify-between gap-2">
         <CardTitle>Connectors</CardTitle>
-        <Button onClick={() => setAdding(!adding)}>Add</Button>
+        <Button onClick={() => setAdding(!adding)}>New</Button>
       </div>
       <p className="m-0 text-xs text-muted-foreground">
         MCP servers the agent may use, such as the lab notebook. A playbook
@@ -465,12 +466,52 @@ function ConnectorsCard() {
   );
 }
 
+const LIBRARY: [LibraryKind, string][] = [
+  ["playbooks", "Playbooks"],
+  ["skills", "Skills"],
+  ["agents", "Subagents"],
+];
+
+/** The playbooks, skills and subagents: each opens the Agent page's
+ * Knowledge browser in a dialog, through the gateway, so it works with no
+ * app running. */
+function LibraryCard() {
+  const [kind, setKind] = useState<LibraryKind | null>(null);
+  return (
+    <Card className="flex flex-col gap-1">
+      <CardTitle>Playbooks, skills and subagents</CardTitle>
+      <p className="m-0 pb-1 text-[13px] text-muted-foreground">
+        How each kind of job runs, and what the agent reads and calls on.
+        Editing a shipped one saves the lab's copy.
+      </p>
+      <div className="flex flex-wrap gap-2.5">
+        {LIBRARY.map(([k, label]) => (
+          <Button key={k} onClick={() => setKind(k)}>
+            {label}
+          </Button>
+        ))}
+      </div>
+      <Dialog
+        open={kind !== null}
+        onOpenChange={(open) => !open && setKind(null)}
+      >
+        <DialogContent
+          title={LIBRARY.find(([k]) => k === kind)?.[1] ?? ""}
+          className="w-[min(960px,calc(100vw-32px))]"
+        >
+          {kind && <LibraryBrowser kind={kind} enabled />}
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+}
+
 /** What shapes the agent's work on this PC: its playbooks and its
  * connectors. */
 export function Customise() {
   return (
     <div className="flex flex-col gap-4">
-      <PlaybooksCard />
+      <LibraryCard />
       <ConnectorsCard />
     </div>
   );

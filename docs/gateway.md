@@ -111,16 +111,10 @@ on the left has four pages:
 - **Pairing.** The paired computers, agents and hubs, and a code to pair another
   (see [Pairing](#pairing)).
 - **Customise.** What shapes the agent's work on this PC.
-  - **Playbooks:** each playbook on this PC, opened in an editor: a form (pickers for
-    skills, subagents, connectors, tools and hooks; rules, reminders, optional skills and
-    session settings), or its YAML. What it gets from below (what it extends, or the
-    shipped base) shows faint. As you type, the draft is checked as the agent loads it,
-    with what the agent would run and the change from the file. A save is the lab's copy
-    in `~/.fibsem/knowledge/playbooks/`, so editing a shipped playbook makes the lab's
-    copy, which wins over it; **Use the shipped one again** removes that copy. A playbook
-    that wouldn't load can't be saved, the file before is kept as `<name>.yaml.bak`, and
-    each save is in History. Any operator, at this PC or paired, edits playbooks; a hub
-    or an agent never does. A running session keeps the playbook it started on.
+  - **Playbooks, Skills, Subagents:** the Agent page's Knowledge browser, through the
+    gateway: what fibsemOS ships and the lab's own, each with its form or its file. Editing
+    a shipped one saves the lab's copy. It works with no app running (the gateway's agent
+    host serves it). Editing is the operator's.
   - **Connectors:** the lab's MCP servers (`~/.fibsem/agent/mcp.yaml`), each with
     **Test** (the tools it offers, asked as the agent asks), **Edit** and **Remove**, and
     its token's key. A connector is checked as the agent reads it, so one that wouldn't

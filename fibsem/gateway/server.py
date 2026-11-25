@@ -37,7 +37,6 @@ from fastapi.requests import HTTPConnection
 from fastapi.responses import RedirectResponse
 
 from fibsem.ai.agent.playbooks import DEFAULT as DEFAULT_PLAYBOOK
-from fibsem.gateway import playbook_editor
 from fibsem.gateway import settings as gateway_settings
 from fibsem.gateway.agent import (
     SESSIONS_MAX,
@@ -579,57 +578,6 @@ def build_gateway_app(
             return gateway_settings.test_connector(name, found.local)
         except gateway_settings.KeyRefused as refused:
             raise _connector_refused(refused) from None
-
-    @app.get("/gateway/playbook-options")
-    def get_playbook_options(found: Caller = Depends(caller)) -> dict:
-        """What the playbook editor's pickers offer."""
-        operator_only(found, "edits playbooks")
-        return playbook_editor.options()
-
-    @app.get("/gateway/playbooks/{name}")
-    def get_playbook_file(name: str, found: Caller = Depends(caller)) -> dict:
-        """Playbook *name*'s file, where it is from and what it gets from
-        below it."""
-        operator_only(found, "edits playbooks")
-        try:
-            return playbook_editor.read(name)
-        except gateway_settings.KeyRefused as refused:
-            raise _connector_refused(refused) from None
-
-    @app.post("/gateway/playbooks/{name}/check")
-    def check_playbook(
-        name: str, body: Dict[str, Any], found: Caller = Depends(caller)
-    ) -> dict:
-        """``{text}`` or ``{data}``: the draft as the agent would load it,
-        or why it wouldn't, and its change from the file. Saves nothing."""
-        operator_only(found, "edits playbooks")
-        try:
-            return playbook_editor.check(name, body or {})
-        except gateway_settings.KeyRefused as refused:
-            raise _connector_refused(refused) from None
-
-    @app.put("/gateway/playbooks/{name}")
-    def put_playbook(name: str, body: Dict[str, Any], found: Caller = Depends(caller)):
-        """``{text}`` or ``{data}``: save the lab's copy of *name*, once it
-        loads. Any operator; never a hub or an agent. In History."""
-        operator_only(found, "edits playbooks")
-        try:
-            saved = playbook_editor.save(name, body or {})
-        except gateway_settings.KeyRefused as refused:
-            raise _connector_refused(refused) from None
-        gateway.record_access(found.who, "page", f"saved playbook {name}")
-        return saved
-
-    @app.delete("/gateway/playbooks/{name}")
-    def delete_playbook(name: str, found: Caller = Depends(caller)) -> dict:
-        """Remove the lab's copy of *name*: the shipped one is used again."""
-        operator_only(found, "edits playbooks")
-        try:
-            shipped = playbook_editor.remove(name)
-        except gateway_settings.KeyRefused as refused:
-            raise _connector_refused(refused) from None
-        gateway.record_access(found.who, "page", f"removed the lab's playbook {name}")
-        return {"removed": name, "now": shipped}
 
     @app.get("/gateway/this-pc")
     def get_this_pc(found: Caller = Depends(caller)) -> dict:
