@@ -356,11 +356,12 @@ def _notebook(name="notebook"):
     }
 
 
-def test_a_server_the_playbook_names_must_be_set_up_and_fibsem_is_needed(lab, checkout):
+def test_a_server_the_playbook_names_is_left_off_when_not_set_up_and_fibsem_is_needed(
+    lab, checkout
+):
     write(lab, "with-notebook", "mcp: [notebook]\n")
     playbook = playbooks.load("with-notebook", checkout)
-    with pytest.raises(harness_mod.SetupRefused, match="notebook.*doesn't set up"):
-        harness_mod.mcp_names(playbook, {})
+    assert harness_mod.mcp_names(playbook, {}) == [SERVER]
     assert harness_mod.mcp_names(playbook, _notebook()) == [SERVER, "notebook"]
     # Without a playbook, the sidecar alone, as before.
     assert harness_mod.mcp_names(None, {}) == [SERVER]
