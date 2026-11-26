@@ -444,6 +444,7 @@ class RemoteParts:
         super().__init__(*args, **kwargs)
         self.client = client
         self.server_commands: frozenset = frozenset()
+        self._safety_commands: frozenset = frozenset()
         """The commands the server has for this device, known once bound. A server
         older than this client may lack some."""
         self.online = False
@@ -491,6 +492,11 @@ class RemoteParts:
                 metadata=self._metadata_reader(name, first=info),
             )
         self.server_commands = frozenset(description.get("commands", {}))
+        self._safety_commands = frozenset(
+            name
+            for name, info in description.get("commands", {}).items()
+            if isinstance(info, Mapping) and info.get("safety")
+        )
         self.online = True
         self._apply_facts(description.get("facts", {}))
 
@@ -517,7 +523,11 @@ class RemoteParts:
     def _post_command(
         self, command: str, timeout: Any, kwargs: Mapping[str, Any]
     ) -> Any:
-        """The server's answer to *command*: JSON, or the data it sent."""
+        """The server's answer to *command*: JSON, or the data it sent. Refused here
+        during this instrument's Safety Halt, before anything is sent, unless the
+        server lists it as a safety command or it is a stop."""
+        if command not in _STOPS and command not in self._safety_commands:
+            self.safety_halt.check(f"{self.name}.{command}")
         path = f"{self.collection}/{self.name}/commands/{command}"
         # The App Server records why with every stop; a device server ignores it.
         reason = (
@@ -1061,7 +1071,19 @@ def build_remote_device(entry: "DeviceEntry", context: "BuildContext") -> Device
         device = device_class(client=client)
     else:
         device = device_class(name=entry.name, client=client)
+    _share_halt(device, context.microscope)
     return device.connect(description)
+
+
+def _share_halt(device: Device, microscope: Any) -> None:
+    """Give *device* the Safety Halt of *microscope*, so a halt there refuses its
+    writes and commands too. It keeps its own locks: a device on another computer
+    never waits for the microscope's."""
+    halt = getattr(getattr(microscope, "resources", None), "safety_halt", None)
+    if halt is None or halt is device.resources.safety_halt:
+        return
+    device.resources.safety_halt = halt
+    halt.changed.connect(device._safety_halt_changed)
 
 
 def build_remote_fm(
