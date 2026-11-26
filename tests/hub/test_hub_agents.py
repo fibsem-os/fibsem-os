@@ -28,10 +28,12 @@ class FakeSlot:
         name = route.rsplit("/", 1)[-1]
         if name in self.refuse:
             reason = self.refuse[name]
-            return 409, {"detail": {"reason": reason, "message": f"Refused: {reason}."}}
+            detail = {"error_type": reason, "message": f"Refused: {reason}."}
+            return 409, {"detail": detail}
         if name == "slot":
             self.holder = body["session_id"]
-            return 200, {"token": "agent-token", "lease_s": 30, "grace_s": 120}
+            token = "new-token" if body.get("rejoin") else "agent-token"
+            return 200, {"token": token, "lease_s": 30, "grace_s": 120}
         if name == "release":
             self.holder = None
         return 200, {"lease_s": 30, "state": "running"}
@@ -41,6 +43,7 @@ class FakeManager:
     def __init__(self):
         self.agents = {}
         self.started = []
+        self.parked = []
         self.fail = False
 
     def start(self, name, session_id, args, goal=None, env=None, about=None):
@@ -52,6 +55,15 @@ class FakeManager:
     def end(self, name):
         if name in self.agents:
             self.agents[name].state = "ended"
+
+    def park(self, name):
+        self.parked.append(name)
+        self.agents[name].state = "waiting"
+        return self.agents[name]
+
+    def unpark(self, name):
+        # The real manager resumes it on its next poll, with its env.
+        self.agents[name].state = "running"
 
     def agent(self, name):
         return self.agents.get(name)
@@ -194,7 +206,12 @@ def test_the_same_session_joins_again_after_the_slot_was_freed(made):
         "token": "agent-token",
     }
     assert made.agents.state()["Scope 1"]["state"] == "running"
-    assert made.manager.agents["Scope 1"].state == "running"
+    # The gateway made a new token: the agent is stopped and carries on
+    # with it.
+    assert made.manager.parked == ["Scope 1"]
+    agent = made.manager.agents["Scope 1"]
+    assert agent.state == "running"
+    assert agent.env["FIBSEM_SERVER_TOKEN"] == "new-token"
 
 
 @pytest.mark.parametrize(

@@ -7,8 +7,9 @@ the instrument's one agent slot. The hub asks it for the slot
 (``POST /gateway/agent/slot``), and the gateway answers the agent's token,
 made as it makes a local agent's, once: it is kept in memory and in the
 agent's environment, never in a file. The hub then renews the slot while the
-agent runs, joins again as the same session after the connection was away,
-and gives the slot back when the agent ends.
+agent runs, joins again as the same session after the connection was away
+(the gateway then answers a new token, and the agent carries its session on
+with it), and gives the slot back when the agent ends.
 
 The gateway decides everything: a refusal to renew or to join again (the
 level was changed at the PC, Stop or End was pressed there, another agent has
@@ -298,6 +299,16 @@ class HubAgents:
         except GatewayRefused as refusal:
             self._refused(name, held, refusal)
             return
+        fresh = answer.get("token") if isinstance(answer, dict) else None
+        if isinstance(fresh, str) and fresh and fresh != held.token:
+            # Joined again after the slot was freed: the gateway unpaired the
+            # old token then and made this one. The agent is stopped and
+            # carries the same session on with it.
+            with self._lock:
+                held.token = fresh
+            if self._manager.park(name) is agent and agent.state != "ended":
+                agent.env = self._env(name)
+            self._manager.unpark(name)
         with self._lock:
             held.renewed = self._clock()
             held.lease_s = _lease(answer, held.lease_s)
