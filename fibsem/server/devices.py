@@ -1101,7 +1101,7 @@ def demo_devices(parts: Sequence[str] = ("beams",)) -> List[Device]:
     return devices
 
 
-SERVED_FM_DRIVERS = {"fm": "Demo", "odemis-fm": "Odemis"}
+SERVED_FM_DRIVERS = {"fm": "Demo"}
 """The FM ``--serve`` names, and the driver whose fm entry each builds."""
 
 HOST_FM_KEYS = (
@@ -1118,18 +1118,14 @@ HOST_FM_KEYS = (
 """fm entry keys the host's remote entry owns, refused in a Device Server's file."""
 
 
-def served_fm_settings(
-    serve: str, mount_transform: Optional[str] = None
-) -> Dict[str, Any]:
-    """The one-entry file that ``--serve fm`` or ``--serve odemis-fm`` stands for."""
+def served_fm_settings(serve: str) -> Dict[str, Any]:
+    """The one-entry file that ``--serve fm`` stands for."""
     entry: Dict[str, Any] = {
         "name": "fm",
         "type": "fm",
         "driver": SERVED_FM_DRIVERS[serve],
         "required": True,
     }
-    if mount_transform is not None:
-        entry["mount_transform"] = mount_transform
     return {"hardware": {"devices": [entry]}}
 
 
@@ -1277,22 +1273,14 @@ def main(
         choices=(*DEMO_PARTS, *SERVED_FM_DRIVERS),
         default=None,
         help="beams, stage, chamber, manipulator: the Demo microscope's; fm: a "
-        "simulated FM's parts; odemis-fm: the FM of the METEOR this computer runs "
-        "odemis for (each the one fm entry of a file). Default beams, unless "
-        "--config is given",
+        "simulated FM's parts. Default beams, unless --config is given. A real "
+        "device, a METEOR's FM included, is served from a file (--config)",
     )
     parser.add_argument(
         "--config",
         help="a Device Server file: its hardware.devices entries, each built and "
         "served with its own driver, and its server host and port. Default "
         "~/.fibsem/device-server.yaml when it exists and --serve is not given",
-    )
-    parser.add_argument(
-        "--mount-transform",
-        choices=("none", "flip-x", "flip-y", "flip-xy"),
-        default=None,
-        help="fm, odemis-fm: the flip that puts the camera's frames into the "
-        "stage's axes; in a file, the fm entry's mount_transform",
     )
     parser.add_argument(
         "--token-file",
@@ -1311,11 +1299,6 @@ def main(
         logger.info(f"serving what {DEFAULT_CONFIG} lists")
     if args.serve is None:
         args.serve = [] if args.config else ["beams"]
-    if args.mount_transform is not None:
-        logger.warning(
-            "--mount-transform still works, but belongs in the Device Server's file: "
-            f"mount_transform: {args.mount_transform} on its fm entry."
-        )
     served: List[Device] = []
     built: Dict[str, Device] = {}
     cleanups: List[Callable[[], None]] = []
@@ -1329,9 +1312,7 @@ def main(
             raise SystemExit(1) from e
         sources.append(settings)
     sources += [
-        served_fm_settings(serve, args.mount_transform)
-        for serve in SERVED_FM_DRIVERS
-        if serve in args.serve
+        served_fm_settings(serve) for serve in SERVED_FM_DRIVERS if serve in args.serve
     ]
     for source in sources:
         try:
