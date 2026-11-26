@@ -79,7 +79,7 @@ fibsem/drivers/demo/sim/scene.py 2
 fibsem/drivers/demo/simulator.py 5
 fibsem/drivers/odemis/devices.py 3
 fibsem/drivers/odemis/microscope.py 2
-fibsem/drivers/remote/devices.py 2
+fibsem/drivers/remote/devices.py 3
 fibsem/fm/acquisition.py 1
 fibsem/fm/calibration/__init__.py 1
 fibsem/fm/interpolation.py 1

@@ -1112,15 +1112,30 @@ class FibsemMicroscope(Instrument):
         "coating",
     )
 
+    # The services taken from this microscope's Device Servers, by name (`add_service`).
+    _added_services = _PerInstance(lambda _: {})
+
     @property
     def services(self) -> Mapping[str, Any]:
         """Every service this microscope built, by name (``services["milling"] is
-        microscope.milling``). Read-only. A service the backend didn't build (None)
-        is left out. The App Server serves them under ``/microscope/services``."""
+        microscope.milling``), then those its Device Servers serve (`add_service`).
+        Read-only. A service the backend didn't build (None) is left out. The App
+        Server serves them under ``/microscope/services``."""
         services = (getattr(self, name, None) for name in self._SERVICE_ATTRIBUTES)
-        return MappingProxyType(
-            {service.name: service for service in services if service is not None}
-        )
+        own = {service.name: service for service in services if service is not None}
+        return MappingProxyType({**self._added_services, **own})
+
+    def add_service(self, service: Any) -> bool:
+        """Take on *service*, one a Device Server of this microscope serves: work
+        that uses only that computer's devices. Listed in `services` under its
+        name from then on. False, and not taken, when the name is one of this
+        microscope's own services or already added."""
+        if service.name in self._SERVICE_ATTRIBUTES or service.name in (
+            self._added_services
+        ):
+            return False
+        self._added_services[service.name] = service
+        return True
 
     def _build_devices(
         self,

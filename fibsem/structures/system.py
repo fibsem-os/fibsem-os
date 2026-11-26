@@ -1016,8 +1016,8 @@ class FluorescenceSystemSettings:
     # The flip that puts the camera's frames into the stage's axes, from how it is
     # mounted (`none`, `flip-x`, `flip-y`, `flip-xy`). A fact about this instrument,
     # found by watching which way a feature moves in the FM view as the stage moves.
-    # Absent is none, as every FM has been. An FM on its own PC states its own on
-    # its server (`--mount-transform`), so this is not read for `driver: remote`.
+    # Absent is none, as every FM has been. An FM on its own PC states its own in
+    # its Device Server's file, so this is not read for `driver: remote`.
     mount_transform: "CameraImageTransform" = None  # type: ignore[assignment]
 
     # Tilt of the camera's optical axis from the SEM column, in degrees: what the
@@ -1036,7 +1036,7 @@ class FluorescenceSystemSettings:
         ``calibration.objective`` (`objective_to_dict`)."""
         data = encode(self)
         del data["focus_position"], data["limit_position"]
-        # By value (`flip-x`), the spelling Odemis' --mount-transform takes too.
+        # By value (`flip-x`), as a Device Server's file spells it too.
         if self.mount_transform is CameraImageTransform.NONE:
             del data["mount_transform"]
         else:

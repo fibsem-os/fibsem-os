@@ -828,7 +828,8 @@ class Resources:
 
     Names not listed in ``groups`` share one lock, which is today's behaviour and
     always safe. A backend separates only what its hardware really allows in parallel.
-    A device on another computer gets its own ``Resources`` and shares nothing.
+    A device on another computer gets its own ``Resources`` and shares no lock; it is
+    given the instrument's Safety Halt.
 
     ``locks`` gives a group a lock that already exists, so devices and older code that
     takes that lock directly exclude each other. The microscope's own registry
