@@ -141,9 +141,16 @@ class DeviceInstrument(Instrument):
         self,
         devices: Mapping[str, Any],
         cleanups: Optional[List[Callable[[], None]]] = None,
+        services: Optional[Mapping[str, Any]] = None,
     ) -> None:
         self._devices = dict(devices)
         self._disconnect_cleanups = list(cleanups or [])
+        self._services = dict(services or {})
+
+    @property
+    def services(self) -> Mapping[str, Any]:
+        """The services the devices' drivers built over them, by name. Read-only."""
+        return MappingProxyType(self._services)
 
     def _disconnect(self) -> None:
         pass

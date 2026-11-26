@@ -356,12 +356,16 @@ _SAVED_HERE: Dict[str, Dict[str, Callable]] = {
 }
 
 
-def connect_remote_services(client: DeviceClient) -> Dict[str, RemoteService]:
-    """Every service the App Server behind *client* serves, by name, connected."""
+def connect_remote_services(
+    client: DeviceClient, parent: Any = None
+) -> Dict[str, RemoteService]:
+    """Every service the server behind *client* serves, by name, connected: an App
+    Server's, or a Device Server's own. With *parent* (the microscope they are
+    used from) they share its Safety Halt and report to its session."""
     descriptions = client.request("GET", "services", READ_TIMEOUT)
     return {
-        name: remote_service_class(name, description)(name, client=client).connect(
-            description
-        )
+        name: remote_service_class(name, description)(
+            name, parent=parent, client=client
+        ).connect(description)
         for name, description in descriptions.items()
     }
