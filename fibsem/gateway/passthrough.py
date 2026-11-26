@@ -15,7 +15,7 @@ answering mid-call, 504 ``app_lost``. A client reads both as the App Server
 not answering (`fibsem.client.transport`), as it would reading it directly.
 
 While no App Server runs, calls go to the Agent Server the gateway runs
-(`fibsem.gateway.agent_host`), which serves the agent's own routes: its
+(`fibsem.server.agent.process`), which serves the agent's own routes: its
 events, session, plan, transcript, messages, level and Stop. A route only the
 app serves (the microscope's, a workflow's) is answered 503 ``no_app`` then,
 as with nothing running, not the host's 404.
