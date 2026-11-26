@@ -28,6 +28,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional
 
+from fibsem import config
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.gateway import slot as slot_mod
 from fibsem.gateway.gateway import GatewayRefused
@@ -65,9 +66,7 @@ def _hash(token: str) -> str:
 
 def _grace_from_preferences() -> float:
     try:
-        from fibsem.config import load_user_preferences
-
-        return float(load_user_preferences().install.gateway.hub_agent_grace_s)
+        return float(config.load_user_preferences().install.gateway.hub_agent_grace_s)
     except Exception:  # noqa: BLE001 - an unreadable file is the default
         return GRACE_S
 
