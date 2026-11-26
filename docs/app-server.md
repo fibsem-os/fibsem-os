@@ -3,7 +3,7 @@
 What the AutoLamella App Server is, what an AI agent can see and do through
 it, and how to connect one — locally or from another machine.
 
-(Setup commands for the `fibsem-mcp` sidecar live in
+(Setup commands for the `fibsem-mcp` MCP server live in
 [fibsem/ai/agent/mcp/README.md](../fibsem/ai/agent/mcp/README.md); this guide is the *what* and
 the *why*.)
 
@@ -23,14 +23,14 @@ observer with a doorbell, not a second driver.
 
 ## Turning it on
 
-1. **Tools → Host**: tick *Serve this session*. It is saved, so the
-   next launch starts the same way. The host (the fibsem host, one process
+1. **Tools → App Server**: tick *Serve this session*. It is saved, so the
+   next launch starts the same way. The App Server (one process
    per microscope) serves with or without a microscope; until one is
    connected, `/microscope` answers *not connected* and the web app's
    Microscope page shows a Connect card.
 2. Connect a microscope, from the window or the web app. The server follows
    the connection; it does not restart.
-3. **Tools → Host** also shows the server: whether it is running, which
+3. **Tools → App Server** also shows the server: whether it is running, which
    services it serves, when the agent was last heard from, and the
    event log. *Serve the microscope* there also serves the routes that
    reach the instrument, everything under `/microscope`: who it is, its
@@ -227,7 +227,7 @@ you. At Drive it may decide it.
 
 ## The event log
 
-**Event log** in Tools → Host, and on the agent card, opens the web
+**Event log** in Tools → App Server, and on the agent card, opens the web
 app's Events page in your browser: what the agent, the operator and the run
 did, as one filterable table that follows the event stream live. The page is
 also under Events in the web app's rail.
@@ -242,12 +242,12 @@ or written to server logs). The agent's level doesn't affect it.
 
 **On the same machine**, use *Connect an agent…* on the web Agent page and
 paste the text into Claude Code. The agent
-registers the sidecar by its absolute path, checks the connection with
+registers the MCP server by its absolute path, checks the connection with
 `fibsem-mcp --check`, and reports its level. For Claude Desktop the text says
 which entry to merge into `mcpServers` in its config file. The agent connects
 through the gateway (`fibsem-gateway`), which pairs every agent on this PC
 ([Pairing](gateway.md#pairing)). The token isn't in the text: the gateway writes
-`~/.fibsem/gateway.json`, which the `fibsem-mcp` sidecar finds by itself. Its token
+`~/.fibsem/gateway.json`, which the `fibsem-mcp` MCP server finds by itself. Its token
 only asks to connect: the first time, the gateway's Overview and the Agent page show
 **Agent wants to connect**, naming the
 client, where it connects from and the PC user it runs as. **Allow** gives it a
@@ -258,7 +258,7 @@ refuses it, with your reason, and it can ask again after a minute. With
 that reaches the gateway from the PC itself, over SSH too, is
 allowed without asking; it still acts only at the level you set. An ask from
 another computer's address still asks. One agent per microscope: allowing or
-pairing a new agent unpairs the one before. By hand, registering the sidecar is:
+pairing a new agent unpairs the one before. By hand, registering the MCP server is:
 
 ```bash
 claude mcp add -s user fibsem -- fibsem-mcp
@@ -270,7 +270,7 @@ covers only the current directory's project.
 **From another machine**, go through an SSH tunnel to the microscope PC:
 [Running the agent on another computer](ssh-tunnel.md) sets it up. Show a code
 for an **Agent** under **Pairing** on the gateway's page, run `fibsem-mcp pair <code>`
-on that machine, and point the sidecar at the tunnel's end, the gateway's port:
+on that machine, and point the MCP server at the tunnel's end, the gateway's port:
 
 ```bash
 claude mcp add -s user fibsem -- fibsem-mcp --url http://localhost:8010
@@ -281,7 +281,7 @@ speaks plain HTTP: anyone who can read the traffic can read the token, so
 don't serve it on a network address instead of using the tunnel.
 
 Any MCP-speaking agent works, and so does anything that can send HTTP with a
-bearer token — the sidecar is convenience, not a requirement.
+bearer token — the MCP server is convenience, not a requirement.
 
 ## The security model, briefly
 
@@ -310,7 +310,7 @@ bearer token — the sidecar is convenience, not a requirement.
 
 - *The dialog says "Not running"* — *Serve this session* is off, or the
   server did not start (the dialog says so; see the log).
-- *The sidecar exits with "no server found"* — it waited for a server that
+- *The MCP server exits with "no server found"* — it waited for a server that
   never appeared; start AutoLamella (with the feature on) first, or pass
   `--url` explicitly.
 - *A tool says "Waiting for the operator to allow this agent"* — the web

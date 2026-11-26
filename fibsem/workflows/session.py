@@ -146,7 +146,7 @@ class AppSession:
         # False for the microscope server, which serves no agent.
         self.serve_agent = True
         # The window hosts it whatever the preference, until the operator
-        # turns it off in Tools → Host (``--host``: the gateway's starts).
+        # turns it off in Tools → App Server (``--host``: the gateway's starts).
         self.host_app_server = False
         # Where an agent creates and finds experiments this session; None is
         # the app's default (fibsem-autolamella-server --experiments sets it).

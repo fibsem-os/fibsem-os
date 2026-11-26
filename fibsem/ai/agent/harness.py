@@ -2399,11 +2399,11 @@ class Harness:
             check = (
                 unreachable_why(self._url)
                 if self._url
-                else "Start the host (Tools -> Host in AutoLamella)."
+                else "Start the App Server (Tools -> App Server in AutoLamella)."
             )
             if remaining <= 0:
                 log.error(
-                    "No fibsem host answered within %.0f s; fibsem-agent stops. %s",
+                    "No App Server answered within %.0f s; fibsem-agent stops. %s",
                     self._server_wait_s,
                     check,
                 )
@@ -3044,7 +3044,7 @@ def mcp_names(
         if not host:
             raise SetupRefused(
                 f"The {playbook.name} playbook has no instrument: it keeps its "
-                "record on an agent host, so start it with --host."
+                "record on an Agent Server, so start it with --host."
             )
         if SERVER in playbook.mcp:
             raise SetupRefused(

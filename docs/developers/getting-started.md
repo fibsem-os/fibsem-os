@@ -42,7 +42,7 @@ fibsem/                     the instrument library (no application logic)
   ai/agent/                 the agent: levels, blocklist, tool catalog
                             (each tool with its request line),
                             AgentControl (session.agent),
-                            and mcp/, the fibsem-mcp sidecar (MCP to HTTP)
+                            and mcp/, the fibsem-mcp MCP server (MCP to HTTP)
   ui/agent/                 the agent's Qt UI: level chip and card,
                             previews, App Server and Connect dialogs
   plugins/                  entry-point loading: fibsem.milling.patterns,
