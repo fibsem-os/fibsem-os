@@ -28,6 +28,7 @@ from urllib.parse import urlsplit
 import yaml
 
 from fibsem.gateway.gateway import GatewayRefused
+from fibsem.gateway.server import GATEWAY_API_VERSION
 from fibsem.server.discovery import DISCOVERY_DIR
 from fibsem.util.files import write_atomic
 from fibsem.util.tunnels import Tunnel, TunnelDown, Tunnels, valid_destination
@@ -117,6 +118,12 @@ class InstrumentState:
     """Off or running, the app and its experiment, the gateway's version."""
     agent: Optional[Dict[str, Any]] = None
     """The agent running there, if one is."""
+    api_version: Optional[str] = None
+    """The version of its gateway's own routes, as its ``/health`` says."""
+    same_version: Optional[bool] = None
+    """Whether this hub was written for that version (the same major and
+    minor number); None when its gateway gave none. An agent runs on the hub
+    PC only for an instrument whose gateway it was written for."""
     health: Optional[Dict[str, Any]] = None
     """How its App Server (``app``) and its microscope (``microscope``) are,
     as its gateway says: each a status, why in a line, and since when."""
@@ -195,6 +202,15 @@ def _pair(url: str, code: str, name: str) -> Tuple[str, str]:
         raise PermissionError(message)
     answer = response.json()
     return answer["token"], answer.get("role", "operator")
+
+
+def _same_version(theirs: Optional[str]) -> Optional[bool]:
+    """Whether a gateway whose routes are version *theirs* is one this hub was
+    written for: a change an older hub can't work with raises the minor
+    number (`GATEWAY_API_VERSION`)."""
+    if not theirs:
+        return None
+    return theirs.split(".")[:2] == GATEWAY_API_VERSION.split(".")[:2]
 
 
 def _address(instrument: "Instrument") -> str:
@@ -466,8 +482,11 @@ class Hub:
         )
         try:
             url = self.reach(instrument)
-            status, _ = self._fetch(url, "/health", None, TIMEOUT_S)
+            status, health = self._fetch(url, "/health", None, TIMEOUT_S)
             found.reachable = status == 200
+            if isinstance(health, dict):
+                found.api_version = health.get("api_version") or None
+            found.same_version = _same_version(found.api_version)
             if not found.reachable:
                 found.why = f"Its gateway answered {status}."
             elif token is None:

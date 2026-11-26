@@ -46,6 +46,9 @@ interface Instrument {
     level?: string;
   } | null;
   health: { app?: Piece; microscope?: Piece } | null;
+  api_version: string | null;
+  // False when its gateway is a version this Hub was not written for.
+  same_version: boolean | null;
 }
 
 interface HubState {
@@ -350,6 +353,12 @@ function InstrumentView({ instrument, onRemoved }: { instrument: Instrument; onR
       ) : (
         <>
           {instrument.why && <p className={cn("m-0 text-[13px]", WARN)}>{instrument.why}</p>}
+          {instrument.same_version === false && (
+            <p className={cn("m-0 text-[13px]", WARN)}>
+              Its gateway is a different version from this Hub ({instrument.api_version}): update
+              the older one.
+            </p>
+          )}
           <StatusCard instrument={instrument} />
           <InstrumentAgent key={instrument.name} instrument={instrument} />
           {instrument.agent && (

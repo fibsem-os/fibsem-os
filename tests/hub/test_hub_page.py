@@ -242,3 +242,20 @@ def test_the_page_link_keeps_the_token_out_of_what_is_sent(tmp_path, monkeypatch
     monkeypatch.setattr("fibsem.hub.main.read_operator_token", lambda: "secret")
     link = page_link("http://127.0.0.1:8020")
     assert link == "http://127.0.0.1:8020/ui/hub#token=secret"
+
+
+def test_the_hub_says_whether_it_was_written_for_an_instruments_gateway(
+    hub, instrument, monkeypatch
+):
+    _paired(hub, instrument)
+    hub.check()
+    (row,) = hub.state().instruments
+    assert row.api_version and row.same_version is True
+    # A gateway one minor version on: an older hub can't work with it.
+    major, minor, _ = row.api_version.split(".")
+    monkeypatch.setattr(
+        "fibsem.hub.hub.GATEWAY_API_VERSION", f"{major}.{int(minor) + 1}.0"
+    )
+    hub.check()
+    (row,) = hub.state().instruments
+    assert row.same_version is False and row.reachable is True
