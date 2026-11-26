@@ -136,16 +136,28 @@ function ConnectorForm({
   const client = useQueryClient();
   const [f, setF] = useState<Form>(start);
   const [confirm, setConfirm] = useState<string | null>(null);
+  // A token typed in with a new (or renamed) token name: stored once the
+  // connector is saved, as the key store takes only a name mcp.yaml uses.
+  const [tokenValue, setTokenValue] = useState("");
   const set = (change: Partial<Form>) => {
     setF({ ...f, ...change });
     setConfirm(null);
   };
+  const keyHere = !!keyRow && keyRow.name === f.token;
+  const withToken = !keyHere && atThisPc && !!f.token.trim();
   const save = useMutation({
-    mutationFn: (confirmed?: string) =>
-      api(`/gateway/connectors/${encodeURIComponent(f.name.trim())}`, {
+    mutationFn: async (confirmed?: string) => {
+      await api(`/gateway/connectors/${encodeURIComponent(f.name.trim())}`, {
         method: "PUT",
         body: JSON.stringify({ entry: toEntry(f), confirm: confirmed }),
-      }),
+      });
+      if (withToken && tokenValue.trim()) {
+        await api(`/gateway/secrets/${encodeURIComponent(f.token.trim())}`, {
+          method: "PUT",
+          body: JSON.stringify({ value: tokenValue }),
+        });
+      }
+    },
     onSuccess: () => {
       client.invalidateQueries({ queryKey: ["gateway/connectors"] });
       client.invalidateQueries({ queryKey: ["gateway/secrets"] });
@@ -230,10 +242,22 @@ function ConnectorForm({
             onChange={(e) => set({ token: e.target.value.toUpperCase() })}
             className={cn(FIELD, "font-mono text-xs sm:w-64")}
           />
-          {keyRow && keyRow.name === f.token && (
+          {keyHere && keyRow && (
             <span className="min-w-0 flex-1 pt-1">
               <KeyRow s={keyRow} inline />
             </span>
+          )}
+          {withToken && (
+            <input
+              type="password"
+              autoComplete="off"
+              value={tokenValue}
+              onChange={(e) => setTokenValue(e.target.value)}
+              placeholder={`Paste ${f.token.trim()} (optional)`}
+              aria-label={`The ${f.token.trim()} token`}
+              title="Stored in this PC's key store with the connector, and not shown again."
+              className={cn(FIELD, "w-full sm:w-64")}
+            />
           )}
         </span>
       </Field>

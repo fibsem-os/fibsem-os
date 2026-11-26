@@ -256,20 +256,20 @@ export function KeyRow({ s, inline = false }: { s: Secret; inline?: boolean }) {
         </p>
       )}
       {editing && (
-        <form
-          className="flex flex-wrap items-center gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            // Inside a connector's editor: don't also save the connector.
-            event.stopPropagation();
-            if (value.trim()) save.mutate();
-          }}
-        >
+        // Not a <form>: inside a connector's editor it would be a form in a
+        // form, which the browser submits itself (reloading the page, and
+        // offering to save the key as a password) instead of storing it.
+        <div className="flex flex-wrap items-center gap-2">
           <input
             type="password"
             autoComplete="off"
             value={value}
             onChange={(event) => setValue(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter") return;
+              event.preventDefault();
+              if (value.trim()) save.mutate();
+            }}
             placeholder={`Paste ${s.name}`}
             aria-label={`New ${s.name}`}
             className={cn(FIELD, "w-full sm:w-80")}
@@ -277,8 +277,9 @@ export function KeyRow({ s, inline = false }: { s: Secret; inline?: boolean }) {
           />
           <Button
             variant="primary"
-            type="submit"
+            type="button"
             disabled={!value.trim() || save.isPending}
+            onClick={() => save.mutate()}
           >
             Save
           </Button>
@@ -297,7 +298,7 @@ export function KeyRow({ s, inline = false }: { s: Secret; inline?: boolean }) {
               ? ` It is sent only to ${s.goes_to.join(", ")}.`
               : ""}
           </span>
-        </form>
+        </div>
       )}
       {error && <p className="m-0 text-xs text-destructive">{error.message}</p>}
     </div>
