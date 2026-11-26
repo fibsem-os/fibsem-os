@@ -19,6 +19,7 @@ import urllib.request
 from pathlib import Path
 from typing import Optional, Sequence
 
+from fibsem.hub.agents import HubAgents
 from fibsem.hub.hub import Hub
 from fibsem.hub.server import build_hub_app, hub_auth
 from fibsem.server.discovery import DISCOVERY_DIR
@@ -87,10 +88,13 @@ def run(port: int) -> int:
         print(f"A hub already runs here (pid {running['pid']}, {running['url']}).")
         return 1
     hub = Hub()
+    # No key is given to the hub's agents yet: a start is refused until
+    # where this PC keeps it is settled.
+    agents = HubAgents(hub)
     stopping = threading.Event()
     server = Server(
         uvicorn.Config(
-            build_hub_app(hub, hub_auth(), stopping.set),
+            build_hub_app(hub, hub_auth(), stopping.set, agents),
             host="127.0.0.1",
             port=port,
             log_level="warning",
@@ -104,6 +108,7 @@ def run(port: int) -> int:
         json.dumps({"url": f"http://127.0.0.1:{port}", "pid": os.getpid()})
     )
     hub.start()
+    agents.start_keeping()
     print(f"Hub at http://127.0.0.1:{port}. Its page: agent-hub open")
     try:
         # in short waits: Ctrl-C does not break a bare wait on Windows
@@ -112,6 +117,8 @@ def run(port: int) -> int:
     except KeyboardInterrupt:
         pass
     finally:
+        # Before the tunnels close: each slot is given back through one.
+        agents.stop()
         hub.stop()
         server.should_exit = True
         RUNNING_FILE.unlink(missing_ok=True)

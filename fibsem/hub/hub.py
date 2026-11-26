@@ -218,6 +218,18 @@ def _address(instrument: "Instrument") -> str:
     return f"ssh:{instrument.ssh}" if instrument.ssh else f"url:{instrument.url}"
 
 
+def crosses_in_clear(instrument: "Instrument") -> bool:
+    """Whether what this hub and *instrument*'s gateway say to each other
+    crosses a network unprotected: plain http to another PC. A tunnel, https
+    and an address on this PC do not."""
+    if instrument.ssh:
+        return False
+    split = urlsplit(instrument.url or "")
+    host = (split.hostname or "").lower()
+    local = host == "localhost" or host == "::1" or host.startswith("127.")
+    return split.scheme != "https" and not local
+
+
 def _slug(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "instrument"
 
@@ -269,6 +281,10 @@ class Hub:
             if isinstance(name, str) and (url or ssh):
                 found.append(Instrument(name, url, ssh))
         return found[:MAX_INSTRUMENTS]
+
+    def instrument(self, name: str) -> Instrument:
+        """The instrument named *name*; a `GatewayRefused` when none is."""
+        return self._instrument(name)
 
     def _instrument(self, name: str) -> Instrument:
         for instrument in self.instruments():
@@ -547,17 +563,21 @@ class Hub:
         method: str,
         route: str,
         body: Optional[Dict[str, Any]] = None,
+        timeout: Optional[float] = None,
+        read_again: bool = True,
     ) -> Any:
         """*name*'s gateway's answer to *route*, asked as this hub with the
         token that gateway gave it. The gateway decides what a hub may do: its
-        refusal is passed on in its own words."""
+        refusal is passed on in its own words. After a change the instrument
+        is read again at once, unless *read_again* is off."""
         instrument = self._instrument(name)
         token = self.token(name)
         if token is None:
             raise GatewayRefused(
                 409, "not_paired", f"Pair this hub with {name}'s gateway first."
             )
-        timeout = READ_S if method == "GET" else ACT_S
+        if timeout is None:
+            timeout = READ_S if method == "GET" else ACT_S
         try:
             status, answer = self._send(
                 self.reach(instrument), method, route, token, body, timeout
@@ -580,10 +600,10 @@ class Hub:
             detail = detail if isinstance(detail, dict) else {}
             raise GatewayRefused(
                 status,
-                str(detail.get("error_type") or "refused"),
+                str(detail.get("error_type") or detail.get("reason") or "refused"),
                 str(detail.get("message") or f"{name}'s gateway answered {status}."),
             )
-        if method != "GET":
+        if method != "GET" and read_again:
             # Its state changed: read it again now, not at the next round.
             self._safely(instrument)
         return answer

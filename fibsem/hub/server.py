@@ -21,6 +21,7 @@ from starlette.requests import HTTPConnection
 from fibsem import __version__
 from fibsem.gateway.gateway import GatewayRefused
 from fibsem.gateway.server import GatewayAuth
+from fibsem.hub.agents import HubAgents
 from fibsem.hub.hub import TOKENS_DIR, Hub, HubState
 from fibsem.server.auth import _bearer_token
 from fibsem.server.bodies import refuse_invalid_requests
@@ -60,6 +61,7 @@ def build_hub_app(
     hub: Hub,
     auth: GatewayAuth,
     on_quit: Optional[Callable[[], None]] = None,
+    agents: Optional[HubAgents] = None,
 ) -> FastAPI:
     app = FastAPI(title="fibsem hub")
     refuse_invalid_requests(app)
@@ -111,6 +113,40 @@ def build_hub_app(
         if not code:
             raise _refused(422, "no_code", "Give the code its gateway shows.")
         return _act(lambda: hub.pair(name, code))
+
+    if agents is not None:
+
+        @app.get("/hub/agents")
+        def hub_agents(who: str = Depends(operator)) -> Dict[str, Any]:
+            """The agents this hub PC runs, by instrument: the running one,
+            else the last that ended here and why."""
+            return agents.state()
+
+        @app.post("/hub/instruments/{name}/hub-agent/start")
+        def start_hub_agent(
+            name: str, body: Dict[str, Any], who: str = Depends(operator)
+        ):
+            """``{playbook, goal, level, budget_usd, replace}``: run an agent
+            for the instrument on this hub PC. Its gateway gives the slot, or
+            refuses in its own words."""
+            budget = body.get("budget_usd")
+            return _act(
+                lambda: agents.start(
+                    name,
+                    str(body.get("playbook") or ""),
+                    str(body.get("goal") or "") or None,
+                    str(body.get("level") or "watch"),
+                    who,
+                    float(budget) if isinstance(budget, (int, float)) else None,
+                    bool(body.get("replace")),
+                )
+            )
+
+        @app.post("/hub/instruments/{name}/hub-agent/end")
+        def end_hub_agent(name: str, who: str = Depends(operator)):
+            """End the instrument's agent on this hub PC; its slot is given
+            back to its gateway."""
+            return _act(lambda: agents.end(name, who))
 
     @app.get("/hub/instruments/{name}/{route:path}")
     def read_instrument(
