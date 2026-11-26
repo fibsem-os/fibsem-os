@@ -387,11 +387,12 @@ function Start({
           />
         </Field>
         <Field label="Goal" wide>
-          <input
+          <textarea
             value={goal}
             onChange={(event) => setGoal(event.target.value)}
             placeholder="What the agent should do this session"
-            className={FIELD}
+            rows={5}
+            className={cn(FIELD, "min-h-24 resize-y leading-snug")}
           />
         </Field>
       </div>
@@ -513,7 +514,7 @@ function Run({ running, noApp }: { running: Running; noApp?: boolean }) {
   return (
     <>
       <div className="flex flex-col gap-1">
-        <p className="m-0 text-[15px] text-foreground">
+        <p className="m-0 whitespace-pre-wrap text-[15px] text-foreground">
           {running.goal ?? "No goal given"}
         </p>
         <p className="m-0 text-[13px] text-muted-foreground">
