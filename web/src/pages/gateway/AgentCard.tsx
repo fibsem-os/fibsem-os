@@ -4,7 +4,7 @@ import { type ReactNode, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardTitle, Facts } from "@/components/ui/card";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { api, ApiError } from "@/lib/api";
+import { ApiError, useApi, useReached } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 export interface Session {
@@ -146,7 +146,7 @@ export function Field({
   wide,
   children,
 }: {
-  label: string;
+  label: ReactNode;
   wide?: boolean;
   children: ReactNode;
 }) {
@@ -164,6 +164,7 @@ export function Field({
 }
 
 export function ConfigurationFacts({ name }: { name: string }) {
+  const api = useApi();
   const config = useQuery({
     queryKey: ["gateway/agent/playbooks", name],
     queryFn: () =>
@@ -279,6 +280,8 @@ function Start({
   appStarting?: boolean;
   defaults?: AgentDefaults;
 }) {
+  const api = useApi();
+  const { pc } = useReached();
   const client = useQueryClient();
   const playbooks = useQuery({
     queryKey: ["gateway/agent/playbooks"],
@@ -340,8 +343,8 @@ function Start({
       {state.connected && <ConnectedAgent connected={state.connected} />}
       {!state.api_key && (
         <p className="m-0 text-[13px] text-[var(--fibsem-semantic-warning-color)]">
-          No API key on this PC, so the agent can't start. Run fibsem-cli key
-          set ANTHROPIC_API_KEY on this PC.
+          No API key on {pc}, so the agent can't start. Run fibsem-cli key
+          set ANTHROPIC_API_KEY on {pc}.
         </p>
       )}
       <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
@@ -451,7 +454,7 @@ function Start({
               </span>
             ) : !state.api_key ? null : (
               <span className="text-xs text-muted-foreground">
-                Uses ANTHROPIC_API_KEY on this PC.
+                Uses ANTHROPIC_API_KEY on {pc}.
               </span>
             )}
             <Button
@@ -482,12 +485,15 @@ function Start({
 /** The running agent in one line, with the app's Agent page for the rest:
  * what it is doing, and its questions, live there. */
 function Run({ running, noApp }: { running: Running; noApp?: boolean }) {
+  const api = useApi();
+  const { prefix } = useReached();
   const client = useQueryClient();
   // The app's own Agent page, signed in as the operator; absent while it is away.
   const page = useQuery({
     queryKey: ["gateway/app/agent-page"],
     queryFn: () => api<{ url: string }>("/gateway/app/agent-page"),
-    enabled: running.state === "running",
+    // Only where the page is the gateway's own: through the hub there is none.
+    enabled: running.state === "running" && !prefix,
     retry: false,
   });
   const [confirm, setConfirm] = useState(false);
@@ -674,6 +680,7 @@ export function AgentCard({
   appStarting?: boolean;
   defaults?: AgentDefaults;
 }) {
+  const api = useApi();
   const agent = useQuery({
     queryKey: ["gateway/agent"],
     queryFn: () => api<AgentState>("/gateway/agent"),
@@ -746,6 +753,7 @@ export function ResumeForm({
   ready: string | null;
   onDone: () => void;
 }) {
+  const api = useApi();
   const client = useQueryClient();
   const [level, setLevel] = useState(session.last_level ?? "watch");
   // Typed here, or else the session's last budget, or the playbook's own.
