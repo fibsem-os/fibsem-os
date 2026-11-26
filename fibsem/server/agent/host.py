@@ -682,7 +682,7 @@ def _run_until(stop: threading.Event) -> Callable[..., None]:
 
 
 def serve_for_gateway(argv: List[str], stop: threading.Event) -> int:
-    """The host as the gateway runs it (`fibsem.gateway.agent_host`, through
+    """The host as the gateway runs it (`fibsem.server.agent.process`, through
     ``fibsem.gateway.child``): ``fibsem-agent-server`` with *argv*, until
     *stop* is set."""
     return main(argv, run=_run_until(stop))
