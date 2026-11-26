@@ -560,8 +560,10 @@ function RunCard({
   const clock = useClock(live || runs);
   const state = runState(call, answer, runs, clock);
   const shown = tab || open;
+  const follow = useFollowNewest(tab, stepKey(call.session_id, call.seq), lines.length);
   return (
     <div
+      ref={follow.ref}
       className={cn(
         "flex flex-col gap-1 text-[13px]",
         tab ? "" : "col-span-2 my-1 max-w-[640px] rounded-md border bg-card px-3 py-2",
@@ -657,8 +659,73 @@ function RunCard({
       {shown && lines.length > 0 && (
         <Lines lines={lines} live={live && runs} className={cn(tab ? "mt-2" : "pl-5")} {...shared} />
       )}
+      {follow.newer && (
+        <div className="sticky bottom-2 flex h-0 justify-center overflow-visible">
+          <button
+            className="flex -translate-y-full cursor-pointer items-center gap-1.5 rounded-md border border-input bg-popover px-3 py-1.5 text-[12px] text-foreground shadow-[0_4px_14px_rgba(0,0,0,0.4)] hover:bg-accent"
+            onClick={follow.toNewest}
+          >
+            <ArrowDown size={14} />
+            Newer messages
+          </button>
+        </div>
+      )}
     </div>
   );
+}
+
+/** In the Subagents tab, as in the chat: the run opens at its newest line and
+ * stays there as lines come in, unless the reader has scrolled up, when a
+ * "Newer messages" button takes them back down. The tab's panel scrolls. */
+function useFollowNewest(on: boolean, run: string, count: number) {
+  const ref = useRef<HTMLDivElement>(null);
+  const pinned = useRef(true);
+  const [newer, setNewer] = useState(false);
+  const panel = () => (ref.current?.closest('[role="tabpanel"]') as HTMLElement | null) ?? null;
+  const toBottom = (smooth = false) => {
+    const el = panel();
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" });
+  };
+  // A run opened starts at its newest line.
+  useLayoutEffect(() => {
+    if (!on) return;
+    pinned.current = true;
+    setNewer(false);
+    toBottom();
+  }, [on, run]);
+  useEffect(() => {
+    const el = panel();
+    if (!on || !el) return;
+    const onScroll = () => {
+      pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+      if (pinned.current) setNewer(false);
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    // Pictures land after the lines are drawn: keep the newest in view.
+    const watcher = new ResizeObserver(() => pinned.current && toBottom());
+    if (ref.current) watcher.observe(ref.current);
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      watcher.disconnect();
+    };
+  }, [on, run]);
+  const seen = useRef(count);
+  useLayoutEffect(() => {
+    if (!on || count === seen.current) return;
+    const grew = count > seen.current;
+    seen.current = count;
+    if (pinned.current) toBottom();
+    else if (grew) setNewer(true);
+  }, [on, count]);
+  return {
+    ref,
+    newer: on && newer,
+    toNewest: () => {
+      pinned.current = true;
+      setNewer(false);
+      toBottom(true);
+    },
+  };
 }
 
 type RunGroup = "state" | "kind" | "none";
