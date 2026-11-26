@@ -5,7 +5,6 @@ tests/fm/_odemis_stubs.py, which return components by role as odemis does.
 """
 
 import sys
-from types import SimpleNamespace
 
 import pytest
 
@@ -30,6 +29,22 @@ def odemis_stubs():
     for name in stubs.FIBSEM_ODEMIS_MODULE_NAMES:
         sys.modules.pop(name, None)
     sys.modules.update(saved)
+
+
+def _odemis_file(tmp_path):
+    """A Device Server file naming the METEOR's FM, as INSTALLATION.md gives it."""
+    import yaml
+
+    path = tmp_path / "device-server.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "info": {"manufacturer": "Odemis"},
+                "hardware": {"devices": [{"name": "fm", "type": "fm"}]},
+            }
+        )
+    )
+    return ["--config", str(path), "--token-file", str(tmp_path / "token.json")]
 
 
 def odemis_fm_devices(config=None):
@@ -84,11 +99,11 @@ def test_a_computer_without_odemis_is_named(odemis_stubs, monkeypatch):
         odemis_fm_devices()
 
 
-def test_the_command_line_stops_with_the_reason(odemis_stubs, caplog):
+def test_the_command_line_stops_with_the_reason(odemis_stubs, caplog, tmp_path):
     odemis_stubs.use_components({})
 
     with pytest.raises(SystemExit) as stopped:
-        server_devices.main(["--serve", "odemis-fm"])
+        server_devices.main(_odemis_file(tmp_path))
 
     assert stopped.value.code == 1
     assert "odemis-start" in caplog.text
@@ -142,7 +157,7 @@ def test_a_remote_fm_brings_how_its_camera_is_mounted(odemis_stubs):
         server.stop()
 
 
-def test_the_command_line_serves_the_odemis_fm(odemis_stubs, monkeypatch):
+def test_the_command_line_serves_the_odemis_fm(odemis_stubs, monkeypatch, tmp_path):
     served = {}
     monkeypatch.setattr(
         server_devices.uvicorn,
@@ -150,31 +165,13 @@ def test_the_command_line_serves_the_odemis_fm(odemis_stubs, monkeypatch):
         lambda app, host, port, **_: served.update(host=host, port=port),
     )
 
-    server_devices.main(["--serve", "odemis-fm"])
+    server_devices.main(_odemis_file(tmp_path))
 
     assert served == {"host": "127.0.0.1", "port": 8765}
 
 
-def test_the_command_line_names_the_mount(odemis_stubs, monkeypatch):
-    sources = []
-
-    def configured_devices(source):
-        sources.append(source)
-        return {"fm": SimpleNamespace(name="fm")}, []
-
-    monkeypatch.setattr(server_devices, "configured_devices", configured_devices)
-    monkeypatch.setattr(server_devices, "build_device_app", lambda *a: None)
-    monkeypatch.setattr(server_devices.uvicorn, "run", lambda *a, **k: None)
-
-    server_devices.main(["--serve", "odemis-fm", "--mount-transform", "flip-y"])
-
-    (entry,) = sources[0]["hardware"]["devices"]
-    assert entry["driver"] == "Odemis"
-    assert entry["mount_transform"] == "flip-y"
-
-
 def test_the_light_is_off_while_the_server_starts_and_after_it_stops(
-    odemis_stubs, monkeypatch
+    odemis_stubs, monkeypatch, tmp_path
 ):
     """B2: odemis keeps the light's power when the stream that set it goes away, so
     a server that died mid-acquisition left it on, and a restarted one too."""
@@ -188,7 +185,15 @@ def test_the_light_is_off_while_the_server_starts_and_after_it_stops(
 
     monkeypatch.setattr(server_devices.uvicorn, "run", run)
 
-    server_devices.main(["--serve", "odemis-fm"])
+    server_devices.main(_odemis_file(tmp_path))
 
     assert at_start == [[0.0]]
     assert light.power.value == [0.0]
+
+
+def test_the_old_flags_are_gone(capsys):
+    """A METEOR's FM is served from a file; the flags that stood for one are refused."""
+    for old in (["--serve", "odemis-fm"], ["--mount-transform", "flip-y"]):
+        with pytest.raises(SystemExit) as stopped:
+            server_devices.main(old)
+        assert stopped.value.code == 2
