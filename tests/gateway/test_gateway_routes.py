@@ -1057,3 +1057,31 @@ def test_library_changes_through_the_gateway_go_in_history():
         ("operator", "page", "saved playbook autolamella"),
         ("lab-hub", "page", "removed subagent checker"),
     ]
+
+
+def test_a_connector_that_fails_its_test_says_the_error_under_the_group(
+    keys, monkeypatch
+):
+    """The MCP client fails inside a task group: the page said only
+    "ExceptionGroup" (the Arctis, 26 Nov)."""
+    from fibsem.ai.agent import extra_mcp
+
+    class Group(Exception):
+        def __init__(self, *errors):
+            super().__init__("unhandled errors in a TaskGroup")
+            self.exceptions = errors
+
+    class HTTPStatusError(Exception):
+        pass
+
+    async def refused(server, secrets):
+        raise Group(Group(HTTPStatusError("Client error '401 Unauthorized'")))
+
+    monkeypatch.setenv("NOTEBOOK_TOKEN", "not-a-real-token")
+    monkeypatch.setattr(extra_mcp, "_tools_of", refused)
+    client, _ = keys
+    r = client.post("/gateway/connectors/notebook/test", headers=_as(OPERATOR_TOKEN))
+    assert r.status_code == 502, r.text
+    said = r.json()["detail"]["message"]
+    assert "HTTPStatusError: Client error '401 Unauthorized'" in said
+    assert "not-a-real-token" not in said
