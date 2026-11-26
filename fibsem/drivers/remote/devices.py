@@ -101,7 +101,12 @@ from fibsem.devices.wire import (
     to_wire,
     version_problem,
 )
-from fibsem.drivers.registry import DeviceBuilder, get_driver, normalize_name
+from fibsem.drivers.registry import (
+    REMOTE_SERVICES,
+    DeviceBuilder,
+    get_driver,
+    normalize_name,
+)
 from fibsem.structures.image import FibsemImage, FibsemImageMetadata
 from fibsem.structures.params import Limits, RangeLimit
 from fibsem.structures.settings import (
@@ -1163,10 +1168,40 @@ def _server(
         else:
             # one client per server, shared by its devices: closed at disconnect
             context.on_disconnect(client.close)
+            _take_services(context, client, f"{address}:{port}")
     server = servers[key]
     if isinstance(server, Exception):
         raise server
     return server
+
+
+def _take_services(context: "BuildContext", client: DeviceClient, where: str) -> None:
+    """Take on the services the Device Server behind *client* has (work that uses
+    only that computer's devices), as the microscope's own: put on
+    ``context.microscope`` (`FibsemMicroscope.add_service`) and kept in
+    ``context.shared``. A server too old to list services has none; one whose
+    name is taken already is left out. Never fails the connect."""
+    from fibsem.drivers.remote.services import connect_remote_services
+
+    try:
+        services = connect_remote_services(client, parent=context.microscope)
+    except Exception as error:  # noqa: BLE001 - its devices still connect
+        logger.info(f"{where}: no services taken from the Device Server: {error}")
+        return
+    taken = context.shared.setdefault(REMOTE_SERVICES, {})
+    add = getattr(context.microscope, "add_service", None)
+    used = []
+    for name, service in services.items():
+        if name in taken or (add is not None and not add(service)):
+            logger.warning(
+                f"{where}: its service '{name}' is left out: this instrument "
+                "already has a service of that name"
+            )
+            continue
+        taken[name] = service
+        used.append(name)
+    if used:
+        logger.info(f"{where}: using its services {sorted(used)}")
 
 
 class _RemoteBuilders(Mapping[str, DeviceBuilder]):

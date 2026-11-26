@@ -18,7 +18,11 @@ The far side of a remote device (the METEOR PC, say). It wraps any
                                                {"result": {summary, path, preview}}
     POST /devices/{device}/queries/{query}     {"kwargs": {...}} -> {"result": ...},
                                                a read that moves nothing
-    WS   /events                               {"device", "parameter", "kind", "value"},
+    GET  /services, /services/{service}/...    the services the devices' drivers
+                                               build over them (a scan, an approach),
+                                               with the same routes as a device
+    WS   /events                               {"device", "parameter", "kind", "value"}
+                                               ({"service", ...} for a service's),
                                                with pings as a heartbeat
     WS   /devices/{beam}/live                  each live frame the beam acquires, as
                                                ``frames_to_bytes`` writes one: the
@@ -138,6 +142,7 @@ from fibsem.devices.wire import (
     type_hints,
     type_path,
 )
+from fibsem.drivers.registry import REMOTE_SERVICES, service_builders
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.instrument import DeviceInstrument
 from fibsem.schema import arguments_schema
@@ -1001,11 +1006,15 @@ def live_source(devices: Mapping[str, Device], name: str) -> Any:
 
 
 def build_device_app(
-    devices: Iterable[Device], auth: Optional[DeviceAuth] = None
+    devices: Iterable[Device],
+    auth: Optional[DeviceAuth] = None,
+    services: Iterable[Any] = (),
 ) -> FastAPI:
     """The server's routes over these devices, looked up by ``device.name``,
-    behind *auth*: this install's token and paired computers by default."""
+    behind *auth*: this install's token and paired computers by default.
+    *services* (`driver_services`) are served the same way under ``/services``."""
     by_name: Dict[str, Device] = {device.name: device for device in devices}
+    service_by_name: Dict[str, Any] = {service.name: service for service in services}
     auth = auth if auth is not None else DeviceAuth.from_disk()
     app = FastAPI(title="fibsem devices")
     refuse_invalid_requests(app)
@@ -1028,10 +1037,21 @@ def build_device_app(
         )
 
     app.include_router(build_device_router(lambda: by_name), dependencies=[token])
+    # Listed even when there are none, so a client can tell "none" from a server
+    # too old to have them (404).
+    app.include_router(
+        build_device_router(
+            lambda: service_by_name,
+            prefix="/services",
+            noun="service",
+            long_commands=True,
+        ),
+        dependencies=[token],
+    )
 
     @app.websocket("/events", dependencies=[token])
     async def events(websocket: WebSocket) -> None:
-        await stream_events(websocket, {"device": by_name})
+        await stream_events(websocket, {"device": by_name, "service": service_by_name})
 
     @app.websocket("/devices/{device}/live", dependencies=[token])
     async def live(websocket: WebSocket, device: str) -> None:
@@ -1049,9 +1069,10 @@ class DeviceServer:
         host: str = "127.0.0.1",
         port: int = 0,
         auth: Optional[DeviceAuth] = None,
+        services: Iterable[Any] = (),
     ):
         config = uvicorn.Config(
-            build_device_app(devices, auth),
+            build_device_app(devices, auth, services),
             host=host,
             port=port,
             log_level="warning",
@@ -1166,6 +1187,7 @@ def _refuse_unservable(entries: Iterable[Any], allow_remote: bool = False) -> No
 def configured_devices(
     source: Union[str, Mapping[str, Any]],
     allow_remote: bool = False,
+    shared: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Dict[str, Device], List[Callable[[], None]]]:
     """The devices a configuration's ``hardware.devices`` lists, each built by its own
     driver with no microscope (``BuildContext.microscope`` is None), as a unit's PC
@@ -1179,7 +1201,9 @@ def configured_devices(
     server can't serve is refused (`_refuse_unservable`), except a remote entry with
     *allow_remote*, for the App Server's own devices. An ``fm`` entry is served
     as the FM's parts and group, which the host's remote FM mirrors. Roles are not
-    bound: each device is served on its own.
+    bound: each device is served on its own. *shared* starts the builders' scratch
+    space (`BuildContext.shared`), where the remote driver leaves the services of
+    the Device Servers it reached.
     """
     settings = read_server_settings(source) if isinstance(source, str) else source
     configured = read_device_entries(settings)
@@ -1188,12 +1212,49 @@ def configured_devices(
     resolved = resolve_device_entries([], configured, manufacturer)
     cleanups: List[Callable[[], None]] = []
     built: Dict[str, Device] = {}
-    for name, device in build_device_entries(resolved, None, cleanups=cleanups).items():
+    for name, device in build_device_entries(
+        resolved, None, shared=shared, cleanups=cleanups
+    ).items():
         if isinstance(device, FluorescenceMicroscope):
             built.update(device.devices)
         else:
             built[name] = device
     return built, cleanups
+
+
+def driver_services(
+    source: Union[str, Mapping[str, Any]], devices: Mapping[str, Device]
+) -> Dict[str, Any]:
+    """The services the drivers of a configuration's ``hardware.devices`` build
+    over *devices* (what `configured_devices` built from it), by name: each
+    driver's own (`fibsem.drivers.registry.service_builders`), built once with
+    every device. One whose builder fails, or returns None because its devices
+    are not there, is left out; so is a second service of the same name."""
+    settings = read_server_settings(source) if isinstance(source, str) else source
+    manufacturer = (settings.get("info") or {}).get("manufacturer")
+    resolved = resolve_device_entries([], read_device_entries(settings), manufacturer)
+    services: Dict[str, Any] = {}
+    for driver in dict.fromkeys(item.driver for item in resolved if item.driver):
+        try:
+            builders = service_builders(driver)
+        except (ImportError, NotImplementedError):
+            continue  # its devices were not built either, and that was said
+        for name, builder in builders.items():
+            try:
+                service = builder.load()(devices)
+            except Exception as e:
+                logger.warning(f"{driver}: service '{name}' was not built: {e}")
+                continue
+            if service is None:
+                continue
+            if service.name in services:
+                logger.warning(
+                    f"{driver}: a service named '{service.name}' is already "
+                    "served; this one is left out"
+                )
+                continue
+            services[service.name] = service
+    return services
 
 
 def device_instrument(
@@ -1204,9 +1265,17 @@ def device_instrument(
     the App Server serves beside a microscope (`build_server(instruments=...)`),
     or on its own once a devices configuration connects (`AppSession.connect`),
     which builds remote entries too (*allow_remote*)."""
-    devices, cleanups = configured_devices(source, allow_remote=allow_remote)
+    settings = read_server_settings(source) if isinstance(source, str) else source
+    shared: Dict[str, Any] = {}
+    devices, cleanups = configured_devices(
+        settings, allow_remote=allow_remote, shared=shared
+    )
     switch_off_fms(devices.values())
-    return DeviceInstrument(devices, cleanups)
+    # Its own drivers' services, then those of the Device Servers it reaches.
+    services = driver_services(settings, devices)
+    for name, service in shared.get(REMOTE_SERVICES, {}).items():
+        services.setdefault(name, service)
+    return DeviceInstrument(devices, cleanups, services)
 
 
 def switch_off_fms(devices: Iterable[Device]) -> None:
@@ -1342,6 +1411,10 @@ def main(
             raise SystemExit(1) from e
         built.update(more)
         cleanups += closes
+    services: Dict[str, Any] = {}
+    for source in sources:
+        for name, service in driver_services(source, built).items():
+            services.setdefault(name, service)
     served += built.values()
     demo_parts = [part for part in DEMO_PARTS if part in args.serve]
     if demo_parts:
@@ -1371,9 +1444,15 @@ def main(
     logger.info(
         f"{PROGRAM} {fibsem.__version__} (routes {DEVICE_API_VERSION}) serving "
         f"{sorted(devices)} on http://{host}:{port}"
+        + (f", with the services {sorted(services)}" if services else "")
     )
     try:
-        _serve(build_device_app(devices.values(), auth), host, port, stop)
+        _serve(
+            build_device_app(devices.values(), auth, services.values()),
+            host,
+            port,
+            stop,
+        )
     finally:
         switch_off_fms(devices.values())
         disconnect_devices(built, cleanups)
