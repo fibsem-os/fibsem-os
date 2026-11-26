@@ -2,7 +2,7 @@
 and ended from the gateway's page or window, kept by an `AgentSessionManager`.
 
 Start works with the app running, with or without a microscope connected,
-or with no app while the Agent Server runs (`fibsem.gateway.agent_host`): the
+or with no app while the Agent Server runs (`fibsem.server.agent.process`): the
 agent then talks, plans and keeps its record there, and reaches the
 microscope once the app answers. It pairs the agent's
 token straight into the shared ``paired.json`` (the operator starting it is
@@ -282,7 +282,7 @@ class GatewayAgent:
         # The gateway's own address: the agent reaches the App Server through
         # it (`fibsem.gateway.passthrough`), else directly.
         self._own_url = own_url
-        # The Agent Server's discovery file (`fibsem.gateway.agent_host`): the
+        # The Agent Server's discovery file (`fibsem.server.agent.process`): the
         # agent works through it while no app answers.
         self._host = host
         self._tokens = tokens
