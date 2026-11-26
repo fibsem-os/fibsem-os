@@ -316,6 +316,14 @@ function InstrumentAgent({ instrument }: { instrument: Instrument }) {
     () => ({
       prefix: `/hub/instruments/${encodeURIComponent(instrument.name)}`,
       pc: "the microscope PC",
+      places: [
+        { key: "pc", label: "The microscope PC" },
+        {
+          key: "hub",
+          label: "This hub PC",
+          start: `/hub/instruments/${encodeURIComponent(instrument.name)}/hub-agent/start`,
+        },
+      ],
     }),
     [instrument.name],
   );

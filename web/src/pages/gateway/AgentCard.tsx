@@ -4,7 +4,7 @@ import { type ReactNode, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardTitle, Facts } from "@/components/ui/card";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { ApiError, useApi, useReached } from "@/lib/api";
+import { ApiError, api as direct, useApi, useReached } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 export interface Session {
@@ -281,7 +281,9 @@ function Start({
   defaults?: AgentDefaults;
 }) {
   const api = useApi();
-  const { pc } = useReached();
+  const { pc, places } = useReached();
+  const [place, setPlace] = useState(places?.[0]?.key ?? "");
+  const elsewhere = places?.find((p) => p.key === place)?.start;
   const client = useQueryClient();
   const playbooks = useQuery({
     queryKey: ["gateway/agent/playbooks"],
@@ -322,8 +324,8 @@ function Start({
     (playbookBudget != null ? String(playbookBudget) : "");
   const sentBudget = budget?.trim() || savedBudget;
   const start = useMutation({
-    mutationFn: (replace: boolean) =>
-      api<AgentState>("/gateway/agent/start", {
+    mutationFn: (replace: boolean) => {
+      const init = {
         method: "POST",
         body: JSON.stringify({
           playbook: chosen,
@@ -332,8 +334,17 @@ function Start({
           ...(sentBudget ? { budget_usd: sentBudget } : {}),
           replace,
         }),
-      }),
-    onSuccess: (answer) => client.setQueryData(["gateway/agent"], answer),
+      };
+      // Started somewhere else (on the hub PC): the gateway's own state
+      // is read again, since the answer isn't one.
+      return elsewhere
+        ? direct<unknown>(elsewhere, init).then(() => null)
+        : api<AgentState>("/gateway/agent/start", init);
+    },
+    onSuccess: (answer) =>
+      answer
+        ? client.setQueryData(["gateway/agent"], answer)
+        : client.invalidateQueries({ queryKey: ["gateway/agent"] }),
   });
   const paired =
     start.error instanceof ApiError && start.error.errorType === "agent_paired";
@@ -341,13 +352,28 @@ function Start({
   return (
     <>
       {state.connected && <ConnectedAgent connected={state.connected} />}
-      {!state.api_key && (
+      {!state.api_key && !elsewhere && (
         <p className="m-0 text-[13px] text-[var(--fibsem-semantic-warning-color)]">
           No API key on {pc}, so the agent can't start. Run fibsem-cli key
           set ANTHROPIC_API_KEY on {pc}.
         </p>
       )}
       <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+        {places && places.length > 1 && (
+          <Field label="Run on">
+            <select
+              value={place}
+              onChange={(event) => setPlace(event.target.value)}
+              className={FIELD}
+            >
+              {places.map((p) => (
+                <option key={p.key} value={p.key}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
         <Field label="Playbook">
           <select
             value={chosen}
@@ -453,6 +479,10 @@ function Start({
               <span className="text-xs text-muted-foreground">
                 The agent waits for the app, and starts once it answers.
               </span>
+            ) : elsewhere ? (
+              <span className="text-xs text-muted-foreground">
+                Uses ANTHROPIC_API_KEY on this hub PC.
+              </span>
             ) : !state.api_key ? null : (
               <span className="text-xs text-muted-foreground">
                 Uses ANTHROPIC_API_KEY on {pc}.
@@ -462,7 +492,7 @@ function Start({
               variant="primary"
               disabled={
                 start.isPending ||
-                !state.api_key ||
+                (!state.api_key && !elsewhere) ||
                 !chosen
               }
               onClick={() => start.mutate(false)}

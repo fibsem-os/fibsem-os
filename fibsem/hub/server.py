@@ -178,7 +178,10 @@ def build_hub_app(
             """``{playbook, goal, level, budget_usd, replace}``: run an agent
             for the instrument on this hub PC. Its gateway gives the slot, or
             refuses in its own words."""
-            budget = body.get("budget_usd")
+            try:
+                budget = float(body["budget_usd"])
+            except (KeyError, TypeError, ValueError):
+                budget = None
             return _act(
                 lambda: agents.start(
                     name,
@@ -186,7 +189,7 @@ def build_hub_app(
                     str(body.get("goal") or "") or None,
                     str(body.get("level") or "watch"),
                     who,
-                    float(budget) if isinstance(budget, (int, float)) else None,
+                    budget,
                     bool(body.get("replace")),
                 )
             )
