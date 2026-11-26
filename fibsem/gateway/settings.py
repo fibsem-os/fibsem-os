@@ -297,15 +297,30 @@ def test_connector(name: str, local: bool, file: Optional[Path] = None) -> dict:
     thread.join(TEST_TIMEOUT_S + 5)
     if "tools" in found:
         return {"tools": found["tools"]}
-    error = found.get("error")
+    error = _cause(found.get("error"))
     why = (
         "it didn't answer in time"
         if error is None or isinstance(error, asyncio.TimeoutError)
-        else type(error).__name__
+        else _said(error)
     )
     raise ConnectorRefused(
         502, "connector_failed", f"{name} couldn't be listed: {why}."
     )
+
+
+def _cause(error: Optional[BaseException]) -> Optional[BaseException]:
+    """The error under the MCP client's task group: an ``ExceptionGroup``
+    says only that something in it failed."""
+    while error is not None and getattr(error, "exceptions", None):
+        error = error.exceptions[0]
+    return error
+
+
+def _said(error: BaseException) -> str:
+    """The error's type and its words (an HTTP status, a refused connection),
+    short. The token is only ever in a header, which no error here repeats."""
+    words = " ".join(str(error).split())[:200]
+    return f"{type(error).__name__}: {words}" if words else type(error).__name__
 
 
 # -- this PC (install preferences) --------------------------------------------
