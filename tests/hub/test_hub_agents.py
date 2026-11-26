@@ -296,3 +296,44 @@ def test_stopping_the_hub_ends_its_agents_and_gives_the_slots_back(made):
     made.agents.stop()
     assert made.manager.agents["Scope 1"].state == "ended"
     assert made.slot.holder is None
+
+
+def test_the_hubs_key_is_set_only_with_the_installs_own_token(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from fibsem import keystore
+    from fibsem.hub.server import build_hub_app, hub_auth
+    from fibsem.server.pairing import OPERATOR
+
+    kept = {}
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(keystore, "stored_secret", lambda name: kept.get(name))
+    monkeypatch.setattr(keystore, "set_secret", kept.__setitem__)
+    monkeypatch.setattr(keystore, "delete_secret", lambda name: kept.pop(name, None))
+    monkeypatch.setattr(keystore, "store_name", lambda: "test store")
+    token_file = tmp_path / "operator-token.json"
+    token_file.write_text('{"token": "operator-token"}')
+    auth = hub_auth(token_file, tmp_path / "paired.json")
+    _, paired = auth.pairing.tokens.add("laptop", role=OPERATOR)
+    hub = Hub(file=tmp_path / "hub.yaml", tokens=tmp_path / "hub")
+    client = TestClient(build_hub_app(hub, auth))
+    here = {"Authorization": "Bearer operator-token"}
+    away = {"Authorization": f"Bearer {paired}"}
+    route = "/hub/secrets/ANTHROPIC_API_KEY"
+
+    rows = client.get("/hub/secrets", headers=here).json()
+    assert [row["name"] for row in rows] == ["ANTHROPIC_API_KEY"]
+    assert rows[0]["set"] is False and rows[0]["can_set"] is True
+    assert client.get("/hub/secrets", headers=away).json()[0]["can_set"] is False
+    assert client.put(route, json={"value": "sk-1"}, headers=away).status_code == 403
+    assert client.put(route, json={"value": "sk-1"}).status_code == 401
+
+    saved = client.put(route, json={"value": "sk-1"}, headers=here)
+    assert saved.status_code == 200 and saved.json()["set"] is True
+    assert "sk-1" not in saved.text
+    assert "sk-1" not in client.get("/hub/secrets", headers=here).text
+    other = client.put(
+        "/hub/secrets/FIBSEM_SLACK_TOKEN", json={"value": "x"}, headers=here
+    )
+    assert other.status_code == 404
+    assert client.delete(route, headers=here).json()["set"] is False

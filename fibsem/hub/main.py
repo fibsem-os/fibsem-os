@@ -19,7 +19,7 @@ import urllib.request
 from pathlib import Path
 from typing import Optional, Sequence
 
-from fibsem.hub.agents import HubAgents
+from fibsem.hub.agents import HubAgents, stored_key
 from fibsem.hub.hub import Hub
 from fibsem.hub.server import build_hub_app, hub_auth
 from fibsem.server.discovery import DISCOVERY_DIR
@@ -88,9 +88,7 @@ def run(port: int) -> int:
         print(f"A hub already runs here (pid {running['pid']}, {running['url']}).")
         return 1
     hub = Hub()
-    # No key is given to the hub's agents yet: a start is refused until
-    # where this PC keeps it is settled.
-    agents = HubAgents(hub)
+    agents = HubAgents(hub, api_key=stored_key)
     stopping = threading.Event()
     server = Server(
         uvicorn.Config(

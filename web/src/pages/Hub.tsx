@@ -14,6 +14,7 @@ import { api, ApiError, ReachedProvider } from "@/lib/api";
 import * as fmt from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { AgentCard, Field, FIELD, title } from "@/pages/gateway/AgentCard";
+import { KeyRow, type Secret } from "@/pages/gateway/Settings";
 import { Connections } from "@/shell/Settings";
 
 interface Piece {
@@ -464,6 +465,25 @@ function NewInstrument({
   );
 }
 
+/** The key the agents on this hub PC use. Write-only, as a gateway's keys. */
+function HubKeys() {
+  const secrets = useQuery({
+    queryKey: ["hub/secrets"],
+    queryFn: () => api<Secret[]>("/hub/secrets"),
+  });
+  return (
+    <Card className="flex flex-col gap-1">
+      <CardTitle className="mb-1.5">Keys</CardTitle>
+      {secrets.error && (
+        <p className="m-0 text-[13px] text-destructive">{(secrets.error as Error).message}</p>
+      )}
+      {secrets.data?.map((s) => (
+        <KeyRow key={s.name} s={s} path="/hub/secrets" page="the Hub's own page" />
+      ))}
+    </Card>
+  );
+}
+
 function HubSettings({ version, onQuit }: { version?: string; onQuit: () => void }) {
   const [confirm, setConfirm] = useState(false);
   const quit = useMutation({
@@ -488,8 +508,8 @@ function HubSettings({ version, onQuit }: { version?: string; onQuit: () => void
         <DialogContent title="Stop the Hub?" className="w-[min(460px,calc(100vw-32px))]">
           <div className="flex flex-col gap-2 px-4 py-3.5 text-[13px]">
             <p className="m-0">
-              Its connections close. No instrument notices: apps and agents keep running. You need
-              to start it again at the hub PC.
+              Its connections close, and any agent running on this hub PC is ended. Apps and agents
+              on the microscope PCs keep running. You need to start it again at the hub PC.
             </p>
             {quit.error && <p className="m-0 text-destructive">{(quit.error as Error).message}</p>}
             <div className="flex justify-end gap-2.5 pt-2">
@@ -655,6 +675,7 @@ export function HubPage() {
           {tab === "settings" && (
             <>
               <h1 className="m-0 text-[17px] font-semibold">Settings</h1>
+              <HubKeys />
               <HubSettings version={health.data?.version} onQuit={() => setStopped(Date.now())} />
             </>
           )}

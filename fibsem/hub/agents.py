@@ -19,6 +19,7 @@ the slot) ends the agent here.
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 import uuid
@@ -29,9 +30,10 @@ from typing import Any, Callable, Dict, List, Optional
 from fibsem.ai.agent.manager import AgentRunning, AgentSessionManager
 from fibsem.gateway.gateway import GatewayRefused
 from fibsem.hub.hub import TOKENS_DIR, Hub, crosses_in_clear
+from fibsem.keystore import stored_secret
 from fibsem.util import timestamps
 
-__all__ = ["API_KEY", "HubAgents", "SESSIONS_DIR"]
+__all__ = ["API_KEY", "HubAgents", "SESSIONS_DIR", "stored_key"]
 
 log = logging.getLogger(__name__)
 
@@ -50,6 +52,12 @@ POLL_S = 1.0
 _AWAY = ("lost_slot",)
 # A gateway that is busy or not ready is asked again, as one that didn't answer.
 _LATER = ("busy", "not_ready")
+
+
+def stored_key() -> Optional[str]:
+    """This PC's API key as a gateway reads its own: the environment's, else
+    the one in this PC's key store. Read at each start, never kept."""
+    return os.environ.get(API_KEY) or stored_secret(API_KEY)
 
 
 @dataclass
@@ -158,7 +166,10 @@ class HubAgents:
             )
         if not self._api_key():
             raise GatewayRefused(
-                409, "no_api_key", "This hub PC has no API key for its agents."
+                409,
+                "no_api_key",
+                "No API key on this hub PC: set it in the Hub's Settings, or "
+                f"run fibsem-cli key set {API_KEY} here.",
             )
         with self._lock:
             if name in self._held:
