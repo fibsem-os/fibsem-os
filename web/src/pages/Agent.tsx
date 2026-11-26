@@ -539,8 +539,18 @@ function RunCard({
   live,
   tab = false,
   parent,
+  back,
   ...shared
-}: { call: TranscriptLine; answer?: TranscriptLine; live: boolean; tab?: boolean; parent?: TranscriptLine } & Shared) {
+}: {
+  call: TranscriptLine;
+  answer?: TranscriptLine;
+  live: boolean;
+  tab?: boolean;
+  parent?: TranscriptLine;
+  /** In the Subagents tab: the way back to the list, kept with the run's name
+   * and state at the top while its lines scroll. */
+  back?: { count: number; onBack: () => void };
+} & Shared) {
   const [open, setOpen] = useState(false);
   const lines = shared.runs.get(stepKey(call.session_id, call.seq)) ?? [];
   const steps = lines.filter((l) => l.kind === "step").length;
@@ -557,21 +567,37 @@ function RunCard({
         tab ? "" : "col-span-2 my-1 max-w-[640px] rounded-md border bg-card px-3 py-2",
       )}
     >
-      <div className="flex items-baseline justify-between gap-3">
-        <span className="min-w-0 break-words">
-          <span className="font-semibold text-foreground">{agentName(call.subagent ?? "")}</span>
-          {call.text && <span className="text-foreground"> · {call.text}</span>}
-        </span>
-        <span
-          className={cn(
-            "flex shrink-0 items-center gap-1 text-[12px]",
-            state.failed ? "text-destructive" : "text-muted-foreground",
-          )}
-        >
-          {runs && <Loader size={11} className="animate-spin" aria-label="running" />}
-          <RunBadge badge={state.badge} />
-          {state.text}
-        </span>
+      <div
+        className={cn(
+          back &&
+            "sticky top-0 z-10 -mx-6 -mt-4 flex flex-col gap-1 border-b border-border bg-background px-6 pt-4 pb-2",
+        )}
+      >
+        {back && (
+          <button
+            className="flex w-fit cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-[12px] text-muted-foreground hover:text-foreground"
+            onClick={back.onBack}
+          >
+            <ChevronLeft size={13} />
+            All runs ({back.count})
+          </button>
+        )}
+        <div className="flex items-baseline justify-between gap-3">
+          <span className={cn("min-w-0", back ? "truncate" : "break-words")} title={back ? runTitle(call) : undefined}>
+            <span className="font-semibold text-foreground">{agentName(call.subagent ?? "")}</span>
+            {call.text && <span className="text-foreground"> · {call.text}</span>}
+          </span>
+          <span
+            className={cn(
+              "flex shrink-0 items-center gap-1 text-[12px]",
+              state.failed ? "text-destructive" : "text-muted-foreground",
+            )}
+          >
+            {runs && <Loader size={11} className="animate-spin" aria-label="running" />}
+            <RunBadge badge={state.badge} />
+            {state.text}
+          </span>
+        </div>
       </div>
       {tab && parent && (
         <div className="text-[12px] text-muted-foreground">
@@ -1547,15 +1573,9 @@ export function AgentPage() {
       render: () =>
         call ? (
           <div className="flex flex-col gap-3">
-            <button
-              className="flex w-fit cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-[12px] text-muted-foreground hover:text-foreground"
-              onClick={() => setShownRun(null)}
-            >
-              <ChevronLeft size={13} />
-              All runs ({idx.calls.length})
-            </button>
             <RunCard
               tab
+              back={{ count: idx.calls.length, onBack: () => setShownRun(null) }}
               call={call}
               answer={answer}
               live={!answer && idx.running(call)}
