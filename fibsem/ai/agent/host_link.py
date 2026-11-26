@@ -1,4 +1,4 @@
-"""fibsem-agent's side of an agent host (`fibsem.server.agent.host`): finding
+"""fibsem-agent's side of an Agent Server (`fibsem.server.agent.host`): finding
 it, and the agent's token there.
 
 A host sits behind this PC's gateway, as the App Server does: the gateway
@@ -21,10 +21,10 @@ from fibsem.keystore import get_secret
 from fibsem.server import discovery
 
 # What --host shows when no host runs on this PC yet (--show-config only).
-ON_THIS_PC = "the agent host on this PC"
+ON_THIS_PC = "the Agent Server on this PC"
 NO_HOST = (
-    "fibsem-agent: no agent host is running on this PC. Start the gateway and "
-    "fibsem-agent-host, or give --host an address."
+    "fibsem-agent: no Agent Server is running on this PC. Start the gateway and "
+    "fibsem-agent-server, or give --host an address."
 )
 # How long to wait for the operator's Allow.
 ALLOW_WAIT_S = 600.0
@@ -80,7 +80,7 @@ def host_token(
     found = discovery.read_gateway_file()
     if found is None or not found.get("connect_token"):
         raise LookupError(
-            f"no gateway runs on this PC to ask for the agent host at {url}: "
+            f"no gateway runs on this PC to ask for the Agent Server at {url}: "
             f"start it, or set {HOST_TOKEN_ENV} (the environment or the key "
             "store) to the agent's token."
         )

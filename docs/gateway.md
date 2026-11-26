@@ -10,7 +10,7 @@ It never touches the microscope itself; the app it starts does. Without the gate
 installed, nothing changes: desktop launches work as they always have.
 
 A PC runs one App Server at a time, and the gateway runs one app at a time. Clients on the
-PC (`fibsem-agent`, `fibsem-cli`, the `fibsem-mcp` sidecar, the gateway itself) find it
+PC (`fibsem-agent`, `fibsem-cli`, the `fibsem-mcp` MCP server program, the gateway itself) find it
 through its discovery file, `~/.fibsem/app-server.json`. A second app's App Server is
 refused while a live one runs, and says which one (its pid and address).
 
@@ -112,7 +112,7 @@ on the left has four pages:
   (see [Pairing](#pairing)).
 - **Customise.** The agent's setup: each row opens the Agent page's **Knowledge** window on
   that part. Through the gateway, its playbooks, skills, subagents, tools and connectors work
-  with no app running (the gateway's agent host serves them); its entries need the app.
+  with no app running (the gateway's Agent Server serves them); its entries need the app.
   - **Playbooks, Skills, Subagents:** what fibsemOS ships and the lab's own, each with its
     form or its file. Editing a shipped one saves the lab's copy. Editing is the operator's,
     and each save, new one or removal made through the gateway is in History.
@@ -165,7 +165,7 @@ agent's Start in that time says the app is still starting.
 
 Every fibsem program answers `GET /health` the same way, open to anyone: `{"status": "ok",
 "program", "version", "api_version", "state"}`. The program is `fibsem-gateway`,
-`fibsem-app-server` or `fibsem-agent-host`; `version` is fibsemOS's; `api_version` is the
+`fibsem-app-server` or `fibsem-agent-server`; `version` is fibsemOS's; `api_version` is the
 version of that program's own routes (the gateway's are versioned apart from the App
 Server's it passes on), so a hub can tell a gateway it is too old or too new for.
 
@@ -173,6 +173,82 @@ The bottom of the list says when there is newer code: "fibsemOS 0.6.3 available"
 newer release is on PyPI, or "Update available" for a source checkout behind GitHub's
 `main` (hover it for how many changes). The gateway asks when it starts and once a day after. Offline, or with a commit that
 was never pushed, it shows nothing.
+
+### The Device Server
+
+On a PC with a `~/.fibsem/device-server.yaml` (a METEOR's or an AFM's PC, or a microscope PC
+whose device needs a vendor's Python), the gateway also runs that PC's Device Server, as it
+starts. It runs it with the Python the file names under `server.python` (another environment
+on this PC, for a vendor's SDK), else its own:
+
+```yaml
+server:
+  port: 8765
+  python: C:\vendor\envs\sdk\python.exe
+```
+
+Overview shows it under Microscope, in Devices: a line with how many Device Servers and
+devices, which opens to each Device Server (running, starting or stopped, its address and
+version) and whether each device it serves answers (from its `/health`, read with this install's Device
+Server token). The list opens by itself when one is not well.
+One that ends is not started again by itself: it shows stopped with its last
+log lines, until Start. Stop ends it by its stop file, so it switches its devices off as it
+ends. Only the operator starts and stops it; a hub reads it at `GET /gateway/device-server`.
+Its log is in `~/.fibsem/logs/gateway/device-server-<time>.log`. Without the file, nothing
+changes.
+
+
+### Device Servers on other PCs
+
+The microscope reaches a device on another PC (a METEOR's FM, an AFM) through that PC's
+Device Server, named by a `remote: <address>:<port>` entry in the microscope configuration.
+The gateway reads those entries from the configuration the app connects with (the app's own,
+else the one chosen on Overview, else the default), so there is no second list, and asks
+each Device Server how it is every 10 seconds, with the token this PC was paired with there.
+Overview lists them under Microscope, in Devices, beside this PC's own: running, not
+answering, not paired, another version (its routes are another minor version's), or tunnel
+down, and whether each of its devices answers. `GET /gateway` has the same list in
+`device_servers`, which is what a hub reads.
+
+An entry can name an SSH tunnel to its PC, and the gateway opens and keeps it open:
+
+```yaml
+hardware:
+  devices:
+    - name: fm
+      driver: Odemis
+      remote: 127.0.0.1:8765
+      tunnel: meteor@meteor-pc
+```
+
+The Device Server then stays on its own PC's 127.0.0.1, and the gateway brings its port to
+the same port here. The gateway runs this PC's own `ssh` as the same user, with their SSH key
+and settings, and never asks for a password: setting the key up is a one-time step by a
+person (`ssh-keygen`, then `ssh-copy-id meteor@meteor-pc`, then `ssh meteor@meteor-pc` once to
+accept its host key). The gateway stores no secret and makes no key; when ssh can't connect,
+the row says what ssh said. A port that already answers here, such as a tunnel opened by
+hand, is used as it is.
+
+New, beside Devices, points one device at a Device Server (its name, the address and port, and
+the tunnel if any), and Remove on a Device Server's row takes it off. Each changes only that
+device's entry in the configuration (its `remote:` and `tunnel:`), keeping the file as it was
+beside it the first time (`<name>.yaml.bak`), and counts from the app's next connect. Only the
+operator adds and removes them.
+
+#### Pairing through the gateways
+
+A Device Server with a tunnel can be paired from Overview, with no token copied by hand.
+Pair on its row asks the gateway on the device PC (through a second tunnel to that PC's
+gateway port: it listens on its own PC only, so pairing needs the entry's `tunnel:`). Nothing
+comes back until the operator at the device PC allows it on its gateway's page: Overview there
+shows "sem-pc asks to pair" with Allow and Deny, one ask at a time, and the ask lapses after
+10 minutes. Allow pairs this PC twice there: with the Device Server (as `--pair` would), and
+with that gateway, which then lets this PC start and stop its Device Server and nothing else.
+Both tokens go only to the gateway that asked, and this PC keeps them in `~/.fibsem/remote/`
+(user-only files, where `fibsem-cli pair-device` keeps its own), so the app's remote driver
+uses the first as it is. Start and Stop then appear on the row. Unpairing that gateway in the
+device PC's Pairing ends its Device Server pairing too, and Remove of the Device Server's last
+device here forgets both tokens.
 
 ## The agent
 
@@ -196,7 +272,7 @@ Start needs:
 
 - **The app running**, with its window or without, for the agent to act on the microscope.
   A microscope needn't be connected: without one the agent can still read and review an
-  experiment. With no app, Start runs the agent on the gateway's agent host (below): it can
+  experiment. With no app, Start runs the agent on the gateway's Agent Server (below): it can
   talk, plan and keep its review list, and reaches the microscope once the app runs.
 - **An API key**, stored once with `fibsem-cli key set ANTHROPIC_API_KEY` (see below).
 - **A playbook that doesn't run code.** Windows has no sandbox for the agent's code.
@@ -222,15 +298,15 @@ app or has restarted.
 - **End** asks first, then stops the agent and keeps the app, back at Watch. The app goes
   back to Watch whenever the gateway's agent ends: End, replaced by an **Allow**, or
   restarts used up. The session keeps the level you last set, for its Resume.
-- **Start with no app running** starts the agent at once on the agent host, at the level you
+- **Start with no app running** starts the agent at once on the Agent Server, at the level you
   picked. When the app answers, the agent's calls go to it and the gateway sets the app to
   the level the agent runs at; nothing restarts. Resume works with no app the same way.
 - **Stopping the app** from the gateway (Stop or a new start) leaves the agent running on the
-  agent host, still paired, at the level you last set. When the same app and experiment
+  Agent Server, still paired, at the level you last set. When the same app and experiment
   answer again, it carries on there. A new start of another app or experiment ends it
   (the gateway compares the app and experiment it started; one opened by hand in the app
   isn't seen). End ends it. Quit leaves it for Resume, as above.
-- **With no agent host** (it couldn't start), Start with no app leaves the agent waiting, and
+- **With no Agent Server** (it couldn't start), Start with no app leaves the agent waiting, and
   it starts once the app answers; stopping the app stops the agent first and leaves it
   waiting, carrying on once the next app answers, never on the app being stopped. A start
   still waiting for its app ends on Quit, since it never ran.
@@ -254,10 +330,19 @@ While the gateway runs, an agent never goes to the App Server directly: an App S
 instead, so the one-agent slot, the Allow card and History apply to every agent. Without a
 gateway, a client still finds an App Server running alone (tests, scripts).
 
-The App Server enforces it too. As it starts it makes a secret and writes it into its
-`app-server.json` (this user's alone); the gateway adds it to every call it passes on. While
-a gateway runs, an agent's call without it is refused (`401 through_gateway`, naming the
-gateway). An app started by hand or by a desktop launch works the same way. The operator's
+The servers enforce it too. Each time the gateway starts the App Server (with or without its
+window) or the Agent Server, it makes a new secret and hands it through that server's
+environment (`FIBSEM_GATEWAY_SECRET`), never on disk. The server takes it out of its
+environment as it starts, so the programs it starts in turn (the agent, a code sandbox) never
+see it, and the gateway adds it to every call it makes or passes on (`X-Fibsem-Gateway`).
+While the gateway runs, such a server refuses every call without it, whoever makes it, the
+operator's token included (`401 through_gateway`, naming the gateway); the caller's token is
+still checked after. Its `/health` and the stops are never refused, and a server left running
+after its gateway closed answers as before.
+
+An App Server the gateway didn't start (its window opened by hand) makes its own secret and
+writes it into its `app-server.json` (this user's alone); the gateway adds that to the calls
+it passes on, and while a gateway runs an agent's call without it is refused. The operator's
 token and the App Server's own (an App Server run alone: tests, evals, scripts) never need
 it, and giving control up is never refused. Only the App Server with this PC's usual
 `app-server.json` makes one, so a second App Server with its own file (an eval) is never
@@ -265,13 +350,13 @@ refused, and websockets (which the gateway doesn't pass on yet) aren't checked. 
 running as this user can read the file, so the secret guards against a mistake (an old
 address or token), not against a program set on getting around the gateway.
 
-The gateway runs `fibsem-agent-host` itself, with no window, from its start until it closes,
-and starts it again if it ends (its log is in `~/.fibsem/logs/gateway/agent-host-*.log`). A
-host already started by hand is used as it is and never stopped by the gateway. The host
+The gateway runs the Agent Server (`fibsem-agent-server`) itself, with no window, from its start until it closes,
+and starts it again if it ends (its log is in `~/.fibsem/logs/gateway/agent-host-*.log`). An
+Agent Server already started by hand is used as it is and never stopped by the gateway. It
 serves the agent's own routes: its events, session, plan, transcript, messages, level and
 Stop. While no App Server runs the gateway passes calls to it, so the gateway's agent, and the
 Agent page, work with no app; a call only the app serves (the microscope's, a workflow's) is
-answered 503 `no_app`. The host keeps its own level, which the gateway sets as it does the
+answered 503 `no_app`. The Agent Server keeps its own level, which the gateway sets as it does the
 App Server's.
 
 An agent with no App Server (no instrument, or an instrument served by something else) runs

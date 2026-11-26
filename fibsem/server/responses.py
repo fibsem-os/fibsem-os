@@ -352,6 +352,11 @@ class DeviceHealth:
 class Health:
     ok: bool
     devices: Dict[str, DeviceHealth]
+    # The program answering, its fibsem version and the version of its routes
+    # (`fibsem.server.devices.DEVICE_API_VERSION`); absent from an older server.
+    program: Optional[str] = None
+    version: Optional[str] = None
+    api_version: Optional[str] = None
 
 
 @dataclass

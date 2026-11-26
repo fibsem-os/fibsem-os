@@ -99,6 +99,7 @@ from fibsem.devices.wire import (
     command_body,
     frames_from_bytes,
     to_wire,
+    version_problem,
 )
 from fibsem.drivers.registry import DeviceBuilder, get_driver, normalize_name
 from fibsem.structures.image import FibsemImage, FibsemImageMetadata
@@ -143,6 +144,10 @@ class RemoteDeviceError(RuntimeError):
 
 class RemoteDeviceUnreachable(ConnectionError):
     """The server could not be reached. Nothing about the device is known right now."""
+
+
+class RemoteDeviceVersionMismatch(ConnectionError):
+    """The Device Server's routes are another version's than this computer's."""
 
 
 class RemoteDeviceNotPaired(PermissionError):
@@ -234,6 +239,9 @@ class DeviceClient:
         # value, once, rather than by timing.
         self._echoes: Dict[Tuple[str, str], List[Any]] = {}
         self._echoes_lock = threading.Lock()
+        # A Device Server's version, checked on the first describe and again
+        # each time the server comes back, since it may have been updated.
+        self._version_checked = bool(root)
 
     @property
     def connected(self) -> bool:
@@ -272,7 +280,35 @@ class DeviceClient:
         return self.request("GET", "health", READ_TIMEOUT)
 
     def describe(self) -> Dict[str, Any]:
+        if not self._version_checked:
+            self.check_version()
         return self.request("GET", "devices", READ_TIMEOUT)
+
+    def check_version(self, refuse: bool = True) -> None:
+        """Compare the Device Server's version with this computer's, from its
+        /health (`version_problem`): raise `RemoteDeviceVersionMismatch` for
+        routes of another minor version (with *refuse*; logged otherwise), and
+        log a warning for another fibsem version or a server too old to say."""
+        where = f"{self.address[0]}:{self.address[1]}"
+        try:
+            health = self.health()
+        except RemoteDeviceError as error:
+            # A server too old to answer /health as a dict, or failing to: its
+            # describe says the rest.
+            logger.warning(
+                f"{where}: could not read the Device Server's /health: {error}"
+            )
+            health = {}
+        refused, why = version_problem(
+            health if isinstance(health, dict) else {}, where
+        )
+        self._version_checked = True
+        if refused:
+            if refuse:
+                raise RemoteDeviceVersionMismatch(why)
+            logger.error(why)
+        elif why:
+            logger.warning(why)
 
     def open_live(self, device: str) -> Any:
         """The socket of *device*'s live frames (``WS /devices/{device}/live``)."""
@@ -298,6 +334,11 @@ class DeviceClient:
             self._events.start(wait=READ_TIMEOUT if wait else None)
 
     def _opened(self, first: bool) -> None:
+        if not first and not self.root:
+            try:
+                self.check_version(refuse=False)
+            except Exception as error:
+                logger.warning(f"{self.base_url}: version check failed: {error}")
         bound = self._bind_offline()
         if not first:
             self._resync()

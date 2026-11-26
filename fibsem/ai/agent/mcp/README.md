@@ -2,14 +2,14 @@
 
 > New to the agent? Start with the guide: [docs/app-server.md](../../../../docs/app-server.md) — what the agent can see and do at each level, and the security model.
 
-The MCP sidecar lets Claude (Code or Desktop) work through AutoLamella's App
+The MCP server lets Claude (Code or Desktop) work through AutoLamella's App
 Server: acquire and *look at* images, read state, move the stage, and stop a
-mill. The server is the security boundary: the sidecar registers every tool,
-whatever the agent's level, and the server refuses what the level doesn't allow
+mill. The App Server is the security boundary: the MCP server registers every tool,
+whatever the agent's level, and the App Server refuses what the level doesn't allow
 with a 403 that says so. The microscope's tools are registered even while the
 microscope isn't served; until it is, each answers 404 `microscope_off`. Only
-the app's tools depend on the server hosting the application. Each tool's description names the level it needs, unless it works at every level. If the server
-restarts with a new token, the sidecar re-reads the discovery file and carries
+the app's tools depend on the server hosting the application. Each tool's description names the level it needs, unless it works at every level. If the App Server
+restarts with a new token, the MCP server re-reads the discovery file and carries
 on.
 
 ## Install
@@ -20,7 +20,7 @@ pip install -e ".[server,mcp]"
 
 ## 1. Start the App Server
 
-In AutoLamella, turn the App Server on in Tools → Host (the guide,
+In AutoLamella, turn the App Server on in Tools → App Server (the guide,
 [docs/app-server.md](../../../../docs/app-server.md), walks through it). *Serve the
 microscope* there serves the routes the microscope tools reach; the Agent chip
 sets what the agent may do with them.
@@ -28,7 +28,7 @@ sets what the agent may do with them.
 - While running, the server writes `~/.fibsem/app-server.json`
   (url + a connect token) so local clients find it without copying anything,
   and refuses to start if another live server owns that file.
-- The connect token only asks to connect. The sidecar's first call (or
+- The connect token only asks to connect. The MCP server's first call (or
   `fibsem-mcp --check`) puts **Agent wants to connect** on the web Agent page;
   once the operator clicks Allow it gets a token of its own, kept in
   `~/.fibsem/agent/`, and later launches don't ask. Until then a call answers
@@ -36,7 +36,7 @@ sets what the agent may do with them.
 - It binds `127.0.0.1` by default; exposing it on the LAN is an explicit
   choice, and the token then travels as cleartext HTTP.
 
-## 2. Register the sidecar
+## 2. Register the MCP server
 
 ```bash
 claude mcp add -s user fibsem -- fibsem-mcp
@@ -44,7 +44,7 @@ claude mcp add -s user fibsem -- fibsem-mcp
 
 `-s user` registers it for all your projects. *Connect an agent…* on the web
 Agent page gives the same setup with the absolute path filled in, for the agent
-to run itself. Same-machine setups need nothing more: the sidecar autodiscovers
+to run itself. Same-machine setups need nothing more: the MCP server autodiscovers
 the running server. For a server on another machine, pair once: that PC's
 gateway page shows a code, and
 
@@ -55,7 +55,7 @@ fibsem-mcp pair 1234 --url http://microscope-pc:8010
 
 keeps this computer's own agent token in `~/.fibsem/agent/`. Every later launch
 reads it with no token passed; *Unpair* on the PC cuts that agent off. With a
-url other than the tunnel's, register the sidecar with `--url` too.
+url other than the tunnel's, register the MCP server with `--url` too.
 (`--token`, or `FIBSEM_SERVER_URL` / `FIBSEM_SERVER_TOKEN`, still work for scripts.)
 
 For Claude Desktop, merge this into the `mcpServers` already in
@@ -92,7 +92,7 @@ line it prints:
 fibsem-mcp watch
 ```
 
-It finds the server as the sidecar does (`--url`/`--token`, the environment
+It finds the App Server as the MCP server does (`--url`/`--token`, the environment
 variables, the discovery file) and follows a restarted app the same way;
 `--since N` resumes after event N. It
 prints `PROPOSAL`, `PROPOSAL RELEASED`, `SUGGESTION APPROVED`/`DECLINED`,
@@ -117,7 +117,7 @@ same thing.
 Everything above is Claude Code in a terminal, kept awake by a person.
 `fibsem-agent` is a second way to run the same agent, on the
 [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk): one long
-session with this sidecar as its only MCP server, and the watcher run for it,
+session with `fibsem-mcp` as its only MCP server, and the watcher run for it,
 so each batch of watcher lines is the agent's next turn. It reads the same
 skills: a checkout's `.claude/skills`, or from a pip install the copy the
 package ships, and before either the lab's own in
@@ -134,8 +134,8 @@ fibsem-agent
 - **The level decides.** The agent works by the skill for its level
   (observe at Watch, assist at Assist, supervise at Drive), and the watcher
   prints a `LEVEL` line when the operator changes it. The level is set from
-  the Agent chip, the server still refuses what it doesn't allow, and the
-  harness never sets it.
+  the Agent chip, the server still refuses what it doesn't allow, and
+  fibsem-agent never sets it.
 - **Tools.** The `mcp__fibsem__*` tools run without a prompt, since the
   server decides what they may do. The agent also has the Skill tool,
   ToolSearch to find the fibsem tools, the Agent tool for the checkout's
@@ -191,7 +191,7 @@ fibsem-agent
   token in at registration; in cmd use double quotes.
 
   A tool needs the agent at Drive unless it is marked `watch` (`- search:
-  watch`), or its server is (`level: watch`); below that the harness refuses
+  watch`), or its server is (`level: watch`); below that fibsem-agent refuses
   it. The agent never sees a tool the server offers that isn't listed. With
   `tools: all`, every tool the server offers is allowed, at the server's
   level, including tools it adds later.
@@ -235,14 +235,14 @@ fibsem-agent
   raise `--max-budget-usd` to match the night.
 - **Your Claude Code config stays out.** The session runs in a folder that
   holds only its skills and specialists, copied there each start (its
-  session folder's `run/`, or the `--code`/`--files` folder), not `~/.claude`, and only this sidecar, not a
+  session folder's `run/`, or the `--code`/`--files` folder), not `~/.claude`, and only this MCP server, not a
   `fibsem` server you registered with `claude mcp add`; besides it, only the
   servers of `mcp.yaml` (above) that the playbook names.
 - **Signing in.** A Claude API key: the `ANTHROPIC_API_KEY` environment
   variable, else the one `fibsem-cli key set ANTHROPIC_API_KEY` stored in
   Windows Credential Manager or the macOS Keychain. Or configure Amazon Bedrock or Google Vertex as the Agent SDK
   documents. Not a claude.ai login: products built on the Agent SDK use API
-  keys. If the model refuses the sign-in, the harness stops with exit code 1
+  keys. If the model refuses the sign-in, fibsem-agent stops with exit code 1
   rather than wait. Its log never shows a bearer token or an API key.
 - **Instructions.** It reads its skills and nothing else: not the
   checkout's `CLAUDE.md` (developer guidance) and not Claude Code's auto memory.
@@ -261,7 +261,7 @@ fibsem-agent
   (`experiment_add_note`).
 - **Waking.** Lines are held while the level is Off, and come as one turn
   once it is back; started at Off, the agent's first turn waits for it too. A `GAP`, a restart or the level coming back tells the
-  agent to re-read the status. If the app can't be watched, the harness waits
+  agent to re-read the status. If the app can't be watched, fibsem-agent waits
   up to `--server-wait` seconds (default 600) for it to answer again, then
   stops with exit code 1.
 - **Playbooks.** `--playbook NAME` starts the session on `NAME.yaml` from the
@@ -291,7 +291,7 @@ fibsem-agent
   `wake_on_drive: all`); the agent changes it with the `wake_on` tool, and
   its choice holds across level changes and a resume. The agent's transcript
   says each change and each digest ("Woke with 7 held line(s), ..."), and the
-  harness log has every held line. A long command's end the agent already
+  fibsem-agent log has every held line. A long command's end the agent already
   read with `service_wait_for_run` never wakes it, under any policy. To turn
   holding off, set `wake_on_watch: all` in a lab playbook, or ask the agent
   to call `wake_on` with mode `all`.
@@ -318,7 +318,7 @@ fibsem-agent
   tool calls in one wake-up; the next wake-up starts a fresh count.
   `--max-budget-usd` (default: the playbook's, 500 as shipped) caps what one
   run of `fibsem-agent` spends, and reaching it
-  stops the harness with exit code 2. `--model` picks the model.
+  stops fibsem-agent with exit code 2. `--model` picks the model.
   The SDK compacts a long session's context by itself, and the log says when.
 - **Stopping and resuming.** Ctrl-C interrupts the agent's turn and ends the
   session cleanly; a second Ctrl-C ends it at once. The log names the session
@@ -330,13 +330,13 @@ fibsem-agent
 
 ## Order and troubleshooting
 
-- **Order doesn't matter**: the sidecar answers the MCP client at once, even
+- **Order doesn't matter**: the MCP server answers the MCP client at once, even
   with no server running, and connects on the first tool call, which waits up
   to 30 s for a server to appear (`--wait` tunes it). If none appears, that
   call answers with what to do; start the server and call again, no reconnect
-  needed. Started with no server, the sidecar offers every tool, including
+  needed. Started with no App Server, the MCP server offers every tool, including
   the app's. `fibsem-mcp --check` prints the connection status and exits;
-  run it in a terminal to see what the sidecar sees.
+  run it in a terminal to see what the MCP server sees.
 - **Wrong server version / unknown arguments**: if you launched with
   `python -m` from inside another fibsem checkout, that directory shadows
   your installed copy. Run from the repo you installed, or any directory

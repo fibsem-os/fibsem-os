@@ -14,7 +14,7 @@ connection, the gateway answers 503 or 502 ``no_app``; with one that stops
 answering mid-call, 504 ``app_lost``. A client reads both as the App Server
 not answering (`fibsem.client.transport`), as it would reading it directly.
 
-While no App Server runs, calls go to the agent host the gateway runs
+While no App Server runs, calls go to the Agent Server the gateway runs
 (`fibsem.gateway.agent_host`), which serves the agent's own routes: its
 events, session, plan, transcript, messages, level and Stop. A route only the
 app serves (the microscope's, a workflow's) is answered 503 ``no_app`` then,
@@ -30,7 +30,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from typing import Callable, Iterable, Optional, Tuple
 
 import httpx
@@ -38,7 +37,9 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from starlette.background import BackgroundTask
 
+from fibsem.gateway import child_secrets
 from fibsem.server import discovery
+from fibsem.server.gateway_secret import HEADER, is_stop
 
 logger = logging.getLogger(__name__)
 
@@ -80,17 +81,6 @@ WAIT_HEADER = "x-fibsem-wait-s"
 WAIT_MARGIN_S = 30.0
 WAIT_MAX_S = 3 * 3600.0
 
-_STOP = re.compile(r"(^|_)(stop|halt|abort)(_|$)")
-
-
-def is_stop(path: str) -> bool:
-    """Whether *path* stops something: its last part is a stop, a halt or an
-    abort (``/app/workflow/stop``, ``/app/agent/stop``, a device's ``stop``
-    command)."""
-    last = path.rstrip("/").rsplit("/", 1)[-1]
-    return bool(_STOP.search(last))
-
-
 # The error types a client reads as the App Server not answering
 # (`fibsem.client.transport`): nothing reached it, or a call may have.
 NO_APP = "no_app"
@@ -124,24 +114,34 @@ def _headers(items: Iterable) -> list:
     return [(k, v) for k, v in items if k.lower() not in HOP_BY_HOP]
 
 
-_kept_secret: Tuple[Optional[float], Optional[str]] = (None, None)
+_kept_files: dict = {}
+
+
+def _found(path) -> Optional[dict]:
+    """A discovery file's contents, read again only when it changes: it is
+    asked on every call passed on."""
+    try:
+        changed = path.stat().st_mtime
+    except OSError:
+        changed = None
+    kept = _kept_files.get(path)
+    if changed is not None and kept is not None and kept[0] == changed:
+        return kept[1]
+    found = discovery.read_discovery_file(path)
+    _kept_files[path] = (changed, found)
+    return found
 
 
 def app_server_secret() -> Optional[str]:
-    """This PC's App Server's secret for the gateway, from its discovery file
-    (`fibsem.server.auth`); None while none runs or it has none. Read again
-    only when the file changes: it is asked on every call passed on."""
-    global _kept_secret
-    try:
-        changed = discovery.DISCOVERY_FILE.stat().st_mtime
-    except OSError:
-        changed = None
-    if changed is not None and _kept_secret[0] == changed:
-        return _kept_secret[1]
-    found = discovery.read_discovery_file()
-    secret = found.get("gateway_secret") if found else None
-    _kept_secret = (changed, secret)
-    return secret
+    """This PC's App Server's secret: the one the gateway started it with,
+    else the one in its discovery file (`fibsem.server.auth`); None while
+    none runs or it has none."""
+    return child_secrets.for_server(_found(discovery.DISCOVERY_FILE))
+
+
+def host_secret() -> Optional[str]:
+    """The Agent Server's secret, when the gateway started it; else None."""
+    return child_secrets.for_server(_found(discovery.HOST_DISCOVERY_FILE))
 
 
 # What a FastAPI server answers for a route it doesn't have.
@@ -153,7 +153,7 @@ NOT_THE_HOSTS = (
 
 class PassThrough:
     """Calls on the gateway passed to the App Server at *upstream* (its url,
-    or None while none runs), else to the agent host at *host*."""
+    or None while none runs), else to the Agent Server at *host*."""
 
     def __init__(
         self,
@@ -162,15 +162,18 @@ class PassThrough:
         is_connect: Callable[[Optional[str]], bool] = lambda token: False,
         secret: Optional[Callable[[], Optional[str]]] = None,
         host: Optional[Callable[[], Optional[str]]] = None,
+        host_secret: Optional[Callable[[], Optional[str]]] = None,
     ) -> None:
         self._upstream = upstream
         # Told of each call answered (method, path, status, bearer token):
         # the gateway's History records the changes it cares about.
         self.on_answered: Optional[Callable[[str, str, int, str], None]] = None
         self._host = host
-        # The App Server's secret (its discovery file's): every call passed on
-        # carries it, so the App Server knows it came through the gateway.
+        # Each server's own secret (`fibsem.gateway.child_secrets`): every
+        # call passed on carries the one for where it goes, so that server
+        # knows it came through the gateway.
         self._secret = secret or app_server_secret
+        self._host_secret = host_secret or globals()["host_secret"]
         # gateway.json's token only asks to connect: answered here, never sent on
         self._is_connect = is_connect
         timeout = httpx.Timeout(READ_TIMEOUT_S, connect=CONNECT_TIMEOUT_S)
@@ -186,7 +189,7 @@ class PassThrough:
         await self._stops.aclose()
 
     def _url(self) -> Tuple[Optional[str], bool]:
-        """Where a call goes, and whether that is the agent host."""
+        """Where a call goes, and whether that is the Agent Server."""
         for find, is_host in ((self._upstream, False), (self._host, True)):
             if find is None:
                 continue
@@ -233,13 +236,13 @@ class PassThrough:
             (k.decode("latin-1"), v.decode("latin-1")) for k, v in request.headers.raw
         )
         try:
-            # The App Server's own: never sent to the host.
-            secret = None if to_host else self._secret()
-        except Exception:  # noqa: BLE001 - no secret: the App Server says so
-            logger.debug("could not read the App Server's secret", exc_info=True)
+            # Each its own: the App Server's never goes to the host.
+            secret = self._host_secret() if to_host else self._secret()
+        except Exception:  # noqa: BLE001 - no secret: the server says so
+            logger.debug("could not read the server's secret", exc_info=True)
             secret = None
         if secret:
-            headers.append(("X-Fibsem-Gateway", secret))
+            headers.append((HEADER, secret))
         sent = client.build_request(
             request.method,
             target,

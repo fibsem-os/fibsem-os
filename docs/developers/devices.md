@@ -886,7 +886,7 @@ A device server makes devices on one computer available to the microscope on
 another, as the METEOR's FM is on the computer that drives the beams:
 
 ```bash
-python -m fibsem.server.devices --config ~/.fibsem/device-server.yaml
+fibsem-device-server --config ~/.fibsem/device-server.yaml
 ```
 
 The file lists what to serve as `hardware.devices` entries, each built by its own
@@ -944,7 +944,7 @@ coordinator, the entry is the type's interface class, with a warning naming what
 available; a type fibsem has no interface for is then not built.
 The fake scanner in [fibsem-plugin-example](https://github.com/fibsem-os/fibsem-plugin-example) does both.
 
-On the unit's computer, `python -m fibsem.server.devices --config devices.yaml` serves
+On the unit's computer, `fibsem-device-server --config devices.yaml` serves
 what the file's `hardware.devices` lists, in the same shape as a microscope
 configuration, so an entry copies across:
 

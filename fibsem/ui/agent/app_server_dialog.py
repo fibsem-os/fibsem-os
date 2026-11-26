@@ -1,4 +1,4 @@
-"""Tools → Host: the server itself -- status, services, the operator's
+"""Tools → App Server: the server itself -- status, services, the operator's
 token, and links to the event log and to pairing, both on the gateway's page.
 
 The App Server is the API inside AutoLamella that the agent, the event log and
@@ -47,7 +47,7 @@ ENABLED_TIP = (
     "the event log can reach. Kept for the next launch."
 )
 AGENT_TIP = (
-    " An AI agent can reach it too, through the fibsem-mcp sidecar. What the "
+    " An AI agent can reach it too, through the fibsem-mcp MCP server. What the "
     "agent may do is its level, set from the Agent chip in the status bar, which "
     "resets to Watch at every launch."
 )
@@ -100,7 +100,7 @@ class AppServerDialog(QDialog):
         serve_microscope: bool = False,
     ):
         super().__init__(parent)
-        self.setWindowTitle("Host")
+        self.setWindowTitle("App Server")
         self.setMinimumWidth(440)
         self._host_provider = host_provider
         # Each saves the operator's choice and starts, stops or restarts the server.

@@ -408,11 +408,18 @@ class AutoscriptBeam(Beam):
             limits=RangeLimit(min=limits.min, max=_hfw_max(limits.max))
         )
 
+    # Some xT versions answer scanning.bit_depth as a plain int, others as a
+    # setting with ``value``.
     def read_bit_depth(self) -> int:
-        return int(self._beam.scanning.bit_depth.value)
+        depth = self._beam.scanning.bit_depth
+        return int(getattr(depth, "value", depth))
 
     def write_bit_depth(self, value: int) -> None:
-        self._beam.scanning.bit_depth.value = int(value)
+        scanning = self._beam.scanning
+        if hasattr(scanning.bit_depth, "value"):
+            scanning.bit_depth.value = int(value)
+        else:
+            scanning.bit_depth = int(value)
 
     def read_dwell_time(self) -> float:
         return self._beam.scanning.dwell_time.value

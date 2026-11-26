@@ -1,4 +1,4 @@
-"""The agent host: the agent's own routes, served with no microscope and no app.
+"""The Agent Server: the agent's own routes, served with no microscope and no app.
 
 ``fibsem-agent`` hears from, and keeps its record through, a few routes of the
 App Server: its events (``/app/events``), its session, transcript and plan
@@ -30,7 +30,7 @@ by itself, or mounted under a path by a server that holds several (the
 gateway, the hub). Its tokens are an :class:`~fibsem.server.auth.AuthConfig`,
 made by whoever builds it and never passed on a command line.
 
-Run on its own (``fibsem-agent-host``), it sits behind this PC's gateway, as
+Run on its own (``fibsem-agent-server``), it sits behind this PC's gateway, as
 the App Server does: it serves no pages and pairs nothing. It checks tokens
 against the gateway's ``paired.json``, writes a discovery file
 (``~/.fibsem/agent-host.json``, its address only), and the gateway passes
@@ -63,7 +63,7 @@ from fibsem.analysis.root import FileRefusal
 from fibsem.analysis.tools import ImageTools
 from fibsem.client.transport import HOST_TOKEN_ENV
 from fibsem.keystore import get_secret
-from fibsem.server import discovery
+from fibsem.server import discovery, gateway_secret
 from fibsem.server.agent.files import AgentFiles
 from fibsem.server.agent.handoff import build_agent_handoff_router
 from fibsem.server.agent.library import build_library_router
@@ -87,6 +87,7 @@ from fibsem.server.bodies import (
     refuse_invalid_requests,
 )
 from fibsem.server.discovery import API_VERSION, fibsem_folder, health_answer
+from fibsem.server.gateway_secret import GatewayOnly
 from fibsem.server.operator_token import load_operator_token
 from fibsem.server.pairing import PAIRED_FILE, ROLES, PairedTokens, Pairing
 from fibsem.server.responses import Refusal
@@ -97,6 +98,10 @@ from fibsem.workflows.events.recording import EventFileWriter, read_events_after
 from fibsem.workflows.evidence import EVIDENCE
 
 logger = logging.getLogger(__name__)
+
+# The program, as its command and its /health name it. ``fibsem-agent-host``
+# (its old name) runs it too.
+PROGRAM = "fibsem-agent-server"
 
 EVENTS_FILENAME = "events.jsonl"
 # The long-poll's ceiling, as the App Server's: a parked poll holds a worker.
@@ -155,7 +160,7 @@ class _Relay:
         self.following = threading.Event()
         self._client = link.client(RELAY_POLL_S + 10.0)
         self._thread = threading.Thread(
-            target=self._run, name="fibsem-agent-host-relay", daemon=True
+            target=self._run, name="fibsem-agent-server-relay", daemon=True
         )
 
     def start(self) -> None:
@@ -473,7 +478,7 @@ def build_agent_host(
     instrument: Optional["InstrumentLink"] = None,
     data: Optional[Path] = None,
 ) -> FastAPI:
-    """The agent host as a FastAPI app; its :class:`AgentHost` is
+    """The Agent Server as a FastAPI app; its :class:`AgentHost` is
     ``app.state.host``, which its owner closes when done with it.
 
     With *data*, a folder of saved images and files, it also serves the
@@ -481,7 +486,7 @@ def build_agent_host(
     folder, at the same paths: for an agent with no instrument, reviewing
     saved data or a past run."""
     host = AgentHost(auth, folder, name, instrument)
-    app = FastAPI(title="fibsemOS agent host", version=__version__)
+    app = FastAPI(title="fibsemOS Agent Server", version=__version__)
     app.state.host = host
     app.state.auth = auth
     app.state.app_name = name
@@ -489,10 +494,12 @@ def build_agent_host(
     app.state.agent_files = host.files
     app.state.agent_plan = host.plan
     refuse_invalid_requests(app)
+    # A call that skipped the gateway that started this host reaches nothing.
+    app.add_middleware(GatewayOnly)
 
     @app.get("/health")
     def health():
-        return health_answer("fibsem-agent-host", API_VERSION)
+        return health_answer(PROGRAM, API_VERSION)
 
     base = APIRouter(dependencies=[Depends(require_monitoring())])
 
@@ -577,7 +584,7 @@ def _serve_data(app: FastAPI, host: "AgentHost", data: Path) -> None:
     )
 
 
-# --- fibsem-agent-host ---------------------------------------------------------
+# --- fibsem-agent-server ---------------------------------------------------------
 
 # The host's tokens, when they are set: in the environment or the PC's key
 # store (`keystore`), the agent's, which fibsem-agent reads by the same name,
@@ -598,6 +605,11 @@ def own_auth(paired: Optional[Path] = None) -> AuthConfig:
     auth.pairing = Pairing(PairedTokens(paired or PAIRED_FILE), roles=ROLES)
     # Agents ask to connect at the gateway, never here.
     auth.connect_token = None
+    # Started by this PC's gateway: its secret for this start, from the
+    # environment, and every call must carry it.
+    handed = gateway_secret.take()
+    if handed is not None:
+        auth.gateway_secret, auth.from_gateway = handed, True
     return auth
 
 
@@ -622,7 +634,7 @@ def serve(
         existing = discovery.read_discovery_file(discover)
         if existing is not None:
             print(
-                "fibsem-agent-host: another agent host is running on this PC "
+                "fibsem-agent-server: another Agent Server is running on this PC "
                 f"(pid {existing.get('pid')}, {existing.get('url')}).",
                 file=sys.stderr,
             )
@@ -633,7 +645,7 @@ def serve(
     page = f"{discovery.gateway_url()}/ui/agent"
     # Never a token: a terminal is read by more people than the file.
     print(
-        f"fibsem-agent-host on {url}, behind this PC's gateway; the Agent page "
+        f"fibsem-agent-server on {url}, behind this PC's gateway; the Agent page "
         f"is {page}" + ("" if open_page else " (--open opens it)"),
         file=sys.stderr,
     )
@@ -671,7 +683,7 @@ def _run_until(stop: threading.Event) -> Callable[..., None]:
 
 def serve_for_gateway(argv: List[str], stop: threading.Event) -> int:
     """The host as the gateway runs it (`fibsem.gateway.agent_host`, through
-    ``fibsem.gateway.child``): ``fibsem-agent-host`` with *argv*, until
+    ``fibsem.gateway.child``): ``fibsem-agent-server`` with *argv*, until
     *stop* is set."""
     return main(argv, run=_run_until(stop))
 
@@ -679,11 +691,11 @@ def serve_for_gateway(argv: List[str], stop: threading.Event) -> int:
 def main(
     argv: Optional[List[str]] = None, run: Optional[Callable[..., None]] = None
 ) -> int:
-    """``fibsem-agent-host``: serve the agent host on this PC."""
+    """``fibsem-agent-server``: serve the Agent Server on this PC."""
     import argparse
 
     parser = argparse.ArgumentParser(
-        prog="fibsem-agent-host",
+        prog=PROGRAM,
         description="Serve the agent's routes (events, session, plan, "
         "transcript, messages, level and Stop) with no microscope, for "
         "fibsem-agent --host, behind this PC's gateway as the App Server is: "
@@ -731,7 +743,7 @@ def main(
     if bool(token) != bool(operator):
         missing = HOST_OPERATOR_TOKEN if token else HOST_TOKEN
         print(
-            f"fibsem-agent-host: set {missing} too, or neither and the host "
+            f"fibsem-agent-server: set {missing} too, or neither and the host "
             "makes its own.",
             file=sys.stderr,
         )
@@ -741,7 +753,7 @@ def main(
         instrument_token = get_secret(args.instrument_token)
         if not instrument_token:
             print(
-                f"fibsem-agent-host: --instrument needs the operator's token "
+                f"fibsem-agent-server: --instrument needs the operator's token "
                 f"there in {args.instrument_token}.",
                 file=sys.stderr,
             )
@@ -757,7 +769,7 @@ def main(
     data = Path(args.data).expanduser() if args.data else None
     if data is not None and not data.is_dir():
         print(
-            f"fibsem-agent-host: --data {args.data} is not a folder.", file=sys.stderr
+            f"fibsem-agent-server: --data {args.data} is not a folder.", file=sys.stderr
         )
         return 1
     app = build_agent_host(auth, folder, args.name, instrument, data)

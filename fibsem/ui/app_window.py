@@ -215,14 +215,14 @@ class AppWindow(QMainWindow):
         preference = fibsem_cfg.load_user_preferences().install.app_server
         if preference.enabled or self.session.host_app_server:
             if self.session.serve_microscope is None:
-                # the operator's choice in Tools → Host is per session,
+                # the operator's choice in Tools → App Server is per session,
                 # like the agent level; it starts at the preference's default
                 self.session.serve_microscope = preference.microscope
             self.session.start_app_server(self.app_context)
 
     def sync_app_server_with_preference(self) -> None:
         """Start or stop the embedded server to match the saved preference:
-        at launch, with or without a microscope, and when Tools → Host
+        at launch, with or without a microscope, and when Tools → App Server
         saves the switch."""
         host = self.session.app_server
         preference = fibsem_cfg.load_user_preferences().install.app_server
@@ -251,7 +251,7 @@ class AppWindow(QMainWindow):
             self._start_app_server()
 
     def _on_app_server_dialog(self) -> None:
-        """Open Tools → Host: status, services, clients, the event log."""
+        """Open Tools → App Server: status, services, clients, the event log."""
         from fibsem.ui.agent.app_server_dialog import (
             AppServerDialog,
         )
@@ -268,7 +268,7 @@ class AppWindow(QMainWindow):
         dialog.exec()
 
     def _set_app_server_enabled(self, enabled: bool) -> None:
-        """Tools → Host: save whether the server runs, and act on it now."""
+        """Tools → App Server: save whether the server runs, and act on it now."""
         if not enabled:
             self.session.host_app_server = False
         self._preferences = fibsem_cfg.update_user_preferences(
@@ -277,7 +277,7 @@ class AppWindow(QMainWindow):
         self.sync_app_server_with_preference()
 
     def _set_app_server_microscope(self, serve: bool) -> None:
-        """Tools → Host: save whether the microscope is served, and act on it
+        """Tools → App Server: save whether the microscope is served, and act on it
         now (a running server restarts)."""
         self._preferences = fibsem_cfg.update_user_preferences(
             lambda p: setattr(p.install.app_server, "microscope", bool(serve))

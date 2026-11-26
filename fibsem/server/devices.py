@@ -67,6 +67,7 @@ import json
 import logging
 import os
 import shutil
+import sys
 import threading
 from functools import partial
 from pathlib import Path
@@ -98,6 +99,7 @@ from fastapi import (
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
 
+import fibsem
 from fibsem import config as fcfg
 from fibsem import diagnostics
 from fibsem.ai.agent.calls import current_call
@@ -123,6 +125,7 @@ from fibsem.devices.fm import FM
 from fibsem.devices.runs import RUNNING, Run
 from fibsem.devices.sample_loader import GridExchangeError
 from fibsem.devices.wire import (
+    DEVICE_API_VERSION,
     FRAME_METADATA_HEADER,
     FRAMES_MEDIA_TYPE,
     NPY_MEDIA_TYPE,
@@ -181,6 +184,10 @@ logger = logging.getLogger(__name__)
 # which websockets 14+ deprecates on import; under the test suite's warnings-as-errors
 # that kills the server thread. The sans-I/O one serves /events without it.
 WS_PROTOCOL = "websockets-sansio"
+
+PROGRAM = "fibsem-device-server"
+DEFAULT_CONFIG = Path.home() / ".fibsem" / "device-server.yaml"
+"""The file served when neither --config nor --serve is given and it exists."""
 
 """A command that returns an array (an image) answers with ``np.save`` bytes."""
 
@@ -1010,7 +1017,15 @@ def build_device_app(
     def health() -> Response:
         """Up, and for each device whether its driver can reach the hardware."""
         devices = {name: device_health(d) for name, d in by_name.items()}
-        return answer(Health(all(d.ok for d in devices.values()), devices))
+        return answer(
+            Health(
+                all(d.ok for d in devices.values()),
+                devices,
+                program=PROGRAM,
+                version=fibsem.__version__,
+                api_version=DEVICE_API_VERSION,
+            )
+        )
 
     app.include_router(build_device_router(lambda: by_name), dependencies=[token])
 
@@ -1206,9 +1221,47 @@ def switch_off_fms(devices: Iterable[Device]) -> None:
                 logger.error(f"{device.name}: could not switch the light off: {e}")
 
 
-def main(argv: Optional[List[str]] = None) -> None:
+def _serve(app: FastAPI, host: str, port: int, stop: Optional[threading.Event]) -> None:
+    """Serve *app* until Ctrl-C or SIGTERM, or until *stop* is set."""
+    # On any of them, stop waiting on a running acquisition, so the light goes
+    # off when the server ends rather than when the acquisition does.
+    options: Dict[str, Any] = dict(ws=WS_PROTOCOL, timeout_graceful_shutdown=5)
+    if stop is None:
+        uvicorn.run(app, host=host, port=port, **options)
+        return
+    server = Server(uvicorn.Config(app, host=host, port=port, **options))
+
+    def ending() -> None:
+        stop.wait()
+        server.should_exit = True
+
+    threading.Thread(target=ending, name="device-server-stop", daemon=True).start()
+    server.run()
+
+
+def _say_why_not(message: str) -> None:
+    """Why the server is not starting, in the log and on stderr: nothing sets up
+    a log handler this early, and a gateway shows this output's last lines."""
+    logger.error(message)
+    print(f"{PROGRAM}: {message}", file=sys.stderr, flush=True)
+
+
+def serve_for_gateway(argv: List[str], stop: threading.Event) -> int:
+    """The Device Server as a gateway runs it (through ``fibsem.gateway.child``):
+    ``fibsem-device-server`` with *argv*, until *stop* is set."""
+    main(argv, stop=stop)
+    return 0
+
+
+def main(
+    argv: Optional[List[str]] = None, stop: Optional[threading.Event] = None
+) -> None:
+    """``fibsem-device-server``: serve this PC's devices until stopped, or until
+    *stop* is set."""
     diagnostics.install("fibsem-devices")
-    parser = argparse.ArgumentParser(description="Serve devices over HTTP.")
+    parser = argparse.ArgumentParser(
+        prog=PROGRAM, description="Serve this computer's devices over HTTP."
+    )
     parser.add_argument(
         "--host", default=None, help="default the file's server.host, else 127.0.0.1"
     )
@@ -1230,9 +1283,9 @@ def main(argv: Optional[List[str]] = None) -> None:
     )
     parser.add_argument(
         "--config",
-        help="a Device Server file (~/.fibsem/device-server.yaml): its "
-        "hardware.devices entries, each built and served with its own driver, and "
-        "its server host and port",
+        help="a Device Server file: its hardware.devices entries, each built and "
+        "served with its own driver, and its server host and port. Default "
+        "~/.fibsem/device-server.yaml when it exists and --serve is not given",
     )
     parser.add_argument(
         "--mount-transform",
@@ -1253,6 +1306,9 @@ def main(argv: Optional[List[str]] = None) -> None:
         help="show a pairing code for another computer (5 minutes, works once)",
     )
     args = parser.parse_args(argv)
+    if args.config is None and args.serve is None and DEFAULT_CONFIG.is_file():
+        args.config = str(DEFAULT_CONFIG)
+        logger.info(f"serving what {DEFAULT_CONFIG} lists")
     if args.serve is None:
         args.serve = [] if args.config else ["beams"]
     if args.mount_transform is not None:
@@ -1269,7 +1325,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         try:
             settings = read_server_settings(args.config)
         except Exception as e:
-            logger.error(f"{args.config}: {e}")
+            _say_why_not(f"{args.config}: {e}")
             raise SystemExit(1) from e
         sources.append(settings)
     sources += [
@@ -1281,7 +1337,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         try:
             more, closes = configured_devices(source)
         except Exception as e:
-            logger.error(f"{args.config if source is settings else 'FM'}: {e}")
+            _say_why_not(f"{args.config if source is settings else 'FM'}: {e}")
             disconnect_devices(built, cleanups)
             raise SystemExit(1) from e
         built.update(more)
@@ -1291,7 +1347,7 @@ def main(argv: Optional[List[str]] = None) -> None:
     if demo_parts:
         served += demo_devices(demo_parts)
     if not served:
-        logger.error("Nothing to serve: no device was built.")
+        _say_why_not("Nothing to serve: no device was built.")
         raise SystemExit(1)
     devices: Mapping[str, Device] = {d.name: d for d in served}
     switch_off_fms(devices.values())
@@ -1312,17 +1368,12 @@ def main(argv: Optional[List[str]] = None) -> None:
             # Now, not when the buffer fills: the output may be a log file.
             flush=True,
         )
-    logger.info(f"serving {sorted(devices)} on http://{host}:{port}")
+    logger.info(
+        f"{PROGRAM} {fibsem.__version__} (routes {DEVICE_API_VERSION}) serving "
+        f"{sorted(devices)} on http://{host}:{port}"
+    )
     try:
-        uvicorn.run(
-            build_device_app(devices.values(), auth),
-            host=host,
-            port=port,
-            ws=WS_PROTOCOL,
-            # Ctrl-C or SIGTERM: stop waiting on a running acquisition, so the light
-            # goes off below rather than when it ends.
-            timeout_graceful_shutdown=5,
-        )
+        _serve(build_device_app(devices.values(), auth), host, port, stop)
     finally:
         switch_off_fms(devices.values())
         disconnect_devices(built, cleanups)
