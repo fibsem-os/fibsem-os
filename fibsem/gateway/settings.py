@@ -303,9 +303,65 @@ def test_connector(name: str, local: bool, file: Optional[Path] = None) -> dict:
         if error is None or isinstance(error, asyncio.TimeoutError)
         else _said(error)
     )
-    raise ConnectorRefused(
-        502, "connector_failed", f"{name} couldn't be listed: {why}."
+    said = f"{name} couldn't be listed: {why}."
+    if server.url and error is not None and not isinstance(error, asyncio.TimeoutError):
+        said += " " + _answers(server.url, secrets.get(server.token, ""))
+    raise ConnectorRefused(502, "connector_failed", said)
+
+
+# MCP's first request, as a client starts a session.
+_HANDSHAKE = {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+        "protocolVersion": "2025-06-18",
+        "capabilities": {},
+        "clientInfo": {"name": "fibsem-gateway-test", "version": "0"},
+    },
+}
+PROBE_TIMEOUT_S = 10.0
+
+
+def _status(url: str, token: str) -> str:
+    """The HTTP status *url* answers MCP's first request with, with *token*
+    or none, and the start of its body when it is an error."""
+    import json
+    import urllib.error
+    import urllib.request
+
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    request = urllib.request.Request(
+        url, data=json.dumps(_HANDSHAKE).encode(), headers=headers, method="POST"
     )
+    try:
+        with urllib.request.urlopen(request, timeout=PROBE_TIMEOUT_S) as answer:
+            return str(answer.status)
+    except urllib.error.HTTPError as error:
+        with error:
+            body = " ".join(error.read(160).decode("utf-8", "replace").split())
+        if token:
+            body = body.replace(token, "…")
+        return f"{error.code}" + (f" ({body})" if body else " (empty)")
+    except Exception as error:  # noqa: BLE001 - said to the operator
+        return f"no answer ({type(error).__name__})"
+
+
+def _answers(url: str, token: str) -> str:
+    """What the address answers the first request with, with the token and
+    without it: a 401 without and something else with points at the token's
+    text, the same answer both ways at the address. The token goes only to
+    *url*, where it was stored for (`extra_mcp.tokens`)."""
+    with_token = _status(url, token) if token else None
+    without = _status(url, "")
+    if with_token is None:
+        return f"The address answers {without}."
+    return f"The address answers {with_token} with the token and {without} without it."
 
 
 def _cause(error: Optional[BaseException]) -> Optional[BaseException]:
