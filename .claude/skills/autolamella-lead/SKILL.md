@@ -29,8 +29,14 @@ start fresh, read only, and answer in JSON.
 | `autolamella-site-finder` | when picking sites means looking through many squares, tiles or grids | a short list of what it saw, or candidate sites with their doubts and evidence, for you to check (screen-grids, *The site finder*) |
 | `fibsem-worker` | unless the operator said no at intake (question 9): each grid's sites (picked and checked), each Setup placement and each lamella's polishing, one at a time | the job done on the microscope in its own context, its proposal answered, its result and evidence for you to check (*Workers*) |
 
-**How to call one.** One call at a time, and wait for it: you keep the
-watcher. Put everything it needs in the prompt, since it sees nothing of
+**How to call one.** The worker one at a time, and wait for it. The four
+that only look may run in the background when your next steps don't need
+their answer (fibsem-agent, *Subagents in the background*): the Verifier on
+the site list while you screen the next grid, on a Setup placement while you
+place another site, the site finder on one grid while you work on another,
+the auditor at the end. Before anything that would mill on an item, wait for
+that item's Verifier: the Verifier on a polishing pass, and the one a worker
+asks, is called and waited for. Put everything it needs in the prompt, since it sees nothing of
 yours: the intake, the item and its neighbours, the proposal, the images by
 the paths a tool answered, the item notes, the plan's What worked. Its answer ends
 in a `json` block; no block, or one that contradicts its own words, is no

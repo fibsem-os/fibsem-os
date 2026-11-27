@@ -473,7 +473,10 @@ class AgentControl:
     # --- what the agent hears ------------------------------------------------
 
     def message(
-        self, text: str, evidence: Optional[Dict[str, Any]] = None
+        self,
+        text: str,
+        evidence: Optional[Dict[str, Any]] = None,
+        run: Optional[str] = None,
     ) -> Optional[str]:
         """Put the operator's message to the agent on the session's record,
         where the agent's watch hears it as a ``MESSAGE`` line and answers with
@@ -486,6 +489,9 @@ class AgentControl:
         ``/now`` is marked ``interrupt`` and cuts the turn short. One starting
         ``/note`` is a note for the record, not a message: the agent hears it
         with its next turn and answers nothing.
+        With *run*, the ``call`` of a subagent's run on the transcript, it is
+        to that subagent while it runs, a plain message (fibsem-agent hands it
+        to the lead if the run has ended).
         Returns the id, or None when nothing is recording, so the agent can't
         hear it."""
         recorder = self._session.recorder
@@ -493,7 +499,7 @@ class AgentControl:
             return None
         message_id = uuid.uuid4().hex[:8]
         # ``/note``: for the record, not to the agent, so nothing waits on it.
-        note = aside.note_of(text) if evidence is None else None
+        note = aside.note_of(text) if evidence is None and run is None else None
         if note is not None:
             logger.info("Operator note for the record (%s): %s", message_id, note)
             recorder.buffer.append(
@@ -504,9 +510,9 @@ class AgentControl:
             return message_id
         # A side question (``/btw``) is answered beside the agent's work, from
         # its conversation; one with marks is a message, the marks being for it.
-        side = evidence is None and aside.question_of(text) is not None
+        side = evidence is None and run is None and aside.question_of(text) is not None
         # ``/now``: the agent's turn is cut short for it.
-        interrupt = not side and aside.interruption_of(text) is not None
+        interrupt = not side and run is None and aside.interruption_of(text) is not None
         logger.info(
             "Operator %s to the agent (%s): %s",
             "side question"
@@ -528,6 +534,7 @@ class AgentControl:
                 to=AGENT,
                 id=message_id,
                 evidence=evidence_id,
+                run=run,
                 **({aside.MARK: True} if side else {}),
                 **({aside.INTERRUPT: True} if interrupt else {}),
             ),

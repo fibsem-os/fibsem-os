@@ -184,6 +184,17 @@ def test_a_message_goes_on_the_record_as_the_operators(server):
     assert str(note["actor"]).startswith(str(OPERATOR))
 
 
+def test_a_message_to_a_running_subagent_names_its_run_and_is_plain(server):
+    body = {"text": "/now look at square C", "run": "toolu_01AbC"}
+    answer = server.post("/app/agent/messages", headers=server.operator, json=body)
+    assert answer.status_code == 201, answer.text
+    note = _notes(server)[-1]
+    assert note["payload"]["run"] == "toolu_01AbC"
+    assert note["payload"]["text"] == body["text"]
+    # Not a stop of the lead's turn: it is for the subagent.
+    assert not note["payload"].get("interrupt")
+
+
 def test_a_stop_message_is_marked_to_interrupt_and_a_plain_one_is_not(server):
     for text, interrupt in (("/now look at 01", True), ("look at 01", False)):
         answer = server.post(

@@ -438,6 +438,20 @@ those stay yours. Read its answer, look at its first one or two evidence
 images yourself, then record the result. To follow up (one more pass, a
 concern to fix), continue the same worker with `SendMessage`.
 
+**Subagents in the background.** A subagent that can't act on the
+microscope (it reads images, files and the record; the site finder, the
+investigator, the auditor, the Verifier) may run in the background: call it with `run_in_background: true` and carry on. Do
+it only when your next steps don't depend on its answer; when they do, call
+it and wait. A worker, or any subagent that can act on the microscope, is
+refused there, as is a third while two run, and a call a subagent makes
+itself. Its answer comes back on its own and wakes you: before you act on
+it, check it still fits where things stand now (the grid, the item and its
+proposal as they are, not as they were when you asked), and drop or ask
+again what no longer fits. To add to its brief while it runs, `SendMessage`
+to the agent id its start answered; `TaskStop` ends one you no longer need.
+The operator may write to a running subagent from its card: it reads it
+after its next step, and your next wake says what they told it.
+
 **Keep a review list.** It is how the operator, coming back, sees what was
 done: `review_add` puts one item per result worth seeing (a lamella thinned,
 a site placed, a screen finished), with its key images and a picture with your

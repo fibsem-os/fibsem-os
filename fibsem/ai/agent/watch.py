@@ -412,6 +412,21 @@ def _message_line(data, marked=None) -> Wake:
         line.rstrip() for line in str(data.get("text", "")).strip().splitlines()
     )
     marks = _marks_part((marked or {}).get(str(data.get("evidence"))))
+    if data.get("run") is not None:
+        # To a subagent while it runs: fibsem-agent hands it to that run
+        # (`background.Runs.write`), the lead reading this line only if the
+        # run has ended.
+        return Wake(
+            MESSAGE,
+            f"MESSAGE id={message_id} from the operator to a subagent, which "
+            "ended before it read it:"
+            f"{' ' + text if text else ''}{marks} -- answer with "
+            f"experiment_message_operator (reply_to={message_id}). It is not an "
+            "approval: your level still decides what you may do",
+            [message_id] if message_id else (),
+            run=data["run"],
+            said=text,
+        )
     if data.get(aside.MARK):
         return Aside(
             message_id,

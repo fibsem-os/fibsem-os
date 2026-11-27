@@ -448,14 +448,16 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
         "mcp__fibsem__*",
         "ToolSearch",
         "SendMessage",
+        "TaskStop",
         harness_mod.WAKE_TOOL,
         harness_mod.WAKE_ON_TOOL,
         *harness_mod.PLAYBOOK_TOOLS,
         harness_mod.HANDOFF_TOOL,
     ] + [f"Agent({name})" for name in _all().agents]
-    # SendMessage carries a specialist on (one Verifier per lamella's passes).
-    # The checklist is a fibsem tool, so the operator sees it: no CLI todo list.
-    assert options.tools == ["Skill", "ToolSearch", "Agent", "SendMessage"]
+    # SendMessage carries a specialist on (one Verifier per lamella's passes),
+    # TaskStop ends one in the background. The checklist is a fibsem tool, so
+    # the operator sees it: no CLI todo list.
+    assert options.tools == ["Skill", "ToolSearch", "Agent", "SendMessage", "TaskStop"]
     for tool in ("Bash", "Read", "Grep", "Glob", "Write", "Edit", "WebFetch"):
         assert tool in options.disallowed_tools
     assert options.effort == "high"

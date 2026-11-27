@@ -17,7 +17,9 @@ instead, and ``GET /app/agent/transcript/pictures/<name>`` serves it.
 A subagent's lines carry ``run``, the ``seq`` of the Agent call that started
 it; that call's line carries ``subagent``, the subagent's name, and its ``done``
 keeps the subagent's answer, with ``verdict`` (agree or concern) and
-``attention`` (true when someone should look) when it gave them.
+``attention`` (true when someone should look) when it gave them. The call's
+line also carries ``call``, its id, which the operator's message to the run
+names, and ``background`` when the lead carried on while it ran.
 
 A session resumed in a new ``fibsem-agent`` numbers its lines from 1 again, in
 the same file. Read back, each later run's numbers follow on from the run
@@ -71,6 +73,7 @@ MAX_AGE_S = 24 * 3600
 # What GET answers at most: the newest entries.
 READ_LIMIT = 500
 _SESSION = re.compile(r"^[A-Za-z0-9_-]{1,100}$")
+_CALL = re.compile(r"^[A-Za-z0-9_-]{1,100}$")
 
 
 def _invalid(message: str) -> HTTPException:
@@ -81,7 +84,7 @@ def _entry(raw: Any, now: float) -> Dict[str, Any]:
     """One posted entry, checked, stamped with the server's time."""
     if not isinstance(raw, dict):
         raise _invalid(
-            "an entry is {kind, text, verb?, step?, run?, subagent?, brief?, verdict?, attention?, took_s?, age_s?}."
+            "an entry is {kind, text, verb?, step?, run?, subagent?, brief?, call?, background?, verdict?, attention?, took_s?, age_s?}."
         )
     kind = raw.get("kind")
     if kind not in KINDS:
@@ -119,11 +122,18 @@ def _entry(raw: Any, now: float) -> Dict[str, Any]:
         if verdict not in VERDICTS:
             raise _invalid(f"verdict is one of {list(VERDICTS)}.")
         entry["verdict"] = verdict
-    attention = raw.get("attention")
-    if attention is not None:
-        if not isinstance(attention, bool):
-            raise _invalid("attention is true or false.")
-        entry["attention"] = attention
+    for key in ("attention", "background"):
+        value = raw.get(key)
+        if value is not None:
+            if not isinstance(value, bool):
+                raise _invalid(f"{key} is true or false.")
+            entry[key] = value
+    # call: the Agent call's id, which the operator's message to its run names.
+    call = raw.get("call")
+    if call is not None:
+        if not isinstance(call, str) or not _CALL.match(call):
+            raise _invalid("call is the Agent call's id.")
+        entry["call"] = call
     subagent = raw.get("subagent")
     if subagent is not None:
         if not isinstance(subagent, str) or len(subagent) > 60:

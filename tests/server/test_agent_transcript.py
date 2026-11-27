@@ -323,6 +323,24 @@ def test_a_subagent_s_lines_keep_their_run_and_its_call_names_the_subagent(serve
     )
 
 
+def test_a_background_run_s_call_keeps_its_id_and_says_so(server):
+    client, _, _ = server
+    call = {
+        "seq": 1,
+        "kind": "step",
+        "verb": "Asked",
+        "text": "Sites on grid 2",
+        "subagent": "autolamella-site-finder",
+        "call": "toolu_01AbC",
+        "background": True,
+    }
+    assert _post(client, "s1", call).status_code == 200
+    (entry,) = client.get("/app/agent/transcript").json()["entries"]
+    assert entry["call"] == "toolu_01AbC" and entry["background"] is True
+    assert _post(client, "s1", {**call, "background": "yes"}).status_code == 422
+    assert _post(client, "s1", {**call, "call": "a b"}).status_code == 422
+
+
 def test_a_resumed_session_s_lines_follow_on_and_a_cut_step_has_ended(server):
     """A resumed session numbers its lines from 1 again: read back, they follow
     on from the run before, and that run's unanswered steps have ended (the page

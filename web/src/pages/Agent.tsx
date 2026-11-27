@@ -53,6 +53,7 @@ import { Palette, PALETTE_KEY, type PaletteEntry, usePaletteKey } from "./agent/
 import { PlanDialog } from "./agent/PlanDialog";
 import { say, since } from "./agent/steps";
 import { asking, SideChat } from "./agent/SideChat";
+import { RunMessage, RunNow, RunsLine, RunTag, runNow } from "./agent/Runs";
 import { waitingOn } from "@/shell/Notices";
 import { ReviewTab, useReview } from "./agent/ReviewTab";
 import {
@@ -594,10 +595,12 @@ function RunCard({
             )}
           >
             {runs && <Loader size={11} className="animate-spin" aria-label="running" />}
+            <RunTag call={call} running={runs} />
             <RunBadge badge={state.badge} />
             {state.text}
           </span>
         </div>
+        <RunNow lines={lines} running={runs} />
       </div>
       {tab && parent && (
         <div className="text-[12px] text-muted-foreground">
@@ -657,6 +660,7 @@ function RunCard({
       {shown && lines.length > 0 && (
         <Lines lines={lines} live={live && runs} className={cn(tab ? "mt-2" : "pl-5")} {...shared} />
       )}
+      {tab && runs && <RunMessage call={call} name={agentName(call.subagent ?? "")} />}
     </div>
   );
 }
@@ -696,11 +700,14 @@ function SubagentList({
   calls,
   answered,
   running,
+  lines,
   onOpen,
 }: {
   calls: TranscriptLine[];
   answered: Answers;
   running: (step: TranscriptLine) => boolean;
+  /** Each run's lines, by the Agent call that started it. */
+  lines: Runs;
   onOpen: (call: TranscriptLine) => void;
 }) {
   const [view, setView] = useState(readRunView);
@@ -829,10 +836,16 @@ function SubagentList({
                     )}
                   >
                     {runs(c) && <Loader size={11} className="animate-spin" aria-label="running" />}
+                    <RunTag call={c} running={runs(c)} />
                     <RunBadge badge={state.badge} />
                     {state.text}
                     {!runs(c) && <span className="text-muted-foreground/70"> · {when(c.t, clock)}</span>}
                   </span>
+                  {runs(c) && runNow(lines.get(stepKey(c.session_id, c.seq)) ?? []) && (
+                    <span className="min-w-0 truncate text-[12px] text-muted-foreground">
+                      Now: {runNow(lines.get(stepKey(c.session_id, c.seq)) ?? [])}
+                    </span>
+                  )}
                   {c.run != null && (
                     <span className="min-w-0 truncate text-[12px] text-muted-foreground">
                       Asked by {parentOf(c) ? runTitle(parentOf(c)!) : "another run"}
@@ -1594,7 +1607,13 @@ export function AgentPage() {
             />
           </div>
         ) : (
-          <SubagentList calls={idx.calls} answered={idx.answered} running={idx.running} onOpen={openRun} />
+          <SubagentList
+            calls={idx.calls}
+            answered={idx.answered}
+            running={idx.running}
+            lines={idx.runs}
+            onOpen={openRun}
+          />
         ),
     });
   }
@@ -1838,6 +1857,15 @@ export function AgentPage() {
             Live while something runs; else the running step says it in the record, and
             here only when no step shows it. */}
         <LiveLine agent={a} heard={isWorking && !a.stopped} hide={nowOnStep} />
+        <RunsLine
+          running={idx.calls.filter((c) => !idx.answered.has(stepKey(c.session_id, c.seq)) && idx.running(c))}
+          name={(c) => agentName(c.subagent ?? "")}
+          onOpen={openRun}
+          onList={() => {
+            setShownRun(null);
+            setFocus("subagents");
+          }}
+        />
         {a.waiting &&
           (a.waiting.agent_reviewing ? (
             <div className="text-[13px]">

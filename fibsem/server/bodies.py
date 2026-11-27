@@ -87,12 +87,15 @@ class MarkedEvidence:
 @dataclass
 class MessageBody:
     """POST /app/agent/messages: the operator's message to the agent. ``text``
-    may be empty when ``evidence`` says it."""
+    may be empty when ``evidence`` says it. ``run``, the ``call`` of a
+    subagent's run on the transcript: the message is to that subagent while it
+    runs."""
 
     __pydantic_config__ = STRICT
 
     text: str = ""
     evidence: Optional[MarkedEvidence] = None
+    run: Optional[str] = None
 
 
 @dataclass

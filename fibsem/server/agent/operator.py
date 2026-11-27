@@ -260,7 +260,7 @@ def build_operator_router(agent: AgentControl) -> APIRouter:
                 )
             if under is not None:
                 _keep_example(request, record, under, text)
-        message_id = agent.message(text, evidence=record)
+        message_id = agent.message(text, evidence=record, run=body.run)
         if message_id is None:
             raise refusal_error(
                 409,

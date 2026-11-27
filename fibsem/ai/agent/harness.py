@@ -60,6 +60,7 @@ from fibsem.ai.agent import (
     wake_lines,
     wake_policy,
 )
+from fibsem.ai.agent import background as background_mod
 from fibsem.ai.agent import handoff as handoff_mod
 from fibsem.ai.agent import manager as sessions
 from fibsem.ai.agent import report as report_mod
@@ -109,15 +110,16 @@ HANDOFF_TOOL = f"mcp__{HARNESS_SERVER}__{handoff_mod.TOOL}"
 # prompt; ToolSearch only finds them. The session's subagents are added
 # (`subagent_tools`).
 ALLOWED_TOOLS = (
-    [f"mcp__{SERVER}__*", "ToolSearch", "SendMessage"]
+    [f"mcp__{SERVER}__*", "ToolSearch", "SendMessage", "TaskStop"]
     + [WAKE_TOOL, WAKE_ON_TOOL]
     + PLAYBOOK_TOOLS
     + [HANDOFF_TOOL]
 )
 # The only built-in tools the agent has: reading its skills, finding the
-# sidecar's tools when the CLI defers them, calling a specialist or carrying
-# one on (a lamella's later polishing passes, one Verifier).
-BUILT_IN_TOOLS = ["Skill", "ToolSearch", "Agent", "SendMessage"]
+# sidecar's tools when the CLI defers them, calling a specialist, writing to
+# one while it runs or carrying one on (a lamella's later polishing passes,
+# one Verifier), and stopping one in the background (`background`).
+BUILT_IN_TOOLS = ["Skill", "ToolSearch", "Agent", "SendMessage", "TaskStop"]
 # Named as well, so a CLI that adds one back still refuses it: a specialist
 # that lists a tool gets it unless it is denied here. The CLI's own agents
 # would carry every fibsem tool, without a specialist's limits.
@@ -148,14 +150,14 @@ EFFORTS = ("low", "medium", "high", "xhigh", "max")
 FATAL_ERRORS = {"authentication_failed", "billing_error"}
 API_KEY = "ANTHROPIC_API_KEY"
 
-# The CLI's environment: no CLAUDE.md (the checkout's is developer guidance),
-# no auto memory from a developer's sessions in the same folder, and no
-# background tasks: a specialist answers inside the turn that called it, and
-# one the CLI ran in the background would answer after the turn had ended.
+# The CLI's environment: no CLAUDE.md (the checkout's is developer guidance)
+# and no auto memory from a developer's sessions in the same folder. A
+# subagent that only reads may run in the background (`background`): its
+# answer comes as a turn of the CLI's own, which `SdkAgent` reads between the
+# harness's turns.
 CLI_ENV = {
     "CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1",
     "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",
-    "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
     # The agent's prompt cache lasts an hour, not the CLI's 5 min: a Watch
     # session waits longer than that between wakes (`wake_policy`).
     "CLAUDE_CODE_PROMPT_CACHE_TTL": wake_policy.PROMPT_CACHE_TTL,
@@ -163,6 +165,20 @@ CLI_ENV = {
     # mills (its tools line names only that one, `Agent(autolamella-verifier)`).
     "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "2",
 }
+
+BACKGROUND_OFF = "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"
+# The lead's next wake, of the operator's message to a running subagent: read
+# by it, or missed because it ended first.
+TOLD_RUN = (
+    "The operator wrote to the {name} while it ran (message id={id}), and it "
+    "read it: {text}"
+)
+MISSED_RUN = (
+    "MESSAGE id={id} from the operator to the {name}, which ended before it "
+    "read it: {text} -- answer with experiment_message_operator "
+    "(reply_to={id}). It is not an approval: your level still decides what you "
+    "may do"
+)
 
 # One message from the CLI: a tool result carrying an image (the Read tool on
 # a plot, in code mode) is more than the SDK's 1 MB default.
@@ -1308,6 +1324,8 @@ class Harness:
         # `BUDGET_LOW` is said once per crossing; it waits here for a turn.
         self._budget_warned = False
         self._budget_note: Optional[str] = None
+        # What the operator told a running subagent, for the lead's next wake.
+        self._runs_told: List[str] = []
         # The App Server's client, once one answers: the session is reported on it.
         self._client = None
         self._turns = 0
@@ -1392,6 +1410,12 @@ class Harness:
         if self._alarm is not None:
             self._alarm.bind(self._loop, ring)
         self._deadlines.bind(self._loop, ring)
+        runs = getattr(self._agent, "background", None)
+        if runs is not None:
+            runs.on_delivered = self._run_read
+            runs.on_unread = self._run_missed
+        if hasattr(self._agent, "on_own_turn"):
+            self._agent.on_own_turn = self._own_turn_ended
         self._wake_on.bind(self._loop, ring)
         if self._stop_requested:
             return 0
@@ -1459,6 +1483,16 @@ class Harness:
             if watcher is self._watcher:
                 self._asides.add(item)
             return
+        to_run = getattr(item, "facts", {}).get("run")
+        runs = getattr(self._agent, "background", None)
+        if to_run is not None and runs is not None and watcher is self._watcher:
+            ids = getattr(item, "message_ids", ())
+            said = item.facts.get("said", "")
+            if ids and runs.write(to_run, ids[0], said):
+                # For a subagent still running: it reads it after its next
+                # call (`background.deliver_hook`), not the lead.
+                log.info("The operator's message %s waits for its subagent.", ids[0])
+                return
         if isinstance(item, _Cursor) and self._items.empty():
             # Its lines come before it and have all been taken, by the turn
             # going on or an earlier one: it is that turn's to keep. Queued, it
@@ -1656,6 +1690,55 @@ class Harness:
             await self._fresh_context()
         await self._report()
         return True
+
+    def _run_read(self, run, message_id: str, text: str) -> None:
+        """A running subagent read the operator's message: on its run's
+        lines, marked read, and told to the lead with its next wake."""
+        _line(self._agent, "context", f"The operator: {text}", run=run.seq)
+        self._runs_told.append(
+            TOLD_RUN.format(name=run.subagent, id=message_id, text=text)
+        )
+        client = self._client
+        if client is not None:
+            self._loop.run_in_executor(
+                None, watch_mod.report_read, client, [message_id]
+            )
+
+    def _run_missed(self, run, message_id: str, text: str) -> None:
+        """A subagent ended before it read the operator's message: the lead
+        reads it, as a message of its own."""
+        self._put(
+            self._watcher,
+            watch_mod.Wake(
+                watch_mod.MESSAGE,
+                MISSED_RUN.format(name=run.subagent, id=message_id, text=text),
+                [message_id],
+            ),
+        )
+
+    def _own_turn_ended(self, end: TurnEnd) -> None:
+        """The CLI ended a turn of its own (a background run's answer): its
+        spend counts, and a spent budget ends the run as after any turn."""
+        if end.cost_usd is not None:
+            self._count_spend(end.cost_usd + self._carried_usd)
+        asyncio.ensure_future(self._after_own_turn())
+
+    async def _after_own_turn(self) -> None:
+        if self._over_budget():
+            await self._reread_budget()
+        if self._over_budget() and not self._stopping.is_set():
+            self._end_reason = "its budget is spent"
+            log.error(
+                "The budget is spent ($%.2f of $%g this run, --max-budget-usd); "
+                "fibsem-agent stops.",
+                self._run_spent(),
+                self._budget_usd,
+            )
+            self._code = 2
+            self._stopping.set()
+            return
+        self._warn_budget()
+        await self._report()
 
     async def _keep_unstarted_handoff(self) -> None:
         """A handoff note the agent wrote in the turn the run ended on: kept
@@ -2292,7 +2375,23 @@ class Harness:
 
     async def _next_prompt(self) -> Optional[str]:
         """The next turn: every line that arrived since the last one, held
-        while the agent is Off. None when the run is over."""
+        while the agent is Off. None when the run is over. Meanwhile the CLI
+        is read: a background run's lines go on the transcript, and its
+        answer may start a turn of the CLI's own."""
+        between = getattr(self._agent, "between_turns", None)
+        if between is None:
+            return await self._wait_for_prompt()
+        reader = asyncio.ensure_future(between())
+        sender = asyncio.ensure_future(self._send_transcript_every())
+        try:
+            return await self._wait_for_prompt()
+        finally:
+            reader.cancel()
+            sender.cancel()
+            await asyncio.gather(reader, sender, return_exceptions=True)
+            await self._send_transcript()
+
+    async def _wait_for_prompt(self) -> Optional[str]:
         while True:
             item = await self._get()
             self._after_turn = False
@@ -2335,6 +2434,9 @@ class Harness:
                         f"{prompt}\n\n{self._budget_note}",
                         None,
                     )
+                if self._runs_told:
+                    told, self._runs_told = self._runs_told, []
+                    prompt = "\n".join([prompt, *told])
                 said = self._ceiling_line(lines)
                 if said:
                     prompt = f"{prompt}\n\n{said}"
@@ -2464,6 +2566,16 @@ class SdkAgent:
         # reports them for the Agent page.
         self.mcp_servers: List[dict] = []
         self.server_about: Dict[str, str] = {}
+        # The session's subagent runs (`background.Runs`), when some may run
+        # in the background.
+        self.background: Optional[background_mod.Runs] = None
+        # The CLI's messages as they come, read between turns too: a
+        # background run prints, and answers, while the harness waits.
+        self._inbox: Optional[asyncio.Queue] = None
+        self._reader: Optional[asyncio.Future] = None
+        # Told when a turn the CLI started itself ends (a background run's
+        # answer), with its `TurnEnd`.
+        self.on_own_turn: Optional[Callable[[TurnEnd], None]] = None
 
     def line(self, kind: str, text: str, **extra) -> int:
         """Keep a printed line for the transcript; its number."""
@@ -2529,6 +2641,7 @@ class SdkAgent:
                 store.session_id = before
             raise
         old, self._client, self._options = self._client, client, options
+        self._stop_reading()
         self.conversation_id = conversation
         self.introduced = False
         self.compacted = False
@@ -2545,31 +2658,110 @@ class SdkAgent:
                 log.debug("Closing the earlier context failed.", exc_info=True)
         return conversation
 
-    async def turn(self, prompt: str) -> TurnEnd:
-        from claude_agent_sdk import AssistantMessage, ResultMessage, ToolUseBlock
+    def _messages(self) -> asyncio.Queue:
+        """The queue the CLI's messages come in on, read from its stream from
+        the first turn on (`_read`)."""
+        if self._inbox is None:
+            self._inbox = asyncio.Queue()
+            self._reader = asyncio.ensure_future(self._read(self._client, self._inbox))
+        return self._inbox
 
+    @staticmethod
+    async def _read(client, inbox: asyncio.Queue) -> None:
+        """Every message *client* gives, onto *inbox*; then None, or the error
+        that ended the stream."""
+        receive = getattr(client, "receive_messages", None) or client.receive_response
+        ended: Any = None
+        try:
+            async for message in receive():
+                inbox.put_nowait(message)
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:  # noqa: BLE001 - the turn reading raises it
+            ended = error
+        inbox.put_nowait(ended)
+
+    def _stop_reading(self) -> None:
+        if self._reader is not None:
+            self._reader.cancel()
+        self._reader, self._inbox = None, None
+
+    async def _next(self):
+        """The CLI's next message; None once its stream has ended."""
+        message = await self._messages().get()
+        if message is None or isinstance(message, Exception):
+            # Read again from the start next time: a CLI that is gone says so.
+            self._stop_reading()
+        if isinstance(message, Exception):
+            raise message
+        return message
+
+    def _take(self, message) -> Optional[str]:
+        """One message of the CLI's, shown and counted; its error, if an
+        assistant message said one."""
+        from claude_agent_sdk import AssistantMessage, ToolUseBlock
+
+        _show(message, self)
+        if not isinstance(message, AssistantMessage):
+            return None
+        self.calls.seen(
+            message.message_id,
+            message.model,
+            message.usage,
+            [
+                _short(block.name)
+                for block in message.content
+                if isinstance(block, ToolUseBlock)
+            ],
+            message.parent_tool_use_id,
+        )
+        return message.error
+
+    def _own_turn_ended(self, result) -> None:
+        """A turn the CLI started itself ended: its spend is known."""
+        log.info("The agent's own turn ended (%s): %s", _origin(result), result.subtype)
+        if result.total_cost_usd is not None:
+            self._cost_usd = result.total_cost_usd
+        if self.on_own_turn is not None:
+            self.on_own_turn(
+                TurnEnd(result.subtype, result.total_cost_usd, result.session_id)
+            )
+
+    async def between_turns(self) -> None:
+        """Read the CLI while no turn of the harness's runs, until cancelled:
+        a background run's lines and the turn its answer starts."""
+        from claude_agent_sdk import ResultMessage
+
+        while True:
+            message = await self._next()
+            if message is None:
+                return
+            self._take(message)
+            if isinstance(message, ResultMessage):
+                self._own_turn_ended(message)
+
+    async def turn(self, prompt: str) -> TurnEnd:
+        from claude_agent_sdk import ResultMessage
+
+        self._messages()
         await self._client.query(prompt)
         end, error, result = TurnEnd(subtype="no_result"), None, None
-        async for message in self._client.receive_response():
-            _show(message, self)
-            if isinstance(message, AssistantMessage):
-                error = message.error or error
-                self.calls.seen(
-                    message.message_id,
-                    message.model,
-                    message.usage,
-                    [
-                        _short(block.name)
-                        for block in message.content
-                        if isinstance(block, ToolUseBlock)
-                    ],
-                    message.parent_tool_use_id,
-                )
+        while True:
+            message = await self._next()
+            if message is None:
+                break
+            error = self._take(message) or error
             if isinstance(message, ResultMessage):
+                if _origin(message) is not None:
+                    # A turn the CLI started itself, before this one.
+                    self._own_turn_ended(message)
+                    error = None
+                    continue
                 result = message
                 end = TurnEnd(
                     message.subtype, message.total_cost_usd, message.session_id
                 )
+                break
         end.error = error
         # The context first: while the CLI is asked, the turn's tokens are
         # still its own, for a report made meanwhile (`Harness._usage_now`).
@@ -2641,6 +2833,7 @@ class SdkAgent:
         return await aside.ask(self._client, question, history, timeout_s)
 
     async def close(self) -> None:
+        self._stop_reading()
         if self._client is not None:
             await self._client.disconnect()
             self._client = None
@@ -2654,6 +2847,14 @@ class SdkAgent:
 
 def _short(name: str) -> str:
     return name.replace(f"mcp__{SERVER}__", "")
+
+
+def _origin(result) -> Optional[str]:
+    """What started the turn *result* ends, when the CLI started it itself (a
+    background run's answer, ``task-notification``); None for the harness's."""
+    origin = getattr(result, "origin", None)
+    kind = origin.get("kind") if isinstance(origin, dict) else None
+    return kind if kind not in (None, "human") else None
 
 
 def _clip(text: str, limit: int = 300) -> str:
@@ -2866,6 +3067,12 @@ def _show(message, agent: SdkAgent) -> None:
                 _compacting(agent)
             else:
                 _compacted(agent)
+        elif message.subtype == "task_started":
+            runs = getattr(agent, "background", None)
+            if runs is not None:
+                runs.started(data.get("tool_use_id"), data.get("task_id"))
+        elif message.subtype == "task_notification":
+            _task_ended(agent, data)
         elif message.subtype == "compact_boundary":
             agent.compacted = True
             meta = data.get("compact_metadata") or {}
@@ -2905,6 +3112,10 @@ def _show(message, agent: SdkAgent) -> None:
                 extra = dict(run)
                 if block.name in SUBAGENT_TOOLS:
                     extra["subagent"] = _clip(block.input.get("subagent_type", ""), 60)
+                    extra["call"] = block.id
+                    if block.input.get("run_in_background"):
+                        # The lead carries on: its answer comes on its own.
+                        extra["background"] = True
                     # Its brief, for the operator to read on the run's card.
                     brief = block.input.get("prompt")
                     if isinstance(brief, str) and brief.strip():
@@ -2921,6 +3132,9 @@ def _show(message, agent: SdkAgent) -> None:
                         block.name,
                         run.get("run"),
                     )
+                runs = getattr(agent, "background", None)
+                if runs is not None and block.name in SUBAGENT_TOOLS:
+                    runs.shown(block.id, seq)
     elif isinstance(message, UserMessage) and isinstance(message.content, list):
         run = _run_of(agent, message)
         # A subagent's results are its own, not the agent's.
@@ -2929,6 +3143,14 @@ def _show(message, agent: SdkAgent) -> None:
             if not isinstance(block, ToolResultBlock):
                 continue
             seq, took, name = None, None, ""
+            runs = getattr(agent, "background", None)
+            going = runs.get(block.tool_use_id) if runs is not None else None
+            if going is not None and going.background and not block.is_error:
+                # Started, not answered: its run's step stays open until the
+                # CLI says it ended (`_task_ended`).
+                continue
+            if going is not None:
+                runs.ended(block.tool_use_id)
             made = getattr(agent, "_steps", {}).pop(block.tool_use_id, None)
             if made is not None:
                 seq, took = made[0], round(time.monotonic() - made[1], 1)
@@ -2958,6 +3180,40 @@ def _show(message, agent: SdkAgent) -> None:
                 # A long command's end the agent read itself wakes no one.
                 for run_id in wake_policy.ended_runs(name, block.content):
                     policy.saw_run_end(run_id)
+
+
+def _task_ended(agent, data: dict) -> None:
+    """A subagent's run ended: for one in the background, its step is done
+    with its answer, as a blocking run's result does."""
+    runs = getattr(agent, "background", None)
+    call = data.get("tool_use_id")
+    going = runs.get(call) if runs is not None else None
+    if going is None or not going.background:
+        return
+    runs.ended(call)
+    made = getattr(agent, "_steps", {}).pop(call, None)
+    if made is None:
+        return
+    seq, took = made[0], round(time.monotonic() - made[1], 1)
+    run = {"run": made[3]} if made[3] is not None else {}
+    status = data.get("status")
+    log.info("The %s in the background ended: %s", going.subagent, status)
+    if status == "completed":
+        answer, verdict = _answer(data.get("summary") or "")
+        _line(
+            agent,
+            "done",
+            _clip(answer, SUBAGENT_ANSWER),
+            step=seq,
+            took_s=took,
+            **run,
+            **verdict,
+        )
+    elif status == "stopped":
+        _line(agent, "failed", STEP_ENDED, step=seq, took_s=took, **run)
+    else:
+        why = _clip(data.get("summary") or f"it {status or 'failed'}", 160)
+        _line(agent, "failed", why, step=seq, took_s=took, **run)
 
 
 def _run_of(agent, message) -> dict:
@@ -3191,6 +3447,7 @@ def build_options(
     host_token: Optional[str] = None,
     handoff: Optional[handoff_mod.Handoff] = None,
     wake_on: Optional[wake_policy.WakeOn] = None,
+    runs: Optional[background_mod.Runs] = None,
 ):
     """The SDK session: the MCP servers the *playbook* names (``mcp``; the
     sidecar alone without one), among them the lab's (*extras*, else read;
@@ -3206,7 +3463,8 @@ def build_options(
     written (`mirror.TranscriptMirror`). With *handoff*, the agent has the
     ``context_reset`` tool. The CLI's compaction is always asked to keep what
     the instrument kind's ``handoff.md`` says, and the playbook's
-    ``compact_window`` sets where it compacts."""
+    ``compact_window`` sets where it compacts. With *runs*, the subagents
+    that only read may run in the background (`background`)."""
     from claude_agent_sdk import ClaudeAgentOptions
 
     loaded = loaded or session_names(checkout, playbook)
@@ -3227,6 +3485,9 @@ def build_options(
     # In the CLI's environment, which the sidecar inherits: the server entry
     # goes on the CLI's command line, where anyone can list it.
     env = dict(CLI_ENV)
+    if runs is None:
+        # Nothing to say which subagents may: none runs in the background.
+        env[BACKGROUND_OFF] = "1"
     settings_now = playbook.session if playbook is not None else base
     env.update(handoff_mod.compact_env(settings_now.compact_window))
     if url:
@@ -3304,16 +3565,20 @@ def build_options(
         # With a playbook control, the reminders on now, asked at each call;
         # and the lab servers' tools gated by the agent level.
         # And what the CLI's compaction keeps, should it run.
+        # And which subagents may run in the background, and what they do there.
         hooks=handoff_mod.compact_hooks(
-            _with_level_gate(
-                control.reminders.sdk_hooks(SERVER)
-                if control is not None
-                else reminders.sdk_hooks(playbook.hooks, SERVER)
-                if playbook
-                else None,
-                extras,
-                url,
-                token,
+            background_mod.with_hooks(
+                _with_level_gate(
+                    control.reminders.sdk_hooks(SERVER)
+                    if control is not None
+                    else reminders.sdk_hooks(playbook.hooks, SERVER)
+                    if playbook
+                    else None,
+                    extras,
+                    url,
+                    token,
+                ),
+                runs,
             ),
             compact,
         ),
@@ -3851,6 +4116,8 @@ def _main(argv, opened: List["sessions.SessionFolder"]) -> int:
     fresh_conversation = str(uuid.uuid4()) if recover else None
     # The agent's own wake policy, if it set one before a resume.
     wake_on.restore(record.get(sessions.WAKE_ON))
+    # The subagents that only read may run in the background.
+    runs = background_mod.Runs()
     options = build_options(
         checkout,
         alarm=alarm,
@@ -3874,10 +4141,13 @@ def _main(argv, opened: List["sessions.SessionFolder"]) -> int:
         host=args.host,
         host_token=host_token,
         handoff=handoff,
+        runs=runs,
     )
+    runs.folder = Path(options.cwd)
     agent = SdkAgent(
         options, usage_path=session.folder / usage.FILE, session_id=session_id
     )
+    agent.background = runs
     agent.calls.segment = handoff.contexts
     agent.runs_started = handoff.runs
     agent.playbook = control

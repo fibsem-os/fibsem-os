@@ -1410,9 +1410,12 @@ export interface components {
             tools: number | null;
         };
         /** @description POST /app/agent/messages: the operator's message to the agent. ``text``
-         *     may be empty when ``evidence`` says it. */
+         *     may be empty when ``evidence`` says it. ``run``, the ``call`` of a
+         *     subagent's run on the transcript: the message is to that subagent while it
+         *     runs. */
         MessageBody: {
             evidence?: components["schemas"]["MarkedEvidence"] | null;
+            run?: string | null;
             /** @default  */
             text?: string;
         };

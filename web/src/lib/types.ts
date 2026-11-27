@@ -335,6 +335,12 @@ export interface TranscriptLine {
   subagent?: string;
   /** For the Agent call that starts a subagent: the brief it was given. */
   brief?: string;
+  /** For the Agent call that starts a subagent: the call's id, which a message
+   * to its run names. */
+  call?: string;
+  /** For the Agent call that starts a subagent: the lead carried on while it
+   * ran, and its answer came on its own. */
+  background?: boolean;
   /** On a subagent call's "done": whether it agreed with the decision it checked. */
   verdict?: "agree" | "concern";
   /** On a subagent call's "done": the subagent says someone should look before going on. */
