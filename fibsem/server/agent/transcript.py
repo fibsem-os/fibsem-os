@@ -40,6 +40,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 
 from fibsem.ai.agent.levels import AgentLevel
+from fibsem.server.agent import time_use
 from fibsem.server.agent.files import PICTURES, AgentFiles
 from fibsem.server.auth import AuthConfig, refusal_error, require_level
 from fibsem.server.bodies import TranscriptBody
@@ -431,8 +432,6 @@ def build_agent_transcript_router(
         """Where a session's time went (`time_use`): the running one's, or
         *session_id*'s, between *since* and *until* (ISO times)."""
         from datetime import datetime, timezone
-
-        from fibsem.server.agent import time_use
 
         def when(value: Optional[str], name: str) -> Optional[datetime]:
             if not value:
