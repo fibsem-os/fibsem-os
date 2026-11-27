@@ -2,10 +2,14 @@
 
 It is an ordinary ``fibsem-gateway`` on this PC, started with the Demo
 microscope and no window, and listed as the instrument "Simulator" at its
-address here. The Hub pairs with it and asks it as it does any instrument's
-gateway. A PC runs one gateway, so one that already runs here is never
-taken for the simulator: it is added by its address like any other.
-Stopping the Hub stops the simulator it started.
+address here. The Hub asks it as it does any instrument's gateway. It pairs
+with the simulator it started by itself: it asks that gateway for a hub's
+pairing code as ``fibsem-gateway pair --hub --may-switch`` does on this PC,
+and uses it. Only ever its own simulator: a gateway the Hub did not start,
+here or anywhere, is paired by a person with a code. A PC runs one gateway,
+so one that already runs here is never taken for the simulator: it is added
+by its address like any other. Stopping the Hub stops the simulator it
+started.
 """
 
 from __future__ import annotations
@@ -36,6 +40,20 @@ START_WAIT_S = 30.0
 STOP_WAIT_S = 30.0
 
 
+def _code() -> Optional[str]:
+    """A hub's pairing code from the gateway running on this PC, asked as
+    ``fibsem-gateway pair --hub --may-switch`` asks. None when none came."""
+    from fibsem.gateway.main import call
+
+    try:
+        listing = call(
+            "POST", "/pairing", {"role": "hub", "grants": ["switch_modes"]}, 10.0
+        )
+    except (OSError, ValueError):
+        return None
+    return str(listing["code"]) if listing and listing.get("code") else None
+
+
 def _spawn(command: List[str]) -> subprocess.Popen:
     return subprocess.Popen(
         command,
@@ -56,6 +74,7 @@ class Simulator:
         running: Callable[[], Optional[dict]] = read_gateway_file,
         port: Callable[[], int] = gateway_port,
         python: str = sys.executable,
+        code: Callable[[], Optional[str]] = _code,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
@@ -64,6 +83,7 @@ class Simulator:
         self._running = running
         self._port = port
         self._python = python
+        self._code = code
         self._clock = clock
         self._sleep = sleep
         self._lock = threading.Lock()
@@ -91,8 +111,27 @@ class Simulator:
         listed = next((i for i in self._hub.instruments() if i.name == NAME), None)
         if listed is None or listed.url != url:
             self._hub.add(NAME, url)
-        else:
-            self._hub.check()
+        self._pair()
+        self._hub.check()
+
+    def _pair(self) -> None:
+        """Pair with the simulator this Hub started, unless it already is.
+        One that doesn't pair is left for a person to pair with a code."""
+        found = self._running()
+        process = self._process
+        if (
+            self._hub.token(NAME) is not None
+            or process is None
+            or found is None
+            or found.get("pid") != process.pid
+        ):
+            return
+        try:
+            code = self._code()
+            if code:
+                self._hub.pair(NAME, code)
+        except GatewayRefused as refused:
+            log.warning("The Hub didn't pair with its simulator: %s", refused)
 
     def _start(self) -> None:
         if not unreleased.enabled():

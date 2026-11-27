@@ -289,7 +289,7 @@ function PairCard({ instrument, simulated }: { instrument: Instrument; simulated
         <CardTitle>Not paired</CardTitle>
         <Hint>
           {simulated
-            ? "The simulator pairs like any instrument: its gateway makes a code, and you type it here."
+            ? "The Hub pairs with its own simulator by itself. If that didn't work, its gateway makes a code and you type it here."
             : "On the instrument's PC, open the gateway's page, go to Pairing and make a code for a Hub. Type that code here."}
         </Hint>
       </div>

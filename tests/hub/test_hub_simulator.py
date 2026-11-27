@@ -40,6 +40,8 @@ class Pc:
         self.started = []
         self.gateway = None
         self.listens = True
+        self.codes = []
+        self.paired = []
         self.now = 0.0
 
     def spawn(self, command):
@@ -64,11 +66,15 @@ def pc():
 
 
 @pytest.fixture
-def hub(tmp_path):
+def hub(tmp_path, pc):
     def fetch(url, route, token, timeout):
         raise OSError("connection refused")
 
-    return Hub(tmp_path / "hub.yaml", tmp_path / "hub", fetch=fetch)
+    def pair(url, code, name):
+        pc.paired.append((url, code))
+        return "token", "hub"
+
+    return Hub(tmp_path / "hub.yaml", tmp_path / "hub", fetch=fetch, pair=pair)
 
 
 @pytest.fixture
@@ -79,6 +85,7 @@ def simulator(hub, pc):
         running=lambda: pc.gateway,
         port=lambda: 8010,
         python="python",
+        code=lambda: pc.codes.pop(0) if pc.codes else None,
         clock=lambda: pc.now,
         sleep=pc.sleep,
     )
@@ -105,10 +112,36 @@ def test_the_simulator_is_a_gateway_here_with_the_demo_microscope(simulator, hub
     (row,) = hub.instruments()
     assert (row.name, row.url, row.ssh) == (NAME, "http://127.0.0.1:8010", None)
     assert simulator.state() == {"name": NAME, "running": True, "listed": True}
-    # The Hub holds no token for it: it is paired like any instrument.
+    # With no code from its gateway it is left for a person to pair.
     assert hub.token(NAME) is None
     simulator.start()
     assert len(pc.started) == 1, "one that runs is not started again"
+
+
+def test_the_hub_pairs_itself_with_the_simulator_it_started(simulator, hub, pc):
+    pc.codes = ["1234", "5678"]
+    simulator.start()
+    assert pc.paired == [("http://127.0.0.1:8010", "1234")]
+    assert hub.token(NAME) == "token"
+    simulator.stop()
+    simulator.start()
+    assert len(pc.paired) == 1, "its pairing is kept: it is not paired again"
+
+
+def test_the_hub_never_pairs_itself_with_a_gateway_it_did_not_start(simulator, hub, pc):
+    pc.codes = ["1234"]
+    simulator.start()
+    hub.remove(NAME)
+    pc.paired.clear()
+    pc.codes = ["5678"]
+    # Its own simulator ended, and another gateway took its place here.
+    pc.started[0].code = 0
+    pc.gateway = {"url": "http://127.0.0.1:8010", "pid": 7}
+    with pytest.raises(GatewayRefused):
+        simulator.start()
+    hub.add(NAME, "http://127.0.0.1:8010")
+    simulator._pair()
+    assert pc.paired == [] and hub.token(NAME) is None
 
 
 def test_another_gateway_on_this_pc_is_never_taken_for_the_simulator(

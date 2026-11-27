@@ -65,8 +65,10 @@ nothing: no instrument, no tunnel.
 
 **Start a simulator** gives the Hub an instrument with no microscope: an ordinary
 `fibsem-gateway` on the hub PC, with no window and the Demo microscope, listed as
-"Simulator". Pair with it like any instrument: run `fibsem-gateway pair --hub --may-switch`
-on the hub PC and type the code. A PC runs one gateway, so the simulator is refused while
+"Simulator". The Hub pairs with the simulator it started by itself, with "may start and stop
+apps": it asks that gateway for a code as `fibsem-gateway pair --hub --may-switch` does on the
+hub PC. It does this for its own simulator only; every other gateway is paired by a person
+with a code. A PC runs one gateway, so the simulator is refused while
 another gateway runs there; add that one by its address (`http://127.0.0.1:8010`) instead.
 **Stop the simulator** stops its gateway and an app it runs with no window, and stopping the
 Hub does the same. It stays in the list, with its pairing, until it is removed.
