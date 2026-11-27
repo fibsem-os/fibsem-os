@@ -14,6 +14,7 @@ import { api, ApiError, ReachedProvider } from "@/lib/api";
 import * as fmt from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { AgentCard, Field, FIELD, title } from "@/pages/gateway/AgentCard";
+import { KeyRow, type Secret } from "@/pages/gateway/Settings";
 import { Connections } from "@/shell/Settings";
 
 interface Piece {
@@ -45,7 +46,13 @@ interface Instrument {
     goal?: string;
     level?: string;
   } | null;
+  /** Its tunnel, when the Hub opens one: the port on this PC that reaches
+   * its gateway. */
+  tunnel: { open?: boolean; gateway_port?: number } | null;
   health: { app?: Piece; microscope?: Piece } | null;
+  api_version: string | null;
+  // False when its gateway is a version this Hub was not written for.
+  same_version: boolean | null;
 }
 
 interface HubState {
@@ -312,6 +319,14 @@ function InstrumentAgent({ instrument }: { instrument: Instrument }) {
     () => ({
       prefix: `/hub/instruments/${encodeURIComponent(instrument.name)}`,
       pc: "the microscope PC",
+      places: [
+        { key: "pc", label: "The microscope PC" },
+        {
+          key: "hub",
+          label: "This hub PC",
+          start: `/hub/instruments/${encodeURIComponent(instrument.name)}/hub-agent/start`,
+        },
+      ],
     }),
     [instrument.name],
   );
@@ -321,6 +336,37 @@ function InstrumentAgent({ instrument }: { instrument: Instrument }) {
         <AgentCard appRunning={instrument.gateway?.mode === "running"} />
       </ReachedProvider>
     </QueryClientProvider>
+  );
+}
+
+/** Where this PC's browser reaches the instrument's own pages: through the
+ * Hub's tunnel, or at its address. That gateway signs the browser in itself,
+ * with a code from its Pairing page the first time. */
+function gatewayAddress(instrument: Instrument): string | null {
+  if (instrument.ssh)
+    return instrument.tunnel?.open && instrument.tunnel.gateway_port
+      ? `http://127.0.0.1:${instrument.tunnel.gateway_port}`
+      : null;
+  return instrument.url;
+}
+
+function AgentPageLink({ instrument }: { instrument: Instrument }) {
+  const address = gatewayAddress(instrument);
+  return (
+    <p className="m-0 text-xs text-muted-foreground">
+      The agent's chat and plan are on the instrument's Agent page.{" "}
+      {address && (
+        <a
+          href={`${address}/ui/agent`}
+          target="_blank"
+          rel="noreferrer"
+          className="text-primary underline underline-offset-2"
+          title="Opens the instrument's own page. The first time, it asks for a code from the Pairing page at the microscope PC."
+        >
+          Open the Agent page
+        </a>
+      )}
+    </p>
   );
 }
 
@@ -350,13 +396,15 @@ function InstrumentView({ instrument, onRemoved }: { instrument: Instrument; onR
       ) : (
         <>
           {instrument.why && <p className={cn("m-0 text-[13px]", WARN)}>{instrument.why}</p>}
-          <StatusCard instrument={instrument} />
-          <InstrumentAgent key={instrument.name} instrument={instrument} />
-          {instrument.agent && (
-            <p className="m-0 text-xs text-muted-foreground">
-              The agent's chat and plan are on the Agent page at the microscope PC.
+          {instrument.same_version === false && (
+            <p className={cn("m-0 text-[13px]", WARN)}>
+              Its gateway is a different version from this Hub ({instrument.api_version}): update
+              the older one.
             </p>
           )}
+          <StatusCard instrument={instrument} />
+          <InstrumentAgent key={instrument.name} instrument={instrument} />
+          {instrument.agent && <AgentPageLink instrument={instrument} />}
         </>
       )}
     </>
@@ -455,6 +503,25 @@ function NewInstrument({
   );
 }
 
+/** The key the agents on this hub PC use. Write-only, as a gateway's keys. */
+function HubKeys() {
+  const secrets = useQuery({
+    queryKey: ["hub/secrets"],
+    queryFn: () => api<Secret[]>("/hub/secrets"),
+  });
+  return (
+    <Card className="flex flex-col gap-1">
+      <CardTitle className="mb-1.5">Keys</CardTitle>
+      {secrets.error && (
+        <p className="m-0 text-[13px] text-destructive">{(secrets.error as Error).message}</p>
+      )}
+      {secrets.data?.map((s) => (
+        <KeyRow key={s.name} s={s} path="/hub/secrets" page="the Hub's own page" />
+      ))}
+    </Card>
+  );
+}
+
 function HubSettings({ version, onQuit }: { version?: string; onQuit: () => void }) {
   const [confirm, setConfirm] = useState(false);
   const quit = useMutation({
@@ -479,8 +546,8 @@ function HubSettings({ version, onQuit }: { version?: string; onQuit: () => void
         <DialogContent title="Stop the Hub?" className="w-[min(460px,calc(100vw-32px))]">
           <div className="flex flex-col gap-2 px-4 py-3.5 text-[13px]">
             <p className="m-0">
-              Its connections close. No instrument notices: apps and agents keep running. You need
-              to start it again at the hub PC.
+              Its connections close, and any agent running on this hub PC is ended. Apps and agents
+              on the microscope PCs keep running. You need to start it again at the hub PC.
             </p>
             {quit.error && <p className="m-0 text-destructive">{(quit.error as Error).message}</p>}
             <div className="flex justify-end gap-2.5 pt-2">
@@ -606,7 +673,7 @@ export function HubPage() {
         </div>
         <div className="mt-3 flex gap-0.5 border-t border-border pt-3 sm:flex-col">
           <NavRow current={tab === "pairing"} onClick={() => setTab("pairing")}>
-            Pairing
+            Browsers
           </NavRow>
           <NavRow current={tab === "settings"} onClick={() => setTab("settings")}>
             Settings
@@ -637,7 +704,13 @@ export function HubPage() {
             ))}
           {tab === "pairing" && (
             <>
-              <h1 className="m-0 text-[17px] font-semibold">Pairing</h1>
+              <h1 className="m-0 text-[17px] font-semibold">Browsers</h1>
+              <p className="m-0 text-[13px] text-muted-foreground">
+                The browsers that may use this Hub. The browser on this PC is signed in by{" "}
+                <span className="font-mono text-xs">agent-hub open</span>. To let another one in,
+                make a code here and type it in that browser. This is separate from pairing an
+                instrument.
+              </p>
               <Card>
                 <Connections roles={["operator"]} />
               </Card>
@@ -646,6 +719,7 @@ export function HubPage() {
           {tab === "settings" && (
             <>
               <h1 className="m-0 text-[17px] font-semibold">Settings</h1>
+              <HubKeys />
               <HubSettings version={health.data?.version} onQuit={() => setStopped(Date.now())} />
             </>
           )}
