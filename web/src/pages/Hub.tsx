@@ -372,6 +372,26 @@ function AgentPageLink({ instrument }: { instrument: Instrument }) {
   );
 }
 
+/** An instrument's SSH tunnel, in a few words beside its address: open and
+ * on which port of this PC, or down. */
+function Tunnel({ tunnel }: { tunnel: Instrument["tunnel"] }) {
+  if (!tunnel) return null;
+  const words = tunnel.open ? `SSH tunnel open, port ${tunnel.gateway_port}` : "SSH tunnel down";
+  return (
+    <span
+      className="font-sans"
+      title={
+        tunnel.open
+          ? `The Hub holds an SSH tunnel to this PC: 127.0.0.1:${tunnel.gateway_port} here reaches its gateway. It closes when the Hub stops.`
+          : "The Hub's SSH tunnel to this PC is not open. It is tried again every 15 s."
+      }
+    >
+      {" · "}
+      {words}
+    </span>
+  );
+}
+
 function InstrumentView({ instrument, onRemoved }: { instrument: Instrument; onRemoved: () => void }) {
   return (
     <>
@@ -380,6 +400,7 @@ function InstrumentView({ instrument, onRemoved }: { instrument: Instrument; onR
         <h1 className="m-0 text-[17px] font-semibold">{instrument.name}</h1>
         <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
           {instrument.ssh ?? instrument.url}
+          {instrument.ssh && <Tunnel tunnel={instrument.tunnel} />}
         </span>
         <Remove instrument={instrument} onDone={onRemoved} />
       </div>
