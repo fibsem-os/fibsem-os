@@ -5,7 +5,7 @@ shipped one makes the lab's copy) and removing are the operator's only. The
 agent never edits them.
 """
 
-from typing import Optional
+from typing import Any, Optional, Sequence
 
 from fastapi import APIRouter, Depends
 
@@ -20,11 +20,19 @@ def _refused(error: library.LibraryError):
     return refusal_error(status, error.error_type, error.message)
 
 
-def build_library_router() -> APIRouter:
+def build_library_router(
+    read: Optional[Sequence[Any]] = None, write: Optional[Sequence[Any]] = None
+) -> APIRouter:
+    """The library's routes. *read* and *write* are the dependencies that
+    let a caller read and change it: the App Server's own (Watch, and the
+    operator) unless a server with its own sign-in (the Hub) gives its own."""
     router = APIRouter(
-        prefix="/app/library", dependencies=[Depends(require_monitoring())]
+        prefix="/app/library",
+        dependencies=list(read)
+        if read is not None
+        else [Depends(require_monitoring())],
     )
-    operator = [Depends(require_operator())]
+    operator = list(write) if write is not None else [Depends(require_operator())]
 
     @router.get("/options", response_model=library.Options)
     def library_options():

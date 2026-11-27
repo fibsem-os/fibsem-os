@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleAlert, Pencil, Plus, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { createContext, useContext, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -29,6 +29,11 @@ interface ConnectorFile {
   problem: string | null;
   at_this_pc: boolean;
 }
+
+/** Where this PC's connectors and keys are served: the gateway's routes,
+ * or the Hub's for the hub PC (`{at, page}`: the route prefix, and the page
+ * a key is set on, in words). */
+export const SetupAt = createContext({ at: "/gateway", page: "the gateway's own page" });
 
 const WARN = "text-[var(--fibsem-semantic-warning-color)]";
 
@@ -133,6 +138,7 @@ function ConnectorForm({
   keyRow?: Secret;
   onDone: () => void;
 }) {
+  const { at, page } = useContext(SetupAt);
   const client = useQueryClient();
   const [f, setF] = useState<Form>(start);
   const [confirm, setConfirm] = useState<string | null>(null);
@@ -147,20 +153,20 @@ function ConnectorForm({
   const withToken = !keyHere && atThisPc && !!f.token.trim();
   const save = useMutation({
     mutationFn: async (confirmed?: string) => {
-      await api(`/gateway/connectors/${encodeURIComponent(f.name.trim())}`, {
+      await api(`${at}/connectors/${encodeURIComponent(f.name.trim())}`, {
         method: "PUT",
         body: JSON.stringify({ entry: toEntry(f), confirm: confirmed }),
       });
       if (withToken && tokenValue.trim()) {
-        await api(`/gateway/secrets/${encodeURIComponent(f.token.trim())}`, {
+        await api(`${at}/secrets/${encodeURIComponent(f.token.trim())}`, {
           method: "PUT",
           body: JSON.stringify({ value: tokenValue }),
         });
       }
     },
     onSuccess: () => {
-      client.invalidateQueries({ queryKey: ["gateway/connectors"] });
-      client.invalidateQueries({ queryKey: ["gateway/secrets"] });
+      client.invalidateQueries({ queryKey: [`${at.slice(1)}/connectors`] });
+      client.invalidateQueries({ queryKey: [`${at.slice(1)}/secrets`] });
       onDone();
     },
     onError: (error: Error & { status?: number }) => {
@@ -244,7 +250,7 @@ function ConnectorForm({
           />
           {keyHere && keyRow && (
             <span className="min-w-0 flex-1 pt-1">
-              <KeyRow s={keyRow} inline />
+              <KeyRow s={keyRow} inline path={`${at}/secrets`} page={page} />
             </span>
           )}
           {withToken && (
@@ -358,23 +364,24 @@ function ConnectorRow({
   keys: Secret[];
   atThisPc: boolean;
 }) {
+  const { at } = useContext(SetupAt);
   const client = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const test = useMutation({
     mutationFn: () =>
       api<{ tools: string[] }>(
-        `/gateway/connectors/${encodeURIComponent(c.name)}/test`,
+        `${at}/connectors/${encodeURIComponent(c.name)}/test`,
         { method: "POST" },
       ),
   });
   const remove = useMutation({
     mutationFn: () =>
-      api(`/gateway/connectors/${encodeURIComponent(c.name)}`, {
+      api(`${at}/connectors/${encodeURIComponent(c.name)}`, {
         method: "DELETE",
       }),
     onSuccess: () =>
-      client.invalidateQueries({ queryKey: ["gateway/connectors"] }),
+      client.invalidateQueries({ queryKey: [`${at.slice(1)}/connectors`] }),
   });
   const isCommand = !!c.entry.command;
   const local = !isCommand || atThisPc;
@@ -512,15 +519,16 @@ function Dot({ on }: { on: boolean }) {
  * playbook turns each on by naming it. The gateway keeps them: on a page
  * not opened through it, they can't be read here. */
 export function Connectors({ enabled }: { enabled: boolean }) {
+  const { at } = useContext(SetupAt);
   const found = useQuery({
-    queryKey: ["gateway/connectors"],
-    queryFn: () => api<ConnectorFile>("/gateway/connectors"),
+    queryKey: [`${at.slice(1)}/connectors`],
+    queryFn: () => api<ConnectorFile>(`${at}/connectors`),
     enabled,
     retry: false,
   });
   const keys = useQuery({
-    queryKey: ["gateway/secrets"],
-    queryFn: () => api<Secret[]>("/gateway/secrets"),
+    queryKey: [`${at.slice(1)}/secrets`],
+    queryFn: () => api<Secret[]>(`${at}/secrets`),
     enabled,
     retry: false,
   });
