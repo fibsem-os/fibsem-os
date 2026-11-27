@@ -26,7 +26,6 @@ from typing import Callable, List, Optional, Sequence
 
 from fibsem import diagnostics
 from fibsem.gateway.agent import GatewayAgent
-from fibsem.gateway.agent_host import AgentHostProcess
 from fibsem.gateway.defaults import read_defaults
 from fibsem.gateway.device_server import DeviceServerProcess
 from fibsem.gateway.device_servers import DeviceServers, configuration_file
@@ -42,6 +41,7 @@ from fibsem.gateway.gateway import (
 )
 from fibsem.gateway.host import HostMicroscope
 from fibsem.gateway.peers import PeerAsks
+from fibsem.server.agent.process import AgentHostProcess
 from fibsem.server.device_auth import DEVICE_PAIRED_FILE
 from fibsem.server.discovery import (
     gateway_port,

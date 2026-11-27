@@ -1057,3 +1057,81 @@ def test_library_changes_through_the_gateway_go_in_history():
         ("operator", "page", "saved playbook autolamella"),
         ("lab-hub", "page", "removed subagent checker"),
     ]
+
+
+def test_a_connector_that_fails_its_test_says_the_error_under_the_group(
+    keys, monkeypatch
+):
+    """The MCP client fails inside a task group: the page said only
+    "ExceptionGroup" (the Arctis, 26 Nov)."""
+    from fibsem.ai.agent import extra_mcp
+
+    class Group(Exception):
+        def __init__(self, *errors):
+            super().__init__("unhandled errors in a TaskGroup")
+            self.exceptions = errors
+
+    class HTTPStatusError(Exception):
+        pass
+
+    async def refused(server, secrets):
+        raise Group(Group(HTTPStatusError("Client error '401 Unauthorized'")))
+
+    from fibsem.gateway import settings
+
+    monkeypatch.setenv("NOTEBOOK_TOKEN", "not-a-real-token")
+    monkeypatch.setattr(extra_mcp, "_tools_of", refused)
+    monkeypatch.setattr(
+        settings, "_status", lambda url, token: "401" if token else "400"
+    )
+    client, _ = keys
+    r = client.post("/gateway/connectors/notebook/test", headers=_as(OPERATOR_TOKEN))
+    assert r.status_code == 502, r.text
+    said = r.json()["detail"]["message"]
+    assert "HTTPStatusError: Client error '401 Unauthorized'" in said
+    assert "answers 401 with the token and 400 without it" in said
+    assert "not-a-real-token" not in said
+
+
+def test_the_test_asks_the_address_itself_with_and_without_the_token():
+    """The notebook (26 Nov) answered 400 with an empty body; the MCP client
+    keeps no status, so the Test asks the address for it."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    from fibsem.gateway import settings
+
+    seen = []
+
+    class Notebook(BaseHTTPRequestHandler):
+        def do_POST(self):
+            seen.append(self.headers.get("Authorization"))
+            self.rfile.read(int(self.headers["Content-Length"]))
+            if self.headers.get("Authorization") == "Bearer good":
+                code, body = 200, b"{}"
+            elif self.headers.get("Authorization"):
+                code, body = 400, b"echo Bearer bad"
+            else:
+                code, body = 401, b""
+            self.send_response(code)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Notebook)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        url = f"http://127.0.0.1:{server.server_port}/mcp"
+        assert settings._answers(url, "bad") == (
+            "The address answers 400 (echo Bearer …) with the token and "
+            "401 (empty) without it."
+        )
+        assert settings._answers(url, "") == "The address answers 401 (empty)."
+        assert settings._status(url, "good") == "200"
+        assert seen == ["Bearer bad", None, None, "Bearer good"]
+    finally:
+        server.shutdown()
+        server.server_close()

@@ -1,6 +1,8 @@
-"""The Agent Server the gateway runs (`fibsem.server.agent.host`), so the agent
-works with no app: it talks, plans and keeps its review list while the app is
-off, and reaches the microscope once the app answers.
+"""The Agent Server as a child process (`fibsem.server.agent.host`), started by
+the gateway on the microscope PC and kept here so the hub can start one the same
+way. On the microscope PC it lets the agent work with no app: it talks, plans
+and keeps its review list while the app is off, and reaches the microscope once
+the app answers.
 
 The gateway starts ``fibsem-agent-server`` beside itself, with no window
 (``python -m fibsem.gateway.child``, stopped by its stop file), and starts it
