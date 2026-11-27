@@ -231,6 +231,33 @@ def test_a_rejoin_needs_the_sessions_token(made):
     assert agent.hub.rejoin("hub-pc", "s-1", first["token"])["token"]
 
 
+def test_a_restarted_hub_comes_back_as_the_same_paired_hub_with_no_token(made):
+    agent, tokens = made.make()
+    first = _take(agent)
+    _lapse(made, agent)
+    # Not another Hub, and not another session, without the token either.
+    for hub, session in (("other-hub", "s-1"), ("hub-pc", "s-2")):
+        with pytest.raises(GatewayRefused) as refused:
+            agent.hub.rejoin(hub, session, None)
+        assert refused.value.error_type == hub_agent.LOST_SLOT
+    again = agent.hub.rejoin("hub-pc", "s-1", None)
+    assert again["token"] != first["token"]
+    assert tokens.match(first["token"]) is None
+    assert tokens.match(again["token"]).name == "default via hub-pc"
+    assert "after its restart" in agent.slot.read()["why"]
+
+
+def test_a_restarted_hub_is_held_to_the_same_checks(made):
+    agent, tokens = made.make()
+    _take(agent)
+    _lapse(made, agent)
+    made.app.level = "assist"
+    with pytest.raises(GatewayRefused) as refused:
+        agent.hub.rejoin("hub-pc", "s-1", None)
+    assert refused.value.error_type == hub_agent.LEVEL_CHANGED
+    assert tokens.agent() is None
+
+
 def test_no_rejoin_after_the_pc_changed_the_level(made):
     agent, tokens = made.make()
     first = _take(agent)

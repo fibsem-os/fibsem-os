@@ -21,8 +21,10 @@ from typing import Optional, Sequence
 
 from fibsem import diagnostics
 from fibsem.hub.agents import HubAgents, stored_key
+from fibsem.hub.history import HubHistory
 from fibsem.hub.hub import Hub
 from fibsem.hub.server import build_hub_app, hub_auth
+from fibsem.hub.simulator import Simulator
 from fibsem.server.discovery import DISCOVERY_DIR
 from fibsem.server.operator_token import read_operator_token
 from fibsem.server.uvicorn_server import Server
@@ -92,11 +94,13 @@ def run(port: int) -> int:
     # tunnel or a slot is still there after its terminal is closed.
     diagnostics.install("agent-hub")
     hub = Hub()
-    agents = HubAgents(hub, api_key=stored_key)
+    history = HubHistory()
+    agents = HubAgents(hub, api_key=stored_key, history=history)
+    simulator = Simulator(hub)
     stopping = threading.Event()
     server = Server(
         uvicorn.Config(
-            build_hub_app(hub, hub_auth(), stopping.set, agents),
+            build_hub_app(hub, hub_auth(), stopping.set, agents, simulator, history),
             host="127.0.0.1",
             port=port,
             log_level="warning",
@@ -121,6 +125,7 @@ def run(port: int) -> int:
     finally:
         # Before the tunnels close: each slot is given back through one.
         agents.stop()
+        simulator.stop()
         hub.stop()
         server.should_exit = True
         RUNNING_FILE.unlink(missing_ok=True)
