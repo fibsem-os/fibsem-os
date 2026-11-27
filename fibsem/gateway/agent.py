@@ -809,7 +809,9 @@ class GatewayAgent:
     def _follow_allowed(self) -> None:
         """An agent that came in by Allow holds the slot while it stays paired
         and the app has heard from it in the last `AGENT_LISTENING_S`; asked
-        every `LEVEL_READ_S`."""
+        every `LEVEL_READ_S`. When it stops holding it, the level goes to
+        Watch, as for a hub's agent: one that comes back carries on at Watch
+        until the operator raises it."""
         held = self.slot.read()
         if held.get("came_in") != slot_mod.ALLOW:
             return
@@ -818,7 +820,8 @@ class GatewayAgent:
         self._allowed_read = time.monotonic()
         paired = self._tokens.agent()
         if paired is None or paired.name != held.get("holder"):
-            self.slot.change(state=slot_mod.ENDED, why="no longer paired")
+            if self.slot.change(state=slot_mod.ENDED, why="no longer paired"):
+                self._watch_after_allowed("no longer paired")
             return
         connected = self._connected()
         seconds = connected.get("last_heard_s") if connected else None
@@ -827,14 +830,25 @@ class GatewayAgent:
         elif time.monotonic() - self._allowed_at < AGENT_LISTENING_S:
             return  # just allowed: give it time to call
         elif held.get("state") != slot_mod.ENDED:
-            self.slot.change(
-                state=slot_mod.ENDED,
-                why=(
-                    f"not heard from for {AGENT_LISTENING_S / 60:.0f} min"
-                    if self._url() is not None
-                    else "the app is not answering"
-                ),
+            why = (
+                f"not heard from for {AGENT_LISTENING_S / 60:.0f} min"
+                if self._url() is not None
+                else "the app is not answering"
             )
+            if self.slot.change(state=slot_mod.ENDED, why=why):
+                self._watch_after_allowed(why)
+
+    def _watch_after_allowed(self, why: str) -> None:
+        """An allowed agent no longer holds the slot: the App Server goes to
+        Watch (a restarted one is at Watch already)."""
+        url = self._url()
+        if url is None:
+            return
+        try:
+            self._level(url, AgentLevel.WATCH.value)
+            logger.info("An allowed agent left the slot (%s): the level is Watch", why)
+        except GatewayRefused as refusal:
+            logger.warning("The level wasn't set back to Watch: %s", refusal)
 
     def _after_end(self) -> None:
         """Once an agent this gateway saw running has ended (End, replaced
