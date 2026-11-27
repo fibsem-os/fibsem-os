@@ -67,6 +67,68 @@ _GATEWAY_KEYS = ("mode", "version", "app", "experiment", "switching", "since")
 _AGENT_KEYS = ("session_id", "state", "playbook", "goal", "level", "started")
 
 
+# A reach tried before an instrument is in the list holds its tunnel under
+# this name, which no instrument can have.
+_TRIAL = "_test"
+# What a test of how an instrument is reached goes through, in order.
+TEST_STEPS = (
+    ("ssh", "SSH reaches its PC"),
+    ("key", "Its PC accepts this account's SSH key"),
+    ("gateway", "Its gateway answers"),
+    ("version", "Its gateway is a version this Hub was written for"),
+    ("paired", "This Hub is paired with it"),
+)
+# ssh's own words when a tunnel doesn't open: the step that failed, and what
+# to do about it. The first that matches says.
+_SSH_SAID = (
+    (
+        ("could not resolve hostname", "name or service not known"),
+        "ssh",
+        "This PC doesn't know that host name. Check the address, or use the "
+        "PC's IP address.",
+    ),
+    (
+        ("host key verification failed",),
+        "key",
+        "This PC hasn't met that PC before. Connect to it once by hand in a "
+        "terminal (ssh user@host) and accept its key.",
+    ),
+    (
+        ("permission denied", "too many authentication failures"),
+        "key",
+        "Its PC didn't accept this account's SSH key. Add this PC's public key "
+        "to that account's authorized_keys there.",
+    ),
+    (
+        ("connection refused",),
+        "ssh",
+        "Its PC answered but takes no SSH connections. Turn on its SSH server "
+        "(OpenSSH Server on Windows).",
+    ),
+    (
+        (
+            "timed out",
+            "didn't open within the wait",
+            "no route to host",
+            "network is unreachable",
+        ),
+        "ssh",
+        "Its PC didn't answer. Check that it is on and on the same network "
+        "(or VPN), and that the address is right.",
+    ),
+)
+
+
+def _ssh_failed(why: str) -> Tuple[str, str]:
+    """The step a tunnel that didn't open failed at, and what to do, with
+    ssh's own words after it."""
+    low = why.lower()
+    for words, step, advice in _SSH_SAID:
+        if any(word in low for word in words):
+            return step, f"{advice} ({why})"
+    return "ssh", why
+
+
 # What the hub keeps of each piece's health (``GET /gateway``'s ``health``).
 _HEALTH_PIECES = ("app", "microscope")
 _HEALTH_KEYS = ("status", "detail", "since")
@@ -132,6 +194,9 @@ class InstrumentState:
 @dataclass
 class HubState:
     instruments: List[InstrumentState] = field(default_factory=list)
+    simulator: Optional[Dict[str, Any]] = None
+    """This hub PC's simulated instrument (`fibsem.hub.simulator`): its name,
+    whether this Hub runs it now, and whether it is in the list."""
 
 
 def _fetch(
@@ -607,6 +672,138 @@ class Hub:
             # Its state changed: read it again now, not at the next round.
             self._safely(instrument)
         return answer
+
+    # -- testing how an instrument is reached -----------------------------------
+
+    def test(
+        self,
+        name: Optional[str] = None,
+        url: Optional[str] = None,
+        ssh: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Try reaching an instrument now, step by step (`TEST_STEPS`): the
+        one named *name* in the list, or, before it is added, one at *ssh* or
+        *url*. ``{ok, steps}``: each step's ``ok`` is True, False (with what
+        to do in ``detail``) or None when it wasn't reached, and the first
+        that fails ends the test. Nothing is changed on the instrument."""
+        if name:
+            instrument = self._instrument(name)
+        else:
+            url = (url or "").strip().rstrip("/") or None
+            ssh = (ssh or "").strip() or None
+            split = urlsplit(url or "")
+            if ssh is not None and not valid_destination(ssh):
+                raise GatewayRefused(
+                    422, "bad_ssh", "Give where ssh connects to it, such as user@host."
+                )
+            if ssh is None and (
+                split.scheme not in ("http", "https") or not split.hostname
+            ):
+                raise GatewayRefused(
+                    422,
+                    "no_address",
+                    "Give where ssh connects to it (user@host), or its gateway's address.",
+                )
+            instrument = Instrument(_TRIAL, None if ssh else url, ssh)
+        listed = instrument.name != _TRIAL
+        found: Dict[str, Tuple[Optional[bool], Optional[str]]] = {}
+        try:
+            self._test(instrument, listed, found)
+        finally:
+            if not listed:
+                self._tunnels.close(_TRIAL)
+        if listed:
+            self._safely(instrument)
+        steps = [
+            {
+                "key": key,
+                "name": words,
+                "ok": found.get(key, (None, None))[0],
+                "detail": found.get(key, (None, None))[1],
+            }
+            for key, words in TEST_STEPS
+            if (instrument.ssh or key not in ("ssh", "key"))
+            and (listed or key != "paired")
+        ]
+        return {"ok": all(step["ok"] is not False for step in steps), "steps": steps}
+
+    def _test(
+        self,
+        instrument: Instrument,
+        listed: bool,
+        found: Dict[str, Tuple[Optional[bool], Optional[str]]],
+    ) -> None:
+        if instrument.ssh:
+            tunnel = self._tunnels.get(instrument.name)
+            if tunnel is None or not tunnel.open:
+                # Tried now, not when a tunnel that failed is next due.
+                self._tunnels.close(instrument.name)
+            try:
+                if listed:
+                    url = self.reach(instrument)
+                else:
+                    url = self._tunnels.ensure(_TRIAL, instrument.ssh, GATEWAY_PORT).url
+            except TunnelDown as down:
+                step, detail = _ssh_failed(str(down))
+                if step == "key":
+                    found["ssh"] = (True, None)
+                found[step] = (False, detail)
+                return
+            found["ssh"] = found["key"] = (True, None)
+        else:
+            url = instrument.url or ""
+        there = "on its PC" if instrument.ssh else "at that address"
+        try:
+            status, health = self._fetch(url, "/health", None, TIMEOUT_S)
+        except OSError as error:
+            found["gateway"] = (
+                False,
+                f"No gateway answers {there}. Start fibsem-gateway on the "
+                f"microscope PC. ({error})",
+            )
+            return
+        program = health.get("program") if isinstance(health, dict) else None
+        if status != 200 or program != "fibsem-gateway":
+            found["gateway"] = (
+                False,
+                f"Something other than a gateway answers {there}"
+                + (f" ({program})." if program else f" (it answered {status})."),
+            )
+            return
+        found["gateway"] = (True, None)
+        theirs = health.get("api_version") or None
+        same = _same_version(theirs)
+        if same is False:
+            found["version"] = (
+                False,
+                f"Its gateway's routes are version {theirs} and this Hub was "
+                f"written for {GATEWAY_API_VERSION}. Update the older one.",
+            )
+            return
+        found["version"] = (True, None if same else "Its gateway gave no version.")
+        if not listed:
+            return
+        token = self.token(instrument.name)
+        if token is None:
+            found["paired"] = (
+                False,
+                "Not paired yet. Type the code its gateway's Pairing page shows.",
+            )
+            return
+        try:
+            status, _ = self._fetch(url, "/gateway", token, TIMEOUT_S)
+        except OSError as error:
+            found["paired"] = (False, f"Its gateway's state didn't answer: {error}")
+            return
+        if status in (401, 403):
+            found["paired"] = (
+                False,
+                "Its gateway no longer knows this Hub. Pair with it again.",
+            )
+        elif status != 200:
+            found["paired"] = (False, f"Its gateway answered {status}.")
+        else:
+            found["paired"] = (True, None)
 
     def check(self) -> None:
         """Read every instrument once, side by side."""

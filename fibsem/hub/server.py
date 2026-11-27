@@ -24,6 +24,8 @@ from fibsem.gateway.gateway import GatewayRefused
 from fibsem.gateway.server import GatewayAuth
 from fibsem.hub.agents import API_KEY, HubAgents
 from fibsem.hub.hub import TOKENS_DIR, Hub, HubState
+from fibsem.hub.simulator import NAME as SIMULATOR
+from fibsem.hub.simulator import Simulator
 from fibsem.server.agent.library import build_library_router
 from fibsem.server.auth import _bearer_token, _matches
 from fibsem.server.bodies import refuse_invalid_requests
@@ -48,11 +50,17 @@ def hub_auth(
     )
 
 
-# What the hub's page reads of an instrument's gateway, and the three things
-# it asks of one: start, resume and end its agent. Nothing else of a gateway
-# is reached through the hub.
+# What the hub's page reads of an instrument's gateway, and what it asks of
+# one: start and stop its app, and start, resume and end its agent. Nothing
+# else of a gateway is reached through the hub.
 _READS = re.compile(r"^gateway(/agent(/sessions|/playbooks(/[^/]+)?)?)?$")
-_ACTS = ("gateway/agent/start", "gateway/agent/resume", "gateway/agent/end")
+_ACTS = (
+    "gateway/start",
+    "gateway/stop",
+    "gateway/agent/start",
+    "gateway/agent/resume",
+    "gateway/agent/end",
+)
 
 
 def _refused(status: int, error_type: str, message: str) -> HTTPException:
@@ -64,6 +72,7 @@ def build_hub_app(
     auth: GatewayAuth,
     on_quit: Optional[Callable[[], None]] = None,
     agents: Optional[HubAgents] = None,
+    simulator: Optional[Simulator] = None,
 ) -> FastAPI:
     app = FastAPI(title="fibsem hub")
     refuse_invalid_requests(app)
@@ -85,27 +94,72 @@ def build_hub_app(
     def health() -> dict:
         return {"ok": True, "program": "hub", "version": __version__}
 
+    def _state(state: Optional[HubState] = None) -> HubState:
+        state = state or hub.state()
+        if simulator is not None:
+            state.simulator = simulator.state()
+        return state
+
     @app.get("/hub", response_model=HubState)
     def get_hub(who: str = Depends(operator)):
-        """Each instrument in the list as it was last read."""
-        return hub.state()
+        """Each instrument in the list as it was last read, and whether this
+        Hub runs its simulator."""
+        return _state()
+
+    @app.post("/hub/test")
+    def test_address(body: Dict[str, Any], who: str = Depends(operator)) -> dict:
+        """``{ssh | url}``: try reaching an instrument there before adding
+        it. ``{ok, steps}``, each step ok, failed with what to do, or not
+        reached."""
+        return _act(
+            lambda: hub.test(
+                url=str(body.get("url") or "") or None,
+                ssh=str(body.get("ssh") or "") or None,
+            )
+        )
 
     @app.post("/hub/instruments", response_model=HubState)
     def add_instrument(body: Dict[str, Any], who: str = Depends(operator)):
         """``{name, ssh | url}``: add an instrument, or change how the one
         with that name is reached: *ssh* is where a tunnel to it connects
         (``user@host``), *url* its gateway's address to use as it is."""
-        return _act(
-            lambda: hub.add(
-                str(body.get("name") or ""),
-                str(body.get("url") or "") or None,
-                str(body.get("ssh") or "") or None,
+        return _state(
+            _act(
+                lambda: hub.add(
+                    str(body.get("name") or ""),
+                    str(body.get("url") or "") or None,
+                    str(body.get("ssh") or "") or None,
+                )
             )
         )
 
     @app.delete("/hub/instruments/{name}", response_model=HubState)
     def remove_instrument(name: str, who: str = Depends(operator)):
-        return _act(lambda: hub.remove(name))
+        state = _act(lambda: hub.remove(name))
+        if simulator is not None and name == SIMULATOR:
+            simulator.stop()
+        return _state(state)
+
+    @app.post("/hub/instruments/{name}/test")
+    def test_instrument(name: str, who: str = Depends(operator)) -> dict:
+        """Try reaching the instrument now, step by step: ``{ok, steps}``."""
+        return _act(lambda: hub.test(name))
+
+    if simulator is not None:
+
+        @app.post("/hub/simulator/start", response_model=HubState)
+        def start_simulator(who: str = Depends(operator)):
+            """Start a simulated instrument on this hub PC: a gateway here
+            with the Demo microscope, listed as "Simulator"."""
+            _act(simulator.start)
+            return _state()
+
+        @app.post("/hub/simulator/stop", response_model=HubState)
+        def stop_simulator(who: str = Depends(operator)):
+            """Stop the simulator. It stays in the list until removed."""
+            simulator.stop()
+            hub.check()
+            return _state()
 
     @app.post("/hub/instruments/{name}/pair", response_model=HubState)
     def pair_instrument(name: str, body: Dict[str, Any], who: str = Depends(operator)):
@@ -114,7 +168,7 @@ def build_hub_app(
         code = str(body.get("code") or "")
         if not code:
             raise _refused(422, "no_code", "Give the code its gateway shows.")
-        return _act(lambda: hub.pair(name, code))
+        return _state(_act(lambda: hub.pair(name, code)))
 
     def at_this_pc(request: HTTPConnection) -> bool:
         """Whether the caller holds this install's own token: the hub's page
@@ -277,9 +331,10 @@ def build_hub_app(
         body: Optional[Dict[str, Any]] = None,
         who: str = Depends(operator),
     ):
-        """Start, resume or end an instrument's agent, as its gateway's
-        ``/gateway/agent/start``, ``resume`` and ``end``. The agent runs on
-        the instrument's PC, and its gateway decides whether this hub may."""
+        """Start or stop an instrument's app (its gateway's ``/gateway/start``
+        and ``stop``), and start, resume or end its agent (``/gateway/agent/
+        start``, ``resume`` and ``end``). Its gateway decides whether this
+        hub may, and never lets one force a stop or close a window."""
         if route not in _ACTS:
             raise _refused(404, "not_found", "The hub asks no such thing.")
         return _act(lambda: hub.ask(name, "POST", "/" + route, body or {}))
