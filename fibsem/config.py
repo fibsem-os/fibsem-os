@@ -336,6 +336,21 @@ class GatewayPreferences:
     # How long an agent a paired Hub runs keeps the slot and its level after
     # the Hub's last renewal (fibsem.gateway.hub_agent); then Watch.
     hub_agent_grace_s: float = 120.0
+    # What a paired Hub may do to this PC's agent from its own Agent page
+    # (fibsem.gateway.hub_remote): "off" for reads only; else it may message,
+    # answer and stop the agent, and raise its level as far as this one
+    # ("watch", "assist" or "drive"). Lowering is never limited.
+    hub_remote: str = "drive"
+
+
+@dataclass
+class HubPreferences:
+    """The Hub (``agent-hub``), on the PC that runs it."""
+
+    # How many agents with no instrument this hub PC runs at once
+    # (fibsem.hub.free_agents). An instrument's agent is not counted: its
+    # instrument has one slot.
+    free_agents: int = 5
 
 
 @dataclass
@@ -377,6 +392,7 @@ class InstallPreferences:
     update_check_enabled: bool = False
     app_server: AppServerPreferences = field(default_factory=AppServerPreferences)
     gateway: GatewayPreferences = field(default_factory=GatewayPreferences)
+    hub: HubPreferences = field(default_factory=HubPreferences)
     notifications: NotificationPreferences = field(
         default_factory=NotificationPreferences
     )
@@ -467,8 +483,12 @@ class UserPreferences:
             sections[name].update(d.get(name) or {})
         app_server.update(sections["install"].pop("app_server", None) or {})
         notifications = sections["install"].pop("notifications", None) or {}
+        gateway = sections["install"].pop("gateway", None) or {}
+        hub = sections["install"].pop("hub", None) or {}
         install = _sub_from_dict(InstallPreferences, sections["install"])
         install.app_server = _sub_from_dict(AppServerPreferences, app_server)
+        install.gateway = _sub_from_dict(GatewayPreferences, gateway)
+        install.hub = _sub_from_dict(HubPreferences, hub)
         install.notifications = _sub_from_dict(NotificationPreferences, notifications)
         return cls(
             shared=_sub_from_dict(SharedPreferences, sections["shared"]),

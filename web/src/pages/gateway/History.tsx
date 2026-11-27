@@ -3,7 +3,7 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, Facts } from "@/components/ui/card";
-import { api } from "@/lib/api";
+import { useApi } from "@/lib/api";
 import * as fmt from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
@@ -70,7 +70,7 @@ function said(s: Session): string {
 }
 
 /** Whether a session has stopped for good: Resume may carry it on. */
-const stopped = (s: Session) =>
+export const stopped = (s: Session) =>
   s.status ? ["ended", "left", "crashed"].includes(s.status) : s.ended != null;
 
 const ROW =
@@ -120,16 +120,25 @@ function AppRow({ s, name }: { s: Switch; name: string }) {
   );
 }
 
-function AgentRow({
+export function AgentRow({
   session,
   running,
   canResume,
   ready,
+  where,
+  resumePath,
+  noLevel,
 }: {
   session: Session;
   running: boolean;
   canResume: boolean;
   ready: string | null;
+  /** The row's last column, in place of how it was started: on the Hub's
+   * page, which instrument and which PC. */
+  where?: ReactNode;
+  resumePath?: string;
+  /** A session with no instrument: resumed with no level. */
+  noLevel?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [resuming, setResuming] = useState(false);
@@ -211,7 +220,7 @@ function AgentRow({
           </span>
         </button>
         <span className="text-muted-foreground">
-          {session.gateway ? "gateway" : "by hand"}
+          {where ?? (session.gateway ? "gateway" : "by hand")}
         </span>
       </div>
       {open && (
@@ -227,6 +236,8 @@ function AgentRow({
               session={session}
               ready={ready}
               onDone={() => setResuming(false)}
+              path={resumePath}
+              noLevel={noLevel}
             />
           )}
         </div>
@@ -248,6 +259,7 @@ export function History({
   /** Why a session can't be resumed yet; null when it can. */
   ready: string | null;
 }) {
+  const api = useApi();
   const [shown, setShown] = useState<Kind | "all">("all");
   // Pages shown: each "Show older" reads one more page of each list.
   const [pages, setPages] = useState(1);

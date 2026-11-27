@@ -31,6 +31,7 @@ import yaml
 
 from fibsem import config, keystore
 from fibsem.ai.agent import extra_mcp
+from fibsem.gateway import hub_remote
 
 __all__ = [
     "MAX_KEY_LENGTH",
@@ -381,7 +382,13 @@ def _said(error: BaseException) -> str:
 
 # -- this PC (install preferences) --------------------------------------------
 
-THIS_PC_FIELDS = ("microscope", "allow_local_agents", "port", "update_check")
+THIS_PC_FIELDS = (
+    "microscope",
+    "allow_local_agents",
+    "port",
+    "update_check",
+    "hub_remote",
+)
 
 
 def this_pc() -> dict:
@@ -395,6 +402,8 @@ def this_pc() -> dict:
         "allow_local_agents": bool(install.app_server.allow_local_agents),
         "port": int(install.gateway.port),
         "update_check": bool(install.update_check_enabled),
+        # What a paired Hub may do to this PC's agent (fibsem.gateway.hub_remote).
+        "hub_remote": hub_remote.remote_limit(),
     }
 
 
@@ -419,6 +428,17 @@ def save_this_pc(body: Any, local: bool) -> dict:
             "Whether agents on this PC connect without a click is set only "
             "at this PC, on the gateway's own page.",
         )
+    if "hub_remote" in body:
+        if body["hub_remote"] not in hub_remote.LIMITS:
+            names = ", ".join(hub_remote.LIMITS)
+            raise KeyRefused(422, "bad_value", f"hub_remote is one of {names}.")
+        if not local:
+            raise KeyRefused(
+                403,
+                "at_this_pc_only",
+                "What a Hub may do to this PC's agent is set only at this PC, "
+                "on the gateway's own page.",
+            )
     port = body.get("port")
     if "port" in body and (
         isinstance(port, bool) or not isinstance(port, int) or not 1024 <= port <= 65535
@@ -435,6 +455,8 @@ def save_this_pc(body: Any, local: bool) -> dict:
             install.gateway.port = port
         if "update_check" in body:
             install.update_check_enabled = body["update_check"]
+        if "hub_remote" in body:
+            install.gateway.hub_remote = body["hub_remote"]
 
     config.update_user_preferences(change)
     return this_pc()

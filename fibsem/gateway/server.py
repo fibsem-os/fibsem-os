@@ -59,6 +59,7 @@ from fibsem.gateway.gateway import (
 )
 from fibsem.gateway.health import ServersHealth
 from fibsem.gateway.host import HostMicroscope
+from fibsem.gateway.hub_remote import act_name
 from fibsem.gateway.passthrough import PassThrough
 from fibsem.gateway.peers import GATEWAY, START_DEVICE_SERVER, PeerAsks
 from fibsem.server.auth import _bearer_token, _matches
@@ -485,13 +486,15 @@ def build_gateway_app(
             ``{session_id, playbook, goal, level, budget_usd, replace}``: the
             instrument's checks, the agent's token (in this answer only), the
             level. ``{session_id, rejoin: true, token}``: the same session
-            back after its grace ran out. Answers ``{token, lease_s, grace_s,
+            back after its grace ran out; with no token, the same paired Hub
+            after it was restarted. Answers ``{token, lease_s, grace_s,
             state}``."""
             hub = hub_caller(found)
             if body.get("rejoin"):
+                token = body.get("token")
                 return _hub(
                     lambda: agent.hub.rejoin(
-                        hub, body.get("session_id"), str(body.get("token") or "")
+                        hub, body.get("session_id"), str(token) if token else None
                     )
                 )
             budget = _budget(body)
@@ -954,7 +957,12 @@ def build_gateway_app(
     app.include_router(build_pairing_router(auth))
     app.include_router(web_app_router())
     if passthrough is not None:
-        passthrough.on_answered = lambda *call: _record_library(gateway, auth, *call)
+
+        def answered(method: str, path: str, status: int, token: str) -> None:
+            _record_library(gateway, auth, method, path, status, token)
+            _record_hub_act(gateway, auth, method, path, status, token)
+
+        passthrough.on_answered = answered
         # Last: the gateway's own routes are found first.
         app.include_router(passthrough.router())
 
@@ -963,6 +971,17 @@ def build_gateway_app(
 
 _LIBRARY_KINDS = {"playbooks": "playbook", "skills": "skill", "agents": "subagent"}
 _LIBRARY_VERBS = {"PUT": "saved", "POST": "made", "DELETE": "removed"}
+
+
+def _record_hub_act(
+    gateway, auth: GatewayAuth, method: str, path: str, status: int, token: str
+) -> None:
+    """What a paired Hub did to this PC's agent from its own Agent page (a
+    message, an answer, Stop agent, the level) goes in History, with its name."""
+    hub = auth.hub(token)
+    name = act_name(method, path) if hub is not None else None
+    if name is not None and 200 <= status < 300:
+        gateway.record_access(hub.name, "hub", name)
 
 
 def _record_library(

@@ -4249,6 +4249,9 @@ def _playbook_rows(checkout: Path) -> List[dict]:
                 "description": found.description,
                 "level": found.session.level,
                 "mode": found.session.mode or "none",
+                # "none" for a playbook with no instrument: it runs through
+                # an Agent Server, never against an instrument's app.
+                "instrument": found.instrument,
             }
         )
     return rows

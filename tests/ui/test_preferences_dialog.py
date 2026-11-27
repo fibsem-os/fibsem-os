@@ -126,6 +126,8 @@ def _every_field_changed() -> UserPreferences:
     prefs.install.app_server.allow_local_agents = True
     prefs.install.gateway.port = 8020
     prefs.install.gateway.hub_agent_grace_s = 300.0
+    prefs.install.gateway.hub_remote = "watch"
+    prefs.install.hub.free_agents = 3
     n = prefs.install.notifications
     n.enabled = True
     n.channel = "#microscope-alerts"
