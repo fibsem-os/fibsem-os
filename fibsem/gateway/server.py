@@ -59,6 +59,7 @@ from fibsem.gateway.gateway import (
 )
 from fibsem.gateway.health import ServersHealth
 from fibsem.gateway.host import HostMicroscope
+from fibsem.gateway.mcp import GatewayMcp
 from fibsem.gateway.passthrough import PassThrough
 from fibsem.gateway.peers import GATEWAY, START_DEVICE_SERVER, PeerAsks
 from fibsem.server.auth import _bearer_token, _matches
@@ -202,12 +203,15 @@ def build_gateway_app(
     device_server: Optional[DeviceServerProcess] = None,
     remote_servers: Optional[DeviceServers] = None,
     peers: Optional[PeerAsks] = None,
+    mcp: Optional[GatewayMcp] = None,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         yield
         if passthrough is not None:
             await passthrough.close()
+        if mcp is not None:
+            await mcp.aclose()
 
     app = FastAPI(
         title="fibsem gateway", version=GATEWAY_API_VERSION, lifespan=lifespan
@@ -953,6 +957,9 @@ def build_gateway_app(
 
     app.include_router(build_pairing_router(auth))
     app.include_router(web_app_router())
+    if mcp is not None:
+        # The fibsem MCP, for an agent with nothing installed (`fibsem.gateway.mcp`).
+        app.include_router(mcp.router())
     if passthrough is not None:
         passthrough.on_answered = lambda *call: _record_library(gateway, auth, *call)
         # Last: the gateway's own routes are found first.

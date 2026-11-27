@@ -55,6 +55,9 @@ class AgentHostProcess:
         popen: Callable[..., subprocess.Popen] = subprocess.Popen,
         clock: Callable[[], float] = time.monotonic,
         args: tuple = (),
+        target: str = TARGET,
+        name: str = "agent-host",
+        what: str = "Agent Server",
     ) -> None:
         self._python = python
         self._home = Path(home) if home is not None else DISCOVERY_DIR
@@ -62,6 +65,12 @@ class AgentHostProcess:
         self._popen = popen
         self._clock = clock
         self._args = list(args)
+        # The child's serve function, the name of its log and stop files, and
+        # what the log calls it: the gateway's MCP is started the same way
+        # (`fibsem.gateway.mcp`).
+        self._target = target
+        self._name = name
+        self._what = what
         self._proc: Optional[subprocess.Popen] = None
         self._stop_file: Optional[Path] = None
         self._log: Optional[Path] = None
@@ -90,7 +99,8 @@ class AgentHostProcess:
         if proc is not None and not self._said_ended:
             self._said_ended = True
             logger.warning(
-                "The gateway's Agent Server ended (%s); its log is %s",
+                "The gateway's %s ended (%s); its log is %s",
+                self._what,
                 proc.returncode,
                 self._log,
             )
@@ -102,15 +112,15 @@ class AgentHostProcess:
         stamp = time.strftime("%Y%m%d-%H%M%S")
         logs = self._home / "logs" / "gateway"
         logs.mkdir(parents=True, exist_ok=True)
-        self._log = logs / f"agent-host-{stamp}.log"
-        self._stop_file = self._home / f"agent-host-stop-{stamp}"
+        self._log = logs / f"{self._name}-{stamp}.log"
+        self._stop_file = self._home / f"{self._name}-stop-{stamp}"
         self._stop_file.unlink(missing_ok=True)
         command = [
             self._python,
             "-m",
             "fibsem.gateway.child",
             str(self._stop_file),
-            TARGET,
+            self._target,
             *self._args,
         ]
         self._started = self._clock()
@@ -130,10 +140,10 @@ class AgentHostProcess:
                 )
         except OSError as error:
             self._proc = None
-            logger.warning("The gateway couldn't start the Agent Server: %s", error)
+            logger.warning("The gateway couldn't start the %s: %s", self._what, error)
             return
         child_secrets.keep(self._proc.pid, secret)
-        logger.info("Gateway started the Agent Server (pid %d)", self._proc.pid)
+        logger.info("Gateway started the %s (pid %d)", self._what, self._proc.pid)
 
     def close(self, wait_s: float = STOP_WAIT_S) -> None:
         """Stop the host the gateway started, by its stop file, else killed

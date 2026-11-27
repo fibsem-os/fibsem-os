@@ -58,6 +58,11 @@ reads it with no token passed; *Unpair* on the PC cuts that agent off. With a
 url other than the tunnel's, register the MCP server with `--url` too.
 (`--token`, or `FIBSEM_SERVER_URL` / `FIBSEM_SERVER_TOKEN`, still work for scripts.)
 
+With nothing installed on that computer, use the MCP the gateway serves instead,
+`http://localhost:8010/mcp/fibsem` over streamable HTTP with your agent token
+(`served.py`; [docs/ssh-tunnel.md](../../../../docs/ssh-tunnel.md), "Claude Code
+with nothing installed").
+
 For Claude Desktop, merge this into the `mcpServers` already in
 `claude_desktop_config.json` (don't replace the file):
 

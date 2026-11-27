@@ -40,6 +40,7 @@ from fibsem.gateway.gateway import (
     write_gateway_file,
 )
 from fibsem.gateway.host import HostMicroscope
+from fibsem.gateway.mcp import GatewayMcp
 from fibsem.gateway.peers import PeerAsks
 from fibsem.server.agent.process import AgentHostProcess
 from fibsem.server.device_auth import DEVICE_PAIRED_FILE
@@ -203,6 +204,8 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
         host=agent_host.found,
     )
     microscope = HostMicroscope(agent_host=agent_host.found)
+    # The fibsem MCP at /mcp/fibsem, started on its first call.
+    mcp = GatewayMcp(_python(), f"http://127.0.0.1:{port}", is_connect=auth.is_connect)
     # Set by the quit route; *again* starts a new one.
     stopping = threading.Event()
     again = threading.Event()
@@ -236,6 +239,7 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
                 device_server=device_server,
                 remote_servers=remote_servers,
                 peers=peer_asks,
+                mcp=mcp,
             ),
             host="127.0.0.1",
             port=port,
@@ -266,6 +270,7 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
     gateway.watchers.append(agent_host.ensure)
     gateway.watchers.append(device_server.ensure)
     gateway.watchers.append(remote_servers.ensure)
+    gateway.watchers.append(mcp.ensure)
     # Unpairing a SEM PC's gateway in Pairing ends its Device Server pairing.
     gateway.watchers.append(peer_asks.forget_orphans)
     gateway.start()
@@ -298,6 +303,7 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
             quit_gateway(gateway)
         gateway.close()
         agent_host.close()
+        mcp.close()
         device_server.close()
         remote_servers.close()
         server.should_exit = True
