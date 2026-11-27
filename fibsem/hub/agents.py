@@ -397,6 +397,11 @@ class HubAgents:
             with self._lock:
                 held.state, held.why, held.tried = "away", "rejoin", float("-inf")
             return
+        log.info(
+            "%s's gateway took the slot from the hub's agent (%s); ending the agent.",
+            name,
+            refusal,
+        )
         self._finish(name, str(refusal), release=False)
 
     # -- the background keeping ----------------------------------------------
