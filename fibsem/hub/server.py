@@ -95,6 +95,7 @@ def build_hub_app(
     agents: Optional[HubAgents] = None,
     simulator: Optional[Simulator] = None,
     history: Optional[HubHistory] = None,
+    on_show: Optional[Callable[[], bool]] = None,
 ) -> FastAPI:
     app = FastAPI(title="fibsem hub")
     refuse_invalid_requests(app)
@@ -485,6 +486,12 @@ def build_hub_app(
             """Stop the hub: its tunnels close, and no instrument notices."""
             on_quit()
             return {"stopping": True}
+
+    @app.post("/hub/show")
+    def show_hub(who: str = Depends(operator)) -> dict:
+        """Bring the Hub's window to the front, as the desktop shortcut does;
+        ``shown`` is False when the Hub runs without one."""
+        return {"shown": bool(on_show and on_show())}
 
     app.include_router(build_pairing_router(auth))
     app.include_router(web_app_router())

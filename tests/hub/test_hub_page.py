@@ -10,7 +10,7 @@ from fibsem.gateway.agent import AgentState
 from fibsem.gateway.gateway import OFF, GatewayRefused, GatewayState, History
 from fibsem.gateway.server import GatewayAuth, build_gateway_app
 from fibsem.hub.hub import Hub
-from fibsem.hub.main import page_link
+from fibsem.hub.main import open_hub, page_link
 from fibsem.hub.server import build_hub_app, hub_auth
 from fibsem.server.pairing import HUB, SWITCH_MODES
 
@@ -301,3 +301,54 @@ def test_the_hub_says_whether_it_was_written_for_an_instruments_gateway(
     hub.check()
     (row,) = hub.state().instruments
     assert row.same_version is False and row.reachable is True
+
+
+def test_show_brings_the_window_forward_when_there_is_one(tmp_path, hub):
+    token_file = tmp_path / "operator-token.json"
+    token_file.write_text(json.dumps({"token": OPERATOR_TOKEN}))
+    auth = hub_auth(token_file, tmp_path / "hub-paired.json")
+    shown = []
+    for has_window in (True, False):
+        app = build_hub_app(hub, auth, on_show=lambda: shown.append(1) or has_window)
+        page = TestClient(app)
+        assert page.post("/hub/show").status_code == 401
+        answer = page.post("/hub/show", headers=OPERATOR)
+        assert answer.json() == {"shown": has_window}
+    assert shown == [1, 1]
+
+
+def test_the_shortcut_starts_the_hub_then_brings_its_window_forward():
+    running, started, opened, asked = [], [], [], []
+
+    def start():
+        started.append(1)
+        running.append({"url": "http://127.0.0.1:8020", "pid": 1})
+
+    def ask(route, method, body):
+        asked.append(route)
+        return {"shown": True}
+
+    code = open_hub(
+        open_page=opened.append,
+        ask=ask,
+        start=start,
+        found=lambda: running[0] if running else None,
+        clock=lambda: 0.0,
+        sleep=lambda s: None,
+    )
+    assert (code, started, asked, opened) == (0, [1], ["/hub/show"], [])
+
+
+def test_the_shortcut_opens_the_page_of_a_hub_with_no_window(monkeypatch):
+    monkeypatch.setattr("fibsem.hub.main.read_operator_token", lambda: "operator")
+    opened, started = [], []
+    code = open_hub(
+        open_page=opened.append,
+        ask=lambda route, method, body: {"shown": False},
+        start=lambda: started.append(1),
+        found=lambda: {"url": "http://127.0.0.1:8020", "pid": 1},
+        clock=lambda: 0.0,
+        sleep=lambda s: None,
+    )
+    assert code == 0 and not started
+    assert opened == ["http://127.0.0.1:8020/ui/hub#token=operator"]

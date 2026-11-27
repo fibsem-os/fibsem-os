@@ -64,7 +64,15 @@ from fibsem.ui.stylesheets import (
 )
 from fibsem.ui.widgets.custom_widgets import ElidedLabel
 
-__all__ = ["GatewayWindow", "app_line", "mode_colour", "run_window"]
+__all__ = [
+    "GatewayWindow",
+    "Section",
+    "app_line",
+    "gateway_pixmap",
+    "has_display",
+    "mode_colour",
+    "run_window",
+]
 
 VIA = "window"
 READ_EVERY_S = 3.0
@@ -123,10 +131,10 @@ def agent_line(running: Optional[dict], connected: Optional[dict] = None) -> tup
 
 def gateway_icon(colour: str, size: int = 128) -> QIcon:
     """The gateway's icon with its badge in the app's colour."""
-    return QIcon(_gateway_pixmap(colour, size))
+    return QIcon(gateway_pixmap(colour, size))
 
 
-def _gateway_pixmap(colour: str, size: int) -> QPixmap:
+def gateway_pixmap(colour: str, size: int) -> QPixmap:
     svg = (ICONS_DIR / "gateway.svg").read_text().replace("#007ACC", colour)
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.GlobalColor.transparent)
@@ -154,7 +162,7 @@ def _dot(colour: str) -> str:
     return f"<span style='color: {colour};'>●</span>"
 
 
-class _Section(QFrame):
+class Section(QFrame):
     """A titled panel: a caption, a dot and a line, a muted second line, and
     a button on the right."""
 
@@ -278,15 +286,15 @@ class GatewayWindow(QWidget):
         header.addLayout(names, 1)
         header.addWidget(self.open_button, 0, Qt.AlignmentFlag.AlignTop)
 
-        self.app = _Section("App")
+        self.app = Section("App")
         self.app.button.clicked.connect(self._app_button)
-        self.microscope = _Section("Microscope")
-        self.agent = _Section("Agent")
+        self.microscope = Section("Microscope")
+        self.agent = Section("Agent")
         self.agent.button.setText("End")
         self.agent.button.clicked.connect(self._end_agent)
 
         # Pair shows a code here; the button then hides it again.
-        self.code_box = _Section("Pair a computer")
+        self.code_box = Section("Pair a computer")
         self.code_box.line.setTextFormat(Qt.TextFormat.PlainText)
         self.pair_button = self.code_box.button
         self.pair_button.show()
@@ -348,7 +356,7 @@ class GatewayWindow(QWidget):
         if colour != self._colour:
             self._colour = colour
             self.setWindowIcon(gateway_icon(colour))
-            self.icon_label.setPixmap(_gateway_pixmap(colour, 40))
+            self.icon_label.setPixmap(gateway_pixmap(colour, 40))
             QApplication.instance().setWindowIcon(gateway_icon(colour))
         if self._code_until and self._clock() >= self._code_until:
             self._hide_code()

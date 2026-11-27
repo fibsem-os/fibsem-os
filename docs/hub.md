@@ -24,8 +24,17 @@ agent-hub            # run the Hub, on 127.0.0.1:8020
 agent-hub open       # its page, in this PC's browser
 agent-hub status     # the instruments as last read
 agent-hub pair       # a code that signs a browser on another computer in
+agent-hub shortcut   # an "Agent Hub" shortcut on the Desktop
 agent-hub stop
 ```
+
+The Hub runs in a small window, as a gateway does: how many instruments it has and which
+need someone, the agents running on this PC, **Pair** for a code that signs a browser on
+another computer in, and **Open page**. Closing the window asks first, then stops the Hub
+and says what happens to its agents. `agent-hub run --no-window` runs it with no window,
+until Ctrl-C or `agent-hub stop`, and so does a PC with no display. `--minimised` starts with
+the window minimised. The desktop shortcut starts the Hub when none runs and brings its
+window to the front.
 
 The Hub listens on its own PC only. Its sign in is its own: the install's operator token, and
 browsers paired with a code from `agent-hub pair`. They are kept apart from a gateway's
