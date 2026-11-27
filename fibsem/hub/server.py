@@ -18,7 +18,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from starlette.requests import HTTPConnection
 
-from fibsem import __version__
+from fibsem import __version__, keystore
 from fibsem.gateway import settings as gateway_settings
 from fibsem.gateway.gateway import GatewayRefused
 from fibsem.gateway.server import GatewayAuth
@@ -137,8 +137,12 @@ def build_hub_app(
     )
 
     def _key(name: str, request: HTTPConnection) -> None:
-        if name != API_KEY:
-            raise _refused(404, "no_key", f"The hub keeps only {API_KEY}.")
+        if name in keystore.KEYS and name != API_KEY:
+            raise _refused(
+                404,
+                "no_key",
+                f"The hub keeps only {API_KEY} and its connectors' tokens.",
+            )
         if not at_this_pc(request):
             raise _refused(
                 403,
@@ -148,14 +152,50 @@ def build_hub_app(
 
     @app.get("/hub/secrets")
     def get_secrets(request: Request, who: str = Depends(operator)) -> list:
-        """The key the agents on this hub PC use: whether it is set and where
-        from, and whether this caller may change it. Never the key."""
+        """The keys the agents on this hub PC use (the API key, and each
+        connector's token): whether each is set and where from, and whether
+        this caller may change it. Never a key."""
         here = at_this_pc(request)
         return [
             {**row, "can_set": here}
             for row in gateway_settings.key_rows()
-            if row["name"] == API_KEY
+            if row["name"] == API_KEY or row["name"] not in keystore.KEYS
         ]
+
+    def _settings(act):
+        try:
+            return act()
+        except gateway_settings.KeyRefused as refused:
+            raise _refused(refused.status, refused.error_type, str(refused)) from None
+
+    @app.get("/hub/connectors")
+    def get_connectors(request: Request, who: str = Depends(operator)) -> dict:
+        """This hub PC's connectors (``mcp.yaml``), the ones an agent started
+        here may use, as a gateway shows its own."""
+        return {**gateway_settings.connectors(), "at_this_pc": at_this_pc(request)}
+
+    @app.put("/hub/connectors/{name}", dependencies=[Depends(this_pc_only)])
+    def put_connector(name: str, body: Dict[str, Any]):
+        body = body or {}
+        return _settings(
+            lambda: gateway_settings.save_connector(
+                name, body.get("entry"), True, body.get("confirm")
+            )
+        )
+
+    @app.delete("/hub/connectors/{name}", dependencies=[Depends(this_pc_only)])
+    def delete_connector(name: str) -> dict:
+        _settings(lambda: gateway_settings.remove_connector(name, True))
+        return {"removed": name}
+
+    @app.post("/hub/connectors/{name}/test")
+    def test_connector(
+        name: str, request: Request, who: str = Depends(operator)
+    ) -> dict:
+        """``{tools}``: the tools it offers, asked as the agent asks."""
+        return _settings(
+            lambda: gateway_settings.test_connector(name, at_this_pc(request))
+        )
 
     @app.put("/hub/secrets/{name}")
     def put_secret(

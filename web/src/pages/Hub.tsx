@@ -14,6 +14,7 @@ import { api, ApiError, ReachedProvider } from "@/lib/api";
 import * as fmt from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { AgentCard, Field, FIELD, title } from "@/pages/gateway/AgentCard";
+import { SetupAt } from "@/pages/agent/Connectors";
 import { Customise } from "@/pages/gateway/Customise";
 import { KeyRow, type Secret } from "@/pages/gateway/Settings";
 import { Connections } from "@/shell/Settings";
@@ -727,7 +728,9 @@ export function HubPage() {
                 What an agent started on this hub PC runs with. An agent started on a microscope
                 PC uses that PC's own, set on its gateway page. Changes are made at this PC only.
               </p>
-              <Customise only={["playbooks", "skills", "agents"]} />
+              <SetupAt.Provider value={{ at: "/hub", page: "the Hub's own page" }}>
+                <Customise only={["playbooks", "skills", "agents", "connectors"]} />
+              </SetupAt.Provider>
             </>
           )}
           {tab === "settings" && (
