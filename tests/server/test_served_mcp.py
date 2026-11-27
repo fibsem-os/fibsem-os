@@ -330,3 +330,112 @@ def test_the_watch_streams_lines_until_the_caller_leaves(served_mcp, app_server)
     )
     reader.join(15)
     assert got[-1] == "REQUEST gh78 approved"
+
+
+def test_each_session_keeps_its_own_answers_and_replays_only_them():
+    first, second = served.SessionEvents(kept=3), served.SessionEvents(kept=3)
+    sent = []
+
+    async def run():
+        primed = await first.store_event("1", None)
+        await first.store_event("1", {"answer": "first"})
+        # Another session's stream of the same request id: never replayed here.
+        await second.store_event("1", {"answer": "other"})
+        stream = await first.replay_events_after(primed, _collect(sent))
+        missing = await first.replay_events_after("nope", _collect(sent))
+        return stream, missing
+
+    stream, missing = asyncio.run(run())
+
+    assert stream == "1"
+    assert missing is None
+    assert [event.message for event in sent] == [{"answer": "first"}]
+
+
+def _collect(into):
+    async def send(event):
+        into.append(event)
+
+    return send
+
+
+def _sse(text):
+    """The (id, data) of each event in an SSE body."""
+    events, current = [], {}
+    for line in text.splitlines():
+        if not line:
+            if current:
+                events.append((current.get("id"), current.get("data")))
+            current = {}
+        elif ":" in line:
+            field, _, value = line.partition(":")
+            current[field] = value.strip()
+    if current:
+        events.append((current.get("id"), current.get("data")))
+    return events
+
+
+def test_an_answer_whose_stream_dropped_is_picked_up_again(served_mcp):
+    headers = {
+        **HEADERS,
+        "Authorization": f"Bearer {AGENT}",
+        "MCP-Protocol-Version": "2025-11-25",
+    }
+    opened = httpx.post(
+        served_mcp.url,
+        headers=headers,
+        json={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-11-25",
+                "capabilities": {},
+                "clientInfo": {"name": "test", "version": "1"},
+            },
+        },
+    )
+    session = {**headers, "Mcp-Session-Id": opened.headers["mcp-session-id"]}
+    httpx.post(
+        served_mcp.url,
+        headers=session,
+        json={"jsonrpc": "2.0", "method": "notifications/initialized"},
+    )
+    call = {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {"name": "app_get_status", "arguments": {}},
+    }
+    events = _sse(httpx.post(served_mcp.url, headers=session, json=call).text)
+    primed = events[0][0]
+    assert primed is not None, "no event ids: a dropped answer couldn't be resumed"
+
+    # As if the stream had dropped after the first event: ask from there. The
+    # replayed stream stays open for what comes next, so read until the answer.
+    answer = None
+    with httpx.stream(
+        "GET",
+        served_mcp.url,
+        headers={**session, "Last-Event-ID": primed},
+        timeout=10,
+    ) as resumed:
+        for line in resumed.iter_lines():
+            if line.startswith("data:") and line[5:].strip():
+                said = json.loads(line[5:])
+                if said.get("id") == 2:
+                    answer = said
+                    break
+
+    assert answer is not None and "result" in answer
+
+
+def test_a_changing_call_with_no_answer_says_it_may_have_run():
+    from fibsem.client.transport import ServerUnreachable
+
+    lost = ServerUnreachable("POST /microscope/stage/move: no answer", timed_out=True)
+    refused = ServerUnreachable("nothing answers", timed_out=False)
+
+    assert sidecar._unreachable(lost, "POST").endswith(sidecar.MAY_HAVE_RUN)
+    assert sidecar._unreachable(lost, "GET") == str(lost)
+    assert sidecar._unreachable(refused, "POST") == str(refused)

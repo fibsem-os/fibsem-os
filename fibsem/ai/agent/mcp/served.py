@@ -46,6 +46,7 @@ import socket
 import threading
 import time
 import weakref
+from collections import OrderedDict
 from contextvars import ContextVar
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -402,6 +403,64 @@ def add_wait_tool(mcp, waits: Waits) -> None:
     )
 
 
+# --- Answers kept for a dropped stream ---------------------------------------
+
+# The most events one session keeps for a client to pick up again.
+EVENTS_KEPT = 1000
+
+
+class SessionEvents:
+    """One MCP session's answers and notifications, kept so a client whose
+    stream dropped (the tunnel blinked mid-call) picks the answer up again
+    with ``Last-Event-ID`` instead of losing it, and so never has reason to
+    send a move or a mill again.
+
+    One for each session, never shared: a replay can only ever send that
+    session's own events, whatever request ids two clients happen to share."""
+
+    def __init__(self, kept: int = EVENTS_KEPT) -> None:
+        self._events: OrderedDict = OrderedDict()
+        self._kept = kept
+        self._next = 0
+
+    async def store_event(self, stream_id, message):
+        self._next += 1
+        event_id = str(self._next)
+        self._events[event_id] = (stream_id, message)
+        while len(self._events) > self._kept:
+            self._events.popitem(last=False)
+        return event_id
+
+    async def replay_events_after(self, last_event_id, send_callback):
+        from mcp.server.streamable_http import EventMessage
+
+        found = self._events.get(last_event_id)
+        if found is None:
+            return None
+        stream_id = found[0]
+        after = False
+        for event_id, (stream, message) in list(self._events.items()):
+            if after and stream == stream_id and message is not None:
+                await send_callback(EventMessage(message, event_id))
+            after = after or event_id == last_event_id
+        return stream_id
+
+
+def keep_answers(manager) -> None:
+    """Give each session *manager* admits its own `SessionEvents`. The SDK
+    takes one store for every session, whose replay could mix two clients'
+    streams of the same request id, so each transport gets its own here."""
+    admit = manager._admit_session
+
+    def admitted(*args, **kwargs):
+        transport = admit(*args, **kwargs)
+        if transport is not None:
+            transport._event_store = SessionEvents()
+        return transport
+
+    manager._admit_session = admitted
+
+
 # --- The app -----------------------------------------------------------------
 
 
@@ -485,6 +544,7 @@ def build_app(
         )
         add_wait_tool(mcp, waits)
         mcp.streamable_http_app(streamable_http_path=SERVED_PATH, host="127.0.0.1")
+        keep_answers(mcp.session_manager)
         return mcp
 
     async def server_for(key):

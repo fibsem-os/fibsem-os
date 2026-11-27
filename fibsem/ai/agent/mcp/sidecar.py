@@ -351,8 +351,23 @@ def _call(client, method, path, payload=None):
     try:
         resp = client.request(method, path, **kwargs)
     except ServerUnreachable as exc:
-        return None, _Failure(str(exc))
+        return None, _Failure(_unreachable(exc, method))
     return _answer(resp)
+
+
+# Said when a call that changes something got no answer: it may have run.
+MAY_HAVE_RUN = (
+    " It may have run all the same: check what it would have changed (the "
+    "stage position, app_get_status, app_get_events) before you call it again."
+)
+
+
+def _unreachable(exc: ServerUnreachable, method: str) -> str:
+    """What a call that reached no answer says: a changing call that timed out
+    or lost its answer says it may have run, so it isn't sent twice blind."""
+    if getattr(exc, "timed_out", False) and method.upper() != "GET":
+        return str(exc) + MAY_HAVE_RUN
+    return str(exc)
 
 
 def _answer(resp):
@@ -491,7 +506,8 @@ def build_sidecar(
             # Refused before it reached the server: an error, as a 422 would be.
             return None, _Failure(f"refused: {exc}")
         except ServerUnreachable as exc:
-            return None, _Failure(str(exc))
+            spec = by_name.get(tool_name)
+            return None, _Failure(_unreachable(exc, spec.method if spec else "POST"))
         return _answer(resp)
 
     def _send(tool_name, arguments):
