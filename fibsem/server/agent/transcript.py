@@ -52,7 +52,11 @@ FOLDER = "agent"
 # context: what the harness says of the session ("Playbook set: ...").
 # done: a step finished (its ``step``), so the page stops showing it running.
 # picture: an image a step answered with (its ``step``), saved beside.
-KINDS = ("said", "step", "done", "failed", "context", "picture")
+# turn: a turn ended, how long it took (``took_s``) and the model's share
+# (``model_s``); kept for the session's time use, not shown on the page.
+KINDS = ("said", "step", "done", "failed", "context", "picture", "turn")
+# Kept but not shown on the page: what the time use reads.
+HIDDEN = ("turn",)
 # What a subagent's done line says of a decision it was asked to check.
 VERDICTS = ("agree", "concern")
 # A picture's kinds of image, by media type: the file's extension.
@@ -81,7 +85,7 @@ def _entry(raw: Any, now: float) -> Dict[str, Any]:
     """One posted entry, checked, stamped with the server's time."""
     if not isinstance(raw, dict):
         raise _invalid(
-            "an entry is {kind, text, verb?, step?, run?, subagent?, brief?, verdict?, attention?, took_s?, age_s?}."
+            "an entry is {kind, text, verb?, tool?, step?, run?, subagent?, brief?, verdict?, attention?, took_s?, model_s?, age_s?}."
         )
     kind = raw.get("kind")
     if kind not in KINDS:
@@ -109,6 +113,17 @@ def _entry(raw: Any, now: float) -> Dict[str, Any]:
         if isinstance(took, bool) or not isinstance(took, (int, float)) or took < 0:
             raise _invalid("took_s is how many seconds the step took.")
         entry["took_s"] = round(float(took), 1)
+    model = raw.get("model_s")
+    if model is not None:
+        if isinstance(model, bool) or not isinstance(model, (int, float)) or model < 0:
+            raise _invalid("model_s is how many seconds of the turn were the model's.")
+        entry["model_s"] = round(float(model), 1)
+    # tool: the tool a step called, by its short name, for the time use.
+    tool = raw.get("tool")
+    if tool is not None:
+        if not isinstance(tool, str) or len(tool) > 80:
+            raise _invalid("tool is the step's tool name, at most 80 characters.")
+        entry["tool"] = tool
     verb = raw.get("verb")
     if verb is not None:
         if not isinstance(verb, str) or len(verb) > 40:
@@ -275,7 +290,7 @@ def read(
     first; from *since* (an ISO time) on when given. The newest `READ_LIMIT`."""
     from datetime import datetime
 
-    entries = _read_all(folder)
+    entries = [e for e in _read_all(folder) if e["kind"] not in HIDDEN]
     if since:
         try:
             start = datetime.fromisoformat(since)
@@ -405,6 +420,46 @@ def build_agent_transcript_router(
             raise _invalid("session_id is the session's id: letters, digits, - and _.")
         folders = _folders(request)
         return {"entries": read_run(folders, session_id, call) if folders else []}
+
+    @router.get("/time")
+    def get_time(
+        request: Request,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        session_id: Optional[str] = None,
+    ):
+        """Where a session's time went (`time_use`): the running one's, or
+        *session_id*'s, between *since* and *until* (ISO times)."""
+        from datetime import datetime, timezone
+
+        from fibsem.server.agent import time_use
+
+        def when(value: Optional[str], name: str) -> Optional[datetime]:
+            if not value:
+                return None
+            try:
+                found = datetime.fromisoformat(value)
+            except ValueError:
+                raise _invalid(
+                    f"{name} is an ISO time, such as 2026-11-27T21:30:00+11:00."
+                )
+            # A time with no zone is the PC's own.
+            return found if found.tzinfo else found.astimezone()
+
+        wanted = session_id or _running(request)
+        if wanted is not None and not _SESSION.match(wanted):
+            raise _invalid("session_id is the session's id: letters, digits, - and _.")
+        folders = _folders(request)
+        entries = _read_all(folders) if folders else []
+        if wanted is None and entries:
+            wanted = max(entries, key=lambda e: e["_at"])["session_id"]
+        own = [e for e in entries if e["session_id"] == wanted]
+        running = wanted is not None and wanted == _running(request)
+        now = datetime.now(timezone.utc) if running else None
+        return {
+            "session_id": wanted,
+            **time_use.summarise(own, when(since, "since"), when(until, "until"), now),
+        }
 
     @router.get("/transcript/pictures/{name}")
     def get_picture(request: Request, name: str):

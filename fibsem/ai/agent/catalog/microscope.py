@@ -367,6 +367,20 @@ TOOLS: Tuple[ToolSpec, ...] = (
         optional=("previous", "session_id"),
     ),
     ToolSpec(
+        name="plan_get_time_use",
+        description="Where your session's time went, from its transcript, in seconds: model (thinking and writing: a turn's time not in a tool), the microscope (imaging, moves, milling, the FM, waiting on its runs), reads and analysis, subagents (each kind's runs, wall clock, and the same split inside them), compaction, and between turns (the workflow running alone, asleep until a wake-up, or waiting on the operator); with the slowest tools by total time. since and until (ISO times, such as those on your notes and Progress lines) give one phase or one site; left out, the whole session so far. For the end-of-run summary: say where the time went, by phase, and what took longest.",
+        method="GET",
+        path="/app/agent/time",
+        level="watch",
+        router="app",
+        params={
+            "since": "optional: an ISO time, the window's start (default: the session's first line)",
+            "until": "optional: an ISO time, the window's end (default: now)",
+            "session_id": "optional: another session's id (default: yours)",
+        },
+        optional=("since", "until", "session_id"),
+    ),
+    ToolSpec(
         name="plan_set_section",
         description="Write one section of your plan (plan.md), replacing it; empty text removes it. Brief: the operator's question, the sample and the target, the goal, in their words, with a first line 'Sample: <name>' -- the sample is written once, and only the operator changes it after (409 sample_set). Playbook: which one runs and who chose it. Rules: the operator's standing rules, one '- ' line each, in their words. Steps: '- [ ] step' boxes, grouped under '### Group' lines, ticked '- [x]' only when done and said. Progress: one line per block of work, newest last (finished results and their pictures go on the review list, review_add). What worked: per task, the settings and signs that worked on this sample, each change old -> new, for the next lamella and the next session. Summary: at the end. No # or ## headings inside a section. To add a line use plan_append, to tick a box plan_check_step. Answers the section's name and length and the boxes done of total, not the plan (plan_get reads it). Refused (409 no_session) before your session is reported.",
         method="POST",

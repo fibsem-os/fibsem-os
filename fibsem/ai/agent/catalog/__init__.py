@@ -70,6 +70,7 @@ RECORD_TOOLS = frozenset(
         "experiment_add_note",
         "experiment_message_operator",
         "server_report_session",
+        "plan_get_time_use",
     )
 )
 

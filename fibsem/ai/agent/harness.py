@@ -2577,6 +2577,15 @@ class SdkAgent:
         end.tokens = self.calls.end_turn()
         if result is not None:
             log.info("%s", self._turn_line(result, end))
+            if result.duration_ms:
+                # How long the turn took and the model's share, for the
+                # session's time use (`fibsem.server.agent.time_use`).
+                self.line(
+                    "turn",
+                    "",
+                    took_s=round(result.duration_ms / 1000, 1),
+                    model_s=round((result.duration_api_ms or 0) / 1000, 1),
+                )
             if result.total_cost_usd is not None:
                 self._cost_usd = result.total_cost_usd
         return end
@@ -2913,7 +2922,9 @@ def _show(message, agent: SdkAgent) -> None:
                         if len(brief) > SUBAGENT_BRIEF:
                             brief = brief[: SUBAGENT_BRIEF - 1] + "…"
                         extra["brief"] = brief
-                seq = _line(agent, "step", text, verb=verb, **extra)
+                seq = _line(
+                    agent, "step", text, verb=verb, tool=_short(block.name), **extra
+                )
                 if seq is not None:
                     agent._steps[block.id] = (
                         seq,

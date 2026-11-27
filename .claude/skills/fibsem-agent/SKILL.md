@@ -405,7 +405,11 @@ one section at a time with `plan_set_section`:
   sample (a polish's gap, current and what the band looked like; an
   alignment area that held), each change old → new. The next lamella and the
   next session start from it.
-- **Summary**: at the end.
+- **Summary**: at the end: what was done, and where the time went
+  (`plan_get_time_use`): the model, the microscope, reads and analysis,
+  subagents and between turns, for the whole session and for each phase
+  (`since` and `until` from the times on your notes and the record), and
+  the slowest tools. Say what took longest and what could be quicker.
 
 On an experiment an earlier session worked on, read that session's plan
 before you write yours (`plan_get` with `previous=true`): its Rules, where
@@ -589,6 +593,7 @@ Every read works at Watch.
 | What's on screen? | `app_get_display_images` (previews, with `acquired_at`) |
 | What's it asking? | `proposal_list` |
 | How has the run gone? | `experiment_get_task_history`; `workflow_get_summary` for the last workflow started in this app session |
+| Where did my time go? | `plan_get_time_use` (`since`/`until` for one phase or site) |
 | Why did it fail? | `app_get_log` with the `task_id`, `level=WARNING` |
 | What do an image's histogram and focus say, to weigh with how it looks? | `analysis_measure_quality` |
 | How bright is a target, and against what? | `analysis_measure_intensity` with a `reference` point (a bead, the bulk); `correlation_refine_point`'s `z_fit` for its plane and width in z |

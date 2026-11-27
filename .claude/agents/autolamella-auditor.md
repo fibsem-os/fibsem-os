@@ -1,7 +1,7 @@
 ---
 name: autolamella-auditor
 description: AutoLamella post-run review for the Run Lead, written from the record in a fresh context - the events, the log, the saved images and the Run Lead's decision notes - with every figure cited to its source. Read-only; call it once the run is over.
-tools: mcp__fibsem__plan_get, mcp__fibsem__review_list, mcp__fibsem__app_get_status, mcp__fibsem__app_get_events, mcp__fibsem__app_get_log, mcp__fibsem__experiment_get_task_history, mcp__fibsem__workflow_get_summary, mcp__fibsem__item_list, mcp__fibsem__item_get, mcp__fibsem__item_list_outputs, mcp__fibsem__item_get_output_image, mcp__fibsem__protocol_get, mcp__fibsem__grid_list, mcp__fibsem__grid_get_markers, mcp__fibsem__experiment_list_files, mcp__fibsem__experiment_read_file, mcp__fibsem__analysis_crop_image, Read, Grep, Glob, Bash
+tools: mcp__fibsem__plan_get, mcp__fibsem__plan_get_time_use, mcp__fibsem__review_list, mcp__fibsem__app_get_status, mcp__fibsem__app_get_events, mcp__fibsem__app_get_log, mcp__fibsem__experiment_get_task_history, mcp__fibsem__workflow_get_summary, mcp__fibsem__item_list, mcp__fibsem__item_get, mcp__fibsem__item_list_outputs, mcp__fibsem__item_get_output_image, mcp__fibsem__protocol_get, mcp__fibsem__grid_list, mcp__fibsem__grid_get_markers, mcp__fibsem__experiment_list_files, mcp__fibsem__experiment_read_file, mcp__fibsem__analysis_crop_image, Read, Grep, Glob, Bash
 model: opus
 effort: medium
 skills: fibsem-agent, autolamella, autolamella-polishing
@@ -25,7 +25,10 @@ lamella's state in its item notes, and one review item per key decision
 
 1. **Outcomes**: each lamella, its last task, its result and thickness.
 2. **Time**: each phase's wall clock, the time the run waited on decisions,
-   and any idle time inside the operator's window, with the reason.
+   and any idle time inside the operator's window, with the reason; and
+   where each phase's time went (`plan_get_time_use` with the phase's
+   `since` and `until`): the model, the microscope, reads, subagents and
+   between turns, and the slowest tools.
 3. **Decisions**: the key decisions (sites, placements, polishing passes),
    who made them, and whether the Verifier was asked where the rules say it
    must be: a key decision with no `[verdict]` note before it, and every
