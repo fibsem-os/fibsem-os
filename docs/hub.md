@@ -39,14 +39,37 @@ when it needs someone (not paired, a microscope or app that is unwell, an agent 
 when it can't be reached. **+** adds one, by name and where ssh connects to its PC.
 
 Picking an instrument shows it as its own gateway does: the microscope, the app, and the
-agent. Microscope and app are read only. The agent card is the gateway's own: start an agent
+agent. The microscope is read only. The app card is the gateway's own: while nothing runs,
+pick the app, its experiment and whether its window shows on the microscope PC, and start it;
+stop one that runs with no window. From the Hub an app that can run with no window starts
+without one, because a window is closed only at its own PC: the gateway never lets a Hub close
+a window or force a stop. The agent card is the gateway's own too: start an agent
 with a playbook, level, budget and goal, resume the last session, or end the one running.
 These are asked of the instrument's gateway, which decides. The agent runs on the microscope
 PC, and the gateway refuses a Hub that was not given "May start and stop apps" when it was
 paired. The agent's chat and plan stay on the Agent page at the microscope PC.
 
-Nothing else of an instrument is reached through the Hub: not its app, its settings, its keys
-or its pairing.
+Nothing else of an instrument is reached through the Hub: not its app's own pages, its
+microscope's connection, its settings, its keys or its pairing.
+
+### Test
+
+**Test**, in the New instrument window and on an instrument that is not reachable, tries
+reaching it now and lists each step: SSH reaches its PC, its PC accepts this account's SSH
+key, its gateway answers, its gateway is a version this Hub was written for, and (once it is
+in the list) this Hub is paired with it. The first step that fails says what to do, with ssh's
+own words, and the steps after it are not tried. Testing an address before adding it keeps
+nothing: no instrument, no tunnel.
+
+### The simulator
+
+**Start a simulator** gives the Hub an instrument with no microscope: an ordinary
+`fibsem-gateway` on the hub PC, with no window and the Demo microscope, listed as
+"Simulator". Pair with it like any instrument: run `fibsem-gateway pair --hub --may-switch`
+on the hub PC and type the code. A PC runs one gateway, so the simulator is refused while
+another gateway runs there; add that one by its address (`http://127.0.0.1:8010`) instead.
+**Stop the simulator** stops its gateway and an app it runs with no window, and stopping the
+Hub does the same. It stays in the list, with its pairing, until it is removed.
 
 ## Instruments
 
