@@ -333,6 +333,9 @@ class GatewayPreferences:
     # Agents on this PC find it by gateway.json, whatever the port; a second
     # computer's SSH forward names it.
     port: int = 8010
+    # How long an agent a paired Hub runs keeps the slot and its level after
+    # the Hub's last renewal (fibsem.gateway.hub_agent); then Watch.
+    hub_agent_grace_s: float = 120.0
 
 
 @dataclass
