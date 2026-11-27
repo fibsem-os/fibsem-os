@@ -76,6 +76,8 @@ class _Held:
     # being asked for again.
     state: str = "running"
     why: Optional[str] = None
+    # When its gateway stopped answering, for the log.
+    away_since: float = 0.0
 
 
 class HubAgents:
@@ -315,6 +317,11 @@ class HubAgents:
             # Joined again after the slot was freed: the gateway unpaired the
             # old token then and made this one. The agent is stopped and
             # carries the same session on with it.
+            log.info(
+                "%s's gateway gave the slot back with a new token; the agent "
+                "carries its session on with it.",
+                name,
+            )
             with self._lock:
                 held.token = fresh
             if self._manager.park(name) is agent and agent.state != "ended":
@@ -324,7 +331,11 @@ class HubAgents:
             held.renewed = self._clock()
             held.lease_s = _lease(answer, held.lease_s)
             if held.state != "running":
-                log.info("The hub's agent for %s has its slot again.", name)
+                log.info(
+                    "The hub's agent for %s has its slot again, after %.0f s.",
+                    name,
+                    self._clock() - held.away_since,
+                )
             held.state, held.why = "running", None
 
     def _refused(self, name: str, held: _Held, refusal: GatewayRefused) -> None:
@@ -333,12 +344,29 @@ class HubAgents:
             # Not answering: the agent stays, and the gateway's own rule
             # (its grace time, then Watch) covers the instrument meanwhile.
             with self._lock:
+                if held.state == "running":
+                    held.away_since = self._clock()
+                    log.warning(
+                        "%s's gateway doesn't answer the hub's agent's renewal "
+                        "(%s); trying again every %g s.",
+                        name,
+                        refusal,
+                        RETRY_S,
+                    )
                 held.state = "away"
                 held.why = "rejoin" if held.why == "rejoin" else str(refusal)
             return
         if reason in _AWAY and held.token and held.why != "rejoin":
             # The slot was freed while this hub was away: ask for it again as
             # the same session, on the next round.
+            if held.state == "running":
+                held.away_since = self._clock()
+            log.warning(
+                "%s's gateway freed the slot while the hub was away (%s); "
+                "asking for it again as the same session.",
+                name,
+                refusal,
+            )
             with self._lock:
                 held.state, held.why, held.tried = "away", "rejoin", float("-inf")
             return

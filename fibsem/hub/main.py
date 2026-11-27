@@ -19,6 +19,7 @@ import urllib.request
 from pathlib import Path
 from typing import Optional, Sequence
 
+from fibsem import diagnostics
 from fibsem.hub.agents import HubAgents, stored_key
 from fibsem.hub.hub import Hub
 from fibsem.hub.server import build_hub_app, hub_auth
@@ -87,6 +88,9 @@ def run(port: int) -> int:
     if running is not None:
         print(f"A hub already runs here (pid {running['pid']}, {running['url']}).")
         return 1
+    # The Hub's own log file, as a gateway has one: what happened to a
+    # tunnel or a slot is still there after its terminal is closed.
+    diagnostics.install("agent-hub")
     hub = Hub()
     agents = HubAgents(hub, api_key=stored_key)
     stopping = threading.Event()
