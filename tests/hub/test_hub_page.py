@@ -26,7 +26,7 @@ class FakeGateway:
     def state(self):
         return GatewayState(mode=OFF, version="1.2.3")
 
-    def history(self):
+    def history(self, limit=None):
         return History()
 
     def start_app(self, who, via, app=None, window=True, force=False, **more):
@@ -151,6 +151,9 @@ def test_the_page_reads_an_instruments_agent_through_the_hub(page, hub, instrume
     sessions = page.get(f"{at}/agent/sessions?limit=5", headers=OPERATOR)
     assert sessions.status_code == 200
     assert instrument.sent[-1] == (URL, "GET", "/gateway/agent/sessions?limit=5")
+    assert page.get(f"{at}/history?limit=5", headers=OPERATOR).status_code == 200
+    assert instrument.sent[-1] == (URL, "GET", "/gateway/history?limit=5")
+    assert page.get(f"{at}/settings", headers=OPERATOR).status_code == 404
 
 
 def test_the_hub_starts_resumes_and_ends_an_instruments_agent(page, hub, instrument):
@@ -229,7 +232,6 @@ def test_nothing_else_of_a_gateway_is_reached_through_the_hub(page, hub, instrum
     before = len(instrument.sent)
     for method, route in [
         ("GET", "gateway/secrets"),
-        ("GET", "gateway/history"),
         ("GET", "pairing"),
         ("GET", "app/events"),
         ("GET", "gateway/agent/playbooks/a/b"),

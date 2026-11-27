@@ -3,7 +3,7 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, Facts } from "@/components/ui/card";
-import { api } from "@/lib/api";
+import { useApi } from "@/lib/api";
 import * as fmt from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
@@ -255,6 +255,7 @@ export function History({
   /** Why a session can't be resumed yet; null when it can. */
   ready: string | null;
 }) {
+  const api = useApi();
   const [shown, setShown] = useState<Kind | "all">("all");
   // Pages shown: each "Show older" reads one more page of each list.
   const [pages, setPages] = useState(1);

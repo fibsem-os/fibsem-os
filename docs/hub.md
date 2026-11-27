@@ -38,8 +38,14 @@ instruments are listed down the side, each with a dot: green when it is read and
 when it needs someone (not paired, a microscope or app that is unwell, an agent waiting), grey
 when it can't be reached. **+** adds one, by name and where ssh connects to its PC.
 
-Picking an instrument shows it as its own gateway does: the microscope, the app, and the
-agent. The microscope is read only. The app card is the gateway's own: while nothing runs,
+Picking an instrument shows it as its own gateway does, in three parts. **Now** has the
+microscope, the app and the agent. **History** is the gateway's own History: the starts and
+stops of its app and the agent sessions that ran on the microscope PC, with their Resume.
+**About** lists what its gateway says of itself: its version, how it connects the microscope
+and the configurations it has, its apps, its experiments folder and its Device Servers. About
+is read only: these are set at the microscope PC.
+
+In **Now**, the microscope is read only. The app card is the gateway's own: while nothing runs,
 pick the app, its experiment and whether its window shows on the microscope PC, and start it;
 stop one that runs with no window. From the Hub an app that can run with no window starts
 without one, because a window is closed only at its own PC: the gateway never lets a Hub close

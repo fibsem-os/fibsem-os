@@ -19,10 +19,12 @@ import {
   dollars,
   Field,
   FIELD,
+  notReady,
+  type AgentState,
   type Session,
   title,
 } from "@/pages/gateway/AgentCard";
-import { AgentRow, stopped } from "@/pages/gateway/History";
+import { AgentRow, History, stopped } from "@/pages/gateway/History";
 import { SetupAt } from "@/pages/agent/Connectors";
 import { AppCard, type GatewayState } from "@/pages/Gateway";
 import { Customise } from "@/pages/gateway/Customise";
@@ -423,10 +425,134 @@ function InstrumentCards({ instrument, simulated }: { instrument: Instrument; si
   return (
     <QueryClientProvider client={client}>
       <ReachedProvider value={reached}>
-        <InstrumentApp instrument={instrument} />
-        <AgentCard appRunning={instrument.gateway?.mode === "running"} />
+        <InstrumentParts instrument={instrument} />
       </ReachedProvider>
     </QueryClientProvider>
+  );
+}
+
+type Part = "now" | "history" | "about";
+const PARTS: [Part, string][] = [
+  ["now", "Now"],
+  ["history", "History"],
+  ["about", "About"],
+];
+
+/** An instrument as its gateway shows itself: what runs now, its history,
+ * and what its gateway says of itself. All read through the Hub. */
+function InstrumentParts({ instrument }: { instrument: Instrument }) {
+  const reach = useApi();
+  const [part, setPart] = useState<Part>("now");
+  const appRunning = instrument.gateway?.mode === "running";
+  const gateway = useQuery({
+    queryKey: ["gateway"],
+    queryFn: () => reach<GatewayState>("/gateway"),
+    refetchInterval: 2000,
+  });
+  const agent = useQuery({
+    queryKey: ["gateway/agent"],
+    queryFn: () => reach<AgentState>("/gateway/agent"),
+    refetchInterval: 5000,
+    enabled: part === "history",
+  });
+  return (
+    <>
+      <div className="flex gap-1.5" role="tablist" aria-label="Instrument">
+        {PARTS.map(([key, label]) => (
+          <Button
+            key={key}
+            role="tab"
+            aria-selected={part === key}
+            variant={part === key ? "default" : "ghost"}
+            onClick={() => setPart(key)}
+          >
+            {label}
+          </Button>
+        ))}
+      </div>
+      {part === "now" && (
+        <>
+          <InstrumentApp instrument={instrument} />
+          <AgentCard appRunning={appRunning} />
+        </>
+      )}
+      {part === "history" && (
+        <History
+          apps={gateway.data?.apps ?? []}
+          ready={notReady(agent.data, appRunning, gateway.data?.switch === "starting")}
+        />
+      )}
+      {part === "about" && <InstrumentAbout instrument={instrument} state={gateway.data} />}
+    </>
+  );
+}
+
+/** What the instrument's gateway says of itself, read only: it is set at
+ * the microscope PC. */
+function InstrumentAbout({
+  instrument,
+  state,
+}: {
+  instrument: Instrument;
+  state: GatewayState | undefined;
+}) {
+  const rows: [string, ReactNode][] = [];
+  const mono = (text: string) => <span className="font-mono text-xs">{text}</span>;
+  if (instrument.ssh ?? instrument.url) rows.push(["Reached at", mono((instrument.ssh ?? instrument.url)!)]);
+  if (instrument.since) rows.push(["Reachable since", fmt.when(instrument.since)]);
+  if (state) {
+    const newer = state.newer?.latest
+      ? `fibsemOS ${state.newer.latest} available`
+      : state.newer?.behind
+        ? `${state.newer.behind} newer change${state.newer.behind === 1 ? "" : "s"} (${state.newer.branch})`
+        : null;
+    rows.push([
+      "Gateway",
+      <>
+        fibsemOS {state.version}
+        {newer && <span className={WARN}> · {newer}</span>}
+      </>,
+    ]);
+  }
+  if (instrument.api_version) rows.push(["API version", instrument.api_version]);
+  if (state) {
+    rows.push([
+      "Microscope",
+      state.connection.length ? mono(state.connection.join(" ")) : "Chosen as the app starts",
+    ]);
+    if (state.configurations.length)
+      rows.push([
+        "Configurations",
+        state.configurations.map((c) => (c.default ? `${c.name} (default)` : c.name)).join(", "),
+      ]);
+    if (state.apps.length) rows.push(["Apps", state.apps.map((a) => a.name).join(", ")]);
+    if (state.experiments_folder) rows.push(["Experiments", mono(state.experiments_folder)]);
+    for (const server of state.device_servers ?? [])
+      rows.push([
+        `Device Server: ${server.name}`,
+        <>
+          {title(server.status)}
+          {server.devices.length > 0 && (
+            <span className="text-muted-foreground">
+              {" "}
+              · {server.devices.map((d) => (d.ok ? d.name : `${d.name} (not well)`)).join(", ")}
+            </span>
+          )}
+        </>,
+      ]);
+  }
+  return (
+    <Card className="flex flex-col gap-2.5">
+      <CardTitle className="flex items-center gap-1.5">
+        About
+        <Hint>As this instrument's gateway says. It is set at the microscope PC, not here.</Hint>
+      </CardTitle>
+      {state ? (
+        <Facts className="[&_dd]:text-left" rows={rows} />
+      ) : (
+        <p className="m-0 text-[13px] text-muted-foreground">Reading…</p>
+      )}
+    </Card>
   );
 }
 

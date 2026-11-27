@@ -55,7 +55,7 @@ def hub_auth(
 # What the hub's page reads of an instrument's gateway, and what it asks of
 # one: start and stop its app, and start, resume and end its agent. Nothing
 # else of a gateway is reached through the hub.
-_READS = re.compile(r"^gateway(/agent(/sessions|/playbooks(/[^/]+)?)?)?$")
+_READS = re.compile(r"^gateway(/history|/agent(/sessions|/playbooks(/[^/]+)?)?)?$")
 _ACTS = (
     "gateway/start",
     "gateway/stop",
@@ -441,8 +441,9 @@ def build_hub_app(
         name: str, route: str, request: Request, who: str = Depends(operator)
     ):
         """An instrument's gateway's own answer: its state (``gateway``), its
-        agent and sessions (``gateway/agent``, ``gateway/agent/sessions``) and
-        its playbooks (``gateway/agent/playbooks``)."""
+        agent and sessions (``gateway/agent``, ``gateway/agent/sessions``),
+        its playbooks (``gateway/agent/playbooks``) and its starts and stops
+        (``gateway/history``)."""
         if not _READS.match(route):
             raise _refused(404, "not_found", "The hub reads no such thing.")
         asked = "/" + quote(route)
