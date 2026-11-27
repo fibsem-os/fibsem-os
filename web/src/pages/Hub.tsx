@@ -46,6 +46,9 @@ interface Instrument {
     goal?: string;
     level?: string;
   } | null;
+  /** Its tunnel, when the Hub opens one: the port on this PC that reaches
+   * its gateway. */
+  tunnel: { open?: boolean; gateway_port?: number } | null;
   health: { app?: Piece; microscope?: Piece } | null;
   api_version: string | null;
   // False when its gateway is a version this Hub was not written for.
@@ -336,6 +339,37 @@ function InstrumentAgent({ instrument }: { instrument: Instrument }) {
   );
 }
 
+/** Where this PC's browser reaches the instrument's own pages: through the
+ * Hub's tunnel, or at its address. That gateway signs the browser in itself,
+ * with a code from its Pairing page the first time. */
+function gatewayAddress(instrument: Instrument): string | null {
+  if (instrument.ssh)
+    return instrument.tunnel?.open && instrument.tunnel.gateway_port
+      ? `http://127.0.0.1:${instrument.tunnel.gateway_port}`
+      : null;
+  return instrument.url;
+}
+
+function AgentPageLink({ instrument }: { instrument: Instrument }) {
+  const address = gatewayAddress(instrument);
+  return (
+    <p className="m-0 text-xs text-muted-foreground">
+      The agent's chat and plan are on the instrument's Agent page.{" "}
+      {address && (
+        <a
+          href={`${address}/ui/agent`}
+          target="_blank"
+          rel="noreferrer"
+          className="text-primary underline underline-offset-2"
+          title="Opens the instrument's own page. The first time, it asks for a code from the Pairing page at the microscope PC."
+        >
+          Open the Agent page
+        </a>
+      )}
+    </p>
+  );
+}
+
 function InstrumentView({ instrument, onRemoved }: { instrument: Instrument; onRemoved: () => void }) {
   return (
     <>
@@ -370,11 +404,7 @@ function InstrumentView({ instrument, onRemoved }: { instrument: Instrument; onR
           )}
           <StatusCard instrument={instrument} />
           <InstrumentAgent key={instrument.name} instrument={instrument} />
-          {instrument.agent && (
-            <p className="m-0 text-xs text-muted-foreground">
-              The agent's chat and plan are on the Agent page at the microscope PC.
-            </p>
-          )}
+          {instrument.agent && <AgentPageLink instrument={instrument} />}
         </>
       )}
     </>
