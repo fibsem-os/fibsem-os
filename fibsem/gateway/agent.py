@@ -47,6 +47,7 @@ from fibsem.gateway import slot as slot_mod
 from fibsem.gateway.gateway import RUNNING, Gateway, GatewayRefused
 from fibsem.gateway.health import STARTING
 from fibsem.gateway.host import call_host
+from fibsem.gateway.hub_agent import HubAgents
 from fibsem.keystore import stored_secret
 from fibsem.server.discovery import read_discovery_file
 from fibsem.server.pairing import AGENT, PairedTokens
@@ -271,6 +272,7 @@ class GatewayAgent:
         own_url: Optional[str] = None,
         slot_file: Optional[Path] = None,
         host: Callable[[], Optional[dict]] = lambda: None,
+        hub_grace_s: Optional[Callable[[], float]] = None,
     ) -> None:
         self._gateway = gateway
         self._root = root
@@ -325,6 +327,9 @@ class GatewayAgent:
         self._allowed_read = float("-inf")
         self._allowed_at = float("-inf")
         self._lost_holder()
+        # The slot for an agent a paired Hub runs (`fibsem.gateway.hub_agent`).
+        self.hub = HubAgents(self, tokens, grace_s=hub_grace_s)
+        gateway.watchers.append(self.hub.follow)
 
     def _lost_holder(self) -> None:
         """A gateway agent the slot names that no session carries on (a
@@ -367,6 +372,8 @@ class GatewayAgent:
                 "restarts": managed.get("restarts", []),
             }
             rows = [r for r in rows if r["session_id"] != agent.session_id]
+        else:
+            running = self.hub.running()
         return AgentState(
             running=running,
             connected=None if running is not None else self._connected(),
@@ -440,12 +447,16 @@ class GatewayAgent:
 
     def in_use(self) -> Optional[str]:
         """The agent holding this instrument's one slot and in use: the one
-        the gateway started while it runs, else one paired another way that
+        the gateway started while it runs, a Hub's while it holds the slot,
+        else one paired another way that
         the app heard from in the last `AGENT_LISTENING_S`. None when the slot
         is free or its agent has gone quiet."""
         own = self.own_running()
         if own is not None:
             return own
+        hub = self.hub.holder()
+        if hub is not None:
+            return hub
         connected = self._connected()
         seconds = connected and connected.get("last_heard_s")
         if seconds is not None and seconds < AGENT_LISTENING_S:
@@ -623,11 +634,13 @@ class GatewayAgent:
         replace: bool,
         mode: Optional[str] = None,
         wait: bool = False,
+        hub: bool = False,
     ) -> Tuple[str, Optional[str]]:
         """Start's and Resume's checks, before anything is done: the level
         and the App Server's url. *mode* is a resumed session's own. With
         *wait* (Start), no app is no refusal: the url is None and the agent
-        waits for the app."""
+        waits for the app. With *hub* (an agent a Hub runs), only the
+        instrument's checks: the API key and code mode are the hub PC's."""
         try:
             level = AgentLevel(str(level).lower()).value
         except ValueError:
@@ -660,13 +673,13 @@ class GatewayAgent:
             raise GatewayRefused(
                 409, "agent_running", "The agent is already running: end it first."
             )
-        if not self._api_key():
+        if not hub and not self._api_key():
             raise GatewayRefused(
                 409,
                 "no_api_key",
                 f"No API key: run fibsem-cli key set {API_KEY} on this PC.",
             )
-        config = self.configuration(playbook) if playbook else {}
+        config = self.configuration(playbook) if playbook and not hub else {}
         if "code" in (config.get("mode"), mode) and self._platform == "win32":
             raise GatewayRefused(
                 409,
@@ -694,6 +707,8 @@ class GatewayAgent:
     ):
         """End the agent and unpair it; with *stop_app*, then stop the app
         (closing its window too with *window*, the operator's)."""
+        if self.hub.end(who):
+            logger.info("Gateway ended the hub's agent for %s", who)
         ended = self._manager.end(self.microscope)
         if ended is not None:
             self._unpair()
