@@ -241,6 +241,7 @@ def test_an_agent_that_does_not_stop_is_started_again_on_its_session(made):
     assert made.agents.state()["Scope 1"]["state"] == "running"
     assert "/gateway/agent/slot/release" not in _routes(made)
     # The next poll keeps the slot: the session was not ended.
+    made.slot.refuse.pop("renew")
     made.now[0] += 11
     made.agents.poll()
     assert made.agents.state()["Scope 1"]["state"] == "running"
