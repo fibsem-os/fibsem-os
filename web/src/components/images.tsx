@@ -268,7 +268,8 @@ export interface Shown {
  * server's JPEG with the legend and planes in the side panel. Given *reply*, it
  * opens marking, with the agent's marks drawn under the operator's; with
  * *startMarking* false it opens with the agent's marks shown, and "Mark for the
- * agent" starts marking. Given *shown*, those marks are drawn over it. */
+ * agent" starts marking. Given *shown*, those marks are drawn over it. With
+ * *inline*, it is drawn in place, inside a page or another modal, not as its own. */
 export function ImageViewer({
   paths,
   at,
@@ -277,6 +278,7 @@ export function ImageViewer({
   startMarking = true,
   shown,
   review,
+  inline = false,
 }: {
   paths: string[];
   at: number | null;
@@ -285,6 +287,7 @@ export function ImageViewer({
   startMarking?: boolean;
   shown?: Shown;
   review?: ReviewSlot;
+  inline?: boolean;
 }) {
   // The open image by its path, so images added to *paths* while it is open don't move it.
   const [path, setPath] = useState(at == null ? null : (paths[at] ?? null));
@@ -391,21 +394,27 @@ export function ImageViewer({
     return () => removeEventListener("keydown", listener);
   }, [open]);
   const channels = gl ? shownChannels : view.channels;
-  return (
-    <Dialog open={at != null} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent
-        title={review?.title ?? name}
-        className="w-[min(1280px,calc(100vw-32px))]"
-        onEscapeKeyDown={(e) => {
-          if (!marking) return;
-          e.preventDefault();
-          if (editor.choosing != null || editor.moving != null) {
-            editor.startMoving(null);
-            return;
-          }
-          mark(false);
-        }}
-      >
+  // Escape leaves marking (or a move) first; only then does it close.
+  const escape = (e: { preventDefault: () => void; stopPropagation?: () => void }) => {
+    if (!marking) return;
+    e.preventDefault();
+    e.stopPropagation?.();
+    if (editor.choosing != null || editor.moving != null) {
+      editor.startMoving(null);
+      return;
+    }
+    mark(false);
+  };
+  // Inline, the modal around it would close on Escape: catch it before that modal does.
+  const onEscape = useRef(escape);
+  onEscape.current = escape;
+  useEffect(() => {
+    if (!inline || !open) return;
+    const listener = (e: KeyboardEvent) => e.key === "Escape" && onEscape.current(e);
+    addEventListener("keydown", listener, true);
+    return () => removeEventListener("keydown", listener, true);
+  }, [inline, open]);
+  const body = (
         <div
           ref={keys}
           tabIndex={-1}
@@ -473,6 +482,12 @@ export function ImageViewer({
             )}
           </div>
         </div>
+  );
+  if (inline) return body;
+  return (
+    <Dialog open={at != null} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent title={review?.title ?? name} className="w-[min(1280px,calc(100vw-32px))]" onEscapeKeyDown={escape}>
+        {body}
       </DialogContent>
     </Dialog>
   );
