@@ -5,7 +5,7 @@ stopped by its stop file when the gateway closes."""
 import subprocess
 import sys
 
-from fibsem.gateway.agent_host import RETRY_S, TARGET, AgentHostProcess
+from fibsem.server.agent.process import RETRY_S, TARGET, AgentHostProcess
 
 
 class Proc:
