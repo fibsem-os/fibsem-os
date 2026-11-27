@@ -57,6 +57,12 @@ from fibsem.extras import missing_extra_message
 from fibsem.server.discovery import api_mismatch, code_mismatch
 from fibsem.unreleased import refuse
 
+# True in the process the gateway serves the sidecar from (`fibsem.ai.agent.mcp.served`):
+# its callers are on other computers, so a tool never reads or writes a file on
+# this PC on their behalf. A fetched file comes back in the answer, and evidence
+# comes as its bytes.
+SERVED = False
+
 # How long start-up looks for the server before answering the MCP client anyway:
 # a client gives a server only so long to start.
 _PROBE_S = 2.0
@@ -374,9 +380,11 @@ def _name_the_client(mcp, client):
     if not isinstance(middleware, list):
         return
     named = []
+    # A served sidecar's client is each caller's own (`served`): each names its own.
+    per_caller = getattr(client, "per_caller", False)
 
     async def name_client(ctx, call_next):
-        if not named:
+        if per_caller or not named:
             try:
                 info = ctx.session.client_params.client_info
             except AttributeError:
@@ -399,7 +407,15 @@ def _devices(kind):
 ALWAYS_LOAD = "anthropic/alwaysLoad"
 
 
-def build_sidecar(client, capabilities, instrument=None, record=None, always_load=()):
+def build_sidecar(
+    client,
+    capabilities,
+    instrument=None,
+    record=None,
+    always_load=(),
+    instructions=None,
+    middleware=(),
+):
     """Build the MCP server over an httpx-compatible client.
 
     ``capabilities`` is the full /capabilities payload; a tool registers when
@@ -413,6 +429,9 @@ def build_sidecar(client, capabilities, instrument=None, record=None, always_loa
     those, for an instrument whose agent keeps its record on a host.
     *always_load* names tools Claude Code loads from the first turn rather
     than deferring them behind its tool search (``anthropic/alwaysLoad``).
+    *instructions* are the server's words to the agent at the handshake, and
+    *middleware* runs on each message before the sidecar's own (the served
+    sidecar's binds each caller's connection, `served`).
     """
     from mcp.server.mcpserver import Image, MCPServer
     from mcp.types import ToolAnnotations
@@ -457,7 +476,9 @@ def build_sidecar(client, capabilities, instrument=None, record=None, always_loa
                 return contents
             return [part for content in contents for part in _with_blobs(content)]
 
-    mcp = Sidecar("fibsem")
+    mcp = Sidecar("fibsem", instructions=instructions)
+    if isinstance(getattr(mcp, "middleware", None), list):
+        mcp.middleware.extend(middleware)
     _name_the_client(mcp, client)
 
     # The tool's name is positional-only: a tool may take an argument called
@@ -903,6 +924,13 @@ def build_sidecar(client, capabilities, instrument=None, record=None, always_loa
             return _Failure(str(exc))
         if resp.status_code >= 400:
             return _refusal(resp)
+        if SERVED:
+            return _fetched_content(
+                unquote(resp.headers.get("X-Experiment", "experiment")),
+                unquote(resp.headers.get("X-Experiment-Path", os.path.basename(path))),
+                resp.content,
+                resp.headers.get("content-type", ""),
+            )
         return _save_fetched(
             unquote(resp.headers.get("X-Experiment", "experiment")),
             unquote(resp.headers.get("X-Experiment-Path", os.path.basename(path))),
@@ -1400,6 +1428,54 @@ def _save_fetched(experiment: str, relative: str, content: bytes):
     }
 
 
+# The largest file a served sidecar answers whole (`_fetched_content`).
+FETCHED_MAX_BYTES = 20 * 1024 * 1024
+
+
+def _fetched_content(experiment: str, relative: str, content: bytes, media: str):
+    """A fetched file in the answer itself, for a served sidecar: an image as
+    image content, text as text, anything else as an embedded resource
+    (base64). Nothing is written on the microscope PC."""
+    from mcp.server.mcpserver import Image
+    from mcp.types import BlobResourceContents, EmbeddedResource
+
+    if len(content) > FETCHED_MAX_BYTES:
+        return _Failure(
+            f"refused: {relative} is {len(content)} bytes, more than the "
+            f"{FETCHED_MAX_BYTES} a served fetch answers; read a part with "
+            "experiment_read_file, or crop an image with analysis_crop_image"
+        )
+    about = json.dumps(
+        {"experiment": experiment, "path": relative, "size": len(content)}
+    )
+    media = media.split(";")[0].strip().lower()
+    suffix = os.path.splitext(relative)[1].lower().lstrip(".")
+    if media in ("image/png", "image/jpeg", "image/gif", "image/webp") or suffix in (
+        "png",
+        "jpg",
+        "jpeg",
+        "gif",
+        "webp",
+    ):
+        fmt = {"jpg": "jpeg"}.get(suffix, suffix) if suffix else media.split("/")[1]
+        return [about, Image(data=content, format=fmt)]
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError:
+        text = None
+    if text is not None:
+        return [about, text]
+    blob = EmbeddedResource(
+        type="resource",
+        resource=BlobResourceContents(
+            uri=EXPERIMENT_URI + quote(relative),
+            mime_type=media or "application/octet-stream",
+            blob=base64.b64encode(content).decode("ascii"),
+        ),
+    )
+    return [about, blob]
+
+
 def _described(fn, params):
     """*fn*, each argument carrying the catalog's words for it
     (`ToolSpec.params`), so the client's input schema describes it."""
@@ -1435,6 +1511,19 @@ def _evidence_body(evidence):
         )
     body = {k: v for k, v in evidence.items() if k != "file"}
     path = evidence.get("file")
+    if path and SERVED:
+        # The caller's files are on its own computer, never this PC's.
+        return _Failure(
+            "refused (422): "
+            + json.dumps(
+                {
+                    "error_type": "invalid",
+                    "message": "evidence file is not read through the gateway's "
+                    "MCP: send the file's bytes as upload (base64), or name an "
+                    "experiment image as image.",
+                }
+            )
+        )
     if path:
         root = _workdir()
         target = os.path.realpath(os.path.expanduser(str(path)))

@@ -108,6 +108,45 @@ or, for Claude Code:
 claude mcp add fibsem -- fibsem-mcp --url http://localhost:8010
 ```
 
+## Claude Code with nothing installed
+
+The gateway also serves the fibsem MCP itself, at `/mcp/fibsem`. Claude Code (or any MCP
+client that speaks streamable HTTP) can use it through the tunnel with no fibsem on your
+computer. The microscope PC needs the `mcp` extra (`pip install "fibsem[mcp]"`).
+
+Pair once with the code from **Pairing → Pair a computer… → Agent**, and keep the token
+it answers (it is the agent's; keep it to yourself):
+
+```bash
+curl -s -X POST http://localhost:8010/pair -H 'Content-Type: application/json' \
+    -d '{"code": "<code>", "name": "my-laptop"}'
+```
+
+Then add the MCP with that token:
+
+```bash
+claude mcp add --transport http fibsem http://localhost:8010/mcp/fibsem \
+    --header "Authorization: Bearer <token>"
+```
+
+The tools are the same ones `fibsem-mcp` serves, with two differences: a file you fetch
+comes back in the answer rather than being saved on your computer, and evidence is sent as
+its bytes (`upload`, base64) or named as an experiment image. Options the stdio sidecar takes
+as flags go on the address: `?instrument=<kind>`, `?record=no`, `?always_load=<tool>,...`.
+
+Nothing wakes the agent between turns unless it watches. The MCP tells it how at the
+start: it runs, in the background,
+
+```bash
+curl -sN -H "Authorization: Bearer <token>" http://localhost:8010/mcp/fibsem/watch
+```
+
+which prints the same lines as `fibsem-mcp watch`, one per event worth waking for. Started
+again, it carries on after the last event it printed. A client that can't run commands in
+the background calls the `app_wait` tool instead, which answers the same lines; nothing
+wakes such a client between calls, so it suits work with a person watching, not
+unattended runs. Agents run by `fibsem-agent` still start their own `fibsem-mcp`.
+
 The web app is at `http://localhost:8010/ui/agent` and the gateway's page at
 `http://localhost:8010/ui/gateway`, paired once with a code (**Pair a computer** in the
 gateway's window).

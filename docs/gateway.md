@@ -392,6 +392,29 @@ its own Console workspace with a monthly spend limit. To retire a key, disable i
 Console first: that stops it everywhere. Then remove it here. To replace one, store the new
 key, check the agent starts, then disable the old one.
 
+### The MCP at /mcp/fibsem
+
+The gateway serves the fibsem MCP over streamable HTTP at `/mcp/fibsem` on its own port,
+so an agent on another computer needs only an MCP client and the SSH tunnel, not fibsem
+installed ([Running the agent on another computer](ssh-tunnel.md)). It is the same sidecar
+`fibsem-mcp` runs, in a child process of the gateway (`fibsem.ai.agent.mcp.served`),
+started the first time something calls `/mcp` and stopped with the gateway. Its log is in
+`logs/gateway/mcp-*.log`. Without the `mcp` extra on this PC, `/mcp` answers 503
+`no_mcp`.
+
+It takes the tokens the gateway already takes: an agent paired with a code, or the
+operator's. Each MCP session calls the gateway's own port with its caller's token, so every
+tool call meets the same checks as any agent's call: the slot, the level, and a connect
+token's 403 `connect_first`. The child holds no token of its own, and it refuses any call
+that didn't come through the gateway. Nothing is read or written on this PC for a caller: a
+fetched file comes back in the answer.
+
+`/mcp/fibsem/watch` streams the lines `fibsem-mcp watch` prints, for an agent to run in the
+background; a watch started again carries on after the last event the caller's last one
+read. The `app_wait` tool answers the same lines, for a client that can't run commands in
+the background. Agents the gateway or a hub start still run their own `fibsem-mcp` over
+stdio.
+
 ## The desktop shortcut
 
 ```

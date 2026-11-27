@@ -163,6 +163,7 @@ class PassThrough:
         secret: Optional[Callable[[], Optional[str]]] = None,
         host: Optional[Callable[[], Optional[str]]] = None,
         host_secret: Optional[Callable[[], Optional[str]]] = None,
+        read_timeout_s: Optional[float] = READ_TIMEOUT_S,
     ) -> None:
         self._upstream = upstream
         # Told of each call answered (method, path, status, bearer token):
@@ -176,7 +177,9 @@ class PassThrough:
         self._host_secret = host_secret or globals()["host_secret"]
         # gateway.json's token only asks to connect: answered here, never sent on
         self._is_connect = is_connect
-        timeout = httpx.Timeout(READ_TIMEOUT_S, connect=CONNECT_TIMEOUT_S)
+        # None for the gateway's MCP (`fibsem.gateway.mcp`): a watch, or a
+        # tool's answer stream, may say nothing for longer than any call.
+        timeout = httpx.Timeout(read_timeout_s, connect=CONNECT_TIMEOUT_S)
         self._client = httpx.AsyncClient(timeout=timeout, transport=transport)
         # Stops have their own connections, never queued behind other calls.
         self._stops = httpx.AsyncClient(
