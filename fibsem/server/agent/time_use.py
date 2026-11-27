@@ -23,6 +23,7 @@ Tools can run side by side, so a turn's tool time is the time any tool was
 running, and the categories can add up to more than it.
 """
 
+from collections import Counter
 from datetime import datetime, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -248,6 +249,13 @@ def summarise(
                 "wall_s": round(wall),
                 "microscope_s": round(split["microscope"]),
                 "microscope_tools": used,
+                # Every tool it called, and how often, most called first.
+                "tools": dict(
+                    sorted(
+                        Counter(s["name"] for s in own).items(),
+                        key=lambda kv: (-kv[1], kv[0]),
+                    )
+                ),
             }
         )
     answer["subagents"] = [
