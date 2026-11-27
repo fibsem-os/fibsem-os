@@ -31,12 +31,13 @@ const OPENS: [KnowledgeTab, string, string][] = [
 /** What shapes the agent's work on this PC: the Agent page's Knowledge
  * window, opened on the part chosen. Through the gateway, its playbooks,
  * skills, subagents and connectors work with no app running. */
-export function Customise() {
+export function Customise({ only }: { only?: KnowledgeTab[] }) {
   const [open, setOpen] = useState<KnowledgeTab | null>(null);
+  const opens = OPENS.filter(([tab]) => !only || only.includes(tab));
   return (
     <Card className="flex flex-col gap-1">
       <CardTitle className="mb-1.5">The agent's setup</CardTitle>
-      {OPENS.map(([tab, label, about]) => (
+      {opens.map(([tab, label, about]) => (
         <div
           key={tab}
           className="grid grid-cols-1 items-center gap-1 border-t border-border py-2 text-[13px] sm:grid-cols-[160px_minmax(0,1fr)_auto] sm:gap-3"
@@ -50,6 +51,7 @@ export function Customise() {
         open={open !== null}
         onOpenChange={(o) => !o && setOpen(null)}
         start={open ?? "playbooks"}
+        only={only}
       />
     </Card>
   );
