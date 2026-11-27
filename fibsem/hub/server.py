@@ -25,6 +25,13 @@ from fibsem.gateway.passthrough import PASSED, ROOT_PASSED
 from fibsem.gateway.server import GatewayAuth
 from fibsem.hub import sessions as hub_sessions
 from fibsem.hub.agents import API_KEY, HubAgents
+from fibsem.hub.free_agents import AT as AGENT_SERVERS_AT
+from fibsem.hub.free_agents import (
+    AgentServers,
+    FreeAgents,
+    default_budget_usd,
+    set_limit,
+)
 from fibsem.hub.history import AGENT, APP, INSTRUMENT, SETUP, HubHistory
 from fibsem.hub.hub import TOKENS_DIR, Hub, HubState
 from fibsem.hub.relay import AgentPageRelay
@@ -99,6 +106,7 @@ def build_hub_app(
     history: Optional[HubHistory] = None,
     on_show: Optional[Callable[[], bool]] = None,
     relay_transport: Any = None,
+    free: Optional[FreeAgents] = None,
 ) -> FastAPI:
     app = FastAPI(title="fibsem hub")
     refuse_invalid_requests(app)
@@ -438,7 +446,77 @@ def build_hub_app(
             this hub PC and on every paired instrument, newest first, with
             what they spent by instrument and by day
             (`fibsem.hub.sessions`)."""
-            return hub_sessions.list_sessions(hub, agents.root, limit)
+            return hub_sessions.list_sessions(
+                hub, agents.root, limit, free.root if free is not None else None
+            )
+
+    if free is not None:
+
+        def _budget(body: Dict[str, Any]) -> Optional[float]:
+            try:
+                return float(body["budget_usd"])
+            except (KeyError, TypeError, ValueError):
+                return None
+
+        budget: Dict[str, Any] = {}
+
+        def default_budget() -> Optional[float]:
+            """What the plain playbook lets a run spend when the form names
+            no budget; read once."""
+            if "usd" not in budget:
+                try:
+                    budget["usd"] = default_budget_usd()
+                except Exception:  # noqa: BLE001 - the form just shows none
+                    budget["usd"] = None
+            return budget["usd"]
+
+        @app.get("/hub/free-agents")
+        def free_agents(request: Request, who: str = Depends(operator)) -> dict:
+            """``{limit, agents, at_this_pc}``: the agents with no instrument
+            this hub PC runs, then those that ended while this Hub ran, and
+            how many may run at once."""
+            return {
+                **free.state(),
+                "at_this_pc": at_this_pc(request),
+                "default_budget_usd": default_budget(),
+            }
+
+        @app.post("/hub/free-agents/start")
+        def start_free_agent(body: Dict[str, Any], who: str = Depends(operator)):
+            """``{goal, budget_usd}``: run an agent with no instrument on
+            this hub PC."""
+            body = body or {}
+            return _act(
+                lambda: free.start(str(body.get("goal") or ""), who, _budget(body))
+            )
+
+        @app.post("/hub/free-agents/resume")
+        def resume_free_agent(body: Dict[str, Any], who: str = Depends(operator)):
+            """``{session_id, budget_usd}``: carry on a session with no
+            instrument that ended on this hub PC."""
+            body = body or {}
+            return _act(
+                lambda: free.resume(
+                    str(body.get("session_id") or ""), who, _budget(body)
+                )
+            )
+
+        @app.post("/hub/free-agents/{session_id}/end")
+        def end_free_agent(session_id: str, who: str = Depends(operator)):
+            """End an agent with no instrument."""
+            return _act(lambda: free.end(session_id, who))
+
+        @app.put("/hub/free-agents/limit", dependencies=[Depends(this_pc_only)])
+        def put_free_limit(body: Dict[str, Any], who: str = Depends(operator)):
+            """``{limit}``: how many agents with no instrument run here at
+            once. Changed only at this PC."""
+            answer = _act(lambda: set_limit((body or {}).get("limit")))
+            note(SETUP, f"Set the limit of agents with no instrument to {answer}", who)
+            return {"limit": answer}
+
+        # Each such session's own Agent Server: its agent and its Agent page
+        # reach it here, and it checks their tokens itself.
+        app.mount(AGENT_SERVERS_AT, AgentServers(free))
 
     # An instrument's Agent page, served here: its calls go on to that
     # instrument's gateway, which decides what a Hub may ask.

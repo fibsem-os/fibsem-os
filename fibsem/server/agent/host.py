@@ -56,6 +56,7 @@ from fastapi import APIRouter, Depends, FastAPI
 
 from fibsem import __version__, paths
 from fibsem.acting import AGENT, OPERATOR
+from fibsem.ai.agent.manager import session_folder
 from fibsem.ai.agent.session import (
     AgentControl,
 )
@@ -64,7 +65,7 @@ from fibsem.analysis.tools import ImageTools
 from fibsem.client.transport import HOST_TOKEN_ENV
 from fibsem.keystore import get_secret
 from fibsem.server import discovery, gateway_secret
-from fibsem.server.agent.files import AgentFiles
+from fibsem.server.agent.files import FOLDER, AgentFiles
 from fibsem.server.agent.handoff import build_agent_handoff_router
 from fibsem.server.agent.library import build_library_router
 from fibsem.server.agent.notes import latest_notes
@@ -227,6 +228,7 @@ class AgentHost:
         folder: Optional[Path] = None,
         name: str = "fibsemOS",
         instrument: Optional["InstrumentLink"] = None,
+        sessions: Optional[Path] = None,
     ) -> None:
         self.auth = auth
         self.name = name
@@ -240,8 +242,16 @@ class AgentHost:
         # The writer only queues, so handing it each record under the
         # buffer's lock is allowed.
         self._unsubscribe = self.buffer.subscribe(self._writer.write)
-        # No experiment: each session's files stay in its own folder.
-        self.files = AgentFiles(lambda: None)
+        # No experiment: each session's files stay in its own folder, under
+        # *sessions* when the sessions here are kept apart (the Hub's).
+        self.files = AgentFiles(
+            lambda: None,
+            folder=(
+                (lambda session_id: session_folder(session_id, sessions) / FOLDER)
+                if sessions is not None
+                else None
+            ),
+        )
         self.plan = PlanStore(lambda: None, files=self.files)
         # When the host last pressed the instrument's Stop, and why it
         # didn't reach it (`stop_agent`).
@@ -477,6 +487,7 @@ def build_agent_host(
     name: str = "fibsemOS",
     instrument: Optional["InstrumentLink"] = None,
     data: Optional[Path] = None,
+    sessions: Optional[Path] = None,
 ) -> FastAPI:
     """The Agent Server as a FastAPI app; its :class:`AgentHost` is
     ``app.state.host``, which its owner closes when done with it.
@@ -484,8 +495,9 @@ def build_agent_host(
     With *data*, a folder of saved images and files, it also serves the
     App Server's image tools (`fibsem.analysis`) and file reads over that
     folder, at the same paths: for an agent with no instrument, reviewing
-    saved data or a past run."""
-    host = AgentHost(auth, folder, name, instrument)
+    saved data or a past run. *sessions* is where each session's folder is
+    kept, when not this PC's own sessions folder."""
+    host = AgentHost(auth, folder, name, instrument, sessions)
     app = FastAPI(title="fibsemOS Agent Server", version=__version__)
     app.state.host = host
     app.state.auth = auth

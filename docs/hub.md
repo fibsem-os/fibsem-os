@@ -110,6 +110,26 @@ another gateway runs there; add that one by its address (`http://127.0.0.1:8010`
 **Stop the simulator** stops its gateway and an app it runs with no window, and stopping the
 Hub does the same. It stays in the list, with its pairing, until it is removed.
 
+### Agents with no instrument
+
+**Agents** lists the agents running on the hub PC, and **New agent** starts one. Pick an
+instrument and the form is that instrument's own start form, with the agent running on
+the hub PC. Leave it at **No instrument** and the agent acts on no microscope: you give it a
+goal and a budget, and talk to it on its Agent page. It takes no instrument's slot and has
+no level, and it needs no playbook: it starts on the shipped `plain` playbook
+(`instrument: none`), which a lab's own copy can add connectors to.
+
+Such an agent runs on the hub PC with the hub PC's API key. Its chat, plan and record are
+kept in its session's folder there (`~/.fibsem/hub/free-sessions/`) and served by an Agent
+Server of its own, which the Hub holds: **Open the Agent page** shows the same Agent page
+with the microscope parts left out. The agent's token there is made at each start and kept
+in memory only. The people signed in to the Hub are the operator on that page.
+
+Up to 5 run at once. **Settings** changes that number, at the hub PC only. **End** stops
+one. Stopping the Hub ends them all, and one that outlived a Hub that crashed is stopped
+and carries its session on when the Hub starts again. Each session is listed in
+**Sessions** under "No instrument", and **Resume** there carries it on in the same folder.
+
 ### Sessions
 
 **Sessions** lists the agent sessions of every instrument in one place: those that ran on

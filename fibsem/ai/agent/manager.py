@@ -471,7 +471,10 @@ class AgentSessionManager:
             current = self._agents.get(microscope)
             if current is not None and current.state != "ended":
                 raise AgentRunning(microscope)
-            folder = self._root / folder_name(session_id, self._clock())
+            # A folder its host already made for this session is the one used.
+            folder = find_folder(session_id, self._root) or (
+                self._root / folder_name(session_id, self._clock())
+            )
             managed = {
                 "microscope": microscope,
                 "args": list(args),

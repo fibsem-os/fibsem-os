@@ -1,7 +1,8 @@
 """Every agent session the Hub knows of, in one list.
 
 The sessions that ran on this hub PC are read from their folders here
-(``~/.fibsem/hub/sessions/``). Those that ran on a microscope PC are read
+(``~/.fibsem/hub/sessions/``, and ``~/.fibsem/hub/free-sessions/`` for those
+with no instrument). Those that ran on a microscope PC are read
 from that instrument's gateway (``GET /gateway/agent/sessions``), side by
 side, and an instrument that doesn't answer is named rather than waited for.
 Each row says which instrument, where it ran, its status, who started it and
@@ -23,6 +24,8 @@ __all__ = ["HUB_PC", "MICROSCOPE_PC", "hub_pc_sessions", "list_sessions"]
 
 HUB_PC = "hub"
 MICROSCOPE_PC = "pc"
+# What the totals call the sessions with no instrument.
+NO_INSTRUMENT = "No instrument"
 SESSIONS_SHOWN = 50
 SESSIONS_MAX = 200
 # One instrument's list: short, so one that is slow never holds the page.
@@ -32,8 +35,9 @@ _STOPPED = (records.ENDED, records.LEFT, records.CRASHED)
 DAYS = 14
 
 
-def hub_pc_sessions(root: Path, limit: int) -> List[Dict[str, Any]]:
-    """The newest *limit* sessions that ran on this hub PC."""
+def hub_pc_sessions(root: Path, limit: int, free: bool = False) -> List[Dict[str, Any]]:
+    """The newest *limit* sessions that ran on this hub PC under *root*:
+    each for its instrument, or with *free* those with no instrument."""
     rows = []
     for found in records.list_sessions(limit, root=root):
         managed = read_json(Path(found.folder) / MANAGED)
@@ -41,6 +45,8 @@ def hub_pc_sessions(root: Path, limit: int) -> List[Dict[str, Any]]:
         instrument = managed.get("microscope")
         if not instrument:
             continue
+        if free:
+            instrument = None
         rows.append(
             {
                 "instrument": instrument,
@@ -92,9 +98,8 @@ def _totals(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         spent = row.get("spent_usd")
         if not isinstance(spent, (int, float)) or isinstance(spent, bool):
             continue
-        by_instrument[row["instrument"]] = (
-            by_instrument.get(row["instrument"], 0.0) + spent
-        )
+        name = row["instrument"] or NO_INSTRUMENT
+        by_instrument[name] = by_instrument.get(name, 0.0) + spent
         day = str(row.get("started") or "")[:10]
         if day:
             by_day[day] = by_day.get(day, 0.0) + spent
@@ -110,15 +115,25 @@ def _totals(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
-def list_sessions(hub: Hub, root: Path, limit: int = SESSIONS_SHOWN) -> Dict[str, Any]:
+def list_sessions(
+    hub: Hub,
+    root: Path,
+    limit: int = SESSIONS_SHOWN,
+    free_root: Optional[Path] = None,
+) -> Dict[str, Any]:
     """``{sessions, totals, unread, more}``: the newest *limit* sessions on
-    this hub PC and on each paired instrument, newest first; the spend of the
+    this hub PC (each instrument's, and under *free_root* those with no
+    instrument) and on each paired instrument, newest first; the spend of the
     sessions read, by instrument and by day; and the instruments whose list
     could not be read, each with why."""
     limit = max(1, min(int(limit), SESSIONS_MAX))
     rows = hub_pc_sessions(root, limit + 1)
     more = len(rows) > limit
     rows = rows[:limit]
+    if free_root is not None:
+        free = hub_pc_sessions(free_root, limit + 1, free=True)
+        more = more or len(free) > limit
+        rows += free[:limit]
     unread: List[Dict[str, str]] = []
     paired = [i.name for i in hub.instruments() if hub.token(i.name) is not None]
     if paired:

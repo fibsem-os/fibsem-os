@@ -127,6 +127,7 @@ export function AgentRow({
   ready,
   where,
   resumePath,
+  noLevel,
 }: {
   session: Session;
   running: boolean;
@@ -136,6 +137,8 @@ export function AgentRow({
    * page, which instrument and which PC. */
   where?: ReactNode;
   resumePath?: string;
+  /** A session with no instrument: resumed with no level. */
+  noLevel?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [resuming, setResuming] = useState(false);
@@ -234,6 +237,7 @@ export function AgentRow({
               ready={ready}
               onDone={() => setResuming(false)}
               path={resumePath}
+              noLevel={noLevel}
             />
           )}
         </div>

@@ -28,6 +28,7 @@ from typing import Any, Callable, Optional, Sequence
 from fibsem import diagnostics
 from fibsem.gateway.main import pythonw
 from fibsem.hub.agents import HubAgents, stored_key
+from fibsem.hub.free_agents import FreeAgents
 from fibsem.hub.history import HubHistory
 from fibsem.hub.hub import Hub
 from fibsem.hub.server import build_hub_app, hub_auth
@@ -117,6 +118,9 @@ def run(port: int, window: bool = True, minimised: bool = False) -> int:
     simulator = Simulator(hub)
     stopping = threading.Event()
     auth = hub_auth()
+    free = FreeAgents(
+        auth, lambda: f"http://127.0.0.1:{port}", api_key=stored_key, history=history
+    )
     # The window sets *has_window* once up; the shortcut sets *bring_forward*.
     has_window = threading.Event()
     bring_forward = threading.Event()
@@ -128,7 +132,9 @@ def run(port: int, window: bool = True, minimised: bool = False) -> int:
 
     server = Server(
         uvicorn.Config(
-            build_hub_app(hub, auth, stopping.set, agents, simulator, history, on_show),
+            build_hub_app(
+                hub, auth, stopping.set, agents, simulator, history, on_show, free=free
+            ),
             host="127.0.0.1",
             port=port,
             log_level="warning",
@@ -143,6 +149,7 @@ def run(port: int, window: bool = True, minimised: bool = False) -> int:
     )
     hub.start()
     agents.start_keeping()
+    free.start_keeping()
     print(f"Hub at http://127.0.0.1:{port}. Its page: agent-hub open")
     try:
         if not (
@@ -165,6 +172,7 @@ def run(port: int, window: bool = True, minimised: bool = False) -> int:
     finally:
         # Before the tunnels close: each slot is given back through one.
         agents.stop()
+        free.stop()
         simulator.stop()
         hub.stop()
         server.should_exit = True

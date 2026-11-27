@@ -105,6 +105,8 @@ export interface Playbook {
   name: string;
   hash?: string;
   error?: string;
+  // "none" for a playbook with no instrument, which no instrument's agent runs.
+  instrument?: string | null;
 }
 
 export interface Configuration {
@@ -283,11 +285,13 @@ function Start({
   appRunning,
   appStarting,
   defaults,
+  onStarted,
 }: {
   state: AgentState;
   appRunning: boolean;
   appStarting?: boolean;
   defaults?: AgentDefaults;
+  onStarted?: () => void;
 }) {
   const api = useApi();
   const { pc, places } = useReached();
@@ -299,7 +303,7 @@ function Start({
     queryFn: () => api<Playbook[]>("/gateway/agent/playbooks"),
     staleTime: 30_000,
   });
-  const usable = (playbooks.data ?? []).filter((p) => !p.error);
+  const usable = (playbooks.data ?? []).filter((p) => !p.error && p.instrument !== "none");
   const [playbook, setPlaybook] = useState("");
   // Picked here, or else the default, the playbook's level, or Watch.
   const [picked, setPicked] = useState<string | null>(null);
@@ -350,10 +354,11 @@ function Start({
         ? direct<unknown>(elsewhere, init).then(() => null)
         : api<AgentState>("/gateway/agent/start", init);
     },
-    onSuccess: (answer) =>
-      answer
-        ? client.setQueryData(["gateway/agent"], answer)
-        : client.invalidateQueries({ queryKey: ["gateway/agent"] }),
+    onSuccess: (answer) => {
+      if (answer) client.setQueryData(["gateway/agent"], answer);
+      else client.invalidateQueries({ queryKey: ["gateway/agent"] });
+      onStarted?.();
+    },
   });
   const paired =
     start.error instanceof ApiError && start.error.errorType === "agent_paired";
@@ -784,16 +789,57 @@ export function AgentCard({
   );
 }
 
+/** The start form by itself, for a page that picks the instrument first
+ * (the Hub's New agent): the same form the card shows, once the instrument's
+ * gateway has said no agent holds it. */
+export function StartForm({
+  appRunning,
+  onStarted,
+}: {
+  appRunning: boolean;
+  onStarted?: () => void;
+}) {
+  const api = useApi();
+  const agent = useQuery({
+    queryKey: ["gateway/agent"],
+    queryFn: () => api<AgentState>("/gateway/agent"),
+    refetchInterval: 2000,
+  });
+  if (agent.error)
+    return (
+      <p className="m-0 text-[13px] text-destructive">
+        {(agent.error as Error).message}
+      </p>
+    );
+  if (!agent.data)
+    return <p className="m-0 text-[13px] text-muted-foreground">Reading…</p>;
+  if (agent.data.running)
+    return (
+      <>
+        <p className="m-0 text-[13px] text-[var(--fibsem-semantic-warning-color)]">
+          This instrument already has an agent. End it first.
+        </p>
+        <Holder slot={agent.data.slot} />
+      </>
+    );
+  return (
+    <Start state={agent.data} appRunning={appRunning} onStarted={onStarted} />
+  );
+}
+
 /** Level and Budget for carrying an ended session on, then Resume. */
 export function ResumeForm({
   session,
   ready,
   onDone,
   path = "/gateway/agent/resume",
+  noLevel,
 }: {
   session: Session;
   ready: string | null;
   onDone: () => void;
+  /** For a session with no instrument: no level is set for it. */
+  noLevel?: boolean;
   /** Where the resume is asked: the gateway's own, or on the Hub's page the
    * Hub's route for a session that ran on the hub PC. */
   path?: string;
@@ -811,7 +857,7 @@ export function ResumeForm({
       api<Configuration>(
         `/gateway/agent/playbooks/${encodeURIComponent(session.playbook ?? "")}`,
       ),
-    enabled: !!session.playbook,
+    enabled: !!session.playbook && !noLevel,
     staleTime: 30_000,
   });
   const playbookBudget = config.data?.max_budget_usd ?? null;
@@ -823,7 +869,7 @@ export function ResumeForm({
         method: "POST",
         body: JSON.stringify({
           session_id: session.session_id,
-          level,
+          ...(noLevel ? {} : { level }),
           ...(budget?.trim() ? { budget_usd: budget.trim() } : {}),
           replace,
         }),
@@ -831,6 +877,7 @@ export function ResumeForm({
     onSuccess: (answer) => {
       if (path === "/gateway/agent/resume") client.setQueryData(["gateway/agent"], answer);
       client.invalidateQueries({ queryKey: ["hub/sessions"] });
+      client.invalidateQueries({ queryKey: ["hub/free-agents"] });
       onDone();
     },
   });
@@ -840,19 +887,21 @@ export function ResumeForm({
   return (
     <div className="flex flex-col gap-2.5 pt-2 sm:col-span-3">
       <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
-        <Field label="Level">
-          <select
-            value={level}
-            onChange={(event) => setLevel(event.target.value)}
-            className={FIELD}
-          >
-            {LEVELS.map((l) => (
-              <option key={l} value={l}>
-                {title(l)}
-              </option>
-            ))}
-          </select>
-        </Field>
+        {!noLevel && (
+          <Field label="Level">
+            <select
+              value={level}
+              onChange={(event) => setLevel(event.target.value)}
+              className={FIELD}
+            >
+              {LEVELS.map((l) => (
+                <option key={l} value={l}>
+                  {title(l)}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
         <Field label="Budget ($)">
           <input
             value={shownBudget}
@@ -860,7 +909,7 @@ export function ResumeForm({
             // Left empty, it goes back to the playbook's budget.
             onBlur={() => !budget?.trim() && setBudget(null)}
             inputMode="decimal"
-            placeholder="No limit"
+            placeholder={noLevel ? "The playbook's" : "No limit"}
             className={FIELD}
           />
         </Field>

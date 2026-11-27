@@ -20,6 +20,7 @@ import {
   Field,
   FIELD,
   notReady,
+  StartForm,
   type AgentState,
   type Session,
   title,
@@ -27,7 +28,7 @@ import {
 import { AgentRow, History, stopped } from "@/pages/gateway/History";
 import { SetupAt } from "@/pages/agent/Connectors";
 import { AppCard, type GatewayState } from "@/pages/Gateway";
-import { agentPagePath } from "@/pages/hub/InstrumentAgent";
+import { agentPagePath, sessionPagePath } from "@/pages/hub/InstrumentAgent";
 import { Customise } from "@/pages/gateway/Customise";
 import { KeyRow, type Secret } from "@/pages/gateway/Settings";
 import { Connections } from "@/shell/Settings";
@@ -392,7 +393,20 @@ function Remove({ instrument, onDone }: { instrument: Instrument; onDone: () => 
 /** The instrument's app and agent: the gateway's own cards, their calls sent
  * through the hub to that instrument's gateway. Their own query cache, so one
  * instrument's answers never show under another's name. */
-function InstrumentCards({ instrument, simulated }: { instrument: Instrument; simulated: boolean }) {
+/** What is inside reaches one instrument's gateway through the Hub, with a
+ * cache of its own. With *hubOnly*, an agent started inside runs on this hub
+ * PC; else where the form says. */
+function InstrumentScope({
+  instrument,
+  simulated,
+  hubOnly,
+  children,
+}: {
+  instrument: Instrument;
+  simulated: boolean;
+  hubOnly?: boolean;
+  children: ReactNode;
+}) {
   const client = useMemo(
     () =>
       new QueryClient({
@@ -419,16 +433,22 @@ function InstrumentCards({ instrument, simulated }: { instrument: Instrument; si
           label: "This hub PC",
           start: `/hub/instruments/${encodeURIComponent(instrument.name)}/hub-agent/start`,
         },
-      ],
+      ].slice(hubOnly ? 1 : 0),
     }),
-    [instrument.name, simulated],
+    [instrument.name, simulated, hubOnly],
   );
   return (
     <QueryClientProvider client={client}>
-      <ReachedProvider value={reached}>
-        <InstrumentParts instrument={instrument} />
-      </ReachedProvider>
+      <ReachedProvider value={reached}>{children}</ReachedProvider>
     </QueryClientProvider>
+  );
+}
+
+function InstrumentCards({ instrument, simulated }: { instrument: Instrument; simulated: boolean }) {
+  return (
+    <InstrumentScope instrument={instrument} simulated={simulated}>
+      <InstrumentParts instrument={instrument} />
+    </InstrumentScope>
   );
 }
 
@@ -900,9 +920,14 @@ function Stopped({ at }: { at: number }) {
 /** A session in the Hub's list: the gateway's own row, with the instrument
  * it ran for and the PC it ran on. */
 interface HubSession extends Session {
-  instrument: string;
+  /** null for a session with no instrument. */
+  instrument: string | null;
   runs_on: "hub" | "pc";
 }
+
+/** What a session with no instrument is listed under. */
+const NO_INSTRUMENT = "No instrument";
+const listedUnder = (s: { instrument: string | null }) => s.instrument ?? NO_INSTRUMENT;
 
 interface SessionsAnswer {
   sessions: HubSession[];
@@ -930,8 +955,8 @@ function HubSessions({ instruments }: { instruments: Instrument[] }) {
     placeholderData: keepPreviousData,
   });
   const data = sessions.data;
-  const names = [...new Set([...instruments.map((i) => i.name), ...(data?.sessions ?? []).map((s) => s.instrument)])];
-  const shown = (data?.sessions ?? []).filter((s) => !only || s.instrument === only);
+  const names = [...new Set([...instruments.map((i) => i.name), ...(data?.sessions ?? []).map(listedUnder)])];
+  const shown = (data?.sessions ?? []).filter((s) => !only || listedUnder(s) === only);
   // An instrument that has an agent now takes no other until that one ends.
   const busy = (name: string) => !!instruments.find((i) => i.name === name)?.agent;
   const spent = only ? (data?.totals.by_instrument[only] ?? 0) : (data?.totals.spent_usd ?? 0);
@@ -994,19 +1019,35 @@ function HubSessions({ instruments }: { instruments: Instrument[] }) {
           <ReachedProvider
             key={`${s.instrument}-${s.runs_on}-${s.session_id}`}
             value={{
-              prefix: `/hub/instruments/${encodeURIComponent(s.instrument)}`,
+              // A session with no instrument is the Hub's own to resume.
+              prefix:
+                s.instrument === null
+                  ? "/hub/free-agents"
+                  : `/hub/instruments/${encodeURIComponent(s.instrument)}`,
               pc: s.runs_on === "hub" ? "this hub PC" : "the microscope PC",
             }}
           >
             <AgentRow
               session={s}
               running={s.status === "running" || s.status === "waiting"}
-              canResume={stopped(s) && !!s.session_id && !s.cannot_resume && !busy(s.instrument)}
+              canResume={
+                stopped(s) &&
+                !!s.session_id &&
+                !s.cannot_resume &&
+                (s.instrument === null || !busy(s.instrument))
+              }
               ready={null}
-              where={[s.instrument, s.runs_on === "hub" ? "hub PC" : "microscope PC", s.who]
+              where={[listedUnder(s), s.runs_on === "hub" ? "hub PC" : "microscope PC", s.who]
                 .filter(Boolean)
                 .join(" · ")}
-              resumePath={s.runs_on === "hub" ? "/hub-agent/resume" : undefined}
+              resumePath={
+                s.instrument === null
+                  ? "/resume"
+                  : s.runs_on === "hub"
+                    ? "/hub-agent/resume"
+                    : undefined
+              }
+              noLevel={s.instrument === null}
             />
           </ReachedProvider>
         ))}
@@ -1095,7 +1136,397 @@ function HubHistory() {
   );
 }
 
-type Tab = "instruments" | "sessions" | "history" | "pairing" | "customise" | "settings";
+/** An agent with no instrument on this hub PC (`fibsem.hub.free_agents`). */
+interface FreeAgent {
+  session_id: string;
+  state: "running" | "waiting" | "ended";
+  why: string | null;
+  started: string | null;
+  goal: string | null;
+  who: string | null;
+  budget_usd: number | null;
+  resumed?: boolean;
+  /** Whether the Hub serves its Agent page now. */
+  page: boolean;
+}
+
+interface FreeAgents {
+  limit: number;
+  agents: FreeAgent[];
+  at_this_pc: boolean;
+  default_budget_usd: number | null;
+}
+
+/** An instrument's agent on this hub PC (`fibsem.hub.agents`). */
+interface HubPcAgent {
+  session_id?: string;
+  state?: "running" | "away" | "ended";
+  why?: string | null;
+  started?: string | null;
+  playbook?: string;
+  goal?: string | null;
+  level?: string;
+  who?: string;
+}
+
+const useFreeAgents = () =>
+  useQuery({
+    queryKey: ["hub/free-agents"],
+    queryFn: () => api<FreeAgents>("/hub/free-agents"),
+    refetchInterval: 2000,
+  });
+
+/** One agent on this hub PC in a row: what it is for, for which instrument
+ * (or none), and its page and End. */
+function HubAgentRow({
+  instrument,
+  goal,
+  state,
+  why,
+  about,
+  page,
+  endPath,
+}: {
+  instrument: string | null;
+  goal: string | null | undefined;
+  state: string;
+  why?: string | null;
+  about: (string | null | undefined | false)[];
+  page: string | null;
+  /** Where its End is asked; none for one that has ended. */
+  endPath?: string;
+}) {
+  const client = useQueryClient();
+  const [confirm, setConfirm] = useState(false);
+  const end = useMutation({
+    mutationFn: () => api<unknown>(endPath ?? "", { method: "POST", body: "{}" }),
+    onSuccess: () => {
+      setConfirm(false);
+      client.invalidateQueries({ queryKey: ["hub/free-agents"] });
+      client.invalidateQueries({ queryKey: ["hub/agents"] });
+    },
+  });
+  const ended = state === "ended";
+  return (
+    <div className="flex items-start gap-2.5 border-t border-border pt-2 first:border-t-0 first:pt-0">
+      <span className="pt-1.5">
+        <Dot colour={ended ? "off" : state === "running" ? "ok" : "warn"} />
+      </span>
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="whitespace-pre-wrap break-words text-[13px] text-foreground">
+          {goal || "No goal given"}
+        </span>
+        <span className="text-xs text-muted-foreground">
+          {[instrument ?? NO_INSTRUMENT, ...about, ended ? `ended: ${why ?? "it ended"}` : state !== "running" && (why ?? state)]
+            .filter(Boolean)
+            .join(" · ")}
+        </span>
+        {end.error && !confirm && (
+          <span className="text-xs text-destructive">{(end.error as Error).message}</span>
+        )}
+      </div>
+      {page && (
+        <a href={page} className="shrink-0 pt-0.5 text-xs text-primary underline underline-offset-2">
+          Open the Agent page
+        </a>
+      )}
+      {endPath && (
+        <Button variant="danger" disabled={end.isPending} onClick={() => setConfirm(true)}>
+          End
+        </Button>
+      )}
+      <Dialog
+        open={confirm}
+        onOpenChange={(open) => {
+          setConfirm(open);
+          if (!open) end.reset();
+        }}
+      >
+        <DialogContent title="End the agent?" className="w-[min(460px,calc(100vw-32px))]">
+          <div className="flex flex-col gap-2 px-4 py-3.5 text-[13px]">
+            <p className="m-0">The agent stops now. Its session stays in Sessions, where it can be resumed.</p>
+            {end.error && <p className="m-0 text-destructive">{(end.error as Error).message}</p>}
+            <div className="flex justify-end gap-2.5 pt-2">
+              <Button onClick={() => setConfirm(false)}>Cancel</Button>
+              <Button variant="danger" disabled={end.isPending} onClick={() => end.mutate()}>
+                {end.isPending ? "Ending…" : "End the agent"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+/** Start an agent on this hub PC: for an instrument, with that instrument's
+ * own start form, or for none, with a goal and a budget. */
+function NewAgent({
+  open,
+  onOpenChange,
+  instruments,
+  simulator,
+  free,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  instruments: Instrument[];
+  simulator: HubState["simulator"];
+  free?: FreeAgents;
+}) {
+  const client = useQueryClient();
+  const [name, setName] = useState("");
+  const [goal, setGoal] = useState("");
+  const [budget, setBudget] = useState("");
+  const usable = instruments.filter((i) => i.paired && i.reachable);
+  const instrument = usable.find((i) => i.name === name) ?? null;
+  const done = () => {
+    client.invalidateQueries({ queryKey: ["hub/free-agents"] });
+    client.invalidateQueries({ queryKey: ["hub/agents"] });
+    setGoal("");
+    setBudget("");
+    onOpenChange(false);
+  };
+  const start = useMutation({
+    mutationFn: () =>
+      api<FreeAgent>("/hub/free-agents/start", {
+        method: "POST",
+        body: JSON.stringify({
+          goal: goal.trim(),
+          ...(budget.trim() ? { budget_usd: budget.trim() } : {}),
+        }),
+      }),
+    onSuccess: done,
+  });
+  const running = free?.agents.filter((a) => a.state !== "ended").length ?? 0;
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        onOpenChange(next);
+        if (!next) start.reset();
+      }}
+    >
+      <DialogContent title="New agent" className="w-[min(640px,calc(100vw-32px))]">
+        <div className="flex flex-col gap-3 px-4 py-3.5">
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+            <Field
+              label={
+                <span className="flex items-center gap-1.5">
+                  Instrument
+                  <Hint>
+                    An agent with no instrument acts on no microscope: you give it a goal and talk to it on its Agent page. It runs on this hub PC and uses its API key. An agent for an instrument takes that instrument's one agent slot.
+                  </Hint>
+                </span>
+              }
+            >
+              <select value={instrument?.name ?? ""} onChange={(event) => setName(event.target.value)} className={FIELD}>
+                <option value="">{NO_INSTRUMENT}</option>
+                {usable.map((i) => (
+                  <option key={i.name} value={i.name}>
+                    {i.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            {!instrument && (
+              <Field label="Budget ($)">
+                <input
+                  value={budget}
+                  onChange={(event) => setBudget(event.target.value)}
+                  inputMode="decimal"
+                  placeholder={free?.default_budget_usd != null ? String(free.default_budget_usd) : "No limit"}
+                  className={FIELD}
+                />
+              </Field>
+            )}
+            {!instrument && (
+              <Field label="Goal" wide>
+                <textarea
+                  value={goal}
+                  onChange={(event) => setGoal(event.target.value)}
+                  placeholder="What the agent should do this session"
+                  rows={5}
+                  className={cn(FIELD, "min-h-24 resize-y leading-snug")}
+                />
+              </Field>
+            )}
+          </div>
+          {instrument ? (
+            <InstrumentScope
+              key={instrument.name}
+              instrument={instrument}
+              simulated={simulator?.name === instrument.name}
+              hubOnly
+            >
+              <StartForm appRunning={instrument.gateway?.mode === "running"} onStarted={done} />
+            </InstrumentScope>
+          ) : (
+            <>
+              {start.error && <p className="m-0 text-[13px] text-destructive">{(start.error as Error).message}</p>}
+              <div className="flex flex-wrap items-center justify-end gap-2.5">
+                <span className="text-xs text-muted-foreground">
+                  {free ? `${running} of ${free.limit} running. ` : ""}Uses ANTHROPIC_API_KEY on this hub PC.
+                </span>
+                <Button variant="primary" disabled={start.isPending} onClick={() => start.mutate()}>
+                  {start.isPending ? "Starting…" : "Start the agent"}
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** The agents this hub PC runs: each instrument's, and those with no
+ * instrument. An agent on a microscope PC is on its instrument's page. */
+function HubAgents({ instruments, simulator }: { instruments: Instrument[]; simulator: HubState["simulator"] }) {
+  const [adding, setAdding] = useState(false);
+  const free = useFreeAgents();
+  const forInstruments = useQuery({
+    queryKey: ["hub/agents"],
+    queryFn: () => api<Record<string, HubPcAgent>>("/hub/agents"),
+    refetchInterval: 2000,
+  });
+  const since = (iso: string | null | undefined, resumed?: boolean) =>
+    iso ? `${resumed ? "resumed" : "since"} ${fmt.when(iso)}` : null;
+  const rows = [
+    ...Object.entries(forInstruments.data ?? {}).map(([name, a]) => ({
+      key: `i-${name}`,
+      ended: a.state === "ended",
+      started: a.started ?? "",
+      row: (
+        <HubAgentRow
+          key={`i-${name}`}
+          instrument={name}
+          goal={a.goal}
+          state={a.state ?? "running"}
+          why={a.why}
+          about={[a.playbook, a.level && title(a.level), a.who, since(a.started)]}
+          page={agentPagePath(name)}
+          endPath={
+            a.state === "ended" ? undefined : `/hub/instruments/${encodeURIComponent(name)}/hub-agent/end`
+          }
+        />
+      ),
+    })),
+    ...(free.data?.agents ?? []).map((a) => ({
+      key: `s-${a.session_id}`,
+      ended: a.state === "ended",
+      started: a.started ?? "",
+      row: (
+        <HubAgentRow
+          key={`s-${a.session_id}`}
+          instrument={null}
+          goal={a.goal}
+          state={a.state}
+          why={a.why}
+          about={[
+            a.budget_usd != null && `budget ${dollars(a.budget_usd)}`,
+            a.who,
+            since(a.started, a.resumed),
+          ]}
+          page={a.page ? sessionPagePath(a.session_id) : null}
+          endPath={a.state === "ended" ? undefined : `/hub/free-agents/${a.session_id}/end`}
+        />
+      ),
+    })),
+  ].sort((a, b) => b.started.localeCompare(a.started));
+  const running = rows.filter((r) => !r.ended);
+  const ended = rows.filter((r) => r.ended);
+  const error = free.error ?? forInstruments.error;
+  return (
+    <>
+      <div className="flex items-center gap-3">
+        <h1 className="m-0 text-[17px] font-semibold">Agents</h1>
+        <Hint>
+          The agents running on this hub PC: for an instrument, or with no instrument. An agent started on a microscope PC is on its instrument's page.
+        </Hint>
+        <span className="flex-1" />
+        <Button variant="primary" onClick={() => setAdding(true)}>
+          <Plus size={14} />
+          New agent
+        </Button>
+      </div>
+      {error && <p className="m-0 text-[13px] text-destructive">{(error as Error).message}</p>}
+      <Card className="flex flex-col gap-2">
+        <CardTitle>Running on this hub PC</CardTitle>
+        {running.length === 0 && (
+          <p className="m-0 text-[13px] text-muted-foreground">No agent is running on this hub PC.</p>
+        )}
+        {running.map((r) => r.row)}
+      </Card>
+      {ended.length > 0 && (
+        <Card className="flex flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <CardTitle>Ended</CardTitle>
+            <Hint>Ended since the Hub last started. Every session, and Resume, is in Sessions.</Hint>
+          </div>
+          {ended.map((r) => r.row)}
+        </Card>
+      )}
+      <NewAgent
+        open={adding}
+        onOpenChange={setAdding}
+        instruments={instruments}
+        simulator={simulator}
+        free={free.data}
+      />
+    </>
+  );
+}
+
+/** How many agents with no instrument run on this hub PC at once. */
+function FreeAgentsLimit() {
+  const client = useQueryClient();
+  const free = useFreeAgents();
+  const [typed, setTyped] = useState<string | null>(null);
+  const save = useMutation({
+    mutationFn: (limit: number) =>
+      api<{ limit: number }>("/hub/free-agents/limit", { method: "PUT", body: JSON.stringify({ limit }) }),
+    onSuccess: () => {
+      setTyped(null);
+      client.invalidateQueries({ queryKey: ["hub/free-agents"] });
+    },
+  });
+  if (!free.data) return null;
+  const here = free.data.at_this_pc;
+  const value = typed ?? String(free.data.limit);
+  const wanted = /^\d+$/.test(value.trim()) ? Number(value.trim()) : null;
+  return (
+    <Card className="flex flex-col gap-2">
+      <CardTitle>Agents</CardTitle>
+      <div className="flex flex-wrap items-center gap-2.5 text-[13px]">
+        <span className="flex items-center gap-1.5">
+          Agents with no instrument at once
+          <Hint>
+            How many agents with no instrument this hub PC runs at the same time. An instrument's agent is not counted. Changed only at this PC, on the Hub's own page.
+          </Hint>
+        </span>
+        <span className="flex-1" />
+        <input
+          value={value}
+          onChange={(event) => setTyped(event.target.value)}
+          inputMode="numeric"
+          aria-label="Agents with no instrument at once"
+          disabled={!here}
+          className={cn(FIELD, "w-20")}
+        />
+        <Button
+          disabled={!here || save.isPending || wanted === null || wanted === free.data.limit}
+          onClick={() => wanted !== null && save.mutate(wanted)}
+        >
+          Save
+        </Button>
+      </div>
+      {save.error && <p className="m-0 text-[13px] text-destructive">{(save.error as Error).message}</p>}
+    </Card>
+  );
+}
+
+type Tab = "instruments" | "agents" | "sessions" | "history" | "pairing" | "customise" | "settings";
 
 function NavRow({
   current,
@@ -1199,6 +1630,9 @@ export function HubPage() {
           )}
         </div>
         <div className="mt-3 flex gap-0.5 border-t border-border pt-3 sm:flex-col">
+          <NavRow current={tab === "agents"} onClick={() => setTab("agents")}>
+            Agents
+          </NavRow>
           <NavRow current={tab === "sessions"} onClick={() => setTab("sessions")}>
             Sessions
           </NavRow>
@@ -1255,6 +1689,9 @@ export function HubPage() {
                 </div>
               )
             ))}
+          {tab === "agents" && (
+            <HubAgents instruments={instruments} simulator={hub.data?.simulator ?? null} />
+          )}
           {tab === "sessions" && <HubSessions instruments={instruments} />}
           {tab === "history" && <HubHistory />}
           {tab === "pairing" && (
@@ -1287,6 +1724,7 @@ export function HubPage() {
             <>
               <h1 className="m-0 text-[17px] font-semibold">Settings</h1>
               <HubKeys />
+              <FreeAgentsLimit />
               <HubSettings version={health.data?.version} onQuit={() => setStopped(Date.now())} />
             </>
           )}

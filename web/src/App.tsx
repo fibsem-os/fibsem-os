@@ -5,7 +5,12 @@ import { EventsPage } from "@/pages/Events";
 import { ExperimentPage } from "@/pages/Experiment";
 import { GatewayPage } from "@/pages/Gateway";
 import { HubPage } from "@/pages/Hub";
-import { agentInstrument, InstrumentAgentPage } from "@/pages/hub/InstrumentAgent";
+import {
+  agentInstrument,
+  agentSession,
+  InstrumentAgentPage,
+  sessionApiBase,
+} from "@/pages/hub/InstrumentAgent";
 import { GridsPage } from "@/pages/Grids";
 import { LamellaePage } from "@/pages/Lamellae";
 import { MicroscopePage } from "@/pages/Microscope";
@@ -91,6 +96,12 @@ function Paired() {
   if (instrument !== null) {
     setApiBase(`/hub/instruments/${encodeURIComponent(instrument)}`);
     return <InstrumentAgentPage key={token} name={instrument} />;
+  }
+  // An agent with no instrument: its own Agent Server, held by the Hub.
+  const session = agentSession(location.pathname);
+  if (session !== null) {
+    setApiBase(sessionApiBase(session));
+    return <InstrumentAgentPage key={token} session={session} />;
   }
   if (location.pathname.startsWith("/ui/hub")) return <HubPage key={token} />;
   return <Shell key={token} />;

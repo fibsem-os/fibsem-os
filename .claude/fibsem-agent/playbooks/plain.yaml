@@ -1,0 +1,9 @@
+# An agent with no instrument: a person gives it a goal and talks to it on
+# its Agent page. The Hub (agent-hub) starts an agent with no instrument on
+# this one. It doesn't extend the base playbook: the base's skills, tools and
+# rules are a FIB-SEM's. The base's session settings still hold under it.
+description: A plain agent with no instrument, for a person to talk to.
+instrument: none
+# No servers of its own: its record (plan, messages, notes) is kept on the
+# Agent Server that runs it. A lab's copy may name its connectors here.
+mcp: []

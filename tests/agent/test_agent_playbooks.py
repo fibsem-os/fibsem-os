@@ -267,7 +267,12 @@ def test_the_mcp_servers_a_playbook_uses_are_named_and_the_base_names_fibsem(
     lab, checkout
 ):
     for name in playbooks.available(checkout):
-        assert playbooks.load(name, checkout).mcp[0] == SERVER
+        found = playbooks.load(name, checkout)
+        if found.instrument == "none":
+            # The plain playbook, with no instrument: no fibsem server.
+            assert SERVER not in found.mcp
+            continue
+        assert found.mcp[0] == SERVER
     write(lab, "with-notebook", "extends: autolamella\nmcp: [notebook]\n")
     found = playbooks.load("with-notebook", checkout)
     assert found.mcp == [SERVER, "notebook"]

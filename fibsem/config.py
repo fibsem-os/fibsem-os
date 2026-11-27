@@ -344,6 +344,16 @@ class GatewayPreferences:
 
 
 @dataclass
+class HubPreferences:
+    """The Hub (``agent-hub``), on the PC that runs it."""
+
+    # How many agents with no instrument this hub PC runs at once
+    # (fibsem.hub.free_agents). An instrument's agent is not counted: its
+    # instrument has one slot.
+    free_agents: int = 5
+
+
+@dataclass
 class NotificationPreferences:
     """Messages to Slack for someone away from this instrument
     (``fibsem.alerts``): what needs an answer, the agent's messages, what
@@ -382,6 +392,7 @@ class InstallPreferences:
     update_check_enabled: bool = False
     app_server: AppServerPreferences = field(default_factory=AppServerPreferences)
     gateway: GatewayPreferences = field(default_factory=GatewayPreferences)
+    hub: HubPreferences = field(default_factory=HubPreferences)
     notifications: NotificationPreferences = field(
         default_factory=NotificationPreferences
     )
@@ -473,9 +484,11 @@ class UserPreferences:
         app_server.update(sections["install"].pop("app_server", None) or {})
         notifications = sections["install"].pop("notifications", None) or {}
         gateway = sections["install"].pop("gateway", None) or {}
+        hub = sections["install"].pop("hub", None) or {}
         install = _sub_from_dict(InstallPreferences, sections["install"])
         install.app_server = _sub_from_dict(AppServerPreferences, app_server)
         install.gateway = _sub_from_dict(GatewayPreferences, gateway)
+        install.hub = _sub_from_dict(HubPreferences, hub)
         install.notifications = _sub_from_dict(NotificationPreferences, notifications)
         return cls(
             shared=_sub_from_dict(SharedPreferences, sections["shared"]),
