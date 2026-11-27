@@ -397,3 +397,25 @@ def test_only_a_hub_with_the_grant_asks_for_the_slot(client):
         answer = client.post("/gateway/agent/slot", json=body, headers=_as(token))
         assert answer.status_code == status
         assert answer.json()["detail"]["error_type"] == error
+
+
+def test_a_quiet_spell_its_end_the_lapse_and_a_rejoin_are_logged(made, caplog):
+    caplog.set_level("INFO", logger="fibsem.gateway.hub_agent")
+    agent, _ = made.make()
+    first = _take(agent)
+    made.clock.now += hub_agent.LEASE_S + 5
+    agent.hub.follow()
+    agent.hub.follow()  # once, not every tick
+    made.clock.now += 40
+    agent.hub.renew("hub-pc", "s-1")
+    _lapse(made, agent)
+    with pytest.raises(GatewayRefused):
+        agent.hub.rejoin("hub-pc", "s-1", "a guess")
+    agent.hub.rejoin("hub-pc", "s-1", first["token"])
+    lines = [r.getMessage() for r in caplog.records]
+    assert sum("past one lease" in line for line in lines) == 1
+    assert any("heard again after 75 s quiet" in line for line in lines)
+    assert any("past the 120 s grace" in line for line in lines)
+    assert any("rejoin of session s-1 refused (lost_slot)" in line for line in lines)
+    assert any("rejoined after 121 s away" in line for line in lines)
+    assert first["token"] not in caplog.text
