@@ -92,6 +92,8 @@ class _Held:
     lost_why: str = ""
     # Whether it went quiet past the grace: the only way back is a rejoin.
     lapsed: bool = False
+    # Whether it has been quiet for more than a lease (logged once).
+    quiet: bool = False
 
 
 class HubAgents:
@@ -201,6 +203,19 @@ class HubAgents:
         it was given: a new token, and its last level, unless something on
         the PC changed since."""
         session_id = _session(session_id)
+        try:
+            return self._rejoin(hub, session_id, token)
+        except GatewayRefused as refusal:
+            logger.info(
+                "Hub %s's rejoin of session %s refused (%s): %s",
+                hub,
+                session_id,
+                refusal.error_type,
+                refusal,
+            )
+            raise
+
+    def _rejoin(self, hub: str, session_id: str, token: str) -> Dict[str, Any]:
         with self._agent._lock, self._lock:
             held = self._held
             if (
@@ -214,7 +229,7 @@ class HubAgents:
                     409, LOST_SLOT, "This session doesn't hold this instrument."
                 )
             if held.lost is None:
-                held.renewed = self._clock()
+                self._heard(held)
                 return self._answer(None)
             if not held.lapsed:
                 raise GatewayRefused(409, held.lost, held.lost_why)
@@ -232,6 +247,7 @@ class HubAgents:
                     STOPPED_REASON,
                     "The agent was stopped at the PC before it went quiet.",
                 )
+            away = self._clock() - held.renewed
             level, url = self._ready(held.level, replace=False)
             now = self._level_now(url)
             if now is not None and now != AgentLevel.WATCH.value:
@@ -240,7 +256,7 @@ class HubAgents:
                     LEVEL_CHANGED,
                     f"The level was changed at the PC (to {now.title()}).",
                 )
-            return self._pair_and_take(
+            answer = self._pair_and_take(
                 hub,
                 session_id,
                 held.playbook,
@@ -251,6 +267,14 @@ class HubAgents:
                 why=f"rejoined by {hub} (hub)",
                 started=held.started,
             )
+            logger.info(
+                "Hub %s's agent rejoined after %.0f s away (session %s, %s)",
+                hub,
+                away,
+                session_id,
+                level,
+            )
+            return answer
 
     def renew(self, hub: str, session_id: str) -> Dict[str, Any]:
         with self._lock:
@@ -262,7 +286,7 @@ class HubAgents:
             self._check(held)
             if held.lost is not None:
                 raise GatewayRefused(409, held.lost, held.lost_why)
-            held.renewed = self._clock()
+            self._heard(held)
             return {"lease_s": LEASE_S, "grace_s": self.grace_s}
 
     def release(self, hub: str, session_id: str) -> None:
@@ -296,7 +320,16 @@ class HubAgents:
             self._check(held)
             if held.lost is not None:
                 return
-            if self._clock() - held.renewed > self.grace_s:
+            quiet_s = self._clock() - held.renewed
+            if quiet_s > self.grace_s:
+                logger.info(
+                    "Hub %s's agent was quiet for %.0f s, past the %.0f s grace "
+                    "(session %s): Watch, its token unpaired, the slot free",
+                    held.hub,
+                    quiet_s,
+                    self.grace_s,
+                    held.session_id,
+                )
                 self._end(
                     held,
                     LOST_SLOT,
@@ -305,6 +338,16 @@ class HubAgents:
                 )
                 held.lapsed = True
                 return
+            if quiet_s > LEASE_S and not held.quiet:
+                held.quiet = True
+                logger.info(
+                    "Hub %s's agent quiet for %.0f s, past one lease (session %s): "
+                    "it keeps the slot and its level for %.0f s more",
+                    held.hub,
+                    quiet_s,
+                    held.session_id,
+                    self.grace_s - quiet_s,
+                )
             if self._clock() - self._level_read >= LEVEL_READ_S:
                 self._level_read = self._clock()
                 now = self._level_now(self._agent._url())
@@ -362,6 +405,19 @@ class HubAgents:
         self._agent.slot.take(holder, HUB, why, session_id=session_id, level=level)
         logger.info("Hub %s holds the agent slot (%s, %s)", hub, playbook, level)
         return self._answer(token)
+
+    def _heard(self, held: _Held) -> None:
+        """A renewal: after a quiet spell, logged with how long it was."""
+        now = self._clock()
+        if held.quiet:
+            held.quiet = False
+            logger.info(
+                "Hub %s's agent heard again after %.0f s quiet (session %s)",
+                held.hub,
+                now - held.renewed,
+                held.session_id,
+            )
+        held.renewed = now
 
     def _answer(self, token: Optional[str]) -> Dict[str, Any]:
         answer = {
