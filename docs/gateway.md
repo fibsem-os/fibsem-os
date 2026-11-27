@@ -73,6 +73,11 @@ never replaces an agent in use (the gateway's running agent, or one the app hear
 the last two minutes): the ask waits on the card instead. Every Allow and Deny, by the
 operator or by the setting, goes on the History.
 
+An allowed agent (Claude Code on a laptop, say) holds the slot while it stays paired and the
+app has heard from it in the last two minutes. When it stops holding it, the gateway sets
+the level to Watch, as it does for a hub's agent. If it comes back, it carries on at Watch
+until the operator raises the level.
+
 An App Server run alone, with no gateway (tests, live evals, scripts), pairs nothing: its
 agent token is the one its launcher sets in `FIBSEM_SERVER_TOKEN`, sent by the client the
 same way.

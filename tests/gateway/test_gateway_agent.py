@@ -1015,15 +1015,22 @@ def test_an_allowed_agent_leaves_the_slot_when_unpaired_or_quiet(made, tmp_path)
     agent._follow_slot()
     held = agent.slot.read()
     assert held["state"] == "ended" and held["why"].startswith("not heard from")
-    app.last_heard_s = 3.0  # back again
+    # Watch, as for a hub's agent, and only once.
+    assert app.levels == [(URL, "watch")]
+    agent._allowed_read = float("-inf")
+    agent._follow_slot()
+    assert app.levels == [(URL, "watch")]
+    app.last_heard_s = 3.0  # back again: it carries on at Watch
     agent._allowed_read = float("-inf")
     agent._follow_slot()
     assert agent.slot.read()["state"] == "running"
+    assert app.levels == [(URL, "watch")]
     tokens.remove(paired.id)
     agent._allowed_read = float("-inf")
     agent._follow_slot()
     held = agent.slot.read()
     assert (held["state"], held["why"]) == ("ended", "no longer paired")
+    assert app.levels == [(URL, "watch"), (URL, "watch")]
 
 
 def test_a_new_gateway_frees_a_slot_and_pairing_nothing_carries_on(made, tmp_path):
