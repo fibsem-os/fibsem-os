@@ -250,8 +250,8 @@ def describe(
         return f"Off; reads and writes files in {work} (--files){more}"
     if work is not None:
         sites = given.sites if given is not None else ()
-        network = f"network: {', '.join(sites)}" if sites else "no network"
-        return f"Available in {work} (sandboxed, {network}){more}"
+        network = f", network: {', '.join(sites)}" if sites else ""
+        return f"Available in {work} (sandboxed{network}){more}"
     if sys.platform == "win32":
         return "Not available (no sandbox on Windows)"
     return "Off (--code to turn it on)"
