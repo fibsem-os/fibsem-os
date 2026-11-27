@@ -40,6 +40,7 @@ from fibsem.gateway.gateway import (
     write_gateway_file,
 )
 from fibsem.gateway.host import HostMicroscope
+from fibsem.gateway.hub_remote import HubRemote
 from fibsem.gateway.peers import PeerAsks
 from fibsem.server.agent.process import AgentHostProcess
 from fibsem.server.device_auth import DEVICE_PAIRED_FILE
@@ -231,7 +232,10 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
                 on_quit,
                 on_show,
                 passthrough=PassThrough(
-                    _app_url, is_connect=auth.is_connect, host=agent_host.url
+                    _app_url,
+                    is_connect=auth.is_connect,
+                    host=agent_host.url,
+                    hub_remote=HubRemote(auth.hub, lambda: auth.token),
                 ),
                 device_server=device_server,
                 remote_servers=remote_servers,

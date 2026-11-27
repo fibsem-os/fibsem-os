@@ -1001,6 +1001,7 @@ def test_this_pc_settings_and_who_may_change_them(keys, tmp_path, monkeypatch):
         "allow_local_agents": False,
         "port": 8010,
         "update_check": False,
+        "hub_remote": "drive",
         "at_this_pc": True,
     }
     laptop = _paired_operator(client)

@@ -14,6 +14,11 @@ connection, the gateway answers 503 or 502 ``no_app``; with one that stops
 answering mid-call, 504 ``app_lost``. A client reads both as the App Server
 not answering (`fibsem.client.transport`), as it would reading it directly.
 
+A paired Hub's token is neither the operator's nor an agent's. What a Hub may
+ask (`fibsem.gateway.hub_remote`: reads, a message, an answer, Stop agent, and
+the level within this PC's limit) is passed on as the operator with the Hub's
+name beside it; anything else of a Hub's is refused here, 403.
+
 While no App Server runs, calls go to the Agent Server the gateway runs
 (`fibsem.server.agent.process`), which serves the agent's own routes: its
 events, session, plan, transcript, messages, level and Stop. A route only the
@@ -38,12 +43,25 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from starlette.background import BackgroundTask
 
 from fibsem.gateway import child_secrets
+from fibsem.gateway.hub_remote import HEADER as HUB_HEADER
+from fibsem.gateway.hub_remote import HubRefused, HubRemote
 from fibsem.server import discovery
 from fibsem.server.gateway_secret import HEADER, is_stop
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["APP_LOST", "CONNECT_FIRST", "NO_APP", "PASSED", "PassThrough", "is_stop"]
+__all__ = [
+    "APP_LOST",
+    "CONNECT_FIRST",
+    "NO_APP",
+    "PASSED",
+    "ROOT_PASSED",
+    "PassThrough",
+    "call_timeout",
+    "is_stop",
+    "passed_headers",
+    "streamed",
+]
 
 # The App Server's routes the gateway serves on its own port. Its /health stays
 # its own; pairing and the web app are the gateway's alone.
@@ -66,6 +84,7 @@ HOP_BY_HOP = frozenset(
         "content-length",
         # The gateway's own, added below: never a caller's.
         "x-fibsem-gateway",
+        "x-fibsem-hub",
     }
 )
 
@@ -96,7 +115,14 @@ def _no_app(status: int, message: str) -> JSONResponse:
     )
 
 
-def _timeout(said: Optional[str]):
+def _hub_refused(refusal: HubRefused) -> JSONResponse:
+    return JSONResponse(
+        {"detail": {"error_type": refusal.error_type, "message": str(refusal)}},
+        status_code=refusal.status,
+    )
+
+
+def call_timeout(said: Optional[str]):
     """The pass-through's timeout for a call that said it waits *said*
     seconds: that and `WAIT_MARGIN_S`, at least `READ_TIMEOUT_S` and at most
     `WAIT_MAX_S`; the usual for a call that said nothing readable."""
@@ -112,6 +138,29 @@ def _timeout(said: Optional[str]):
 
 def _headers(items: Iterable) -> list:
     return [(k, v) for k, v in items if k.lower() not in HOP_BY_HOP]
+
+
+def passed_headers(request: Request) -> list:
+    """*request*'s headers as they are passed on: all but the hop's own."""
+    return _headers(
+        (k.decode("latin-1"), v.decode("latin-1")) for k, v in request.headers.raw
+    )
+
+
+def streamed(answer: httpx.Response) -> StreamingResponse:
+    """*answer* (sent with ``stream=True``) passed back unchanged: its status,
+    its body as it arrives, and every header as sent, repeated ones too, none
+    of the hop's."""
+    response = StreamingResponse(
+        answer.aiter_raw(),
+        status_code=answer.status_code,
+        background=BackgroundTask(answer.aclose),
+    )
+    response.raw_headers = [
+        (k.encode("latin-1"), v.encode("latin-1"))
+        for k, v in _headers(answer.headers.multi_items())
+    ]
+    return response
 
 
 _kept_files: dict = {}
@@ -163,8 +212,12 @@ class PassThrough:
         secret: Optional[Callable[[], Optional[str]]] = None,
         host: Optional[Callable[[], Optional[str]]] = None,
         host_secret: Optional[Callable[[], Optional[str]]] = None,
+        hub_remote: Optional[HubRemote] = None,
     ) -> None:
         self._upstream = upstream
+        # What a paired Hub may ask; None passes its token on as it came,
+        # which the servers refuse.
+        self._hub_remote = hub_remote
         # Told of each call answered (method, path, status, bearer token):
         # the gateway's History records the changes it cares about.
         self.on_answered: Optional[Callable[[str, str, int, str], None]] = None
@@ -216,12 +269,23 @@ class PassThrough:
                 },
                 status_code=403,
             )
+        path = request.url.path
+        hub = (
+            self._hub_remote.found(bearer[7:].strip())
+            if self._hub_remote is not None and bearer.lower().startswith("bearer ")
+            else None
+        )
+        sets_level = False
+        if hub is not None:
+            try:
+                sets_level = self._hub_remote.check(hub, request.method, path)
+            except HubRefused as refusal:
+                return _hub_refused(refusal)
         url, to_host = self._url()
         if url is None:
             return _no_app(
                 503, "The app isn't running: start it on the gateway's page."
             )
-        path = request.url.path
         client = self._stops if is_stop(path) else self._client
         target = httpx.URL(f"{url.rstrip('/')}{path}").copy_with(
             query=request.url.query.encode("utf-8") or None
@@ -230,11 +294,9 @@ class PassThrough:
         wait = (
             httpx.USE_CLIENT_DEFAULT
             if client is self._stops
-            else _timeout(request.headers.get(WAIT_HEADER))
+            else call_timeout(request.headers.get(WAIT_HEADER))
         )
-        headers = _headers(
-            (k.decode("latin-1"), v.decode("latin-1")) for k, v in request.headers.raw
-        )
+        headers = passed_headers(request)
         try:
             # Each its own: the App Server's never goes to the host.
             secret = self._host_secret() if to_host else self._secret()
@@ -243,11 +305,30 @@ class PassThrough:
             secret = None
         if secret:
             headers.append((HEADER, secret))
+        content = request.stream()
+        if hub is not None:
+            # Passed on as the operator, with the Hub's name beside it.
+            operator = self._hub_remote.operator_token()
+            headers = [(k, v) for k, v in headers if k.lower() != "authorization"]
+            headers.append(("authorization", f"Bearer {operator}"))
+            headers.append((HUB_HEADER, hub.name))
+            if sets_level:
+                content = await request.body()
+                try:
+                    level = json.loads(content or b"{}").get("level")
+                except (ValueError, AttributeError):
+                    level = None
+                try:
+                    self._hub_remote.may_set(
+                        level, await self._level_now(url, operator, secret)
+                    )
+                except HubRefused as refusal:
+                    return _hub_refused(refusal)
         sent = client.build_request(
             request.method,
             target,
             headers=headers,
-            content=request.stream(),
+            content=content,
             timeout=wait,
         )
         try:
@@ -291,17 +372,26 @@ class PassThrough:
                 )
             except Exception:  # noqa: BLE001 - a record never fails the call
                 logger.warning("could not record a passed call", exc_info=True)
-        response = StreamingResponse(
-            answer.aiter_raw(),
-            status_code=answer.status_code,
-            background=BackgroundTask(answer.aclose),
-        )
-        # every header as sent, repeated ones too, and none of the hop's
-        response.raw_headers = [
-            (k.encode("latin-1"), v.encode("latin-1"))
-            for k, v in _headers(answer.headers.multi_items())
-        ]
-        return response
+        return streamed(answer)
+
+    async def _level_now(
+        self, url: str, operator: Optional[str], secret: Optional[str]
+    ) -> Optional[str]:
+        """The agent's level now, as the server at *url* says; None when it
+        doesn't say, and a Hub's raise is then held to this PC's limit."""
+        headers = {"authorization": f"Bearer {operator}"}
+        if secret:
+            headers[HEADER] = secret
+        try:
+            answer = await self._client.get(
+                f"{url.rstrip('/')}/capabilities",
+                headers=headers,
+                timeout=httpx.Timeout(10.0, connect=CONNECT_TIMEOUT_S),
+            )
+            level = answer.json().get("level")
+        except (httpx.HTTPError, ValueError, AttributeError):
+            return None
+        return level if isinstance(level, str) else None
 
     def router(self) -> APIRouter:
         router = APIRouter()

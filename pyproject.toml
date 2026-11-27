@@ -151,6 +151,7 @@ agent-hub = "fibsem.hub.main:main"
 # No console: the "Agent Gateway" desktop shortcut runs it.
 [project.gui-scripts]
 fibsem-gateway-open = "fibsem.gateway.launch:open_gateway_page"
+agent-hub-open = "fibsem.hub.main:open_hub_command"
 
 # Recursive by design. A bare `packages = ["fibsem"]` is NOT recursive: it ships
 # only the top-level fibsem/*.py and none of fibsem/ui, fibsem/milling, etc.

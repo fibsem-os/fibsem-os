@@ -5,6 +5,7 @@ import { EventsPage } from "@/pages/Events";
 import { ExperimentPage } from "@/pages/Experiment";
 import { GatewayPage } from "@/pages/Gateway";
 import { HubPage } from "@/pages/Hub";
+import { agentInstrument, InstrumentAgentPage } from "@/pages/hub/InstrumentAgent";
 import { GridsPage } from "@/pages/Grids";
 import { LamellaePage } from "@/pages/Lamellae";
 import { MicroscopePage } from "@/pages/Microscope";
@@ -15,7 +16,7 @@ import { QuickSearch } from "@/shell/QuickSearch";
 import { Rail } from "@/shell/Rail";
 import { Settings } from "@/shell/Settings";
 import { TopLine } from "@/shell/TopLine";
-import { forgotten, getToken, loadToken, onTokenChange } from "@/lib/api";
+import { forgotten, getToken, loadToken, onTokenChange, setApiBase } from "@/lib/api";
 import { useEventLoop } from "@/lib/events";
 import { useAgentReleased, useVolume } from "@/lib/experiment";
 import { usePage, useSettingsPath } from "@/lib/route";
@@ -84,7 +85,13 @@ function Paired() {
   // Keyed on the token, so a new pairing starts with nothing cached. The
   // gateway (fibsem-gateway) serves the same files and has one page.
   if (location.pathname.startsWith("/ui/gateway")) return <GatewayPage key={token} />;
-  // The Hub (agent-hub) serves the same files and has one page too.
+  // The Hub (agent-hub) serves the same files: its own page, and each
+  // instrument's Agent page with its calls passed through the Hub.
+  const instrument = agentInstrument(location.pathname);
+  if (instrument !== null) {
+    setApiBase(`/hub/instruments/${encodeURIComponent(instrument)}`);
+    return <InstrumentAgentPage key={token} name={instrument} />;
+  }
   if (location.pathname.startsWith("/ui/hub")) return <HubPage key={token} />;
   return <Shell key={token} />;
 }

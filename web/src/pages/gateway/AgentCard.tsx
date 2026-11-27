@@ -22,6 +22,8 @@ export interface Session {
   output?: string | null;
   // Started by the gateway, not by hand.
   gateway?: boolean;
+  // Who started it, when the gateway was told.
+  who?: string | null;
   // The level last set while it ran (Stop agent as Watch), else its start level.
   last_level?: string | null;
   // The budget it last ran with, else its start budget.
@@ -787,10 +789,14 @@ export function ResumeForm({
   session,
   ready,
   onDone,
+  path = "/gateway/agent/resume",
 }: {
   session: Session;
   ready: string | null;
   onDone: () => void;
+  /** Where the resume is asked: the gateway's own, or on the Hub's page the
+   * Hub's route for a session that ran on the hub PC. */
+  path?: string;
 }) {
   const api = useApi();
   const client = useQueryClient();
@@ -813,7 +819,7 @@ export function ResumeForm({
     budget ?? (playbookBudget != null ? String(playbookBudget) : "");
   const resume = useMutation({
     mutationFn: (replace: boolean) =>
-      api<AgentState>("/gateway/agent/resume", {
+      api<AgentState>(path, {
         method: "POST",
         body: JSON.stringify({
           session_id: session.session_id,
@@ -823,7 +829,8 @@ export function ResumeForm({
         }),
       }),
     onSuccess: (answer) => {
-      client.setQueryData(["gateway/agent"], answer);
+      if (path === "/gateway/agent/resume") client.setQueryData(["gateway/agent"], answer);
+      client.invalidateQueries({ queryKey: ["hub/sessions"] });
       onDone();
     },
   });
