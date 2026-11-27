@@ -23,7 +23,7 @@ import os
 import threading
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -78,6 +78,8 @@ class _Held:
     why: Optional[str] = None
     # When its gateway stopped answering, for the log.
     away_since: float = 0.0
+    # What the agent was started with, to start it again on its session.
+    args: List[str] = field(default_factory=list)
 
 
 class HubAgents:
@@ -209,11 +211,13 @@ class HubAgents:
                 "who": who,
                 "budget_usd": budget_usd,
             }
-            self._held[name] = _Held(session_id, token, _lease(answer), now, now, about)
-            self._ended.pop(name, None)
             args = ["--playbook", playbook, "--url", self._hub.reach(instrument)]
             if budget_usd is not None:
                 args += ["--max-budget-usd", f"{float(budget_usd):g}"]
+            self._held[name] = _Held(
+                session_id, token, _lease(answer), now, now, about, args=list(args)
+            )
+            self._ended.pop(name, None)
             try:
                 self._manager.start(
                     name,
@@ -326,7 +330,9 @@ class HubAgents:
                 held.token = fresh
             if self._manager.park(name) is agent and agent.state != "ended":
                 agent.env = self._env(name)
-            self._manager.unpark(name)
+                self._manager.unpark(name)
+            elif not self._carry_on(name, held):
+                return
         with self._lock:
             held.renewed = self._clock()
             held.lease_s = _lease(answer, held.lease_s)
@@ -337,6 +343,27 @@ class HubAgents:
                     self._clock() - held.away_since,
                 )
             held.state, held.why = "running", None
+
+    def _carry_on(self, name: str, held: _Held) -> bool:
+        """Start *name*'s agent again on its session: it didn't stop when
+        asked and was ended, and the session is all there in its folder."""
+        try:
+            self._manager.resume(
+                name,
+                held.session_id,
+                held.args + ["--carry-on"],
+                env=self._env(name),
+                about=held.about,
+            )
+        except (AgentRunning, OSError) as error:
+            self._finish(name, f"it could not carry on: {error}")
+            return False
+        log.warning(
+            "The hub's agent for %s didn't stop when asked; it was started "
+            "again on its session.",
+            name,
+        )
+        return True
 
     def _refused(self, name: str, held: _Held, refusal: GatewayRefused) -> None:
         reason = refusal.error_type

@@ -44,7 +44,9 @@ class FakeManager:
         self.agents = {}
         self.started = []
         self.parked = []
+        self.resumed = []
         self.fail = False
+        self.stuck = False
 
     def start(self, name, session_id, args, goal=None, env=None, about=None):
         if self.fail:
@@ -58,8 +60,15 @@ class FakeManager:
 
     def park(self, name):
         self.parked.append(name)
-        self.agents[name].state = "waiting"
+        # The real manager ends an agent that doesn't stop when asked.
+        self.agents[name].state = "ended" if self.stuck else "waiting"
         return self.agents[name]
+
+    def resume(self, name, session_id, args, env=None, about=None):
+        if self.fail:
+            raise OSError("no such program")
+        self.resumed.append((name, session_id, args, env))
+        self.agents[name] = SimpleNamespace(state="running", ended=None, env=env)
 
     def unpark(self, name):
         # The real manager resumes it on its next poll, with its env.
@@ -212,6 +221,38 @@ def test_the_same_session_joins_again_after_the_slot_was_freed(made):
     agent = made.manager.agents["Scope 1"]
     assert agent.state == "running"
     assert agent.env["FIBSEM_SERVER_TOKEN"] == "new-token"
+
+
+def _join_again(made):
+    made.slot.refuse["renew"] = "lost_slot"
+    made.now[0] += 11
+    made.agents.poll()
+    made.agents.poll()
+
+
+def test_an_agent_that_does_not_stop_is_started_again_on_its_session(made):
+    state = _start(made)
+    made.manager.stuck = True
+    _join_again(made)
+    [(name, session_id, args, env)] = made.manager.resumed
+    assert (name, session_id) == ("Scope 1", state["session_id"])
+    assert args[:2] == ["--playbook", "fibsem-agent"] and args[-1] == "--carry-on"
+    assert env["FIBSEM_SERVER_TOKEN"] == "new-token"
+    assert made.agents.state()["Scope 1"]["state"] == "running"
+    assert "/gateway/agent/slot/release" not in _routes(made)
+    # The next poll keeps the slot: the session was not ended.
+    made.now[0] += 11
+    made.agents.poll()
+    assert made.agents.state()["Scope 1"]["state"] == "running"
+
+
+def test_an_agent_that_can_not_be_started_again_ends_and_frees_the_slot(made):
+    _start(made)
+    made.manager.stuck = made.manager.fail = True
+    _join_again(made)
+    state = made.agents.state()["Scope 1"]
+    assert state["state"] == "ended" and "carry on" in state["why"]
+    assert "/gateway/agent/slot/release" in _routes(made)
 
 
 @pytest.mark.parametrize(
