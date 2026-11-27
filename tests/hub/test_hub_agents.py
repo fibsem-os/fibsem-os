@@ -122,6 +122,12 @@ def test_start_takes_the_slot_and_gives_the_agent_the_gateways_token(made):
     assert env == {"FIBSEM_SERVER_TOKEN": "agent-token", "ANTHROPIC_API_KEY": "key"}
 
 
+def test_a_start_gives_the_agent_what_it_was_given_beyond_its_folder(made):
+    _start(made, given=(["--code", "--allow-site", "pypi.org"], {"code": True}))
+    args = made.manager.started[0][2]
+    assert args[-3:] == ["--code", "--allow-site", "pypi.org"]
+
+
 def test_the_token_is_never_written_down(made):
     _start(made)
     for path in made.tmp.rglob("*"):

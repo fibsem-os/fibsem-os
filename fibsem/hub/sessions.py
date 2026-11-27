@@ -63,6 +63,9 @@ def hub_pc_sessions(root: Path, limit: int, free: bool = False) -> List[Dict[str
                 "spent_usd": found.spent_usd,
                 "last_level": about.get("level_now") or about.get("level"),
                 "last_budget_usd": about.get("budget_usd"),
+                # What it was given beyond its folder (a data folder,
+                # connectors, code mode and its sites), if anything.
+                "settings": about.get("settings") or None,
                 "output": managed.get("output"),
                 "gateway": True,
             }

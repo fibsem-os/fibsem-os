@@ -235,6 +235,7 @@ def harness_prompt(
     deadline_warn_min: Optional[float] = None,
     extras: Optional[Dict[str, extra_mcp.Server]] = None,
     servers: Optional[List[str]] = None,
+    grants: Optional[code_mode.Grants] = None,
 ) -> str:
     """What the harness tells the agent about itself; with a work folder (code
     mode, or files only), about it too; and about the lab's extra MCP servers
@@ -242,7 +243,7 @@ def harness_prompt(
     named in place of the fibsem sidecar's when they are others."""
     words = words or texts()
     fibsem = not servers or SERVER in servers
-    tools = NO_CODE if work is None else code_mode.prompt(work, code, fibsem)
+    tools = NO_CODE if work is None else code_mode.prompt(work, code, fibsem, grants)
     tools = _name_servers(tools, servers)
     more = extra_mcp.prompt_lines(extra_mcp.usable()[0] if extras is None else extras)
     if more:
@@ -272,11 +273,12 @@ def system_prompt(
     words: Optional[instruments.Texts] = None,
     extras: Optional[Dict[str, extra_mcp.Server]] = None,
     servers: Optional[List[str]] = None,
+    grants: Optional[code_mode.Grants] = None,
 ) -> str:
     """The harness's prompt, and the rules of the playbook the session
     started on after it, so they are read every turn."""
     warn = playbook.session.deadline_warn_min if playbook is not None else None
-    prompt = harness_prompt(work, code, words, warn, extras, servers)
+    prompt = harness_prompt(work, code, words, warn, extras, servers, grants)
     if playbook is not None and playbook.rules:
         prompt += (
             f"\n\nRules of the {playbook.name} playbook you started on:\n"
@@ -3202,6 +3204,7 @@ def build_options(
     host_token: Optional[str] = None,
     handoff: Optional[handoff_mod.Handoff] = None,
     wake_on: Optional[wake_policy.WakeOn] = None,
+    grants: Optional[code_mode.Grants] = None,
 ):
     """The SDK session: the MCP servers the *playbook* names (``mcp``; the
     sidecar alone without one), among them the lab's (*extras*, else read;
@@ -3265,9 +3268,9 @@ def build_options(
         env.update(code_mode.env(work))
         given = code_mode.tools(code)
         tools = BUILT_IN_TOOLS + given
-        allowed = granted + code_mode.allowed_tools(work, code)
+        allowed = granted + code_mode.allowed_tools(work, code, grants)
         denied = [tool for tool in DENIED_TOOLS if tool not in given]
-        settings = code_mode.settings_json(work, {**os.environ, **env}, code)
+        settings = code_mode.settings_json(work, {**os.environ, **env}, code, grants)
     denied = denied + _hidden(extras, secrets)
     servers = {}
     lab = extra_mcp.definitions(extras)
@@ -3310,6 +3313,7 @@ def build_options(
                 words,
                 extras,
                 names + [RECORD_SERVER] if host else None,
+                grants,
             ),
         },
         # With a playbook control, the reminders on now, asked at each call;
@@ -3411,7 +3415,7 @@ def status(
         ),
         ("Session", f"{session_id} ({'resumed' if args.resume else 'new'})"),
         ("Skills", _skills_line(checkout)),
-        ("Code", code_mode.describe(work, code)),
+        ("Code", code_mode.describe(work, code, getattr(args, "grants", None))),
         ("Log", str(log_path)),
     ]
     return [f"{label + ':':<10}{value}" for label, value in rows]
@@ -3546,6 +3550,31 @@ def _parser() -> argparse.ArgumentParser:
         "session's folder) and runs nothing: no shell",
     )
     parser.add_argument(
+        "--read",
+        action="append",
+        default=None,
+        metavar="FOLDER",
+        help="a data folder the agent may read and never write, beside its "
+        "own folder (with --files or --code); give it again for another",
+    )
+    parser.add_argument(
+        "--allow-site",
+        action="append",
+        default=None,
+        metavar="HOST",
+        help="a site the code sandbox may reach (with --code), by name, such "
+        "as pypi.org; never a local address. Without one the sandbox has no "
+        "network; give it again for another",
+    )
+    parser.add_argument(
+        "--connector",
+        action="append",
+        default=None,
+        metavar="NAME",
+        help="one of this PC's connectors (its mcp.yaml) to use beside the "
+        "playbook's own; give it again for another",
+    )
+    parser.add_argument(
         "--playbook",
         default=None,
         metavar="NAME",
@@ -3592,6 +3621,8 @@ class Setup:
     extras: Dict[str, extra_mcp.Server]
     # Why each of the lab's servers set up wrong is left off (`extra_mcp.usable`).
     left_off: List[str] = field(default_factory=list)
+    # What the start gives beyond the agent's folder (--read, --allow-site).
+    grants: Optional[code_mode.Grants] = None
 
 
 def _setup(args, checkout: Path) -> Setup:
@@ -3619,6 +3650,16 @@ def _setup(args, checkout: Path) -> Setup:
     # A lab server that is set up wrong, or whose token isn't stored, is left
     # off (logged): the session runs without it rather than not at all.
     extras, left_off = extra_mcp.usable()
+    # The connectors this start names, beside the playbook's: asked for by
+    # name, so one that isn't usable here refuses the start.
+    for name in getattr(args, "connector", None) or []:
+        if name == SERVER or name not in extras:
+            raise SetupRefused(
+                f"--connector {name}: no usable connector of that name on "
+                f"this PC ({extra_mcp.path()})."
+            )
+        if name not in playbook.mcp:
+            playbook.mcp.append(name)
     names = mcp_names(playbook, extras, getattr(args, "host", None) is not None)
     # A specialist gets only the lab servers its session has.
     used = used_servers(extras, names)
@@ -3657,8 +3698,29 @@ def _setup(args, checkout: Path) -> Setup:
         refused = code_mode.refusal(work, checkout, code)
         if refused:
             raise SetupRefused(refused)
+    try:
+        grants = code_mode.grants(
+            getattr(args, "read", None) or [],
+            getattr(args, "allow_site", None) or [],
+            work,
+            code,
+        )
+    except ValueError as refused:
+        raise SetupRefused(str(refused)) from None
+    # Read by the status and --show-config, which are given the arguments.
+    args.grants = grants
     return Setup(
-        playbook, words, loaded, work, code, session_id, folder, run, extras, left_off
+        playbook,
+        words,
+        loaded,
+        work,
+        code,
+        session_id,
+        folder,
+        run,
+        extras,
+        left_off,
+        grants,
     )
 
 
@@ -3885,6 +3947,7 @@ def _main(argv, opened: List["sessions.SessionFolder"]) -> int:
         host=args.host,
         host_token=host_token,
         handoff=handoff,
+        grants=setup.grants,
     )
     agent = SdkAgent(
         options, usage_path=session.folder / usage.FILE, session_id=session_id
@@ -4050,6 +4113,9 @@ def _about(
         "max_budget_usd": args.max_budget_usd,
         "max_turns": args.max_turns,
         "mode": ("code" if code else "files") if work is not None else "none",
+        "read": list(getattr(args, "read", None) or []),
+        "sites": list(getattr(args, "allow_site", None) or []),
+        "connectors": list(getattr(args, "connector", None) or []),
         "checkout": str(checkout),
         "playbook": playbook.name if playbook else None,
         "playbook_hash": playbook.hash if playbook else None,
@@ -4156,6 +4222,7 @@ def show_config(
     if extras is None:
         extras, problems = extra_mcp.usable()
     host = getattr(args, "host", None)
+    grants = getattr(args, "grants", None)
     named = mcp_names(playbook, extras, host is not None)
     # The lab's servers this playbook leaves off, so none goes unnoticed.
     unused = sorted(set(extras) - set(named))
@@ -4166,7 +4233,7 @@ def show_config(
     if work is not None:
         given = code_mode.tools(code)
         tools = BUILT_IN_TOOLS + given
-        allowed = granted + code_mode.allowed_tools(work, code)
+        allowed = granted + code_mode.allowed_tools(work, code, grants)
         denied = [tool for tool in DENIED_TOOLS if tool not in given]
     config = {
         "level": playbook.session.level,
@@ -4200,6 +4267,10 @@ def show_config(
         "host": host,
         "mode": ("code" if code else "files") if work is not None else "none",
         "folder": str(work) if work is not None else None,
+        # What the start gives beyond that folder: folders read and never
+        # written, and the sites the code sandbox reaches (none: no network).
+        "read": [str(folder) for folder in grants.read] if grants else [],
+        "sites": list(grants.sites) if grants else [],
         "checkout": str(checkout),
         "skills": list(loaded.skills),
         "specialists": list(loaded.agents),
@@ -4215,7 +4286,7 @@ def show_config(
             "hash": playbook.hash,
         },
         "system_prompt": system_prompt(
-            work, code, playbook, words, extras, servers if host else None
+            work, code, playbook, words, extras, servers if host else None, grants
         ),
     }
     if extras:

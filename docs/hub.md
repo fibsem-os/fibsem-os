@@ -130,6 +130,30 @@ one. Stopping the Hub ends them all, and one that outlived a Hub that crashed is
 and carries its session on when the Hub starts again. Each session is listed in
 **Sessions** under "No instrument", and **Resume** there carries it on in the same folder.
 
+### A folder, connectors and code mode
+
+An agent that runs on the hub PC, with an instrument or without one, can be given three
+things beyond its own folder. They are off until **Settings** has "Offer a folder,
+connectors and code mode in the start form" ticked, which is done only at the hub PC. Tick
+it once code mode has been tried on that PC. Until then the start form shows none of it
+and a start that asks for it is refused.
+
+- **Folder**: one data folder the agent may read, picked from the **Data folders** listed
+  in Settings. It never writes there. What it makes stays in its own work folder, in its
+  session.
+- **Connectors**: which of the Hub's connectors the agent may use. Their tokens stay in
+  the hub PC's key store and are never shown.
+- **Code mode**: the agent writes and runs its own code, always inside the sandbox. There
+  is no unsandboxed choice, and a hub PC on Windows has no sandbox, so no code mode. The
+  sandbox has no network unless **Network** is ticked, which lets its code reach the
+  **Allowed sites** listed in Settings and nothing else. A local address (localhost, an IP
+  address, a name inside the lab's network) is never allowed.
+
+The two lists are changed only at the hub PC. Every start and every resume is checked
+against them as they are then: a folder that isn't listed, a site that isn't allowed and a
+local address are each refused by name. An agent's row, its Agent page and **Sessions** say
+what it was given, such as "runs code, sandboxed".
+
 ### Sessions
 
 **Sessions** lists the agent sessions of every instrument in one place: those that ran on

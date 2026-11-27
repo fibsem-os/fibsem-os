@@ -1,7 +1,9 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { ArrowLeft, Info } from "lucide-react";
+import { getToken } from "@/lib/api";
 import { useEventLoop } from "@/lib/events";
 import { AgentPage } from "@/pages/Agent";
+import { type Given, givenWords } from "@/pages/hub/Given";
 
 const AT = "/ui/hub/agent/";
 const SESSION_AT = "/ui/hub/session/";
@@ -38,8 +40,34 @@ const SESSION_HINT =
  * With *name*, an instrument's, passed through the Hub to its gateway, which
  * decides what is done from here. Without, a session with no instrument,
  * served by its own Agent Server on the hub PC. */
+/** What the agent of this page was given beyond its folder, when it runs
+ * on the hub PC: asked of the Hub itself, not through the page's own calls. */
+function useGiven(name?: string, session?: string): string[] {
+  const [given, setGiven] = useState<Given | null>(null);
+  useEffect(() => {
+    let gone = false;
+    const headers = { Authorization: `Bearer ${getToken() ?? ""}` };
+    fetch(name !== undefined ? "/hub/agents" : "/hub/free-agents", { headers })
+      .then((answer) => (answer.ok ? answer.json() : null))
+      .then((state) => {
+        if (gone || !state) return;
+        const row =
+          name !== undefined
+            ? state[name]
+            : (state.agents ?? []).find((a: { session_id: string }) => a.session_id === session);
+        setGiven(row?.state !== "ended" || name === undefined ? (row?.settings ?? null) : null);
+      })
+      .catch(() => undefined);
+    return () => {
+      gone = true;
+    };
+  }, [name, session]);
+  return givenWords(given);
+}
+
 export function InstrumentAgentPage({ name, session }: { name?: string; session?: string }) {
   useEventLoop();
+  const given = useGiven(name, session);
   const here = name !== undefined ? agentPagePath(name) : sessionPagePath(session ?? "");
   useEffect(() => {
     // A link on the page to another page (the microscope, a lamella): those
@@ -62,6 +90,7 @@ export function InstrumentAgentPage({ name, session }: { name?: string; session?
         </a>
         <span className="font-semibold">{name ?? "No instrument"}</span>
         <span className="text-muted-foreground">Agent</span>
+        {given.length > 0 && <span className="text-muted-foreground">{given.join(" · ")}</span>}
         <span
           className="inline-flex text-muted-foreground"
           title={name !== undefined ? INSTRUMENT_HINT : SESSION_HINT}

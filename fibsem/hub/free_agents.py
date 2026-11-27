@@ -50,7 +50,7 @@ from fibsem.ai.agent.manager import (
 from fibsem.ai.agent.report import MAX_GOAL
 from fibsem.client.transport import HOST_TOKEN_ENV
 from fibsem.gateway.gateway import GatewayRefused
-from fibsem.hub.agents import API_KEY
+from fibsem.hub.agents import API_KEY, Given, Launch
 from fibsem.hub.history import AGENT, HubHistory
 from fibsem.hub.hub import TOKENS_DIR
 from fibsem.server.agent.host import build_agent_host
@@ -285,9 +285,12 @@ class FreeAgents:
         goal: Optional[str],
         who: str,
         budget_usd: Optional[float] = None,
+        given: Optional[Given] = None,
     ) -> Dict[str, Any]:
-        """Start an agent with no instrument on this PC. Raises
-        `GatewayRefused`."""
+        """Start an agent with no instrument on this PC. *given* is what the
+        start gives it beyond its folder, checked (`agent_settings.launch`).
+        Raises `GatewayRefused`."""
+        more, settings = given or ([], {})
         goal = (goal or "").strip() or None
         if goal and len(goal) > MAX_GOAL:
             raise GatewayRefused(
@@ -307,10 +310,12 @@ class FreeAgents:
                 "goal": goal,
                 "who": who,
                 "budget_usd": budget_usd,
+                **({"settings": settings} if settings else {}),
             }
             args = ["--playbook", PLAYBOOK, "--host", self._address(session_id)]
             if budget_usd is not None:
                 args += ["--max-budget-usd", f"{float(budget_usd):g}"]
+            args += more
             self._held[session_id] = _Free(session_id, token, server, about, args)
             try:
                 self._manager.start(
@@ -330,10 +335,16 @@ class FreeAgents:
         return self._row(session_id)
 
     def resume(
-        self, session_id: str, who: str, budget_usd: Optional[float] = None
+        self,
+        session_id: str,
+        who: str,
+        budget_usd: Optional[float] = None,
+        launch: Optional[Launch] = None,
     ) -> Dict[str, Any]:
         """Carry on a session with no instrument that ended on this hub PC,
-        in its own folder. Raises `GatewayRefused`."""
+        in its own folder. What it was given beyond its folder is checked
+        again by *launch*, as this PC's settings are now. Raises
+        `GatewayRefused`."""
         session_id = str(session_id or "")
         folder = self._manager.folder(session_id) if session_id else None
         record = read_json(folder / RECORD) if folder else {}
@@ -345,6 +356,9 @@ class FreeAgents:
             )
         managed = read_json(folder / MANAGED)
         started = managed.get("about") or {}
+        more, settings = (
+            launch(started.get("settings")) if launch is not None else ([], {})
+        )
         with self._lock:
             if session_id in self._held:
                 raise GatewayRefused(
@@ -359,6 +373,7 @@ class FreeAgents:
                 "who": who,
                 "budget_usd": budget_usd,
                 "resumed": True,
+                **({"settings": settings} if settings else {}),
             }
             args = ["--playbook", PLAYBOOK, "--host", self._address(session_id)]
             for key in ("model", "effort"):
@@ -366,6 +381,7 @@ class FreeAgents:
                     args += [f"--{key}", str(record[key])]
             if budget_usd is not None:
                 args += ["--max-budget-usd", f"{float(budget_usd):g}"]
+            args += more
             self._held[session_id] = _Free(session_id, token, server, about, args)
             self._ended.pop(session_id, None)
             try:

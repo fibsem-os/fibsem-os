@@ -1,6 +1,6 @@
 // The App Server, as this browser reaches it. The token keys are the ones the
 // old /chat page used, so a browser it paired stays paired.
-import { createContext, useCallback, useContext } from "react";
+import { createContext, type ReactNode, useCallback, useContext } from "react";
 
 const OPERATOR_KEY = "fibsem-operator-token";
 const PAIRED_KEY = "fibsem-paired-token";
@@ -228,6 +228,10 @@ export interface Reached {
    * (the Hub's page). A place with *start* is started at that route, as it
    * is; one without, at the gateway's own start. */
   places?: { key: string; label: string; start?: string }[];
+  /** For a start at a place with *start*: more fields for its form, and what
+   * they add to what is asked ("settings"). */
+  more?: ReactNode;
+  settings?: Record<string, unknown>;
 }
 
 const ReachedContext = createContext<Reached>({ prefix: "", pc: "this PC" });

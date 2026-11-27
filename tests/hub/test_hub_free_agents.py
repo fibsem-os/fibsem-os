@@ -268,6 +268,37 @@ def test_resume_carries_the_session_on_with_a_new_token(made):
     assert refused.value.error_type == "no_session"
 
 
+def test_a_start_carries_what_it_was_given_and_a_resume_is_checked_again(made):
+    given = (["--files", "--read", "/data/papers"], {"folder": "/data/papers"})
+    row = made.agents.start("Read the papers", "pat", given=given)
+    session_id = row["session_id"]
+    args = _started(made)["args"]
+    assert args[args.index("--read") + 1] == "/data/papers" and "--files" in args
+    listed = hub_sessions.hub_pc_sessions(made.root, 10, free=True)
+    assert listed[0]["settings"] == {"folder": "/data/papers"}
+    made.agents.end(session_id, "pat")
+    asked = []
+
+    def launch(settings):
+        asked.append(settings)
+        return ["--files", "--read", "/data/papers"], {"folder": "/data/papers"}
+
+    made.agents.resume(session_id, "pat", launch=launch)
+    # Checked from the session's record, as the settings are now.
+    assert asked == [{"folder": "/data/papers"}]
+    args = _started(made, 2)["args"]
+    assert args[args.index("--read") + 1] == "/data/papers"
+    made.agents.end(session_id, "pat")
+
+    def refuses(settings):
+        raise GatewayRefused(403, "folder_not_listed", "Not listed any more.")
+
+    with pytest.raises(GatewayRefused) as refused:
+        made.agents.resume(session_id, "pat", launch=refuses)
+    assert refused.value.error_type == "folder_not_listed"
+    assert len(made.runs()) == 2
+
+
 def test_an_agent_left_by_an_earlier_hub_carries_on_with_a_new_token(made):
     session_id = made.agents.start("One", "pat")["session_id"]
     first = _started(made)["token"]

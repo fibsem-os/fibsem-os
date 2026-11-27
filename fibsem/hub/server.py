@@ -23,6 +23,7 @@ from fibsem.gateway import settings as gateway_settings
 from fibsem.gateway.gateway import GatewayRefused
 from fibsem.gateway.passthrough import PASSED, ROOT_PASSED
 from fibsem.gateway.server import GatewayAuth
+from fibsem.hub import agent_settings
 from fibsem.hub import sessions as hub_sessions
 from fibsem.hub.agents import API_KEY, HubAgents
 from fibsem.hub.free_agents import AT as AGENT_SERVERS_AT
@@ -362,6 +363,29 @@ def build_hub_app(
             return {"events": [], "more": False}
         return history.read(limit)
 
+    @app.get("/hub/agent-settings")
+    def get_agent_settings(request: Request, who: str = Depends(operator)) -> dict:
+        """What an agent started on this hub PC may be given beyond its own
+        folder: the data folders, the allowed sites, the usable connectors,
+        and whether the start form offers them (`fibsem.hub.agent_settings`)."""
+        return {**agent_settings.read(), "at_this_pc": at_this_pc(request)}
+
+    @app.put("/hub/agent-settings", dependencies=[Depends(this_pc_only)])
+    def put_agent_settings(body: Dict[str, Any], who: str = Depends(operator)):
+        """``{data_folders, allowed_sites, offered}``: changed only at this
+        PC. A folder that isn't one, and a site that is a local address, are
+        refused."""
+        answer = noted(
+            SETUP,
+            "Changed what agents on this hub PC may be given ("
+            + ", ".join(sorted(body or {}))
+            + ")",
+            who,
+            None,
+            lambda: _act(lambda: agent_settings.save(body)),
+        )
+        return {**answer, "at_this_pc": True}
+
     if history is not None:
 
         @app.middleware("http")
@@ -409,6 +433,7 @@ def build_hub_app(
                     who,
                     budget,
                     bool(body.get("replace")),
+                    agent_settings.launch(body.get("settings")),
                 )
             )
 
@@ -431,6 +456,7 @@ def build_hub_app(
                     who,
                     budget,
                     bool(body.get("replace")),
+                    agent_settings.launch,
                 )
             )
 
@@ -487,7 +513,12 @@ def build_hub_app(
             this hub PC."""
             body = body or {}
             return _act(
-                lambda: free.start(str(body.get("goal") or ""), who, _budget(body))
+                lambda: free.start(
+                    str(body.get("goal") or ""),
+                    who,
+                    _budget(body),
+                    agent_settings.launch(body.get("settings")),
+                )
             )
 
         @app.post("/hub/free-agents/resume")
@@ -497,7 +528,10 @@ def build_hub_app(
             body = body or {}
             return _act(
                 lambda: free.resume(
-                    str(body.get("session_id") or ""), who, _budget(body)
+                    str(body.get("session_id") or ""),
+                    who,
+                    _budget(body),
+                    agent_settings.launch,
                 )
             )
 

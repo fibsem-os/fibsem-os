@@ -28,6 +28,7 @@ import {
 import { AgentRow, History, stopped } from "@/pages/gateway/History";
 import { SetupAt } from "@/pages/agent/Connectors";
 import { AppCard, type GatewayState } from "@/pages/Gateway";
+import { AgentSettingsCard, type Given, GivenFields, givenWords } from "@/pages/hub/Given";
 import { agentPagePath, sessionPagePath } from "@/pages/hub/InstrumentAgent";
 import { Customise } from "@/pages/gateway/Customise";
 import { KeyRow, type Secret } from "@/pages/gateway/Settings";
@@ -422,8 +423,11 @@ function InstrumentScope({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [instrument.name],
   );
+  const [given, setGiven] = useState<Given>({});
   const reached = useMemo(
     () => ({
+      more: <GivenFields value={given} onChange={setGiven} />,
+      settings: { ...given },
       prefix: `/hub/instruments/${encodeURIComponent(instrument.name)}`,
       pc: simulated ? "this hub PC" : "the microscope PC",
       places: [
@@ -435,7 +439,7 @@ function InstrumentScope({
         },
       ].slice(hubOnly ? 1 : 0),
     }),
-    [instrument.name, simulated, hubOnly],
+    [instrument.name, simulated, hubOnly, given],
   );
   return (
     <QueryClientProvider client={client}>
@@ -923,6 +927,8 @@ interface HubSession extends Session {
   /** null for a session with no instrument. */
   instrument: string | null;
   runs_on: "hub" | "pc";
+  /** What a session on the hub PC was given beyond its folder. */
+  settings?: Given | null;
 }
 
 /** What a session with no instrument is listed under. */
@@ -1037,7 +1043,7 @@ function HubSessions({ instruments }: { instruments: Instrument[] }) {
                 (s.instrument === null || !busy(s.instrument))
               }
               ready={null}
-              where={[listedUnder(s), s.runs_on === "hub" ? "hub PC" : "microscope PC", s.who]
+              where={[listedUnder(s), s.runs_on === "hub" ? "hub PC" : "microscope PC", ...givenWords(s.settings), s.who]
                 .filter(Boolean)
                 .join(" · ")}
               resumePath={
@@ -1146,6 +1152,7 @@ interface FreeAgent {
   who: string | null;
   budget_usd: number | null;
   resumed?: boolean;
+  settings?: Given | null;
   /** Whether the Hub serves its Agent page now. */
   page: boolean;
 }
@@ -1167,6 +1174,7 @@ interface HubPcAgent {
   goal?: string | null;
   level?: string;
   who?: string;
+  settings?: Given | null;
 }
 
 const useFreeAgents = () =>
@@ -1278,6 +1286,7 @@ function NewAgent({
   const [name, setName] = useState("");
   const [goal, setGoal] = useState("");
   const [budget, setBudget] = useState("");
+  const [given, setGiven] = useState<Given>({});
   const usable = instruments.filter((i) => i.paired && i.reachable);
   const instrument = usable.find((i) => i.name === name) ?? null;
   const done = () => {
@@ -1285,6 +1294,7 @@ function NewAgent({
     client.invalidateQueries({ queryKey: ["hub/agents"] });
     setGoal("");
     setBudget("");
+    setGiven({});
     onOpenChange(false);
   };
   const start = useMutation({
@@ -1294,6 +1304,7 @@ function NewAgent({
         body: JSON.stringify({
           goal: goal.trim(),
           ...(budget.trim() ? { budget_usd: budget.trim() } : {}),
+          settings: given,
         }),
       }),
     onSuccess: done,
@@ -1363,6 +1374,7 @@ function NewAgent({
             </InstrumentScope>
           ) : (
             <>
+              <GivenFields value={given} onChange={setGiven} />
               {start.error && <p className="m-0 text-[13px] text-destructive">{(start.error as Error).message}</p>}
               <div className="flex flex-wrap items-center justify-end gap-2.5">
                 <span className="text-xs text-muted-foreground">
@@ -1404,7 +1416,7 @@ function HubAgents({ instruments, simulator }: { instruments: Instrument[]; simu
           goal={a.goal}
           state={a.state ?? "running"}
           why={a.why}
-          about={[a.playbook, a.level && title(a.level), a.who, since(a.started)]}
+          about={[a.playbook, a.level && title(a.level), ...givenWords(a.settings), a.who, since(a.started)]}
           page={agentPagePath(name)}
           endPath={
             a.state === "ended" ? undefined : `/hub/instruments/${encodeURIComponent(name)}/hub-agent/end`
@@ -1425,6 +1437,7 @@ function HubAgents({ instruments, simulator }: { instruments: Instrument[]; simu
           why={a.why}
           about={[
             a.budget_usd != null && `budget ${dollars(a.budget_usd)}`,
+            ...givenWords(a.settings),
             a.who,
             since(a.started, a.resumed),
           ]}
@@ -1725,6 +1738,7 @@ export function HubPage() {
               <h1 className="m-0 text-[17px] font-semibold">Settings</h1>
               <HubKeys />
               <FreeAgentsLimit />
+              <AgentSettingsCard />
               <HubSettings version={health.data?.version} onQuit={() => setStopped(Date.now())} />
             </>
           )}

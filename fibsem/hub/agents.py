@@ -31,7 +31,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from fibsem.ai.agent.manager import (
     MANAGED,
@@ -47,7 +47,13 @@ from fibsem.hub.hub import TOKENS_DIR, Hub, crosses_in_clear
 from fibsem.keystore import stored_secret
 from fibsem.util import timestamps
 
-__all__ = ["API_KEY", "HubAgents", "SESSIONS_DIR", "stored_key"]
+__all__ = ["API_KEY", "Given", "HubAgents", "Launch", "SESSIONS_DIR", "stored_key"]
+
+# What a start gives the agent beyond its folder: fibsem-agent's arguments
+# for it, and the same in a few words for the session's record.
+Given = Tuple[List[str], Dict[str, Any]]
+# Checks what a session was given against this PC's settings as they are now.
+Launch = Callable[[Optional[Dict[str, Any]]], Given]
 
 log = logging.getLogger(__name__)
 
@@ -221,9 +227,13 @@ class HubAgents:
         who: str,
         budget_usd: Optional[float] = None,
         replace: bool = False,
+        given: Optional[Given] = None,
     ) -> Dict[str, Any]:
         """Ask *name*'s gateway for its agent slot and start the agent on this
-        PC. Each failure undoes what came before it. Raises `GatewayRefused`."""
+        PC. Each failure undoes what came before it. *given* is what the start
+        gives the agent beyond its folder, checked (`agent_settings.launch`).
+        Raises `GatewayRefused`."""
+        more, settings = given or ([], {})
         instrument = self._may_run(name)
         with self._lock:
             self._free(name)
@@ -239,10 +249,12 @@ class HubAgents:
                 "level": level,
                 "who": who,
                 "budget_usd": budget_usd,
+                **({"settings": settings} if settings else {}),
             }
             args = ["--playbook", playbook, "--url", self._hub.reach(instrument)]
             if budget_usd is not None:
                 args += ["--max-budget-usd", f"{float(budget_usd):g}"]
+            args += more
             self._held[name] = _Held(
                 session_id, token, _lease(answer), now, now, about, args=list(args)
             )
@@ -333,11 +345,14 @@ class HubAgents:
         who: str,
         budget_usd: Optional[float] = None,
         replace: bool = False,
+        launch: Optional[Launch] = None,
     ) -> Dict[str, Any]:
         """Carry on a session that ended on this hub PC, for the instrument
         it ran for: its gateway is asked for the slot as for a start (its
         checks, a fresh token, the level), and the agent starts again in the
-        session's own folder. Raises `GatewayRefused`."""
+        session's own folder. What it was given beyond its folder is checked
+        again by *launch*, as this PC's settings are now. Raises
+        `GatewayRefused`."""
         folder = self._manager.folder(str(session_id or ""))
         managed = read_json(folder / MANAGED) if folder else {}
         record = read_json(folder / RECORD) if folder else {}
@@ -358,6 +373,9 @@ class HubAgents:
         playbook = playbook.get("name") if isinstance(playbook, dict) else playbook
         playbook = playbook or started.get("playbook") or ""
         goal = record.get("goal") or started.get("goal")
+        more, settings = (
+            launch(started.get("settings")) if launch is not None else ([], {})
+        )
         with self._lock:
             self._free(name)
             token, answer = self._take(
@@ -372,6 +390,7 @@ class HubAgents:
                 "who": who,
                 "budget_usd": budget_usd,
                 "resumed": True,
+                **({"settings": settings} if settings else {}),
             }
             args = ["--playbook", playbook, "--url", self._hub.reach(instrument)]
             for key in ("model", "effort"):
@@ -379,6 +398,7 @@ class HubAgents:
                     args += [f"--{key}", str(record[key])]
             if budget_usd is not None:
                 args += ["--max-budget-usd", f"{float(budget_usd):g}"]
+            args += more
             self._held[name] = _Held(
                 session_id, token, _lease(answer), now, now, about, args=list(args)
             )

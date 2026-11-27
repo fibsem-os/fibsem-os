@@ -351,6 +351,14 @@ class HubPreferences:
     # (fibsem.hub.free_agents). An instrument's agent is not counted: its
     # instrument has one slot.
     free_agents: int = 5
+    # What an agent started here may be given beyond its own folder
+    # (fibsem.hub.agent_settings): the data folders one may be picked from to
+    # read, and the sites a code sandbox may reach, never a local address.
+    data_folders: List[str] = field(default_factory=list)
+    allowed_sites: List[str] = field(default_factory=list)
+    # Whether the start form offers a folder, connectors and code mode at
+    # all. Off until the sandbox has been tried on this PC.
+    offer_agent_settings: bool = False
 
 
 @dataclass

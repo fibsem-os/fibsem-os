@@ -294,7 +294,7 @@ function Start({
   onStarted?: () => void;
 }) {
   const api = useApi();
-  const { pc, places } = useReached();
+  const { pc, places, more, settings } = useReached();
   const [place, setPlace] = useState(places?.[0]?.key ?? "");
   const elsewhere = places?.find((p) => p.key === place)?.start;
   const client = useQueryClient();
@@ -345,6 +345,7 @@ function Start({
           goal: goal.trim(),
           level,
           ...(sentBudget ? { budget_usd: sentBudget } : {}),
+          ...(elsewhere && settings ? { settings } : {}),
           replace,
         }),
       };
@@ -439,6 +440,7 @@ function Start({
           />
         </Field>
       </div>
+      {elsewhere && more}
       {playbooks.error && (
         <p className="m-0 text-[13px] text-destructive">
           {(playbooks.error as Error).message}
