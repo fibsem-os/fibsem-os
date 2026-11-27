@@ -24,6 +24,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from fibsem import unreleased
 from fibsem.gateway.gateway import GatewayRefused
+from fibsem.gateway.main import call
 from fibsem.hub.hub import Hub
 from fibsem.server.discovery import gateway_port, read_gateway_file
 from fibsem.util.process import end
@@ -43,8 +44,6 @@ STOP_WAIT_S = 30.0
 def _code() -> Optional[str]:
     """A hub's pairing code from the gateway running on this PC, asked as
     ``fibsem-gateway pair --hub --may-switch`` asks. None when none came."""
-    from fibsem.gateway.main import call
-
     try:
         listing = call(
             "POST", "/pairing", {"role": "hub", "grants": ["switch_modes"]}, 10.0
