@@ -88,6 +88,9 @@ def test_a_session_splits_into_model_microscope_reads_subagents_and_between_turn
         "microscope_s": 10,
         "reads_s": 2,
     }
+    (run,) = found["subagent_runs"]
+    assert run["name"] == "fibsem-worker" and run["microscope_s"] == 10
+    assert run["microscope_tools"] == ["stage_stable_move"]
     assert found["slowest_tools"][0] == {
         "tool": "milling_run_stage",
         "calls": 1,

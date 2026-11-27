@@ -13,7 +13,9 @@ site, by the times on its own notes.
   microscope's runs.
 - **Reads and analysis**: every other tool: the record, crops and measures,
   skills, the knowledge base.
-- **Subagents**: each run's wall clock, split the same way inside it.
+- **Subagents**: each kind's runs, wall clock, split the same way inside
+  them; and each run on its own (what it was asked, its microscope time and
+  the microscope tools it called), so the runs that used the microscope show.
 - **Between turns**: the workflow running alone, the agent asleep until a
   wake-up, or waiting on the operator.
 
@@ -66,6 +68,8 @@ SUBAGENT_TOOLS = ("Agent", "Task")
 CATEGORIES = ("microscope", "reads", "subagents", "compaction")
 # The tools listed by time taken.
 TOP_TOOLS = 8
+# The subagent runs listed one by one.
+TOP_RUNS = 20
 
 Interval = Tuple[datetime, datetime]
 
@@ -215,6 +219,7 @@ def summarise(
         )
 
     runs: Dict[str, Dict[str, float]] = {}
+    each: List[Dict[str, Any]] = []
     for call in (s for s in lead if s["name"] in SUBAGENT_TOOLS):
         own = [s for s in steps if s.get("run") == call["seq"]]
         wall = _seconds(call["span"])
@@ -234,10 +239,26 @@ def summarise(
         kept["model_s"] += max(wall - inside, 0.0)
         kept["microscope_s"] += split["microscope"]
         kept["reads_s"] += split["reads"]
+        used = sorted({s["name"] for s in own if category(s["name"]) == "microscope"})
+        each.append(
+            {
+                "name": call.get("subagent") or "subagent",
+                "about": (call.get("text") or "")[:120],
+                "started": call["span"][0].isoformat(),
+                "wall_s": round(wall),
+                "microscope_s": round(split["microscope"]),
+                "microscope_tools": used,
+            }
+        )
     answer["subagents"] = [
         {"name": name, **_rounded(values)}
         for name, values in sorted(runs.items(), key=lambda kv: -kv[1]["wall_s"])
     ]
+    # Each run on its own, the ones that used the microscope most first: which
+    # did the microscope work, and what it was asked.
+    answer["subagent_runs"] = sorted(
+        each, key=lambda r: (-r["microscope_s"], -r["wall_s"])
+    )[:TOP_RUNS]
 
     by_tool: Dict[str, List[float]] = {}
     for step in steps:
