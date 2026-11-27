@@ -1,4 +1,5 @@
 import {
+  keepPreviousData,
   QueryClient,
   QueryClientProvider,
   useMutation,
@@ -13,7 +14,15 @@ import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { api, ApiError, ReachedProvider, useApi } from "@/lib/api";
 import * as fmt from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { AgentCard, Field, FIELD, title } from "@/pages/gateway/AgentCard";
+import {
+  AgentCard,
+  dollars,
+  Field,
+  FIELD,
+  type Session,
+  title,
+} from "@/pages/gateway/AgentCard";
+import { AgentRow, stopped } from "@/pages/gateway/History";
 import { SetupAt } from "@/pages/agent/Connectors";
 import { AppCard, type GatewayState } from "@/pages/Gateway";
 import { Customise } from "@/pages/gateway/Customise";
@@ -778,7 +787,205 @@ function Stopped({ at }: { at: number }) {
   );
 }
 
-type Tab = "instruments" | "pairing" | "customise" | "settings";
+/** A session in the Hub's list: the gateway's own row, with the instrument
+ * it ran for and the PC it ran on. */
+interface HubSession extends Session {
+  instrument: string;
+  runs_on: "hub" | "pc";
+}
+
+interface SessionsAnswer {
+  sessions: HubSession[];
+  totals: {
+    spent_usd: number;
+    by_instrument: Record<string, number>;
+    by_day: { day: string; spent_usd: number }[];
+  };
+  unread: { instrument: string; why: string }[];
+  more: boolean;
+}
+
+const SESSIONS_PAGE = 50;
+
+/** Every agent session the Hub knows of, on this hub PC and on each
+ * instrument's PC, newest first, with what they spent. Each row is the
+ * gateway's own, and Resume is asked where the session ran. */
+function HubSessions({ instruments }: { instruments: Instrument[] }) {
+  const [pages, setPages] = useState(1);
+  const [only, setOnly] = useState("");
+  const sessions = useQuery({
+    queryKey: ["hub/sessions", pages],
+    queryFn: () => api<SessionsAnswer>(`/hub/sessions?limit=${SESSIONS_PAGE * pages}`),
+    refetchInterval: 5000,
+    placeholderData: keepPreviousData,
+  });
+  const data = sessions.data;
+  const names = [...new Set([...instruments.map((i) => i.name), ...(data?.sessions ?? []).map((s) => s.instrument)])];
+  const shown = (data?.sessions ?? []).filter((s) => !only || s.instrument === only);
+  // An instrument that has an agent now takes no other until that one ends.
+  const busy = (name: string) => !!instruments.find((i) => i.name === name)?.agent;
+  const spent = only ? (data?.totals.by_instrument[only] ?? 0) : (data?.totals.spent_usd ?? 0);
+  return (
+    <>
+      <div className="flex items-center gap-3">
+        <h1 className="m-0 flex-1 text-[17px] font-semibold">Sessions</h1>
+        <select
+          value={only}
+          onChange={(event) => setOnly(event.target.value)}
+          aria-label="Instrument"
+          className={FIELD}
+        >
+          <option value="">All instruments</option>
+          {names.map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
+        </select>
+      </div>
+      {sessions.error && (
+        <p className="m-0 text-[13px] text-destructive">{(sessions.error as Error).message}</p>
+      )}
+      {data?.unread.map((u) => (
+        <p key={u.instrument} className={cn("m-0 text-[13px]", WARN)}>
+          {u.instrument}'s sessions could not be read: {u.why}
+        </p>
+      ))}
+      {data && (
+        <Card className="flex flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <CardTitle>Spent</CardTitle>
+            <Hint>
+              What the sessions listed below spent, as each one's record says. Show older to count more.
+            </Hint>
+            <span className="flex-1" />
+            <span className="text-[15px] font-semibold tabular-nums">{dollars(spent)}</span>
+          </div>
+          {!only && Object.keys(data.totals.by_instrument).length > 1 && (
+            <Facts
+              rows={Object.entries(data.totals.by_instrument).map(([name, usd]) => [name, dollars(usd)])}
+            />
+          )}
+          {!only && data.totals.by_day.length > 0 && (
+            <p className="m-0 text-xs text-muted-foreground tabular-nums">
+              {data.totals.by_day
+                .slice(0, 7)
+                .map((d) => `${d.day.slice(5)} ${dollars(d.spent_usd)}`)
+                .join(" · ")}
+            </p>
+          )}
+        </Card>
+      )}
+      <Card className="flex flex-col gap-2">
+        {data && shown.length === 0 && (
+          <p className="m-0 text-[13px] text-muted-foreground">No sessions yet.</p>
+        )}
+        {shown.map((s) => (
+          <ReachedProvider
+            key={`${s.instrument}-${s.runs_on}-${s.session_id}`}
+            value={{
+              prefix: `/hub/instruments/${encodeURIComponent(s.instrument)}`,
+              pc: s.runs_on === "hub" ? "this hub PC" : "the microscope PC",
+            }}
+          >
+            <AgentRow
+              session={s}
+              running={s.status === "running" || s.status === "waiting"}
+              canResume={stopped(s) && !!s.session_id && !s.cannot_resume && !busy(s.instrument)}
+              ready={null}
+              where={[s.instrument, s.runs_on === "hub" ? "hub PC" : "microscope PC", s.who]
+                .filter(Boolean)
+                .join(" · ")}
+              resumePath={s.runs_on === "hub" ? "/hub-agent/resume" : undefined}
+            />
+          </ReachedProvider>
+        ))}
+        {data?.more && (
+          <Button variant="ghost" className="self-start" onClick={() => setPages((n) => n + 1)}>
+            Show older
+          </Button>
+        )}
+      </Card>
+    </>
+  );
+}
+
+interface HubEvent {
+  at: number;
+  kind: "agent" | "app" | "instrument" | "setup";
+  what: string;
+  who: string;
+  instrument: string | null;
+  ok: boolean;
+}
+
+const EVENT_KINDS: Record<HubEvent["kind"], string> = {
+  agent: "Agent",
+  app: "App",
+  instrument: "Instrument",
+  setup: "Setup",
+};
+const HISTORY_PAGE = 100;
+
+/** What was asked of the Hub and what its agents did, newest first. */
+function HubHistory() {
+  const [pages, setPages] = useState(1);
+  const [shown, setShown] = useState<HubEvent["kind"] | "all">("all");
+  const history = useQuery({
+    queryKey: ["hub/history", pages],
+    queryFn: () =>
+      api<{ events: HubEvent[]; more: boolean }>(`/hub/history?limit=${HISTORY_PAGE * pages}`),
+    refetchInterval: 5000,
+    placeholderData: keepPreviousData,
+  });
+  const events = (history.data?.events ?? []).filter((e) => shown === "all" || e.kind === shown);
+  return (
+    <>
+      <div className="flex items-center gap-2">
+        <h1 className="m-0 text-[17px] font-semibold">History</h1>
+        <Hint>
+          What was asked of this Hub and what its agents did. What happens at a microscope PC itself is in that gateway's own History.
+        </Hint>
+      </div>
+      <Card className="flex flex-col gap-2">
+        <div className="flex flex-wrap gap-1.5 pb-1">
+          {(["all", "agent", "app", "instrument", "setup"] as const).map((k) => (
+            <Button key={k} variant={shown === k ? "default" : "ghost"} onClick={() => setShown(k)}>
+              {k === "all" ? "All" : EVENT_KINDS[k]}
+            </Button>
+          ))}
+        </div>
+        {history.error && (
+          <p className="m-0 text-[13px] text-destructive">{(history.error as Error).message}</p>
+        )}
+        {history.data && events.length === 0 && (
+          <p className="m-0 text-[13px] text-muted-foreground">Nothing yet.</p>
+        )}
+        {events.map((e, i) => (
+          <div
+            key={`${e.at}-${i}`}
+            className="grid grid-cols-1 gap-0.5 border-t border-border py-2 text-[13px] sm:grid-cols-[170px_84px_minmax(0,1fr)_auto] sm:gap-3"
+          >
+            <span className="text-muted-foreground tabular-nums">{fmt.when(e.at)}</span>
+            <span className="text-muted-foreground">{EVENT_KINDS[e.kind] ?? e.kind}</span>
+            <span className={cn("min-w-0 break-words", !e.ok && WARN)}>
+              {e.instrument && <span className="font-semibold">{e.instrument}: </span>}
+              {e.what}
+            </span>
+            <span className="text-muted-foreground">{e.who}</span>
+          </div>
+        ))}
+        {history.data?.more && (
+          <Button variant="ghost" className="self-start" onClick={() => setPages((n) => n + 1)}>
+            Show older
+          </Button>
+        )}
+      </Card>
+    </>
+  );
+}
+
+type Tab = "instruments" | "sessions" | "history" | "pairing" | "customise" | "settings";
 
 function NavRow({
   current,
@@ -882,6 +1089,12 @@ export function HubPage() {
           )}
         </div>
         <div className="mt-3 flex gap-0.5 border-t border-border pt-3 sm:flex-col">
+          <NavRow current={tab === "sessions"} onClick={() => setTab("sessions")}>
+            Sessions
+          </NavRow>
+          <NavRow current={tab === "history"} onClick={() => setTab("history")}>
+            History
+          </NavRow>
           <NavRow current={tab === "pairing"} onClick={() => setTab("pairing")}>
             Browsers
           </NavRow>
@@ -932,6 +1145,8 @@ export function HubPage() {
                 </div>
               )
             ))}
+          {tab === "sessions" && <HubSessions instruments={instruments} />}
+          {tab === "history" && <HubHistory />}
           {tab === "pairing" && (
             <>
               <h1 className="m-0 text-[17px] font-semibold">Browsers</h1>

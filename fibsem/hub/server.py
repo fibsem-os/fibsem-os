@@ -22,7 +22,9 @@ from fibsem import __version__, keystore
 from fibsem.gateway import settings as gateway_settings
 from fibsem.gateway.gateway import GatewayRefused
 from fibsem.gateway.server import GatewayAuth
+from fibsem.hub import sessions as hub_sessions
 from fibsem.hub.agents import API_KEY, HubAgents
+from fibsem.hub.history import AGENT, APP, INSTRUMENT, SETUP, HubHistory
 from fibsem.hub.hub import TOKENS_DIR, Hub, HubState
 from fibsem.hub.simulator import NAME as SIMULATOR
 from fibsem.hub.simulator import Simulator
@@ -63,6 +65,25 @@ _ACTS = (
 )
 
 
+def _asked(route: str, body: Dict[str, Any]) -> str:
+    """What one of `_ACTS` asks of an instrument's gateway, in words."""
+    if route == "gateway/start":
+        window = "with its window" if body.get("window", True) else "no window"
+        return f"Started {body.get('app') or 'the app'} ({window})"
+    if route == "gateway/stop":
+        return "Stopped the app"
+    if route == "gateway/agent/start":
+        return (
+            "Started an agent on the microscope PC "
+            f"({body.get('playbook') or 'default'}, {body.get('level') or 'watch'})"
+        )
+    if route == "gateway/agent/resume":
+        return (
+            f"Resumed a session on the microscope PC ({body.get('level') or 'watch'})"
+        )
+    return "Ended the agent on the microscope PC"
+
+
 def _refused(status: int, error_type: str, message: str) -> HTTPException:
     return HTTPException(status, detail={"error_type": error_type, "message": message})
 
@@ -73,10 +94,29 @@ def build_hub_app(
     on_quit: Optional[Callable[[], None]] = None,
     agents: Optional[HubAgents] = None,
     simulator: Optional[Simulator] = None,
+    history: Optional[HubHistory] = None,
 ) -> FastAPI:
     app = FastAPI(title="fibsem hub")
     refuse_invalid_requests(app)
     app.state.auth = auth
+
+    def note(kind: str, what: str, who: str, instrument: Optional[str] = None) -> None:
+        if history is not None:
+            history.write(kind, what, who, instrument)
+
+    def noted(kind: str, what: str, who: str, instrument: Optional[str], act):
+        """*act*'s answer, with a line in the history either way: what was
+        done, or that it was refused and why."""
+        try:
+            answer = act()
+        except HTTPException as refused:
+            if history is not None:
+                detail = refused.detail if isinstance(refused.detail, dict) else {}
+                why = detail.get("message") or "refused"
+                history.write(kind, f"{what}: refused. {why}", who, instrument, False)
+            raise
+        note(kind, what, who, instrument)
+        return answer
 
     def operator(request: HTTPConnection) -> str:
         who = auth.operator(_bearer_token(request))
@@ -123,21 +163,29 @@ def build_hub_app(
         """``{name, ssh | url}``: add an instrument, or change how the one
         with that name is reached: *ssh* is where a tunnel to it connects
         (``user@host``), *url* its gateway's address to use as it is."""
-        return _state(
-            _act(
-                lambda: hub.add(
-                    str(body.get("name") or ""),
-                    str(body.get("url") or "") or None,
-                    str(body.get("ssh") or "") or None,
-                )
+        name = str(body.get("name") or "").strip()
+        known = any(i.name == name for i in hub.instruments())
+        state = _act(
+            lambda: hub.add(
+                name,
+                str(body.get("url") or "") or None,
+                str(body.get("ssh") or "") or None,
             )
         )
+        note(
+            INSTRUMENT,
+            "Changed how it is reached" if known else "Added the instrument",
+            who,
+            name,
+        )
+        return _state(state)
 
     @app.delete("/hub/instruments/{name}", response_model=HubState)
     def remove_instrument(name: str, who: str = Depends(operator)):
         state = _act(lambda: hub.remove(name))
         if simulator is not None and name == SIMULATOR:
             simulator.stop()
+        note(INSTRUMENT, "Removed the instrument", who, name)
         return _state(state)
 
     @app.post("/hub/instruments/{name}/test")
@@ -151,7 +199,13 @@ def build_hub_app(
         def start_simulator(who: str = Depends(operator)):
             """Start a simulated instrument on this hub PC: a gateway here
             with the Demo microscope, listed as "Simulator"."""
-            _act(simulator.start)
+            noted(
+                INSTRUMENT,
+                "Started the simulator",
+                who,
+                SIMULATOR,
+                lambda: _act(simulator.start),
+            )
             return _state()
 
         @app.post("/hub/simulator/stop", response_model=HubState)
@@ -159,6 +213,7 @@ def build_hub_app(
             """Stop the simulator. It stays in the list until removed."""
             simulator.stop()
             hub.check()
+            note(INSTRUMENT, "Stopped the simulator", who, SIMULATOR)
             return _state()
 
     @app.post("/hub/instruments/{name}/pair", response_model=HubState)
@@ -168,7 +223,15 @@ def build_hub_app(
         code = str(body.get("code") or "")
         if not code:
             raise _refused(422, "no_code", "Give the code its gateway shows.")
-        return _state(_act(lambda: hub.pair(name, code)))
+        return _state(
+            noted(
+                INSTRUMENT,
+                "Paired the Hub with its gateway",
+                who,
+                name,
+                lambda: _act(lambda: hub.pair(name, code)),
+            )
+        )
 
     def at_this_pc(request: HTTPConnection) -> bool:
         """Whether the caller holds this install's own token: the hub's page
@@ -229,17 +292,20 @@ def build_hub_app(
         return {**gateway_settings.connectors(), "at_this_pc": at_this_pc(request)}
 
     @app.put("/hub/connectors/{name}", dependencies=[Depends(this_pc_only)])
-    def put_connector(name: str, body: Dict[str, Any]):
+    def put_connector(name: str, body: Dict[str, Any], who: str = Depends(operator)):
         body = body or {}
-        return _settings(
+        answer = _settings(
             lambda: gateway_settings.save_connector(
                 name, body.get("entry"), True, body.get("confirm")
             )
         )
+        note(SETUP, f"Saved the connector {name}", who)
+        return answer
 
     @app.delete("/hub/connectors/{name}", dependencies=[Depends(this_pc_only)])
-    def delete_connector(name: str) -> dict:
+    def delete_connector(name: str, who: str = Depends(operator)) -> dict:
         _settings(lambda: gateway_settings.remove_connector(name, True))
+        note(SETUP, f"Removed the connector {name}", who)
         return {"removed": name}
 
     @app.post("/hub/connectors/{name}/test")
@@ -261,6 +327,8 @@ def build_hub_app(
             row = gateway_settings.set_key(name, (body or {}).get("value"))
         except gateway_settings.KeyRefused as refused:
             raise _refused(refused.status, refused.error_type, str(refused)) from None
+        # The key's name, never its value.
+        note(SETUP, f"Set the key {name}", who)
         return {**row, "can_set": True}
 
     @app.delete("/hub/secrets/{name}")
@@ -271,7 +339,35 @@ def build_hub_app(
             row = gateway_settings.remove_key(name)
         except gateway_settings.KeyRefused as refused:
             raise _refused(refused.status, refused.error_type, str(refused)) from None
+        note(SETUP, f"Removed the key {name}", who)
         return {**row, "can_set": True}
+
+    @app.get("/hub/history")
+    def get_history(limit: int = 100, who: str = Depends(operator)) -> dict:
+        """``{events, more}``: the latest *limit* lines of the Hub's history,
+        newest first (`fibsem.hub.history`)."""
+        if history is None:
+            return {"events": [], "more": False}
+        return history.read(limit)
+
+    if history is not None:
+
+        @app.middleware("http")
+        async def library_saves(request: Request, call_next):
+            """A playbook, skill or subagent saved or removed here, in the
+            history: its path in the library, once the save went through."""
+            response = await call_next(request)
+            path = request.url.path
+            if (
+                path.startswith("/app/library/")
+                and request.method in ("PUT", "POST", "DELETE", "PATCH")
+                and response.status_code < 400
+            ):
+                verb = "Removed" if request.method == "DELETE" else "Saved"
+                history.write(
+                    SETUP, f"{verb} {path[len('/app/library/') :]}", "operator"
+                )
+            return response
 
     if agents is not None:
 
@@ -304,11 +400,41 @@ def build_hub_app(
                 )
             )
 
+        @app.post("/hub/instruments/{name}/hub-agent/resume")
+        def resume_hub_agent(
+            name: str, body: Dict[str, Any], who: str = Depends(operator)
+        ):
+            """``{session_id, level, budget_usd, replace}``: carry on a
+            session that ended on this hub PC. Its gateway gives the slot as
+            for a start, or refuses in its own words."""
+            try:
+                budget = float(body["budget_usd"])
+            except (KeyError, TypeError, ValueError):
+                budget = None
+            return _act(
+                lambda: agents.resume(
+                    name,
+                    str(body.get("session_id") or ""),
+                    str(body.get("level") or "watch"),
+                    who,
+                    budget,
+                    bool(body.get("replace")),
+                )
+            )
+
         @app.post("/hub/instruments/{name}/hub-agent/end")
         def end_hub_agent(name: str, who: str = Depends(operator)):
             """End the instrument's agent on this hub PC; its slot is given
             back to its gateway."""
             return _act(lambda: agents.end(name, who))
+
+        @app.get("/hub/sessions")
+        def get_sessions(limit: int = 50, who: str = Depends(operator)) -> dict:
+            """``{sessions, totals, unread, more}``: the agent sessions on
+            this hub PC and on every paired instrument, newest first, with
+            what they spent by instrument and by day
+            (`fibsem.hub.sessions`)."""
+            return hub_sessions.list_sessions(hub, agents.root, limit)
 
     @app.get("/hub/instruments/{name}/{route:path}")
     def read_instrument(
@@ -337,7 +463,15 @@ def build_hub_app(
         hub may, and never lets one force a stop or close a window."""
         if route not in _ACTS:
             raise _refused(404, "not_found", "The hub asks no such thing.")
-        return _act(lambda: hub.ask(name, "POST", "/" + route, body or {}))
+        body = body or {}
+        kind = AGENT if "/agent/" in route else APP
+        return noted(
+            kind,
+            _asked(route, body),
+            who,
+            name,
+            lambda: _act(lambda: hub.ask(name, "POST", "/" + route, body)),
+        )
 
     @app.get("/", include_in_schema=False)
     def home():

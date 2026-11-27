@@ -70,7 +70,7 @@ function said(s: Session): string {
 }
 
 /** Whether a session has stopped for good: Resume may carry it on. */
-const stopped = (s: Session) =>
+export const stopped = (s: Session) =>
   s.status ? ["ended", "left", "crashed"].includes(s.status) : s.ended != null;
 
 const ROW =
@@ -120,16 +120,22 @@ function AppRow({ s, name }: { s: Switch; name: string }) {
   );
 }
 
-function AgentRow({
+export function AgentRow({
   session,
   running,
   canResume,
   ready,
+  where,
+  resumePath,
 }: {
   session: Session;
   running: boolean;
   canResume: boolean;
   ready: string | null;
+  /** The row's last column, in place of how it was started: on the Hub's
+   * page, which instrument and which PC. */
+  where?: ReactNode;
+  resumePath?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [resuming, setResuming] = useState(false);
@@ -211,7 +217,7 @@ function AgentRow({
           </span>
         </button>
         <span className="text-muted-foreground">
-          {session.gateway ? "gateway" : "by hand"}
+          {where ?? (session.gateway ? "gateway" : "by hand")}
         </span>
       </div>
       {open && (
@@ -227,6 +233,7 @@ function AgentRow({
               session={session}
               ready={ready}
               onDone={() => setResuming(false)}
+              path={resumePath}
             />
           )}
         </div>

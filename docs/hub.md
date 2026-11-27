@@ -73,6 +73,39 @@ another gateway runs there; add that one by its address (`http://127.0.0.1:8010`
 **Stop the simulator** stops its gateway and an app it runs with no window, and stopping the
 Hub does the same. It stays in the list, with its pairing, until it is removed.
 
+### Sessions
+
+**Sessions** lists the agent sessions of every instrument in one place: those that ran on
+each microscope PC, as its gateway lists them, and those that ran on the hub PC. Each row
+says which instrument, where it ran, who started it, how it ended and what it spent. The
+card above totals the spend of the rows listed, per instrument and per day. An instrument
+that can't be read now is named with why, and its sessions are left out until it answers.
+
+Open a row for **Resume**. A session that ran on a microscope PC is resumed there by its
+gateway. One that ran on the hub PC is resumed on the hub PC: the Hub asks the instrument's
+gateway for the slot again, at the level you pick, and the agent carries on with the same
+playbook, goal and folder.
+
+### After the Hub restarts
+
+An agent on the hub PC is its own process, so it keeps running if the Hub ends without
+being stopped (a crash, a closed terminal, a restart of the PC's session). The Hub that
+starts next finds it, asks the instrument's gateway for the same slot back and carries on
+keeping it. If the gateway had already set Watch and freed the slot, it gives the slot back
+to the same paired Hub for the same session, and the agent carries on at the level it last
+ran at. The gateway still refuses if the level was changed at the microscope PC since, if
+the agent was stopped there, or if another agent took the slot: the agent is then ended with
+that reason, and Sessions has its Resume. Stopping the Hub
+(`agent-hub stop`, Ctrl-C) still ends every agent it runs and gives the slots back. The
+Hub's log says how long each carry-on took.
+
+### History
+
+**History** lists what was done through this Hub, newest first: agents started, resumed
+and ended, apps started and stopped, instruments added, removed and paired, the simulator,
+and changes to connectors, keys (by name, never a value), playbooks and skills. Each line
+says who asked and whether it was refused. It is kept in `~/.fibsem/hub/history.jsonl`.
+
 ## Instruments
 
 The list is `~/.fibsem/hub.yaml`: each instrument's name and where SSH connects to it
