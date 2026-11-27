@@ -24,6 +24,7 @@ from fibsem.gateway.gateway import GatewayRefused
 from fibsem.gateway.server import GatewayAuth
 from fibsem.hub.agents import API_KEY, HubAgents
 from fibsem.hub.hub import TOKENS_DIR, Hub, HubState
+from fibsem.server.agent.library import build_library_router
 from fibsem.server.auth import _bearer_token, _matches
 from fibsem.server.bodies import refuse_invalid_requests
 from fibsem.server.operator_token import load_operator_token
@@ -119,6 +120,21 @@ def build_hub_app(
         """Whether the caller holds this install's own token: the hub's page
         as ``agent-hub open`` opens it, never a paired browser."""
         return _matches(_bearer_token(request), auth.token)
+
+    def this_pc_only(request: HTTPConnection) -> None:
+        operator(request)
+        if not at_this_pc(request):
+            raise _refused(
+                403,
+                "at_this_pc_only",
+                "The agent's setup is changed only at this PC, on the Hub's own page.",
+            )
+
+    # The playbooks, skills and subagents an agent on this PC runs with: the
+    # same routes the Agent page's Knowledge window reads on a microscope PC.
+    app.include_router(
+        build_library_router(read=[Depends(operator)], write=[Depends(this_pc_only)])
+    )
 
     def _key(name: str, request: HTTPConnection) -> None:
         if name != API_KEY:

@@ -14,6 +14,7 @@ import { api, ApiError, ReachedProvider } from "@/lib/api";
 import * as fmt from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { AgentCard, Field, FIELD, title } from "@/pages/gateway/AgentCard";
+import { Customise } from "@/pages/gateway/Customise";
 import { KeyRow, type Secret } from "@/pages/gateway/Settings";
 import { Connections } from "@/shell/Settings";
 
@@ -580,7 +581,7 @@ function Stopped({ at }: { at: number }) {
   );
 }
 
-type Tab = "instruments" | "pairing" | "settings";
+type Tab = "instruments" | "pairing" | "customise" | "settings";
 
 function NavRow({
   current,
@@ -675,6 +676,9 @@ export function HubPage() {
           <NavRow current={tab === "pairing"} onClick={() => setTab("pairing")}>
             Browsers
           </NavRow>
+          <NavRow current={tab === "customise"} onClick={() => setTab("customise")}>
+            Customise
+          </NavRow>
           <NavRow current={tab === "settings"} onClick={() => setTab("settings")}>
             Settings
           </NavRow>
@@ -714,6 +718,16 @@ export function HubPage() {
               <Card>
                 <Connections roles={["operator"]} />
               </Card>
+            </>
+          )}
+          {tab === "customise" && (
+            <>
+              <h1 className="m-0 text-[17px] font-semibold">Customise</h1>
+              <p className="m-0 text-[13px] text-muted-foreground">
+                What an agent started on this hub PC runs with. An agent started on a microscope
+                PC uses that PC's own, set on its gateway page. Changes are made at this PC only.
+              </p>
+              <Customise only={["playbooks", "skills", "agents"]} />
             </>
           )}
           {tab === "settings" && (
