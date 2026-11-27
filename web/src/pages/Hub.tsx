@@ -14,6 +14,8 @@ import { api, ApiError, ReachedProvider } from "@/lib/api";
 import * as fmt from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { AgentCard, Field, FIELD, title } from "@/pages/gateway/AgentCard";
+import { SetupAt } from "@/pages/agent/Connectors";
+import { Customise } from "@/pages/gateway/Customise";
 import { KeyRow, type Secret } from "@/pages/gateway/Settings";
 import { Connections } from "@/shell/Settings";
 
@@ -370,6 +372,26 @@ function AgentPageLink({ instrument }: { instrument: Instrument }) {
   );
 }
 
+/** An instrument's SSH tunnel, in a few words beside its address: open and
+ * on which port of this PC, or down. */
+function Tunnel({ tunnel }: { tunnel: Instrument["tunnel"] }) {
+  if (!tunnel) return null;
+  const words = tunnel.open ? `SSH tunnel open, port ${tunnel.gateway_port}` : "SSH tunnel down";
+  return (
+    <span
+      className="font-sans"
+      title={
+        tunnel.open
+          ? `The Hub holds an SSH tunnel to this PC: 127.0.0.1:${tunnel.gateway_port} here reaches its gateway. It closes when the Hub stops.`
+          : "The Hub's SSH tunnel to this PC is not open. It is tried again every 15 s."
+      }
+    >
+      {" · "}
+      {words}
+    </span>
+  );
+}
+
 function InstrumentView({ instrument, onRemoved }: { instrument: Instrument; onRemoved: () => void }) {
   return (
     <>
@@ -378,6 +400,7 @@ function InstrumentView({ instrument, onRemoved }: { instrument: Instrument; onR
         <h1 className="m-0 text-[17px] font-semibold">{instrument.name}</h1>
         <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
           {instrument.ssh ?? instrument.url}
+          {instrument.ssh && <Tunnel tunnel={instrument.tunnel} />}
         </span>
         <Remove instrument={instrument} onDone={onRemoved} />
       </div>
@@ -580,7 +603,7 @@ function Stopped({ at }: { at: number }) {
   );
 }
 
-type Tab = "instruments" | "pairing" | "settings";
+type Tab = "instruments" | "pairing" | "customise" | "settings";
 
 function NavRow({
   current,
@@ -675,6 +698,9 @@ export function HubPage() {
           <NavRow current={tab === "pairing"} onClick={() => setTab("pairing")}>
             Browsers
           </NavRow>
+          <NavRow current={tab === "customise"} onClick={() => setTab("customise")}>
+            Customise
+          </NavRow>
           <NavRow current={tab === "settings"} onClick={() => setTab("settings")}>
             Settings
           </NavRow>
@@ -714,6 +740,18 @@ export function HubPage() {
               <Card>
                 <Connections roles={["operator"]} />
               </Card>
+            </>
+          )}
+          {tab === "customise" && (
+            <>
+              <h1 className="m-0 text-[17px] font-semibold">Customise</h1>
+              <p className="m-0 text-[13px] text-muted-foreground">
+                What an agent started on this hub PC runs with. An agent started on a microscope
+                PC uses that PC's own, set on its gateway page. Changes are made at this PC only.
+              </p>
+              <SetupAt.Provider value={{ at: "/hub", page: "the Hub's own page" }}>
+                <Customise only={["playbooks", "skills", "agents", "connectors"]} />
+              </SetupAt.Provider>
             </>
           )}
           {tab === "settings" && (

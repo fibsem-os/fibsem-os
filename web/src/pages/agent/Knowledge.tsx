@@ -594,11 +594,15 @@ export function KnowledgeDialog({
   open,
   onOpenChange,
   start = "entries",
+  only,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** The tab it opens on. */
   start?: Tab;
+  /** The tabs it has, where the server behind the page serves only some
+   * (the Hub's); all of them when left out. */
+  only?: Tab[];
 }) {
   const client = useQueryClient();
   const [tab, setTab] = useState<Tab>(start);
@@ -659,7 +663,9 @@ export function KnowledgeDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent title="Knowledge" className="w-[min(960px,calc(100vw-32px))]">
         <div role="tablist" className="flex items-stretch gap-4 border-b border-border px-4">
-          {TABS.map((group, i) => (
+          {TABS.map((group) => group.filter(([t]) => !only || only.includes(t)))
+            .filter((group) => group.length > 0)
+            .map((group, i) => (
             <div key={i} className={cn("flex gap-4", i > 0 && "border-l border-border pl-4")}>
               {group.map(([t, word]) => (
                 <button
