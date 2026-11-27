@@ -673,7 +673,7 @@ export function HubPage() {
         </div>
         <div className="mt-3 flex gap-0.5 border-t border-border pt-3 sm:flex-col">
           <NavRow current={tab === "pairing"} onClick={() => setTab("pairing")}>
-            Pairing
+            Browsers
           </NavRow>
           <NavRow current={tab === "settings"} onClick={() => setTab("settings")}>
             Settings
@@ -704,7 +704,13 @@ export function HubPage() {
             ))}
           {tab === "pairing" && (
             <>
-              <h1 className="m-0 text-[17px] font-semibold">Pairing</h1>
+              <h1 className="m-0 text-[17px] font-semibold">Browsers</h1>
+              <p className="m-0 text-[13px] text-muted-foreground">
+                The browsers that may use this Hub. The browser on this PC is signed in by{" "}
+                <span className="font-mono text-xs">agent-hub open</span>. To let another one in,
+                make a code here and type it in that browser. This is separate from pairing an
+                instrument.
+              </p>
               <Card>
                 <Connections roles={["operator"]} />
               </Card>
