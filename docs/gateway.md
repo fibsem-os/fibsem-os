@@ -401,6 +401,9 @@ same from a terminal.
 
 ## Pairing a hub
 
+A hub is a separate program on another PC, [`agent-hub`](hub.md). The gateway is the door
+to this microscope PC: a hub reaches it only after it is paired here.
+
 Pair a hub with a 4-digit code from `fibsem-gateway pair --hub --may-switch`, or pick
 **Hub** under **Pairing → Pair a computer…** on the page. With **May start and stop apps** a
 hub can also connect and disconnect the microscope. Without that grant a hub can only read
