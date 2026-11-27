@@ -173,7 +173,10 @@ from one list.
    the morning.
 7. **Review.** Put supervision back as the protocol had it before the run
    (`protocol_set_supervision`), and say so. Then call the Auditor, and put
-   its review on the review list. Then write the knowledge base (fibsem-agent, *The
+   its review on the review list. Write the plan's Summary, with where the
+   time went (fibsem-agent, *Keep a plan*, Summary: `plan_get_time_use` for
+   the run and for each phase: screening, sites, Setup, rough milling,
+   polishing). Then write the knowledge base (fibsem-agent, *The
    knowledge base*): the run's record from that review, and an entry for
    each lesson it names that would change the next run.
 

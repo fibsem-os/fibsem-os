@@ -43,6 +43,7 @@ WORKER = "fibsem-worker"
 LEAD_ONLY = frozenset(
     {
         "server_report_session",
+        "plan_get_time_use",
         "plan_set_section",
         "plan_append",
         "plan_check_step",
