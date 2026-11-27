@@ -37,6 +37,7 @@ from fastapi.requests import HTTPConnection
 from fastapi.responses import RedirectResponse
 
 from fibsem.ai.agent.playbooks import DEFAULT as DEFAULT_PLAYBOOK
+from fibsem.ai.agent.report import MAX_GOAL
 from fibsem.gateway import settings as gateway_settings
 from fibsem.gateway.agent import (
     SESSIONS_MAX,
@@ -462,6 +463,68 @@ def build_gateway_app(
                     window=found.operator,
                 ),
             )
+
+        def hub_caller(found: Caller) -> str:
+            if found.operator:
+                raise _refused(
+                    403, "hub_only", "Only a paired Hub asks for the hub agent's slot."
+                )
+            return found.who
+
+        def _hub(act):
+            try:
+                return act()
+            except GatewayRefused as refusal:
+                raise _refused(
+                    refusal.status, refusal.error_type, str(refusal)
+                ) from None
+
+        @app.post("/gateway/agent/slot")
+        def take_slot(body: Dict[str, Any], found: Caller = Depends(switcher)):
+            """For an agent a paired Hub runs on its own PC.
+            ``{session_id, playbook, goal, level, budget_usd, replace}``: the
+            instrument's checks, the agent's token (in this answer only), the
+            level. ``{session_id, rejoin: true, token}``: the same session
+            back after its grace ran out. Answers ``{token, lease_s, grace_s,
+            state}``."""
+            hub = hub_caller(found)
+            if body.get("rejoin"):
+                return _hub(
+                    lambda: agent.hub.rejoin(
+                        hub, body.get("session_id"), str(body.get("token") or "")
+                    )
+                )
+            budget = _budget(body)
+            goal = str(body.get("goal") or "").strip() or None
+            if goal and len(goal) > MAX_GOAL:
+                raise _refused(
+                    422, "goal_too_long", f"Keep the goal to {MAX_GOAL} characters."
+                )
+            return _hub(
+                lambda: agent.hub.take(
+                    hub,
+                    body.get("session_id"),
+                    str(body.get("playbook") or DEFAULT_PLAYBOOK),
+                    goal,
+                    str(body.get("level") or "watch"),
+                    budget_usd=budget,
+                    replace=bool(body.get("replace", False)),
+                )
+            )
+
+        @app.post("/gateway/agent/slot/renew")
+        def renew_slot(body: Dict[str, Any], found: Caller = Depends(switcher)):
+            """``{session_id}``, every ``lease_s / 3``: ``{lease_s, grace_s}``,
+            or 409 once the session no longer holds the slot."""
+            hub = hub_caller(found)
+            return _hub(lambda: agent.hub.renew(hub, str(body.get("session_id") or "")))
+
+        @app.post("/gateway/agent/slot/release")
+        def release_slot(body: Dict[str, Any], found: Caller = Depends(switcher)):
+            """``{session_id}``: its token unpaired, Watch, the slot free."""
+            hub = hub_caller(found)
+            agent.hub.release(hub, str(body.get("session_id") or ""))
+            return {"state": agent.state()}
 
     if on_quit is not None:
 
