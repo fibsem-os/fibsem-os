@@ -28,6 +28,7 @@ from urllib.parse import urlsplit
 import yaml
 
 from fibsem.gateway.gateway import GatewayRefused
+from fibsem.gateway.server import GATEWAY_API_VERSION
 from fibsem.server.discovery import DISCOVERY_DIR
 from fibsem.util.files import write_atomic
 from fibsem.util.tunnels import Tunnel, TunnelDown, Tunnels, valid_destination
@@ -117,6 +118,12 @@ class InstrumentState:
     """Off or running, the app and its experiment, the gateway's version."""
     agent: Optional[Dict[str, Any]] = None
     """The agent running there, if one is."""
+    api_version: Optional[str] = None
+    """The version of its gateway's own routes, as its ``/health`` says."""
+    same_version: Optional[bool] = None
+    """Whether this hub was written for that version (the same major and
+    minor number); None when its gateway gave none. An agent runs on the hub
+    PC only for an instrument whose gateway it was written for."""
     health: Optional[Dict[str, Any]] = None
     """How its App Server (``app``) and its microscope (``microscope``) are,
     as its gateway says: each a status, why in a line, and since when."""
@@ -197,9 +204,30 @@ def _pair(url: str, code: str, name: str) -> Tuple[str, str]:
     return answer["token"], answer.get("role", "operator")
 
 
+def _same_version(theirs: Optional[str]) -> Optional[bool]:
+    """Whether a gateway whose routes are version *theirs* is one this hub was
+    written for: a change an older hub can't work with raises the minor
+    number (`GATEWAY_API_VERSION`)."""
+    if not theirs:
+        return None
+    return theirs.split(".")[:2] == GATEWAY_API_VERSION.split(".")[:2]
+
+
 def _address(instrument: "Instrument") -> str:
     """Where *instrument*'s gateway is: what its token is issued for."""
     return f"ssh:{instrument.ssh}" if instrument.ssh else f"url:{instrument.url}"
+
+
+def crosses_in_clear(instrument: "Instrument") -> bool:
+    """Whether what this hub and *instrument*'s gateway say to each other
+    crosses a network unprotected: plain http to another PC. A tunnel, https
+    and an address on this PC do not."""
+    if instrument.ssh:
+        return False
+    split = urlsplit(instrument.url or "")
+    host = (split.hostname or "").lower()
+    local = host == "localhost" or host == "::1" or host.startswith("127.")
+    return split.scheme != "https" and not local
 
 
 def _slug(name: str) -> str:
@@ -253,6 +281,10 @@ class Hub:
             if isinstance(name, str) and (url or ssh):
                 found.append(Instrument(name, url, ssh))
         return found[:MAX_INSTRUMENTS]
+
+    def instrument(self, name: str) -> Instrument:
+        """The instrument named *name*; a `GatewayRefused` when none is."""
+        return self._instrument(name)
 
     def _instrument(self, name: str) -> Instrument:
         for instrument in self.instruments():
@@ -466,8 +498,11 @@ class Hub:
         )
         try:
             url = self.reach(instrument)
-            status, _ = self._fetch(url, "/health", None, TIMEOUT_S)
+            status, health = self._fetch(url, "/health", None, TIMEOUT_S)
             found.reachable = status == 200
+            if isinstance(health, dict):
+                found.api_version = health.get("api_version") or None
+            found.same_version = _same_version(found.api_version)
             if not found.reachable:
                 found.why = f"Its gateway answered {status}."
             elif token is None:
@@ -528,17 +563,21 @@ class Hub:
         method: str,
         route: str,
         body: Optional[Dict[str, Any]] = None,
+        timeout: Optional[float] = None,
+        read_again: bool = True,
     ) -> Any:
         """*name*'s gateway's answer to *route*, asked as this hub with the
         token that gateway gave it. The gateway decides what a hub may do: its
-        refusal is passed on in its own words."""
+        refusal is passed on in its own words. After a change the instrument
+        is read again at once, unless *read_again* is off."""
         instrument = self._instrument(name)
         token = self.token(name)
         if token is None:
             raise GatewayRefused(
                 409, "not_paired", f"Pair this hub with {name}'s gateway first."
             )
-        timeout = READ_S if method == "GET" else ACT_S
+        if timeout is None:
+            timeout = READ_S if method == "GET" else ACT_S
         try:
             status, answer = self._send(
                 self.reach(instrument), method, route, token, body, timeout
@@ -561,10 +600,10 @@ class Hub:
             detail = detail if isinstance(detail, dict) else {}
             raise GatewayRefused(
                 status,
-                str(detail.get("error_type") or "refused"),
+                str(detail.get("error_type") or detail.get("reason") or "refused"),
                 str(detail.get("message") or f"{name}'s gateway answered {status}."),
             )
-        if method != "GET":
+        if method != "GET" and read_again:
             # Its state changed: read it again now, not at the next round.
             self._safely(instrument)
         return answer

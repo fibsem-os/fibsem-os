@@ -476,3 +476,30 @@ def test_on_windows_the_agent_gets_a_hidden_console_not_none(monkeypatch):
     flags = manager._detached()["creationflags"]
     assert flags & 0x8000000 and flags & 0x200
     assert not flags & 0x8
+
+
+def test_an_agent_keeps_its_session_where_its_manager_looks(tmp_path, monkeypatch):
+    # A manager with its own sessions folder (the Hub's): the agent it starts
+    # reads the stop file and writes its record there, not in the default.
+    seen = {}
+
+    class Started:
+        pid = 1
+
+        def poll(self):
+            return None
+
+    def popen(command, **kwargs):
+        seen.update(kwargs["env"])
+        return Started()
+
+    monkeypatch.setattr(manager.subprocess, "Popen", popen)
+    root = tmp_path / "hub" / "sessions"
+    mgr = AgentSessionManager(root=root, command=["fibsem-agent"])
+    mgr.start("arctis-1", str(uuid.uuid4()), [], env={})
+    assert seen[manager.SESSIONS_ENV] == str(root)
+    monkeypatch.setenv(manager.SESSIONS_ENV, str(root))
+    assert manager.sessions_dir() == root
+    assert manager.session_folder("abc").parent == root
+    monkeypatch.delenv(manager.SESSIONS_ENV)
+    assert manager.sessions_dir() != root

@@ -211,6 +211,10 @@ export function browserName(): string {
 export interface Reached {
   prefix: string;
   pc: string;
+  /** Where an agent for this instrument can run, when there is a choice
+   * (the Hub's page). A place with *start* is started at that route, as it
+   * is; one without, at the gateway's own start. */
+  places?: { key: string; label: string; start?: string }[];
 }
 
 const ReachedContext = createContext<Reached>({ prefix: "", pc: "this PC" });

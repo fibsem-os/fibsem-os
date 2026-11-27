@@ -75,8 +75,14 @@ END_WAIT_S = 60.0
 RESUME_YOUNG_S = 15 * 60.0
 
 
+# Where a manager that keeps its sessions apart (the Hub's) tells the agents
+# it starts to keep theirs: the stop file and the record are read there.
+SESSIONS_ENV = "FIBSEM_AGENT_SESSIONS"
+
+
 def sessions_dir() -> Path:
-    return paths.user_dir() / "agent" / "sessions"
+    given = os.environ.get(SESSIONS_ENV)
+    return Path(given) if given else paths.user_dir() / "agent" / "sessions"
 
 
 def folder_name(session_id: str, started: Optional[float] = None) -> str:
@@ -607,7 +613,8 @@ class AgentSessionManager:
     def _spawn(
         self, args: List[str], env: Optional[Dict[str, str]], folder: Path
     ) -> subprocess.Popen:
-        child_env = {**os.environ, **(env or {})}
+        # The agent keeps its session where this manager looks for it.
+        child_env = {**os.environ, **(env or {}), SESSIONS_ENV: str(self._root)}
         folder.mkdir(parents=True, exist_ok=True)
         with open(folder / OUTPUT, "ab") as output:
             return subprocess.Popen(
