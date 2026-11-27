@@ -133,8 +133,8 @@ def test_app_servers_import_no_ui():
 
 
 # The domain code: everything but the App Server, its clients (``ai``, ``client``,
-# ``gateway``) and the UI, with each app's code outside its server, UI and launch.
-_NOT_DOMAIN = ("ai", "client", "gateway", "server", "ui", "applications")
+# ``gateway``, ``hub``) and the UI, with each app's code outside its server, UI and launch.
+_NOT_DOMAIN = ("ai", "client", "gateway", "hub", "server", "ui", "applications")
 _APP_HOSTING = ("server", "server.py", "ui", "launch.py")
 
 # Who may import ``fibsem.server``, and why.

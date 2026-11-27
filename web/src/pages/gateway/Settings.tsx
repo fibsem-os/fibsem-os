@@ -114,7 +114,18 @@ function CopyCommand({ command }: { command: string }) {
  * PC, Set or Replace (pasted once, never shown again) and Remove. */
 /** One key: its state and Set/Replace/Remove. *inline* is the short form
  * that sits beside a connector's token name in its editor. */
-export function KeyRow({ s, inline = false }: { s: Secret; inline?: boolean }) {
+export function KeyRow({
+  s,
+  inline = false,
+  path = "/gateway/secrets",
+  page = "the gateway's own page",
+}: {
+  s: Secret;
+  inline?: boolean;
+  /** Where this PC's keys are read and set: the Hub has its own. */
+  path?: string;
+  page?: string;
+}) {
   const client = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState("");
@@ -123,11 +134,11 @@ export function KeyRow({ s, inline = false }: { s: Secret; inline?: boolean }) {
     setEditing(false);
     setValue("");
     setConfirm(false);
-    client.invalidateQueries({ queryKey: ["gateway/secrets"] });
+    client.invalidateQueries({ queryKey: [path.slice(1)] });
   };
   const save = useMutation({
     mutationFn: () =>
-      api<Secret>(`/gateway/secrets/${encodeURIComponent(s.name)}`, {
+      api<Secret>(`${path}/${encodeURIComponent(s.name)}`, {
         method: "PUT",
         body: JSON.stringify({ value }),
       }),
@@ -135,7 +146,7 @@ export function KeyRow({ s, inline = false }: { s: Secret; inline?: boolean }) {
   });
   const remove = useMutation({
     mutationFn: () =>
-      api<Secret>(`/gateway/secrets/${encodeURIComponent(s.name)}`, {
+      api<Secret>(`${path}/${encodeURIComponent(s.name)}`, {
         method: "DELETE",
       }),
     onSuccess: done,
@@ -235,8 +246,7 @@ export function KeyRow({ s, inline = false }: { s: Secret; inline?: boolean }) {
                 }
               >
                 <p className="m-0 text-[13px]">
-                  Keys are set only at this PC: on the gateway's own page there,
-                  or with <span className="font-mono text-xs">{command}</span>.
+                  Keys are set only at this PC: on {page} there, or with <span className="font-mono text-xs">{command}</span>.
                 </p>
               </HoverCard>
             </>

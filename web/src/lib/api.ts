@@ -1,5 +1,6 @@
 // The App Server, as this browser reaches it. The token keys are the ones the
 // old /chat page used, so a browser it paired stays paired.
+import { createContext, useCallback, useContext } from "react";
 
 const OPERATOR_KEY = "fibsem-operator-token";
 const PAIRED_KEY = "fibsem-paired-token";
@@ -202,4 +203,29 @@ export function browserName(): string {
             ? "Linux"
             : "";
   return os ? `${browser} on ${os}` : browser;
+}
+
+/** Which server a card's calls reach: the one that serves the page, or, on the
+ * hub's page, one instrument's gateway through the hub (*prefix*). *pc* is how
+ * the card names the PC its agent runs on. */
+export interface Reached {
+  prefix: string;
+  pc: string;
+  /** Where an agent for this instrument can run, when there is a choice
+   * (the Hub's page). A place with *start* is started at that route, as it
+   * is; one without, at the gateway's own start. */
+  places?: { key: string; label: string; start?: string }[];
+}
+
+const ReachedContext = createContext<Reached>({ prefix: "", pc: "this PC" });
+export const ReachedProvider = ReachedContext.Provider;
+export const useReached = () => useContext(ReachedContext);
+
+/** `api`, for the server this part of the page reaches. */
+export function useApi(): typeof api {
+  const { prefix } = useReached();
+  return useCallback(
+    (path: string, init?: RequestInit) => api(prefix + path, init),
+    [prefix],
+  ) as typeof api;
 }

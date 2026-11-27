@@ -401,12 +401,34 @@ same from a terminal.
 
 ## Pairing a hub
 
+A hub is a separate program on another PC, [`agent-hub`](hub.md). The gateway is the door
+to this microscope PC: a hub reaches it only after it is paired here.
+
 Pair a hub with a 4-digit code from `fibsem-gateway pair --hub --may-switch`, or pick
 **Hub** under **Pairing → Pair a computer…** on the page. With **May start and stop apps** a
 hub can also connect and disconnect the microscope. Without that grant a hub can only read
 the gateway. Untick **May start and stop apps** on the page to take it back, or unpair the
 hub. A hub can never force a stop past a running workflow; only the operator at the PC
 can.
+
+### An agent the hub runs
+
+A hub with **May start and stop apps** can run an agent on its own PC for this instrument. It
+asks the gateway for the instrument's one agent slot (`POST /gateway/agent/slot` with the
+session, playbook, goal and level). The gateway runs the instrument's checks: the level, an
+App Server or Agent Server to act through, and no other agent holding the slot. It then makes
+the agent's token as it does for its own agent (kept only hashed), sets the level, and gives
+the token to the hub in that answer, once. The agent's calls come back through the hub's SSH
+tunnel to the gateway, so the Agent page here shows it as it shows the gateway's own agent,
+under the name "playbook via hub". End on the page ends it.
+
+The hub renews the slot every 10 s (`/gateway/agent/slot/renew`). If it goes quiet for 2 minutes
+(`install.gateway.hub_agent_grace_s` in the preferences), the gateway sets Watch, unpairs the
+token and frees the slot. The same session can come back with the token it was given, at the
+level it last ran at. It doesn't come back if the level was changed here since, if the agent
+was stopped here, or if another agent took the slot. A different session never gets the old
+level. A restarted gateway ends a hub's slot it doesn't know. The API key and the playbook's
+code mode are the hub PC's concern, not this PC's.
 
 ## At the scope
 
