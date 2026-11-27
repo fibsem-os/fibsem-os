@@ -4,7 +4,7 @@ import { ChevronDown, ChevronRight, Loader, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { api, getToken } from "@/lib/api";
+import { api, getToken, useApi, useReached } from "@/lib/api";
 import * as fmt from "@/lib/format";
 import { Connections } from "@/shell/Settings";
 import { cn } from "@/lib/utils";
@@ -66,7 +66,7 @@ const HEALTH_WORDS: Partial<Record<Health["status"], string>> = {
   unknown: "Can't tell",
 };
 
-interface GatewayState {
+export interface GatewayState {
   device_servers?: DeviceServerState[];
   device_servers_file?: string | null;
   mode: Mode;
@@ -159,12 +159,19 @@ function Starting({
   app: string;
   setApp: (app: string) => void;
 }) {
-  const [window, setWindow] = useState(defaults?.window ?? true);
+  // From the Hub, an app that can run without its window starts without:
+  // a window is closed only at its own PC.
+  const { prefix, pc } = useReached();
+  const remote = prefix !== "";
+  const shown = (key: string) =>
+    defaults?.window ?? !(remote && state.apps.find((a) => a.key === key)?.headless);
+  const [window, setWindow] = useState(() => shown(app));
   const [settings, setSettings] = useState<Record<string, string>>(defaults?.settings ?? {});
   // Another app's own choices when the app changes.
   useEffect(() => {
-    setWindow(defaults?.window ?? true);
+    setWindow(shown(app));
     setSettings(defaults?.settings ?? {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [app, defaults]);
   const [creating, setCreating] = useState(false);
   const [experiment, setExperiment] = useState(state.last_experiment ?? "");
@@ -288,17 +295,24 @@ function Starting({
         </label>
       ))}
       {windowed ? (
-        <label className="flex items-center gap-2 text-[13px]">
+        <label
+          className="flex items-center gap-2 text-[13px]"
+          title={
+            remote
+              ? "With its window, the app is closed only at that PC, never from the Hub."
+              : undefined
+          }
+        >
           <input
             type="checkbox"
             checked={window}
             onChange={(event) => setWindow(event.target.checked)}
           />
-          Show the window on this PC
+          Show the window on {pc}
         </label>
       ) : (
         <p className="m-0 text-xs text-muted-foreground">
-          {chosen?.name} has no window of its own: it runs here, and its pages are its window.
+          {chosen?.name} has no window of its own: it runs on {pc}, and its pages are its window.
         </p>
       )}
       {windowed && !window && !chosen?.headless && (
@@ -329,6 +343,7 @@ function Starting({
 
 /** While the app starts: what it is waiting for, and for how long. */
 function StartingLine({ state }: { state: GatewayState }) {
+  const { pc } = useReached();
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const tick = setInterval(() => setNow(Date.now()), 1000);
@@ -342,7 +357,7 @@ function StartingLine({ state }: { state: GatewayState }) {
     <p className="m-0 flex items-center gap-2 text-[13px] text-muted-foreground">
       <Loader size={14} className="shrink-0 animate-spin" />
       {state.window
-        ? `Starting ${app}: its window opens on this PC`
+        ? `Starting ${app}: its window opens on ${pc}`
         : `Starting ${app}`}
       … {secs} s{secs > 90 && " (slower than usual)"}
     </p>
@@ -600,6 +615,10 @@ function AppRow({
     return () => clearInterval(tick);
   }, []);
   const [confirm, setConfirm] = useState(false);
+  // Through the Hub: the app's own page is on its PC, and its gateway lets
+  // no hub close a window.
+  const { prefix, pc } = useReached();
+  const remote = prefix !== "";
   const app = state.apps.find((a) => a.key === state.app)?.name ?? state.app;
   const stopping = state.switch === "stopping";
   const facts = [
@@ -631,7 +650,7 @@ function AppRow({
           </span>
         </span>
         <span className="flex gap-2.5">
-          {up && state.app_url && (
+          {up && state.app_url && !remote && (
             <Button
               onClick={() =>
                 window.open(
@@ -646,12 +665,17 @@ function AppRow({
           )}
           <Button
             variant="danger"
-            disabled={busy}
+            disabled={busy || (remote && state.window)}
+            title={
+              remote && state.window
+                ? `Its window is open on ${pc}: it is closed there, never from the Hub.`
+                : undefined
+            }
             onClick={() => setConfirm(true)}
           >
             {busy && stopping
               ? "Stopping…"
-              : state.window
+              : state.window && !remote
                 ? "Close the window"
                 : "Stop"}
           </Button>
@@ -672,7 +696,7 @@ function AppRow({
             <p className="m-0">
               {state.window
                 ? "This closes the app's window on this PC, and anything it is running stops with it."
-                : "This stops the app on this PC, and anything it is running stops with it."}
+                : `This stops the app on ${pc}, and anything it is running stops with it.`}
             </p>
             {state.window && (
               <p className={cn("m-0", WARN)}>
@@ -700,24 +724,30 @@ function AppRow({
 }
 
 /** The microscope and the app: the start form while nothing runs, else one
- * row each. */
-function AppCard({
+ * row each. On the Hub's page (`useReached`) its calls go to that
+ * instrument's gateway, and *microscope* is the Hub's own row for the
+ * microscope, which it reads but never connects. */
+export function AppCard({
   state,
   defaults,
   connection,
   starting,
   up,
+  microscope: microscopeRow,
 }: {
   state: GatewayState;
   defaults: Defaults | undefined;
   connection: Connection | undefined;
   starting: boolean;
   up: boolean;
+  microscope?: ReactNode;
 }) {
   const client = useQueryClient();
+  const reach = useApi();
+  const remote = useReached().prefix !== "";
   const act = useMutation({
     mutationFn: ({ path, body }: { path: string; body: unknown }) =>
-      api<GatewayState>(path, { method: "POST", body: JSON.stringify(body) }),
+      reach<GatewayState>(path, { method: "POST", body: JSON.stringify(body) }),
     onSuccess: (answer) => {
       client.setQueryData(["gateway"], answer);
       client.invalidateQueries({ queryKey: ["gateway/history"] });
@@ -775,10 +805,12 @@ function AppCard({
               />
             </>
           )}
-          <DeviceRows
-            servers={state.device_servers ?? []}
-            file={state.device_servers_file ?? null}
-          />
+          {!remote && (
+            <DeviceRows
+              servers={state.device_servers ?? []}
+              file={state.device_servers_file ?? null}
+            />
+          )}
           <SubHeading first={!connects}>App</SubHeading>
           <Starting
             state={state}
@@ -792,15 +824,19 @@ function AppCard({
         </>
       ) : (
         <>
-          <MicroscopeRow
-            connection={connection}
-            starting={starting}
-            health={state.health?.microscope}
-          />
-          <DeviceRows
-            servers={state.device_servers ?? []}
-            file={state.device_servers_file ?? null}
-          />
+          {microscopeRow ?? (
+            <MicroscopeRow
+              connection={connection}
+              starting={starting}
+              health={state.health?.microscope}
+            />
+          )}
+          {!remote && (
+            <DeviceRows
+              servers={state.device_servers ?? []}
+              file={state.device_servers_file ?? null}
+            />
+          )}
           <AppRow
             state={state}
             starting={starting}
@@ -812,7 +848,7 @@ function AppCard({
       )}
       {state.other_host && (
         <p className={cn("m-0 pb-2 text-[13px]", WARN)}>
-          Another App Server runs here (pid {state.other_host.pid}) that the
+          Another App Server runs {remote ? "there" : "here"} (pid {state.other_host.pid}) that the
           gateway didn't start: close it at the PC before starting the app.
         </p>
       )}

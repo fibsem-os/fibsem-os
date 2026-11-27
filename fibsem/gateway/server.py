@@ -485,13 +485,15 @@ def build_gateway_app(
             ``{session_id, playbook, goal, level, budget_usd, replace}``: the
             instrument's checks, the agent's token (in this answer only), the
             level. ``{session_id, rejoin: true, token}``: the same session
-            back after its grace ran out. Answers ``{token, lease_s, grace_s,
+            back after its grace ran out; with no token, the same paired Hub
+            after it was restarted. Answers ``{token, lease_s, grace_s,
             state}``."""
             hub = hub_caller(found)
             if body.get("rejoin"):
+                token = body.get("token")
                 return _hub(
                     lambda: agent.hub.rejoin(
-                        hub, body.get("session_id"), str(body.get("token") or "")
+                        hub, body.get("session_id"), str(token) if token else None
                     )
                 )
             budget = _budget(body)

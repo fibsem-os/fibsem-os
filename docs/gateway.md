@@ -430,7 +430,8 @@ under the name "playbook via hub". End on the page ends it.
 The hub renews the slot every 10 s (`/gateway/agent/slot/renew`). If it goes quiet for 2 minutes
 (`install.gateway.hub_agent_grace_s` in the preferences), the gateway sets Watch, unpairs the
 token and frees the slot. The same session can come back with the token it was given, at the
-level it last ran at. It doesn't come back if the level was changed here since, if the agent
+level it last ran at. A hub that was restarted no longer has that token: the same paired hub
+gets the slot back for the same session without it, and a new token. It doesn't come back if the level was changed here since, if the agent
 was stopped here, or if another agent took the slot. A different session never gets the old
 level. A restarted gateway ends a hub's slot it doesn't know. The API key and the playbook's
 code mode are the hub PC's concern, not this PC's.
