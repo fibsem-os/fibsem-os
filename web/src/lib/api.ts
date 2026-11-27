@@ -17,6 +17,19 @@ export class ApiError extends Error {
 
 let token: string | null = null;
 
+// Where every call goes: this server, or on the Hub's page one instrument's
+// gateway through the Hub ("/hub/instruments/<name>"), for a whole page of
+// that instrument's (its Agent page) served by the Hub.
+let base = "";
+
+/** Send every call of this page through *prefix*. Set before the page renders. */
+export function setApiBase(prefix: string) {
+  base = prefix;
+}
+
+/** *path* as this page reaches it, for a fetch made outside `api`. */
+export const apiPath = (path: string) => base + path;
+
 /** fetch, with no answer at all (the server down, the network gone) an ApiError
  * that says so, status 0, rather than the browser's "Failed to fetch". */
 async function reach(path: string, init: RequestInit): Promise<Response> {
@@ -113,7 +126,7 @@ async function call(path: string, init: RequestInit): Promise<Response> {
   if (read) headers["X-Fibsem-Read-Wait"] = String(READ_WAIT_S);
   const timeout = read && !init.signal ? AbortSignal.timeout(READ_TIMEOUT_MS) : undefined;
   try {
-    const response = await reach(path, { ...init, headers, signal: init.signal ?? timeout });
+    const response = await reach(base + path, { ...init, headers, signal: init.signal ?? timeout });
     if (response.status === 401) forgetToken();
     return response;
   } catch (error) {
@@ -142,7 +155,7 @@ export async function reading<T>(path: string): Promise<Reading<T>> {
 
 /** An image route's bytes as an object URL, for an <img> that can't send the token. */
 export async function imageUrl(path: string): Promise<string> {
-  const response = await reach(path, { headers: { Authorization: `Bearer ${token}` } });
+  const response = await reach(base + path, { headers: { Authorization: `Bearer ${token}` } });
   if (response.status === 401) forgetToken();
   if (!response.ok) throw new ApiError(response.status, response.statusText);
   return URL.createObjectURL(await response.blob());
@@ -151,7 +164,7 @@ export async function imageUrl(path: string): Promise<string> {
 /** POSTs *body* to a route that answers a file, and saves it under the name the
  * server gives (Content-Disposition), else *fallback*. */
 export async function download(path: string, body: unknown, fallback: string): Promise<void> {
-  const response = await reach(path, {
+  const response = await reach(base + path, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify(body),

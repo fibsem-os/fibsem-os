@@ -566,6 +566,9 @@ interface ThisPc {
   allow_local_agents: boolean;
   port: number;
   update_check: boolean;
+  /** What a paired Hub may do to this PC's agent: off, or the highest level
+   * it may raise the agent to. */
+  hub_remote: "off" | "watch" | "assist" | "drive";
   /** Whether this caller is the operator at this PC. */
   at_this_pc: boolean;
 }
@@ -661,6 +664,30 @@ function ThisPcCard() {
           </div>
         </div>
       )}
+      <Row label="Remote control from a Hub">
+        <span className="flex items-center gap-2">
+          <select
+            value={d.hub_remote}
+            disabled={!d.at_this_pc || save.isPending}
+            onChange={(event) =>
+              save.mutate({ hub_remote: event.target.value as ThisPc["hub_remote"] })
+            }
+            aria-label="Remote control from a Hub"
+            title="What a person at a paired Hub may do to this PC's agent from the Hub's Agent page. They can always read it, and lower the level when remote control is on."
+            className={cn(FIELD, "w-auto")}
+          >
+            <option value="off">Off: read only</option>
+            <option value="watch">Message, answer and Stop</option>
+            <option value="assist">Also raise the level to Assist</option>
+            <option value="drive">Also raise the level to Drive</option>
+          </select>
+          {!d.at_this_pc && (
+            <span className="text-xs text-muted-foreground">
+              Set at this PC only
+            </span>
+          )}
+        </span>
+      </Row>
       <Row label="Gateway port">
         <span className="flex items-center gap-2">
           <input

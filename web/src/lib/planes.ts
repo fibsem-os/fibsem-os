@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { ApiError, forgetToken, getToken } from "./api";
+import { ApiError, apiPath, forgetToken, getToken } from "./api";
 import { encodePath } from "./files";
 
 export type Values = Uint8Array | Uint16Array | Float32Array;
@@ -39,7 +39,7 @@ export async function readPlanes(path: string, ask: PlanesAsk): Promise<Planes> 
   if (ask.first != null) query.set("first", String(ask.first));
   if (ask.last != null) query.set("last", String(ask.last));
   if (ask.box) query.set("box", ask.box.join(","));
-  const response = await fetch(`/app/experiment/planes/${encodePath(path)}?${query}`, {
+  const response = await fetch(apiPath(`/app/experiment/planes/${encodePath(path)}?${query}`), {
     headers: { Authorization: `Bearer ${getToken()}` },
   });
   if (response.status === 401) forgetToken();

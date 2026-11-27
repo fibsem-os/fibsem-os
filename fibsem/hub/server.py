@@ -21,11 +21,13 @@ from starlette.requests import HTTPConnection
 from fibsem import __version__, keystore
 from fibsem.gateway import settings as gateway_settings
 from fibsem.gateway.gateway import GatewayRefused
+from fibsem.gateway.passthrough import PASSED, ROOT_PASSED
 from fibsem.gateway.server import GatewayAuth
 from fibsem.hub import sessions as hub_sessions
 from fibsem.hub.agents import API_KEY, HubAgents
 from fibsem.hub.history import AGENT, APP, INSTRUMENT, SETUP, HubHistory
 from fibsem.hub.hub import TOKENS_DIR, Hub, HubState
+from fibsem.hub.relay import AgentPageRelay
 from fibsem.hub.simulator import NAME as SIMULATOR
 from fibsem.hub.simulator import Simulator
 from fibsem.server.agent.library import build_library_router
@@ -96,6 +98,7 @@ def build_hub_app(
     simulator: Optional[Simulator] = None,
     history: Optional[HubHistory] = None,
     on_show: Optional[Callable[[], bool]] = None,
+    relay_transport: Any = None,
 ) -> FastAPI:
     app = FastAPI(title="fibsem hub")
     refuse_invalid_requests(app)
@@ -436,6 +439,45 @@ def build_hub_app(
             what they spent by instrument and by day
             (`fibsem.hub.sessions`)."""
             return hub_sessions.list_sessions(hub, agents.root, limit)
+
+    # An instrument's Agent page, served here: its calls go on to that
+    # instrument's gateway, which decides what a Hub may ask.
+    relay = AgentPageRelay(
+        hub, relay_transport, lambda name, did, who: note(AGENT, did, who, name)
+    )
+
+    def passes(prefix: str, exact: bool):
+        if exact:
+
+            async def pass_on_exact(
+                name: str, request: Request, who: str = Depends(operator)
+            ):
+                return await relay.forward(name, prefix, request, who)
+
+            return pass_on_exact
+
+        async def pass_on(
+            name: str, rest: str, request: Request, who: str = Depends(operator)
+        ):
+            return await relay.forward(name, f"{prefix}/{rest}", request, who)
+
+        return pass_on
+
+    methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]
+    for prefix in PASSED:
+        app.add_api_route(
+            f"/hub/instruments/{{name}}/{prefix}/{{rest:path}}",
+            passes(prefix, exact=False),
+            methods=methods,
+            include_in_schema=False,
+        )
+    for exact in PASSED + ROOT_PASSED:
+        app.add_api_route(
+            f"/hub/instruments/{{name}}/{exact}",
+            passes(exact, exact=True),
+            methods=methods,
+            include_in_schema=False,
+        )
 
     @app.get("/hub/instruments/{name}/{route:path}")
     def read_instrument(

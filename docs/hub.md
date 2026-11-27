@@ -62,10 +62,32 @@ a window or force a stop. The agent card is the gateway's own too: start an agen
 with a playbook, level, budget and goal, resume the last session, or end the one running.
 These are asked of the instrument's gateway, which decides. The agent runs on the microscope
 PC, and the gateway refuses a Hub that was not given "May start and stop apps" when it was
-paired. The agent's chat and plan stay on the Agent page at the microscope PC.
+paired.
 
-Nothing else of an instrument is reached through the Hub: not its app's own pages, its
+Nothing else of an instrument is changed through the Hub: not its app's other pages, its
 microscope's connection, its settings, its keys or its pairing.
+
+### The Agent page
+
+**Open the Agent page** on an instrument opens that instrument's Agent page at the Hub
+(`/ui/hub/agent/<name>`): the same page the microscope PC serves, with the chat, the plan
+and the review list. There is one conversation, kept at the microscope PC and seen in both
+places. The browser talks to the Hub only, so it is not paired with the microscope PC. The
+Hub passes each of the page's calls to the instrument's gateway with its own pairing token,
+and the gateway decides:
+
+- **Reading** is allowed to any paired Hub.
+- **A message, an answer to the agent's question, and Stop agent** are allowed to a Hub that
+  was given "May start and stop apps".
+- **The level** can be lowered freely, and raised as far as the microscope PC allows.
+- **Everything else** is refused with "This is done at the microscope PC": approving a
+  request, a workflow, the microscope, the plan, the library.
+
+What a Hub may do is one setting at the microscope PC, **Remote control from a Hub**
+(Settings, This PC, on its gateway's page): off (read only), message, answer and Stop, or
+those and raising the level to Assist or to Drive. It is changed only at that PC. What is
+done from the Hub is written in the Hub's History and in that gateway's History, with the
+Hub's name.
 
 ### Test
 

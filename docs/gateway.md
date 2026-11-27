@@ -436,6 +436,16 @@ was stopped here, or if another agent took the slot. A different session never g
 level. A restarted gateway ends a hub's slot it doesn't know. The API key and the playbook's
 code mode are the hub PC's concern, not this PC's.
 
+A paired hub can also serve this PC's Agent page to a person at the hub PC. The hub's calls
+for it come here with the hub's token, and the gateway passes on what a hub may ask as the
+operator, with the hub's name beside it: any read (never the text that connects an agent),
+and from a hub with "May start and stop apps" a message to the agent, an answer to it, Stop
+agent, and a level change. The level is lowered freely and raised only as far as **Remote
+control from a Hub** allows (Settings, This PC; `install.gateway.hub_remote`: `off`, `watch`,
+`assist` or `drive`, set only at this PC). `off` leaves a hub its reads. Everything else a
+hub asks of the app is refused, 403 `not_from_a_hub`. Each thing a hub does is in History
+with its name.
+
 ## At the scope
 
 Double-click the AutoLamella desktop shortcut as usual.

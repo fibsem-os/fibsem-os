@@ -27,6 +27,7 @@ import {
 import { AgentRow, History, stopped } from "@/pages/gateway/History";
 import { SetupAt } from "@/pages/agent/Connectors";
 import { AppCard, type GatewayState } from "@/pages/Gateway";
+import { agentPagePath } from "@/pages/hub/InstrumentAgent";
 import { Customise } from "@/pages/gateway/Customise";
 import { KeyRow, type Secret } from "@/pages/gateway/Settings";
 import { Connections } from "@/shell/Settings";
@@ -556,33 +557,16 @@ function InstrumentAbout({
   );
 }
 
-/** Where this PC's browser reaches the instrument's own pages: through the
- * Hub's tunnel, or at its address. That gateway signs the browser in itself,
- * with a code from its Pairing page the first time. */
-function gatewayAddress(instrument: Instrument): string | null {
-  if (instrument.ssh)
-    return instrument.tunnel?.open && instrument.tunnel.gateway_port
-      ? `http://127.0.0.1:${instrument.tunnel.gateway_port}`
-      : null;
-  return instrument.url;
-}
-
 function AgentPageLink({ instrument }: { instrument: Instrument }) {
-  const address = gatewayAddress(instrument);
   return (
     <p className="m-0 text-xs text-muted-foreground">
-      The agent's chat and plan are on the instrument's Agent page.{" "}
-      {address && (
-        <a
-          href={`${address}/ui/agent`}
-          target="_blank"
-          rel="noreferrer"
-          className="text-primary underline underline-offset-2"
-          title="Opens the instrument's own page. The first time, it asks for a code from the Pairing page at the microscope PC."
-        >
-          Open the Agent page
-        </a>
-      )}
+      <a
+        href={agentPagePath(instrument.name)}
+        className="text-primary underline underline-offset-2"
+        title="The agent's chat, plan and review list, read through this Hub. No pairing with the microscope PC is needed."
+      >
+        Open the Agent page
+      </a>
     </p>
   );
 }
@@ -717,7 +701,7 @@ function InstrumentView({
             </p>
           )}
           <InstrumentCards key={instrument.name} instrument={instrument} simulated={simulated} />
-          {instrument.agent && <AgentPageLink instrument={instrument} />}
+          <AgentPageLink instrument={instrument} />
         </>
       )}
     </>

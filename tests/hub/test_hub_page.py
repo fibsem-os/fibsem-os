@@ -3,12 +3,14 @@ and starting, resuming and ending that instrument's agent."""
 
 import json
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
 from fibsem.gateway.agent import AgentState
 from fibsem.gateway.gateway import OFF, GatewayRefused, GatewayState, History
 from fibsem.gateway.server import GatewayAuth, build_gateway_app
+from fibsem.hub.history import HubHistory
 from fibsem.hub.hub import Hub
 from fibsem.hub.main import open_hub, page_link
 from fibsem.hub.server import build_hub_app, hub_auth
@@ -233,7 +235,6 @@ def test_nothing_else_of_a_gateway_is_reached_through_the_hub(page, hub, instrum
     for method, route in [
         ("GET", "gateway/secrets"),
         ("GET", "pairing"),
-        ("GET", "app/events"),
         ("GET", "gateway/agent/playbooks/a/b"),
         ("POST", "gateway/quit"),
         ("POST", "gateway/claim"),
@@ -352,3 +353,89 @@ def test_the_shortcut_opens_the_page_of_a_hub_with_no_window(monkeypatch):
     )
     assert code == 0 and not started
     assert opened == ["http://127.0.0.1:8020/ui/hub#token=operator"]
+
+
+def _relayed(tmp_path, hub, answer):
+    """The Hub's page over a stand-in gateway that notes each call passed on."""
+    got = []
+
+    def gateway(request: httpx.Request) -> httpx.Response:
+        got.append(request)
+        status, body = answer(request)
+        return httpx.Response(
+            status, stream=httpx.ByteStream(json.dumps(body).encode())
+        )
+
+    token_file = tmp_path / "operator-token.json"
+    token_file.write_text(json.dumps({"token": OPERATOR_TOKEN}))
+    auth = hub_auth(token_file, tmp_path / "hub-paired.json")
+    history = HubHistory(tmp_path / "history.jsonl")
+    app = build_hub_app(
+        hub, auth, history=history, relay_transport=httpx.MockTransport(gateway)
+    )
+    return TestClient(app), got, history
+
+
+def test_the_agent_pages_calls_go_on_to_the_instruments_gateway(
+    tmp_path, hub, instrument
+):
+    _paired(hub, instrument)
+    page, got, history = _relayed(tmp_path, hub, lambda r: (200, {"rows": []}))
+    at = "/hub/instruments/Scope 1"
+    assert page.get(f"{at}/app/agent/recent?rows=5").status_code == 401
+    assert got == []
+    answer = page.get(f"{at}/app/agent/recent?rows=5", headers=OPERATOR)
+    assert answer.status_code == 200 and answer.json() == {"rows": []}
+    sent = got[-1]
+    assert str(sent.url) == f"{URL}/app/agent/recent?rows=5"
+    # as this Hub, with the token that gateway gave it: never the browser's
+    assert sent.headers["authorization"] == f"Bearer {hub.token('Scope 1')}"
+    assert page.get(f"{at}/capabilities", headers=OPERATOR).status_code == 200
+    assert got[-1].url.path == "/capabilities"
+    assert history.read(10)["events"] == []
+
+
+def test_what_is_done_to_the_agent_from_the_hub_is_in_its_history(
+    tmp_path, hub, instrument
+):
+    _paired(hub, instrument)
+    page, got, history = _relayed(tmp_path, hub, lambda r: (201, {"message_id": "m"}))
+    sent = page.post(
+        "/hub/instruments/Scope 1/app/agent/messages",
+        json={"text": "hello"},
+        headers=OPERATOR,
+    )
+    assert sent.status_code == 201
+    assert json.loads(got[-1].content) == {"text": "hello"}
+    event = history.read(10)["events"][0]
+    assert (event["what"], event["instrument"]) == ("Messaged the agent", "Scope 1")
+
+
+def test_a_gateways_refusal_comes_back_in_its_own_words(tmp_path, hub, instrument):
+    _paired(hub, instrument)
+    refusal = {"detail": {"error_type": "remote_off", "message": "Switched off."}}
+    page, _, history = _relayed(tmp_path, hub, lambda r: (403, refusal))
+    answer = page.post(
+        "/hub/instruments/Scope 1/app/agent/stop", json={}, headers=OPERATOR
+    )
+    assert answer.status_code == 403 and answer.json() == refusal
+    assert history.read(10)["events"] == []
+
+
+def test_a_gateway_that_forgot_this_hub_never_signs_the_page_out(
+    tmp_path, hub, instrument
+):
+    _paired(hub, instrument)
+    page, _, _ = _relayed(tmp_path, hub, lambda r: (401, {"detail": "no"}))
+    answer = page.get("/hub/instruments/Scope 1/app/agent", headers=OPERATOR)
+    assert answer.status_code == 409
+    assert answer.json()["detail"]["error_type"] == "not_paired"
+
+
+def test_an_instrument_not_paired_passes_nothing_on(tmp_path, hub, instrument):
+    hub.add("Scope 1", URL)
+    page, got, _ = _relayed(tmp_path, hub, lambda r: (200, {}))
+    answer = page.get("/hub/instruments/Scope 1/app/agent", headers=OPERATOR)
+    assert answer.status_code == 409 and got == []
+    missing = page.get("/hub/instruments/Scope 9/app/agent", headers=OPERATOR)
+    assert missing.status_code == 404
