@@ -42,107 +42,335 @@ const KINDS: NonNullable<ReviewItem["score"]>[] = [
   "target",
   "polishing",
 ];
-const RESULT: Record<string, string> = { Accept: "Pass", Reject: "Fail" };
 
 // A grid's or lamella's name as the server compares it ("Lamella 01" is "lamella-01").
 const same = (name?: string) => (name ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
 
-/** The run's scored items: the server's tally per kind (one score per grid or
- * lamella, its first answer), then each item; one opens in the viewer. */
+/** The agent's text, folded to a few lines when it is long. */
+function Folded({ text }: { text: string }) {
+  const [all, setAll] = useState(false);
+  const long = text.length > 280;
+  return (
+    <div className="flex flex-col items-start gap-1">
+      <p className={cn("m-0 leading-snug whitespace-pre-line", long && !all && "line-clamp-5")}>{text}</p>
+      {long && (
+        <button
+          className="cursor-pointer border-0 bg-transparent p-0 text-[12px] text-muted-foreground underline hover:text-foreground"
+          onClick={() => setAll(!all)}
+        >
+          {all ? "Less" : "More"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+const KIND_NAME: Record<string, string> = {
+  "site-selection": "Site",
+  "site-coverage": "Coverage",
+  "site-setup": "Setup",
+  target: "Target",
+  polishing: "Polishing",
+};
+
+type Result = "pass" | "fail" | "open" | "missing" | "closed" | "redo" | "none";
+const RESULT_WORD: Record<Result, string> = {
+  pass: "Pass",
+  fail: "Fail",
+  open: "To score",
+  missing: "No item · Fail",
+  closed: "Closed · Fail",
+  redo: "After help",
+  none: "",
+};
+
+/** A line of the scoring list: a review item, or a scored result with no item. */
+type Line = { id: string; item?: ReviewItem; kind: string; name: string; grid: string; result: Result };
+
+type Group = "item" | "type";
+type ShowScores = "all" | "fail" | "open";
+
+/** Scores: one modal to go through the run's results. The list on the left,
+ * grouped by grid and lamella or by kind, each line with its result; the
+ * picked item on the right, with its pictures, text and answer. */
 function Scores({
   items,
   counts,
-  onOpen,
   onClose,
 }: {
   items: ReviewItem[];
   counts: NonNullable<ReviewList["counts"]["scores"]>;
-  onOpen: (id: string) => void;
   onClose: () => void;
 }) {
-  const scored = items.filter((i) => i.score);
-  // A later answer for the same lamella (a redo after a Reject) isn't its score.
-  // What an item scores, as the server groups it: its lamella's id, else its about.
+  const [group, setGroup] = useState<Group>("item");
+  const [show, setShow] = useState<ShowScores>("all");
+  const oldest = [...items].reverse();
+  const nameOf = (i: ReviewItem) => i.item_name ?? i.about ?? "";
+  // What an item scores, as the server groups it; its first answer is the score.
   const key = (i: ReviewItem) => `${i.score}:${i.item_id ?? same(i.about)}`;
-  const first = new Set<string>();
-  const redo = new Set<string>();
-  const unanswered = new Set<string>();
-  for (const i of [...scored].reverse()) {
-    if (!i.closed && !i.answer) unanswered.add(key(i));
-    if (!i.answer) continue;
-    if (first.has(key(i))) redo.add(i.id);
-    else first.add(key(i));
+  const firstAnswer = new Map<string, string>();
+  const anyOpen = new Set<string>();
+  for (const i of oldest) {
+    if (!i.score) continue;
+    if (i.answer && !firstAnswer.has(key(i))) firstAnswer.set(key(i), i.id);
+    if (!i.answer && !i.closed) anyOpen.add(key(i));
   }
-  const none = { passed: 0, failed: 0, open: 0 };
-  const tally = KINDS.map((kind) => ({ kind, ...(counts[kind] ?? none) })).filter(
-    (t) => t.passed + t.failed + t.open > 0,
+  const resultOf = (i: ReviewItem): Result => {
+    if (!i.score) return "none";
+    if (i.answer) return firstAnswer.get(key(i)) !== i.id ? "redo" : i.answer.choice === "Accept" ? "pass" : "fail";
+    if (!i.closed) return "open";
+    return firstAnswer.has(key(i)) || anyOpen.has(key(i)) ? "none" : "closed";
+  };
+  // Each lamella's grid: the about of its site-selection item.
+  const gridOf = new Map<string, string>();
+  for (const i of oldest) if (i.score === "site-selection" && i.about) gridOf.set(same(nameOf(i)), i.about);
+  const lines: Line[] = oldest.map((i) => ({
+    id: i.id,
+    item: i,
+    kind: i.score ?? "",
+    name: i.score === "site-coverage" ? "" : nameOf(i),
+    grid: i.score === "site-coverage" ? i.about : (gridOf.get(same(nameOf(i))) ?? ""),
+    result: resultOf(i),
+  }));
+  for (const kind of KINDS)
+    for (const name of counts[kind]?.missing ?? [])
+      lines.push({ id: `${kind}:${name}`, kind, name, grid: gridOf.get(same(name)) ?? "", result: "missing" });
+  const shown = lines.filter((l) =>
+    show === "all"
+      ? true
+      : show === "open"
+        ? l.result === "open"
+        : l.result === "fail" || l.result === "missing" || l.result === "closed",
   );
-  // A lamella whose items the agent all closed unanswered fails as closed.
-  const closedFail = (i: ReviewItem) => !first.has(key(i)) && !unanswered.has(key(i));
-  const result = (i: ReviewItem) =>
-    i.answer
-      ? (RESULT[i.answer.choice] ?? i.answer.choice)
-      : !i.closed
-        ? "To score"
-        : closedFail(i)
-          ? "Closed · Fail"
-          : "Closed";
-  const missing = KINDS.flatMap((kind) => (counts[kind]?.missing ?? []).map((about) => ({ kind, about })));
+  // Groups in the order first met: grid, then lamella; or kind, in the run's order.
+  if (group === "type") {
+    const rank = (k: string) => (k ? KINDS.indexOf(k as (typeof KINDS)[number]) : KINDS.length);
+    shown.sort((a, b) => rank(a.kind) - rank(b.kind));
+  }
+  const sections = new Map<string, { title: string; sub: Map<string, Line[]> }>();
+  for (const l of shown) {
+    const [top, sub] =
+      group === "item"
+        ? [l.grid || "No grid named", l.name || (l.kind === "site-coverage" ? "Grid" : "Other")]
+        : [l.kind ? (KIND_NAME[l.kind] ?? l.kind) : "Not scored", ""];
+    if (!sections.has(top)) sections.set(top, { title: top, sub: new Map() });
+    const s = sections.get(top)!.sub;
+    if (!s.has(sub)) s.set(sub, []);
+    s.get(sub)!.push(l);
+  }
+  const [chosen, setPicked] = useState<string | null>(null);
+  // The pick follows the filter: a line hidden by it gives way to the first one shown.
+  const order = [...sections.values()].flatMap((s) => [...s.sub.values()].flat());
+  const picked = order.some((l) => l.id === chosen) ? chosen : (order.find((l) => l.item)?.id ?? null);
+  const current = items.find((i) => i.id === picked) ?? null;
+  // After an answer, the next line still to score.
+  const next = () => {
+    const at = order.findIndex((l) => l.id === picked);
+    const after = [...order.slice(at + 1), ...order.slice(0, at)].find((l) => l.result === "open" && l.item);
+    setPicked(after?.id ?? null);
+  };
+  // One line for the whole run; each kind's count is on its own header in By kind.
+  const total = KINDS.reduce(
+    (t, kind) => {
+      const c = counts[kind] ?? { passed: 0, failed: 0, open: 0 };
+      return { passed: t.passed + c.passed, failed: t.failed + c.failed, open: t.open + c.open };
+    },
+    { passed: 0, failed: 0, open: 0 },
+  );
+  const sum = (ls: Line[]) => {
+    const scored = ls.filter((l) => l.kind && l.result !== "redo" && l.result !== "none");
+    const fails = scored.filter((l) => l.result === "fail" || l.result === "missing" || l.result === "closed").length;
+    const open = scored.filter((l) => l.result === "open").length;
+    const passed = scored.filter((l) => l.result === "pass").length;
+    return [passed + fails ? `${passed}/${passed + fails}` : "", open ? `${open} to score` : ""]
+      .filter(Boolean)
+      .join(" · ");
+  };
+  const [folded, setFolded] = useState<Set<string>>(new Set());
+  const fold = (title: string) =>
+    setFolded((f) => {
+      const n = new Set(f);
+      if (n.has(title)) n.delete(title);
+      else n.add(title);
+      return n;
+    });
+  const option = (on: boolean, name: string, pick: () => void) => (
+    <button
+      key={name}
+      className={cn(
+        "cursor-pointer border-0 bg-transparent px-3 py-1.5 text-left text-[13px] whitespace-nowrap hover:bg-muted",
+        on && "font-semibold",
+      )}
+      onClick={pick}
+    >
+      {name}
+    </button>
+  );
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent title="Scores" className="w-[min(560px,calc(100vw-32px))]">
-        <div className="flex flex-col gap-4 overflow-y-auto px-4 py-3 text-[13px]">
-          <table className="w-full border-collapse tabular-nums">
-            <thead className="text-[12px] text-muted-foreground">
-              <tr>
-                <th className="py-1 text-left font-normal" />
-                <th className="py-1 text-right font-normal">Pass</th>
-                <th className="py-1 text-right font-normal">Fail</th>
-                <th className="py-1 text-right font-normal">To score</th>
-              </tr>
-            </thead>
-            <tbody>
-              {tally.map((t) => (
-                <tr key={t.kind} className="border-t border-border">
-                  <td className="py-1.5">{t.kind}</td>
-                  <td className="py-1.5 text-right">{t.passed}</td>
-                  <td className="py-1.5 text-right">{t.failed}</td>
-                  <td className="py-1.5 text-right text-muted-foreground">{t.open || ""}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <div className="flex flex-col">
-            {scored.map((i) => (
+      <DialogContent title="Scores" className="h-[min(860px,calc(100vh-32px))] w-[min(1400px,calc(100vw-32px))]">
+        <div className="flex items-center gap-3 border-b border-border px-4 py-2 text-[12.5px] tabular-nums">
+          <span className="flex-1">
+            {total.passed}/{total.passed + total.failed} passed
+            {total.open > 0 && <span className="text-muted-foreground"> · {total.open} to score</span>}
+          </span>
+          <span className="text-muted-foreground">
+            {group === "item" ? "By lamella" : "By kind"}
+            {show !== "all" && ` · ${show === "fail" ? "Fails" : "To score"}`}
+          </span>
+          <Popup
+            label="Group and show"
+            align="right"
+            side="below"
+            trigger={(on, toggle) => (
               <button
-                key={i.id}
-                className="flex cursor-pointer items-baseline gap-3 border-0 border-t border-border bg-transparent px-0 py-2 text-left hover:bg-muted/40"
-                onClick={() => onOpen(i.id)}
+                className={cn(
+                  "flex size-6 cursor-pointer items-center justify-center rounded border-0 bg-transparent text-muted-foreground hover:text-foreground",
+                  (on || show !== "all" || group !== "item") && "text-foreground",
+                )}
+                aria-label="Group and show"
+                onClick={toggle}
               >
-                <span className="w-24 shrink-0 text-muted-foreground">{i.about}</span>
-                <span className="w-28 shrink-0 text-muted-foreground">{i.score}</span>
-                <span className="min-w-0 flex-1">
-                  {i.title}
-                  {i.answer?.note && <span className="block text-[12px] text-muted-foreground">“{i.answer.note}”</span>}
-                </span>
-                <span className={cn("shrink-0", (!i.answer || redo.has(i.id)) && "text-muted-foreground")}>
-                  {result(i)}
-                  {redo.has(i.id) && " after help"}
-                </span>
+                <Filter size={14} />
               </button>
-            ))}
-            {missing.map((m) => (
-              <div key={`${m.kind}:${m.about}`} className="flex items-baseline gap-3 border-t border-border py-2">
-                <span className="w-24 shrink-0 text-muted-foreground">{m.about}</span>
-                <span className="w-28 shrink-0 text-muted-foreground">{m.kind}</span>
-                <span className="min-w-0 flex-1 text-muted-foreground">No item filed</span>
-                <span className="shrink-0">Fail</span>
+            )}
+          >
+            {(close) => (
+              <div className="flex flex-col py-1">
+                <span className="px-3 pt-1 pb-0.5 text-[11.5px] text-muted-foreground">Group</span>
+                {(
+                  [
+                    ["item", "By lamella"],
+                    ["type", "By kind"],
+                  ] as [Group, string][]
+                ).map(([v, name]) =>
+                  option(group === v, name, () => {
+                    setGroup(v);
+                    close();
+                  }),
+                )}
+                <span className="mt-1 border-t border-border px-3 pt-2 pb-0.5 text-[11.5px] text-muted-foreground">
+                  Show
+                </span>
+                {(
+                  [
+                    ["all", "All"],
+                    ["fail", "Fails"],
+                    ["open", "To score"],
+                  ] as [ShowScores, string][]
+                ).map(([v, name]) =>
+                  option(show === v, name, () => {
+                    setShow(v);
+                    close();
+                  }),
+                )}
               </div>
+            )}
+          </Popup>
+        </div>
+        <div className="flex min-h-0 flex-1">
+          <div className="w-[360px] shrink-0 overflow-y-auto border-r border-border text-[13px]">
+            {[...sections.values()].map((sec) => (
+              <section key={sec.title}>
+                <button
+                  className="sticky top-0 flex w-full cursor-pointer items-baseline gap-2 border-0 bg-[var(--panel)] px-4 pt-3 pb-1 text-left"
+                  aria-expanded={!folded.has(sec.title)}
+                  onClick={() => fold(sec.title)}
+                >
+                  <span className="text-[11px] text-muted-foreground">{folded.has(sec.title) ? "▸" : "▾"}</span>
+                  <span className="flex-1 font-semibold">{sec.title}</span>
+                  <span className="text-[12px] text-muted-foreground tabular-nums">
+                    {sum([...sec.sub.values()].flat())}
+                  </span>
+                </button>
+                {!folded.has(sec.title) && [...sec.sub.entries()].map(([sub, ls]) => (
+                  <div key={sub} className="pb-1">
+                    {sub && <div className="px-4 pt-1.5 text-[12px] text-muted-foreground">{sub}</div>}
+                    {ls.map((l) => (
+                      <button
+                        key={l.id}
+                        disabled={!l.item}
+                        className={cn(
+                          "flex w-full items-baseline gap-2 border-0 bg-transparent px-4 py-1 text-left",
+                          l.item ? "cursor-pointer hover:bg-muted/40" : "cursor-default",
+                          l.id === picked && "bg-muted/60",
+                        )}
+                        onClick={() => setPicked(l.id)}
+                      >
+                        <span
+                          className={cn(
+                            "shrink-0 truncate text-[12px] text-muted-foreground",
+                            group === "item" ? "w-[72px]" : "w-[110px]",
+                          )}
+                        >
+                          {group === "item" ? (KIND_NAME[l.kind] ?? "") : l.name || l.grid}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate">{l.item?.title ?? "No item filed"}</span>
+                        <span
+                          className={cn(
+                            "shrink-0 text-[12px]",
+                            l.result === "fail" || l.result === "missing" || l.result === "closed"
+                              ? "text-destructive"
+                              : l.result === "pass"
+                                ? "text-foreground"
+                                : "text-muted-foreground",
+                          )}
+                        >
+                          {l.kind ? RESULT_WORD[l.result] : l.item?.answer ? l.item.answer.choice : "Not scored"}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ))}
+              </section>
             ))}
+            {sections.size === 0 && <p className="m-0 px-4 py-3 text-muted-foreground">Nothing here.</p>}
+          </div>
+          <div className="min-w-0 flex-1 overflow-y-auto">
+            {current ? (
+              <Picked key={current.id} item={current} onDone={next} />
+            ) : (
+              <p className="m-0 px-4 py-3 text-[13px] text-muted-foreground">Pick a line to see it and score it.</p>
+            )}
           </div>
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** The picked item in Scores: the image viewer drawn in place, previous and
+ * next through its pictures and marking on them, with the answer beside; an
+ * item with no pictures shows the answer alone. */
+function Picked({ item, onDone }: { item: ReviewItem; onDone: () => void }) {
+  const marked = useEvidence(item.evidence);
+  const paths = imagesOf(item, marked?.image ?? null);
+  const editor = useMarkEditor(1, 1);
+  if (item.evidence && !marked && paths.length) return null;
+  return (
+    <div className="flex flex-col gap-3">
+      <h3 className="m-0 px-4 pt-3 text-[14px] font-semibold">{item.title}</h3>
+      {paths.length ? (
+        <ImageViewer
+          inline
+          paths={paths}
+          at={0}
+          onClose={() => {}}
+          review={{
+            title: item.title,
+            agentMarks: (path: string): Mark[] | undefined =>
+              marked && path === marked.image ? marked.marks : undefined,
+            panel: ({ editor, path, channels }) => (
+              <Answer key={item.id} item={item} editor={editor} path={path} channels={channels} onDone={onDone} />
+            ),
+          }}
+        />
+      ) : (
+        <div className="max-w-[560px] px-4">
+          <Answer item={item} editor={editor} path="" channels={null} onDone={onDone} />
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -278,7 +506,7 @@ function Answer({
           .filter(Boolean)
           .join(" · ")}
       </span>
-      {item.text && <p className="m-0 leading-snug">{item.text}</p>}
+      {item.text && <Folded text={item.text} />}
       {item.facts.length > 0 && (
         <dl className="m-0 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[12.5px]">
           {item.facts.map((f) => (
@@ -468,7 +696,7 @@ export function ReviewTab({ open }: { open?: { id: string } | null }) {
       ))}
       {opened && <Viewer item={opened} onClose={() => setOpenId(null)} />}
       {scores && !opened && (
-        <Scores items={items} counts={review.data?.counts.scores ?? {}} onOpen={(id) => setOpenId(id)} onClose={() => setScores(false)} />
+        <Scores items={items} counts={review.data?.counts.scores ?? {}} onClose={() => setScores(false)} />
       )}
     </div>
   );
