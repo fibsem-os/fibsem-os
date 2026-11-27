@@ -54,6 +54,10 @@ CHECK_EVERY_S = 5.0
 # One instrument's read: a PC that is off answers nothing, and the others
 # are read beside it, not after it.
 TIMEOUT_S = 3.0
+# A page's read of one instrument, and a start or an end asked of it: a
+# gateway answers a start once its agent is up.
+READ_S = 10.0
+ACT_S = 90.0
 MAX_INSTRUMENTS = 32
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _.-]{0,39}$")
 # What the hub keeps of an instrument's ``GET /gateway``.
@@ -144,6 +148,34 @@ def _fetch(
         return response.status_code, None
 
 
+def _send(
+    url: str,
+    method: str,
+    route: str,
+    token: str,
+    body: Optional[Dict[str, Any]],
+    timeout: float,
+) -> Tuple[int, Any]:
+    """*method* *route* at *url* as this hub: its status and JSON answer. A
+    gateway that doesn't answer raises ``OSError``."""
+    import httpx
+
+    try:
+        response = httpx.request(
+            method,
+            f"{url}{route}",
+            headers={"Authorization": f"Bearer {token}"},
+            json=body if method != "GET" else None,
+            timeout=timeout,
+        )
+    except httpx.HTTPError as error:
+        raise OSError(str(error) or type(error).__name__) from None
+    try:
+        return response.status_code, response.json()
+    except ValueError:
+        return response.status_code, None
+
+
 def _pair(url: str, code: str, name: str) -> Tuple[str, str]:
     """Pair with the gateway at *url*: the token and the role it answers.
     A refusal raises ``PermissionError`` with the gateway's words."""
@@ -183,6 +215,7 @@ class Hub:
         tokens: Optional[Path] = None,
         fetch: Callable[[str, str, Optional[str], float], Tuple[int, Any]] = _fetch,
         pair: Callable[[str, str, str], Tuple[str, str]] = _pair,
+        send: Callable[..., Tuple[int, Any]] = _send,
         clock: Callable[[], float] = time.time,
         every_s: float = CHECK_EVERY_S,
         tunnels: Optional[Tunnels] = None,
@@ -191,6 +224,7 @@ class Hub:
         self._tokens = Path(tokens or TOKENS_DIR)
         self._fetch = fetch
         self._pair = pair
+        self._send = send
         self._clock = clock
         self._every_s = every_s
         self._tunnels = tunnels or Tunnels()
@@ -485,6 +519,55 @@ class Hub:
         if status != 200 or not isinstance(running, dict):
             return None
         return {key: running[key] for key in _AGENT_KEYS if running.get(key)}
+
+    # -- asking an instrument's gateway ---------------------------------------
+
+    def ask(
+        self,
+        name: str,
+        method: str,
+        route: str,
+        body: Optional[Dict[str, Any]] = None,
+    ) -> Any:
+        """*name*'s gateway's answer to *route*, asked as this hub with the
+        token that gateway gave it. The gateway decides what a hub may do: its
+        refusal is passed on in its own words."""
+        instrument = self._instrument(name)
+        token = self.token(name)
+        if token is None:
+            raise GatewayRefused(
+                409, "not_paired", f"Pair this hub with {name}'s gateway first."
+            )
+        timeout = READ_S if method == "GET" else ACT_S
+        try:
+            status, answer = self._send(
+                self.reach(instrument), method, route, token, body, timeout
+            )
+        except TunnelDown as down:
+            raise GatewayRefused(503, "unreachable", str(down)) from None
+        except OSError as error:
+            raise GatewayRefused(
+                503, "unreachable", f"{name}'s gateway didn't answer: {error}"
+            ) from None
+        if status == 401:
+            # Never a 401 of the hub's own: that would sign this page out.
+            raise GatewayRefused(
+                409,
+                "not_paired",
+                f"{name}'s gateway no longer knows this hub: pair again.",
+            )
+        if status >= 400:
+            detail = answer.get("detail") if isinstance(answer, dict) else None
+            detail = detail if isinstance(detail, dict) else {}
+            raise GatewayRefused(
+                status,
+                str(detail.get("error_type") or "refused"),
+                str(detail.get("message") or f"{name}'s gateway answered {status}."),
+            )
+        if method != "GET":
+            # Its state changed: read it again now, not at the next round.
+            self._safely(instrument)
+        return answer
 
     def check(self) -> None:
         """Read every instrument once, side by side."""

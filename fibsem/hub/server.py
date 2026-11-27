@@ -9,10 +9,13 @@ install's operator token, or a browser paired as the operator with a code from
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
+from urllib.parse import quote
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.responses import RedirectResponse
 from starlette.requests import HTTPConnection
 
 from fibsem import __version__
@@ -40,6 +43,13 @@ def hub_auth(
         token=load_operator_token(token_file),
         pairing=Pairing(PairedTokens(paired_file or PAIRED_FILE), roles=(OPERATOR,)),
     )
+
+
+# What the hub's page reads of an instrument's gateway, and the three things
+# it asks of one: start, resume and end its agent. Nothing else of a gateway
+# is reached through the hub.
+_READS = re.compile(r"^gateway(/agent(/sessions|/playbooks(/[^/]+)?)?)?$")
+_ACTS = ("gateway/agent/start", "gateway/agent/resume", "gateway/agent/end")
 
 
 def _refused(status: int, error_type: str, message: str) -> HTTPException:
@@ -101,6 +111,38 @@ def build_hub_app(
         if not code:
             raise _refused(422, "no_code", "Give the code its gateway shows.")
         return _act(lambda: hub.pair(name, code))
+
+    @app.get("/hub/instruments/{name}/{route:path}")
+    def read_instrument(
+        name: str, route: str, request: Request, who: str = Depends(operator)
+    ):
+        """An instrument's gateway's own answer: its state (``gateway``), its
+        agent and sessions (``gateway/agent``, ``gateway/agent/sessions``) and
+        its playbooks (``gateway/agent/playbooks``)."""
+        if not _READS.match(route):
+            raise _refused(404, "not_found", "The hub reads no such thing.")
+        asked = "/" + quote(route)
+        if request.url.query:
+            asked += f"?{request.url.query}"
+        return _act(lambda: hub.ask(name, "GET", asked))
+
+    @app.post("/hub/instruments/{name}/{route:path}")
+    def ask_instrument(
+        name: str,
+        route: str,
+        body: Optional[Dict[str, Any]] = None,
+        who: str = Depends(operator),
+    ):
+        """Start, resume or end an instrument's agent, as its gateway's
+        ``/gateway/agent/start``, ``resume`` and ``end``. The agent runs on
+        the instrument's PC, and its gateway decides whether this hub may."""
+        if route not in _ACTS:
+            raise _refused(404, "not_found", "The hub asks no such thing.")
+        return _act(lambda: hub.ask(name, "POST", "/" + route, body or {}))
+
+    @app.get("/", include_in_schema=False)
+    def home():
+        return RedirectResponse("/ui/hub")
 
     if on_quit is not None:
 

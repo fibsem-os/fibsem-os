@@ -21,6 +21,7 @@ it: with the Hub off, every microscope PC works as it does without one.
 
 ```
 agent-hub            # run the Hub, on 127.0.0.1:8020
+agent-hub open       # its page, in this PC's browser
 agent-hub status     # the instruments as last read
 agent-hub pair       # a code that signs a browser on another computer in
 agent-hub stop
@@ -29,6 +30,23 @@ agent-hub stop
 The Hub listens on its own PC only. Its sign in is its own: the install's operator token, and
 browsers paired with a code from `agent-hub pair`. They are kept apart from a gateway's
 paired computers.
+
+## The page
+
+`agent-hub open` opens the Hub's page (`/ui/hub`), signed in as this PC's operator. The
+instruments are listed down the side, each with a dot: green when it is read and well, amber
+when it needs someone (not paired, a microscope or app that is unwell, an agent waiting), grey
+when it can't be reached. **+** adds one, by name and where ssh connects to its PC.
+
+Picking an instrument shows it as its own gateway does: the microscope, the app, and the
+agent. Microscope and app are read only. The agent card is the gateway's own: start an agent
+with a playbook, level, budget and goal, resume the last session, or end the one running.
+These are asked of the instrument's gateway, which decides. The agent runs on the microscope
+PC, and the gateway refuses a Hub that was not given "May start and stop apps" when it was
+paired. The agent's chat and plan stay on the Agent page at the microscope PC.
+
+Nothing else of an instrument is reached through the Hub: not its app, its settings, its keys
+or its pairing.
 
 ## Instruments
 

@@ -1,8 +1,9 @@
 """``agent-hub``: run the hub on this PC, and ask the one that runs.
 
-``agent-hub`` (or ``run``) runs it until Ctrl-C. ``status`` lists the
-instruments as the running hub last read them, ``pair`` shows a code that
-signs a browser on another computer in, and ``stop`` stops it.
+``agent-hub`` (or ``run``) runs it until Ctrl-C. ``open`` opens its page in
+this PC's browser, ``status`` lists the instruments as the running hub last
+read them, ``pair`` shows a code that signs a browser on another computer in,
+and ``stop`` stops it.
 """
 
 from __future__ import annotations
@@ -71,6 +72,7 @@ def _parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command")
     run_ = commands.add_parser("run", help="Run the hub (the default).")
     run_.add_argument("--port", type=int, default=HUB_PORT)
+    commands.add_parser("open", help="Open the hub's page in this PC's browser.")
     commands.add_parser("status", help="List the instruments as last read.")
     commands.add_parser("pair", help="Show a code that signs a browser in.")
     commands.add_parser("stop", help="Stop the hub.")
@@ -102,7 +104,7 @@ def run(port: int) -> int:
         json.dumps({"url": f"http://127.0.0.1:{port}", "pid": os.getpid()})
     )
     hub.start()
-    print(f"Hub at http://127.0.0.1:{port}")
+    print(f"Hub at http://127.0.0.1:{port}. Its page: agent-hub open")
     try:
         # in short waits: Ctrl-C does not break a bare wait on Windows
         while not stopping.wait(0.5):
@@ -114,6 +116,24 @@ def run(port: int) -> int:
         server.should_exit = True
         RUNNING_FILE.unlink(missing_ok=True)
         thread.join(10)
+    return 0
+
+
+def page_link(url: str) -> str:
+    """The hub's page at *url*, signed in as this install's operator: the
+    token rides in the fragment, which a browser never sends to a server."""
+    return f"{url}/ui/hub#token={read_operator_token() or ''}"
+
+
+def _open() -> int:
+    import webbrowser
+
+    found = read_running()
+    if found is None:
+        print("No hub runs here. Start it with: agent-hub")
+        return 1
+    webbrowser.open(page_link(found["url"]))
+    print(f"Opened {found['url']}/ui/hub")
     return 0
 
 
@@ -142,6 +162,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     try:
         if args.command in (None, "run"):
             return run(getattr(args, "port", HUB_PORT))
+        if args.command == "open":
+            return _open()
         if args.command == "status":
             return _status()
         if args.command == "pair":
