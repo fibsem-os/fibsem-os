@@ -198,10 +198,12 @@ class HubAgents:
                 why=f"started by {hub} (hub)",
             )
 
-    def rejoin(self, hub: str, session_id: str, token: str) -> Dict[str, Any]:
-        """The same session back after its grace ran out, proved by the token
-        it was given: a new token, and its last level, unless something on
-        the PC changed since."""
+    def rejoin(self, hub: str, session_id: str, token: Optional[str]) -> Dict[str, Any]:
+        """The same session back after its grace ran out: a new token, and
+        its last level, unless something on the PC changed since. It is
+        proved by the token it was given, or, with no token (a Hub that was
+        restarted kept it in memory only), by being the same paired Hub
+        asking for the same session. A token that is given must be the one."""
         session_id = _session(session_id)
         try:
             return self._rejoin(hub, session_id, token)
@@ -215,15 +217,19 @@ class HubAgents:
             )
             raise
 
-    def _rejoin(self, hub: str, session_id: str, token: str) -> Dict[str, Any]:
+    def _rejoin(
+        self, hub: str, session_id: str, token: Optional[str]
+    ) -> Dict[str, Any]:
         with self._agent._lock, self._lock:
             held = self._held
             if (
                 held is None
                 or held.session_id != session_id
                 or held.hub != hub
-                or not token
-                or not hmac.compare_digest(_hash(str(token)), held.token_hash)
+                or (
+                    token is not None
+                    and not hmac.compare_digest(_hash(str(token)), held.token_hash)
+                )
             ):
                 raise GatewayRefused(
                     409, LOST_SLOT, "This session doesn't hold this instrument."
@@ -264,7 +270,9 @@ class HubAgents:
                 level,
                 url,
                 held.budget_usd,
-                why=f"rejoined by {hub} (hub)",
+                why=f"rejoined by {hub} (hub)"
+                if token is not None
+                else f"rejoined by {hub} (hub, after its restart)",
                 started=held.started,
             )
             logger.info(

@@ -294,7 +294,10 @@ def test_only_someone_signed_in_at_the_hub_reads_or_changes_the_list(served):
     operator = {"Authorization": f"Bearer {OPERATOR_TOKEN}"}
     assert client.get("/hub").status_code == 401
     assert client.post("/hub/instruments", json={}).status_code == 401
-    assert client.get("/hub", headers=operator).json() == {"instruments": []}
+    assert client.get("/hub", headers=operator).json() == {
+        "instruments": [],
+        "simulator": None,
+    }
 
     body = {"name": "Scope 1", "url": URL}
     added = client.post("/hub/instruments", json=body, headers=operator)
@@ -312,7 +315,7 @@ def test_only_someone_signed_in_at_the_hub_reads_or_changes_the_list(served):
     no_code = client.post("/hub/instruments/Scope 1/pair", json={}, headers=operator)
     assert no_code.status_code == 422
     gone = client.delete("/hub/instruments/Scope 1", headers=operator)
-    assert gone.json() == {"instruments": []}
+    assert gone.json() == {"instruments": [], "simulator": None}
     assert (
         client.delete("/hub/instruments/Scope 1", headers=operator).status_code == 404
     )
@@ -563,3 +566,125 @@ def test_a_token_kept_under_another_name_is_not_used(hub, instruments, tmp_path)
     saved["name"] = "scope-1"
     kept.write_text(json.dumps(saved))
     assert hub.token("Scope 1") is None
+
+
+# -- testing how an instrument is reached -------------------------------------
+
+
+def _steps(result):
+    return {step["key"]: step["ok"] for step in result["steps"]}
+
+
+def test_a_test_says_each_step_of_reaching_an_instrument(hub, instruments, ssh):
+    instruments.up = {"http://127.0.0.1:50000"}
+    hub.add("Scope 1", ssh="user@scope-1")
+    result = hub.test("Scope 1")
+    # Everything but the pairing, which nobody has done yet.
+    assert result["ok"] is False
+    assert _steps(result) == {
+        "ssh": True,
+        "key": True,
+        "gateway": True,
+        "version": True,
+        "paired": False,
+    }
+    hub.pair("Scope 1", instruments.auth.pairing.open(role=HUB))
+    result = hub.test("Scope 1")
+    assert result["ok"] is True and all(_steps(result).values())
+    assert len(ssh.started) == 1, "an open tunnel is tested as it is"
+
+
+@pytest.mark.parametrize(
+    "said, failed, advice",
+    [
+        (
+            "ssh: Could not resolve hostname scope-1: Name or service not known",
+            "ssh",
+            "host name",
+        ),
+        ("ssh: connect to host scope-1 port 22: Connection timed out", "ssh", "is on"),
+        (
+            "ssh: connect to host scope-1 port 22: Connection refused",
+            "ssh",
+            "SSH server",
+        ),
+        ("user@scope-1: Permission denied (publickey).", "key", "authorized_keys"),
+        ("Host key verification failed.", "key", "once by hand"),
+    ],
+)
+def test_a_test_says_which_ssh_step_failed_and_what_to_do(
+    hub, ssh, said, failed, advice
+):
+    ssh.fails = said + "\n"
+    hub.add("Scope 1", ssh="user@scope-1")
+    hub.check()
+    result = hub.test("Scope 1")
+    steps = {step["key"]: step for step in result["steps"]}
+    assert result["ok"] is False and steps[failed]["ok"] is False
+    assert advice in steps[failed]["detail"] and said in steps[failed]["detail"]
+    # ssh reached the PC when only its key was turned down.
+    assert steps["ssh"]["ok"] is (True if failed == "key" else False)
+    assert steps["gateway"]["ok"] is None, "nothing after the failed step is tried"
+    assert len(ssh.started) == 2, "tried now, not when the tunnel is next due"
+
+
+def test_a_test_says_when_no_gateway_runs_on_the_pc(hub, instruments, ssh):
+    instruments.up = set()
+    hub.add("Scope 1", ssh="user@scope-1")
+    result = hub.test("Scope 1")
+    steps = {step["key"]: step for step in result["steps"]}
+    assert steps["key"]["ok"] is True and steps["gateway"]["ok"] is False
+    assert "Start fibsem-gateway" in steps["gateway"]["detail"]
+    assert steps["version"]["ok"] is None
+
+
+def test_a_test_says_when_something_else_answers_or_the_version_differs(tmp_path):
+    answers = {"program": "hub", "api_version": "1.0"}
+    hub = Hub(
+        tmp_path / "hub.yaml",
+        tmp_path / "hub",
+        fetch=lambda url, route, token, timeout: (200, dict(answers)),
+    )
+    result = hub.test(url=URL)
+    assert _steps(result) == {"gateway": False, "version": None}
+    answers.update(program="fibsem-gateway", api_version="0.0")
+    result = hub.test(url=URL)
+    assert _steps(result) == {"gateway": True, "version": False}
+    assert "Update the older one" in result["steps"][1]["detail"]
+
+
+def test_an_address_is_tested_before_it_is_added(hub, instruments, ssh, tmp_path):
+    instruments.up = {"http://127.0.0.1:50000"}
+    result = hub.test(ssh="user@scope-1")
+    assert result["ok"] is True
+    assert _steps(result) == {
+        "ssh": True,
+        "key": True,
+        "gateway": True,
+        "version": True,
+    }
+    # Nothing is kept of it: no instrument, no tunnel, no port.
+    assert hub.state().instruments == []
+    assert ssh.started[0].poll() is not None
+    assert not (tmp_path / "hub" / "_ports.json").exists()
+    with pytest.raises(GatewayRefused) as refused:
+        hub.test(ssh="-oProxyCommand=evil")
+    assert refused.value.error_type == "bad_ssh"
+    with pytest.raises(GatewayRefused):
+        hub.test()
+
+
+def test_only_someone_signed_in_tests_an_instrument(served):
+    client, auth, stopped = served
+    operator = {"Authorization": f"Bearer {OPERATOR_TOKEN}"}
+    assert client.post("/hub/test", json={"url": URL}).status_code == 401
+    assert client.post("/hub/instruments/Scope 1/test").status_code == 401
+    tested = client.post("/hub/test", json={"url": URL}, headers=operator)
+    assert tested.status_code == 200 and tested.json()["ok"] is True
+    missing = client.post("/hub/instruments/Scope 1/test", headers=operator)
+    assert missing.status_code == 404
+    client.post(
+        "/hub/instruments", json={"name": "Scope 1", "url": URL}, headers=operator
+    )
+    listed = client.post("/hub/instruments/Scope 1/test", headers=operator).json()
+    assert [step["key"] for step in listed["steps"]] == ["gateway", "version", "paired"]

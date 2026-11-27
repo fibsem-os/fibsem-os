@@ -1,20 +1,32 @@
 import {
+  keepPreviousData,
   QueryClient,
   QueryClientProvider,
   useMutation,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { Info, Plus, Square, Trash2 } from "lucide-react";
+import { Check, Info, Minus, Plus, Square, Trash2, X } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardTitle, Facts } from "@/components/ui/card";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { api, ApiError, ReachedProvider } from "@/lib/api";
+import { api, ApiError, ReachedProvider, useApi } from "@/lib/api";
 import * as fmt from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { AgentCard, Field, FIELD, title } from "@/pages/gateway/AgentCard";
+import {
+  AgentCard,
+  dollars,
+  Field,
+  FIELD,
+  notReady,
+  type AgentState,
+  type Session,
+  title,
+} from "@/pages/gateway/AgentCard";
+import { AgentRow, History, stopped } from "@/pages/gateway/History";
 import { SetupAt } from "@/pages/agent/Connectors";
+import { AppCard, type GatewayState } from "@/pages/Gateway";
 import { Customise } from "@/pages/gateway/Customise";
 import { KeyRow, type Secret } from "@/pages/gateway/Settings";
 import { Connections } from "@/shell/Settings";
@@ -59,6 +71,23 @@ interface Instrument {
 
 interface HubState {
   instruments: Instrument[];
+  /** This hub PC's simulated instrument: whether the Hub runs it now, and
+   * whether it is in the list. */
+  simulator: { name: string; running: boolean; listed: boolean } | null;
+}
+
+/** One step of a test of how an instrument is reached: ok, failed (with what
+ * to do), or not reached (null). */
+interface TestStep {
+  key: string;
+  name: string;
+  ok: boolean | null;
+  detail: string | null;
+}
+
+interface TestResult {
+  ok: boolean;
+  steps: TestStep[];
 }
 
 const WARN = "text-[var(--fibsem-semantic-warning-color)]";
@@ -117,32 +146,12 @@ function line(i: Instrument): string {
   return i.agent ? `${app} · agent` : app;
 }
 
-function SubHeading({ first, children }: { first?: boolean; children: string }) {
-  return (
-    <h3
-      className={cn(
-        "m-0 text-sm font-semibold text-foreground",
-        !first && "mt-1 border-t border-border pt-3",
-      )}
-    >
-      {children}
-    </h3>
-  );
-}
-
 function Hint({ children }: { children: string }) {
   return (
     <span title={children} className="inline-flex text-muted-foreground">
       <Info size={13} aria-label={children} />
     </span>
   );
-}
-
-function uptime(since: number | undefined): string | null {
-  if (!since) return null;
-  const minutes = Math.max(0, Math.floor((Date.now() / 1000 - since) / 60));
-  if (minutes < 60) return `up ${minutes} min`;
-  return `up ${Math.floor(minutes / 60)} h ${minutes % 60} min`;
 }
 
 function PieceLine({ piece }: { piece?: Piece }) {
@@ -154,54 +163,126 @@ function PieceLine({ piece }: { piece?: Piece }) {
   );
 }
 
-/** The instrument's microscope and app, as its gateway says: read only. */
-function StatusCard({ instrument }: { instrument: Instrument }) {
-  const gateway = instrument.gateway;
-  const running = gateway?.mode === "running";
+/** The instrument's microscope as its gateway says, in the gateway's own row:
+ * read only, the Hub never connects one. */
+function MicroscopeLine({ instrument }: { instrument: Instrument }) {
   const microscope = instrument.health?.microscope;
-  const app = instrument.health?.app;
-  const up = uptime(gateway?.since);
   return (
-    <Card className="flex flex-col gap-3">
-      <SubHeading first>Microscope</SubHeading>
-      <div className="flex items-center gap-2 text-[13px]">
-        <Dot
-          colour={
-            !microscope
-              ? "off"
-              : microscope.status in UNWELL
-                ? "warn"
-                : microscope.status === "ok"
-                  ? "ok"
-                  : "off"
-          }
-        />
-        <span>
-          {microscope
-            ? (MICROSCOPE[microscope.status] ?? UNWELL[microscope.status] ?? title(microscope.status))
-            : running
-              ? "No reading yet"
-              : "Not connected"}
+    <div className="flex flex-col gap-1.5 py-2.5">
+      <div className="grid grid-cols-1 items-center gap-2 text-[13px] sm:grid-cols-[96px_minmax(0,1fr)_auto] sm:gap-3">
+        <span className="text-muted-foreground">Microscope</span>
+        <span className="flex min-w-0 items-center gap-2">
+          <Dot
+            colour={
+              !microscope
+                ? "off"
+                : microscope.status in UNWELL
+                  ? "warn"
+                  : microscope.status === "ok"
+                    ? "ok"
+                    : "off"
+            }
+          />
+          <span>
+            {microscope
+              ? (MICROSCOPE[microscope.status] ?? UNWELL[microscope.status] ?? title(microscope.status))
+              : "No reading yet"}
+          </span>
         </span>
       </div>
       <PieceLine piece={microscope} />
-      <SubHeading>App</SubHeading>
-      <div className="flex items-center gap-2 text-[13px]">
-        <Dot colour={!running ? "off" : app && app.status in UNWELL ? "warn" : "ok"} />
-        <span>{running ? (gateway?.app ?? "An app") : "Nothing is running"}</span>
-        {running && (
-          <span className="text-muted-foreground">
-            {[gateway?.experiment, up].filter(Boolean).join(" · ")}
+    </div>
+  );
+}
+
+/** The instrument's app: the gateway's own card, read and asked through the
+ * Hub. Start it while nothing runs, stop one that runs with no window. */
+function InstrumentApp({ instrument }: { instrument: Instrument }) {
+  const reach = useApi();
+  const gateway = useQuery({
+    queryKey: ["gateway"],
+    queryFn: () => reach<GatewayState>("/gateway"),
+    refetchInterval: 2000,
+  });
+  const state = gateway.data;
+  if (!state)
+    return gateway.error ? (
+      <p className="m-0 text-[13px] text-destructive">{(gateway.error as Error).message}</p>
+    ) : (
+      <p className="m-0 text-[13px] text-muted-foreground">Reading…</p>
+    );
+  const running = state.mode === "running";
+  const starting =
+    running && (state.switch === "starting" || state.health?.app.status === "starting");
+  return (
+    <AppCard
+      key={state.mode}
+      state={state}
+      defaults={undefined}
+      connection={undefined}
+      starting={starting}
+      up={running && !starting}
+      microscope={<MicroscopeLine instrument={instrument} />}
+    />
+  );
+}
+
+/** Try reaching an instrument now, and say which step failed: one in the list
+ * (*name*), or an address before it is added. */
+function useReachTest(target: { name: string } | { address: string }) {
+  return useMutation({
+    mutationFn: () => {
+      if ("name" in target)
+        return api<TestResult>(`/hub/instruments/${encodeURIComponent(target.name)}/test`, {
+          method: "POST",
+          body: "{}",
+        });
+      const where = target.address.trim();
+      return api<TestResult>("/hub/test", {
+        method: "POST",
+        body: JSON.stringify(/^https?:\/\//i.test(where) ? { url: where } : { ssh: where }),
+      });
+    },
+  });
+}
+
+function TestSteps({ result }: { result: TestResult }) {
+  return (
+    <ul className="m-0 flex list-none flex-col gap-1.5 p-0 text-[13px]" aria-label="Test result">
+      {result.steps.map((step) => (
+        <li key={step.key} className="flex gap-2">
+          <span className="mt-0.5 shrink-0">
+            {step.ok === true ? (
+              <Check size={14} className="text-[var(--fibsem-ok-color)]" aria-label="Passed" />
+            ) : step.ok === false ? (
+              <X size={14} className="text-destructive" aria-label="Failed" />
+            ) : (
+              <Minus size={14} className="text-muted-foreground" aria-label="Not reached" />
+            )}
           </span>
-        )}
-      </div>
-      <PieceLine piece={app} />
-    </Card>
+          <span className="flex min-w-0 flex-col">
+            <span className={step.ok === null ? "text-muted-foreground" : undefined}>
+              {step.name}
+            </span>
+            {step.detail && (
+              <span
+                className={cn(
+                  "break-words text-xs",
+                  step.ok === false ? "text-destructive" : "text-muted-foreground",
+                )}
+              >
+                {step.detail}
+              </span>
+            )}
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
 /** Pair this hub with the instrument's gateway, with the code it shows. */
-function PairCard({ instrument }: { instrument: Instrument }) {
+function PairCard({ instrument, simulated }: { instrument: Instrument; simulated: boolean }) {
   const client = useQueryClient();
   const [code, setCode] = useState("");
   const pair = useMutation({
@@ -218,9 +299,18 @@ function PairCard({ instrument }: { instrument: Instrument }) {
         <Dot colour="warn" />
         <CardTitle>Not paired</CardTitle>
         <Hint>
-          On the instrument's PC, open the gateway's page, go to Pairing and make a code for a Hub. Type that code here.
+          {simulated
+            ? "The Hub pairs with its own simulator by itself. If that didn't work, its gateway makes a code and you type it here."
+            : "On the instrument's PC, open the gateway's page, go to Pairing and make a code for a Hub. Type that code here."}
         </Hint>
       </div>
+      {simulated && (
+        <p className="m-0 text-[13px]">
+          In a terminal on this PC, run{" "}
+          <span className="font-mono text-xs">fibsem-gateway pair --hub --may-switch</span> and
+          type the code it shows.
+        </p>
+      )}
       <form
         className="flex flex-wrap items-end gap-2.5"
         onSubmit={(event) => {
@@ -298,10 +388,10 @@ function Remove({ instrument, onDone }: { instrument: Instrument; onDone: () => 
   );
 }
 
-/** The instrument's agent: the gateway's own card, its calls sent through the
- * hub to that instrument's gateway. Its own query cache, so one instrument's
- * answers never show under another's name. */
-function InstrumentAgent({ instrument }: { instrument: Instrument }) {
+/** The instrument's app and agent: the gateway's own cards, their calls sent
+ * through the hub to that instrument's gateway. Their own query cache, so one
+ * instrument's answers never show under another's name. */
+function InstrumentCards({ instrument, simulated }: { instrument: Instrument; simulated: boolean }) {
   const client = useMemo(
     () =>
       new QueryClient({
@@ -320,9 +410,9 @@ function InstrumentAgent({ instrument }: { instrument: Instrument }) {
   const reached = useMemo(
     () => ({
       prefix: `/hub/instruments/${encodeURIComponent(instrument.name)}`,
-      pc: "the microscope PC",
+      pc: simulated ? "this hub PC" : "the microscope PC",
       places: [
-        { key: "pc", label: "The microscope PC" },
+        { key: "pc", label: simulated ? "The simulator's gateway" : "The microscope PC" },
         {
           key: "hub",
           label: "This hub PC",
@@ -330,14 +420,139 @@ function InstrumentAgent({ instrument }: { instrument: Instrument }) {
         },
       ],
     }),
-    [instrument.name],
+    [instrument.name, simulated],
   );
   return (
     <QueryClientProvider client={client}>
       <ReachedProvider value={reached}>
-        <AgentCard appRunning={instrument.gateway?.mode === "running"} />
+        <InstrumentParts instrument={instrument} />
       </ReachedProvider>
     </QueryClientProvider>
+  );
+}
+
+type Part = "now" | "history" | "about";
+const PARTS: [Part, string][] = [
+  ["now", "Now"],
+  ["history", "History"],
+  ["about", "About"],
+];
+
+/** An instrument as its gateway shows itself: what runs now, its history,
+ * and what its gateway says of itself. All read through the Hub. */
+function InstrumentParts({ instrument }: { instrument: Instrument }) {
+  const reach = useApi();
+  const [part, setPart] = useState<Part>("now");
+  const appRunning = instrument.gateway?.mode === "running";
+  const gateway = useQuery({
+    queryKey: ["gateway"],
+    queryFn: () => reach<GatewayState>("/gateway"),
+    refetchInterval: 2000,
+  });
+  const agent = useQuery({
+    queryKey: ["gateway/agent"],
+    queryFn: () => reach<AgentState>("/gateway/agent"),
+    refetchInterval: 5000,
+    enabled: part === "history",
+  });
+  return (
+    <>
+      <div className="flex gap-1.5" role="tablist" aria-label="Instrument">
+        {PARTS.map(([key, label]) => (
+          <Button
+            key={key}
+            role="tab"
+            aria-selected={part === key}
+            variant={part === key ? "default" : "ghost"}
+            onClick={() => setPart(key)}
+          >
+            {label}
+          </Button>
+        ))}
+      </div>
+      {part === "now" && (
+        <>
+          <InstrumentApp instrument={instrument} />
+          <AgentCard appRunning={appRunning} />
+        </>
+      )}
+      {part === "history" && (
+        <History
+          apps={gateway.data?.apps ?? []}
+          ready={notReady(agent.data, appRunning, gateway.data?.switch === "starting")}
+        />
+      )}
+      {part === "about" && <InstrumentAbout instrument={instrument} state={gateway.data} />}
+    </>
+  );
+}
+
+/** What the instrument's gateway says of itself, read only: it is set at
+ * the microscope PC. */
+function InstrumentAbout({
+  instrument,
+  state,
+}: {
+  instrument: Instrument;
+  state: GatewayState | undefined;
+}) {
+  const rows: [string, ReactNode][] = [];
+  const mono = (text: string) => <span className="font-mono text-xs">{text}</span>;
+  if (instrument.ssh ?? instrument.url) rows.push(["Reached at", mono((instrument.ssh ?? instrument.url)!)]);
+  if (instrument.since) rows.push(["Reachable since", fmt.when(instrument.since)]);
+  if (state) {
+    const newer = state.newer?.latest
+      ? `fibsemOS ${state.newer.latest} available`
+      : state.newer?.behind
+        ? `${state.newer.behind} newer change${state.newer.behind === 1 ? "" : "s"} (${state.newer.branch})`
+        : null;
+    rows.push([
+      "Gateway",
+      <>
+        fibsemOS {state.version}
+        {newer && <span className={WARN}> · {newer}</span>}
+      </>,
+    ]);
+  }
+  if (instrument.api_version) rows.push(["API version", instrument.api_version]);
+  if (state) {
+    rows.push([
+      "Microscope",
+      state.connection.length ? mono(state.connection.join(" ")) : "Chosen as the app starts",
+    ]);
+    if (state.configurations.length)
+      rows.push([
+        "Configurations",
+        state.configurations.map((c) => (c.default ? `${c.name} (default)` : c.name)).join(", "),
+      ]);
+    if (state.apps.length) rows.push(["Apps", state.apps.map((a) => a.name).join(", ")]);
+    if (state.experiments_folder) rows.push(["Experiments", mono(state.experiments_folder)]);
+    for (const server of state.device_servers ?? [])
+      rows.push([
+        `Device Server: ${server.name}`,
+        <>
+          {title(server.status)}
+          {server.devices.length > 0 && (
+            <span className="text-muted-foreground">
+              {" "}
+              · {server.devices.map((d) => (d.ok ? d.name : `${d.name} (not well)`)).join(", ")}
+            </span>
+          )}
+        </>,
+      ]);
+  }
+  return (
+    <Card className="flex flex-col gap-2.5">
+      <CardTitle className="flex items-center gap-1.5">
+        About
+        <Hint>As this instrument's gateway says. It is set at the microscope PC, not here.</Hint>
+      </CardTitle>
+      {state ? (
+        <Facts className="[&_dd]:text-left" rows={rows} />
+      ) : (
+        <p className="m-0 text-[13px] text-muted-foreground">Reading…</p>
+      )}
+    </Card>
   );
 }
 
@@ -392,7 +607,77 @@ function Tunnel({ tunnel }: { tunnel: Instrument["tunnel"] }) {
   );
 }
 
-function InstrumentView({ instrument, onRemoved }: { instrument: Instrument; onRemoved: () => void }) {
+/** Start or stop this hub PC's simulator: its gateway here, with the Demo
+ * microscope. */
+function useSimulator(onDone?: (state: HubState) => void) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (act: "start" | "stop") =>
+      api<HubState>(`/hub/simulator/${act}`, { method: "POST", body: "{}" }),
+    onSuccess: (answer) => {
+      client.setQueryData(["hub"], answer);
+      onDone?.(answer);
+    },
+  });
+}
+
+const SIMULATOR_HINT =
+  "A simulated instrument on this hub PC: a gateway here with the Demo microscope. Nothing real is connected, and it stops when the Hub stops.";
+
+/** An instrument the Hub can't reach: why, a test that says which step
+ * fails, and for the simulator, starting it. */
+function NotReachable({ instrument, simulated }: { instrument: Instrument; simulated: boolean }) {
+  const test = useReachTest({ name: instrument.name });
+  const simulator = useSimulator();
+  return (
+    <Card className="flex flex-col gap-3">
+      <div className="flex items-center gap-2">
+        <Dot colour="off" />
+        <CardTitle>{simulated ? "The simulator is not running" : "Not reachable"}</CardTitle>
+        <span className="flex-1" />
+        {simulated ? (
+          <Button
+            variant="primary"
+            disabled={simulator.isPending}
+            title={SIMULATOR_HINT}
+            onClick={() => simulator.mutate("start")}
+          >
+            {simulator.isPending ? "Starting…" : "Start the simulator"}
+          </Button>
+        ) : (
+          <Button
+            disabled={test.isPending}
+            title="Try reaching it now, and say which step fails."
+            onClick={() => test.mutate()}
+          >
+            {test.isPending ? "Testing…" : "Test"}
+          </Button>
+        )}
+      </div>
+      {!simulated && instrument.why && !test.data && (
+        <p className="m-0 text-[13px] text-muted-foreground">{instrument.why}</p>
+      )}
+      {test.data && <TestSteps result={test.data} />}
+      {(test.error ?? simulator.error) && (
+        <p className="m-0 text-[13px] text-destructive">
+          {((test.error ?? simulator.error) as Error).message}
+        </p>
+      )}
+    </Card>
+  );
+}
+
+function InstrumentView({
+  instrument,
+  simulator,
+  onRemoved,
+}: {
+  instrument: Instrument;
+  simulator: HubState["simulator"];
+  onRemoved: () => void;
+}) {
+  const simulated = simulator?.name === instrument.name;
+  const stop = useSimulator();
   return (
     <>
       <div className="flex items-center gap-2.5">
@@ -402,18 +687,24 @@ function InstrumentView({ instrument, onRemoved }: { instrument: Instrument; onR
           {instrument.ssh ?? instrument.url}
           {instrument.ssh && <Tunnel tunnel={instrument.tunnel} />}
         </span>
+        {simulated && simulator?.running && (
+          <Button
+            disabled={stop.isPending}
+            title="Stops the simulator's gateway on this PC, and an app it runs with no window. It stays in the list."
+            onClick={() => stop.mutate("stop")}
+          >
+            {stop.isPending ? "Stopping…" : "Stop the simulator"}
+          </Button>
+        )}
         <Remove instrument={instrument} onDone={onRemoved} />
       </div>
+      {stop.error && (
+        <p className="m-0 text-[13px] text-destructive">{(stop.error as Error).message}</p>
+      )}
       {instrument.reachable === false ? (
-        <Card className="flex flex-col gap-2">
-          <div className="flex items-center gap-2">
-            <Dot colour="off" />
-            <CardTitle>Not reachable</CardTitle>
-          </div>
-          {instrument.why && <p className="m-0 text-[13px] text-muted-foreground">{instrument.why}</p>}
-        </Card>
+        <NotReachable key={instrument.name} instrument={instrument} simulated={simulated} />
       ) : !instrument.paired ? (
-        <PairCard key={instrument.name} instrument={instrument} />
+        <PairCard key={instrument.name} instrument={instrument} simulated={simulated} />
       ) : instrument.reachable === null ? (
         <p className="m-0 text-[13px] text-muted-foreground">Reading…</p>
       ) : (
@@ -425,8 +716,7 @@ function InstrumentView({ instrument, onRemoved }: { instrument: Instrument; onR
               the older one.
             </p>
           )}
-          <StatusCard instrument={instrument} />
-          <InstrumentAgent key={instrument.name} instrument={instrument} />
+          <InstrumentCards key={instrument.name} instrument={instrument} simulated={simulated} />
           {instrument.agent && <AgentPageLink instrument={instrument} />}
         </>
       )}
@@ -447,6 +737,7 @@ function NewInstrument({
   const client = useQueryClient();
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
+  const test = useReachTest({ address });
   const add = useMutation({
     mutationFn: () => {
       const where = address.trim();
@@ -463,6 +754,7 @@ function NewInstrument({
       onAdded(name.trim());
       setName("");
       setAddress("");
+      test.reset();
       onOpenChange(false);
     },
   });
@@ -471,7 +763,10 @@ function NewInstrument({
       open={open}
       onOpenChange={(next) => {
         onOpenChange(next);
-        if (!next) add.reset();
+        if (!next) {
+          add.reset();
+          test.reset();
+        }
       }}
     >
       <DialogContent title="New instrument" className="w-[min(460px,calc(100vw-32px))]">
@@ -503,16 +798,31 @@ function NewInstrument({
           >
             <input
               value={address}
-              onChange={(event) => setAddress(event.target.value)}
+              onChange={(event) => {
+                setAddress(event.target.value);
+                test.reset();
+              }}
               placeholder="user@host"
               autoComplete="off"
               className={cn(FIELD, "font-mono")}
             />
           </Field>
-          {add.error && (
-            <p className="m-0 text-[13px] text-destructive">{(add.error as Error).message}</p>
+          {test.data && <TestSteps result={test.data} />}
+          {(test.error ?? add.error) && (
+            <p className="m-0 text-[13px] text-destructive">
+              {((test.error ?? add.error) as Error).message}
+            </p>
           )}
           <div className="flex justify-end gap-2.5 pt-1">
+            <Button
+              type="button"
+              className="mr-auto"
+              disabled={test.isPending || !address.trim()}
+              title="Try reaching it now, before adding it, and say which step fails."
+              onClick={() => test.mutate()}
+            >
+              {test.isPending ? "Testing…" : "Test"}
+            </Button>
             <Button type="button" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
@@ -603,7 +913,205 @@ function Stopped({ at }: { at: number }) {
   );
 }
 
-type Tab = "instruments" | "pairing" | "customise" | "settings";
+/** A session in the Hub's list: the gateway's own row, with the instrument
+ * it ran for and the PC it ran on. */
+interface HubSession extends Session {
+  instrument: string;
+  runs_on: "hub" | "pc";
+}
+
+interface SessionsAnswer {
+  sessions: HubSession[];
+  totals: {
+    spent_usd: number;
+    by_instrument: Record<string, number>;
+    by_day: { day: string; spent_usd: number }[];
+  };
+  unread: { instrument: string; why: string }[];
+  more: boolean;
+}
+
+const SESSIONS_PAGE = 50;
+
+/** Every agent session the Hub knows of, on this hub PC and on each
+ * instrument's PC, newest first, with what they spent. Each row is the
+ * gateway's own, and Resume is asked where the session ran. */
+function HubSessions({ instruments }: { instruments: Instrument[] }) {
+  const [pages, setPages] = useState(1);
+  const [only, setOnly] = useState("");
+  const sessions = useQuery({
+    queryKey: ["hub/sessions", pages],
+    queryFn: () => api<SessionsAnswer>(`/hub/sessions?limit=${SESSIONS_PAGE * pages}`),
+    refetchInterval: 5000,
+    placeholderData: keepPreviousData,
+  });
+  const data = sessions.data;
+  const names = [...new Set([...instruments.map((i) => i.name), ...(data?.sessions ?? []).map((s) => s.instrument)])];
+  const shown = (data?.sessions ?? []).filter((s) => !only || s.instrument === only);
+  // An instrument that has an agent now takes no other until that one ends.
+  const busy = (name: string) => !!instruments.find((i) => i.name === name)?.agent;
+  const spent = only ? (data?.totals.by_instrument[only] ?? 0) : (data?.totals.spent_usd ?? 0);
+  return (
+    <>
+      <div className="flex items-center gap-3">
+        <h1 className="m-0 flex-1 text-[17px] font-semibold">Sessions</h1>
+        <select
+          value={only}
+          onChange={(event) => setOnly(event.target.value)}
+          aria-label="Instrument"
+          className={FIELD}
+        >
+          <option value="">All instruments</option>
+          {names.map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
+        </select>
+      </div>
+      {sessions.error && (
+        <p className="m-0 text-[13px] text-destructive">{(sessions.error as Error).message}</p>
+      )}
+      {data?.unread.map((u) => (
+        <p key={u.instrument} className={cn("m-0 text-[13px]", WARN)}>
+          {u.instrument}'s sessions could not be read: {u.why}
+        </p>
+      ))}
+      {data && (
+        <Card className="flex flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <CardTitle>Spent</CardTitle>
+            <Hint>
+              What the sessions listed below spent, as each one's record says. Show older to count more.
+            </Hint>
+            <span className="flex-1" />
+            <span className="text-[15px] font-semibold tabular-nums">{dollars(spent)}</span>
+          </div>
+          {!only && Object.keys(data.totals.by_instrument).length > 1 && (
+            <Facts
+              rows={Object.entries(data.totals.by_instrument).map(([name, usd]) => [name, dollars(usd)])}
+            />
+          )}
+          {!only && data.totals.by_day.length > 0 && (
+            <p className="m-0 text-xs text-muted-foreground tabular-nums">
+              {data.totals.by_day
+                .slice(0, 7)
+                .map((d) => `${d.day.slice(5)} ${dollars(d.spent_usd)}`)
+                .join(" · ")}
+            </p>
+          )}
+        </Card>
+      )}
+      <Card className="flex flex-col gap-2">
+        {data && shown.length === 0 && (
+          <p className="m-0 text-[13px] text-muted-foreground">No sessions yet.</p>
+        )}
+        {shown.map((s) => (
+          <ReachedProvider
+            key={`${s.instrument}-${s.runs_on}-${s.session_id}`}
+            value={{
+              prefix: `/hub/instruments/${encodeURIComponent(s.instrument)}`,
+              pc: s.runs_on === "hub" ? "this hub PC" : "the microscope PC",
+            }}
+          >
+            <AgentRow
+              session={s}
+              running={s.status === "running" || s.status === "waiting"}
+              canResume={stopped(s) && !!s.session_id && !s.cannot_resume && !busy(s.instrument)}
+              ready={null}
+              where={[s.instrument, s.runs_on === "hub" ? "hub PC" : "microscope PC", s.who]
+                .filter(Boolean)
+                .join(" · ")}
+              resumePath={s.runs_on === "hub" ? "/hub-agent/resume" : undefined}
+            />
+          </ReachedProvider>
+        ))}
+        {data?.more && (
+          <Button variant="ghost" className="self-start" onClick={() => setPages((n) => n + 1)}>
+            Show older
+          </Button>
+        )}
+      </Card>
+    </>
+  );
+}
+
+interface HubEvent {
+  at: number;
+  kind: "agent" | "app" | "instrument" | "setup";
+  what: string;
+  who: string;
+  instrument: string | null;
+  ok: boolean;
+}
+
+const EVENT_KINDS: Record<HubEvent["kind"], string> = {
+  agent: "Agent",
+  app: "App",
+  instrument: "Instrument",
+  setup: "Setup",
+};
+const HISTORY_PAGE = 100;
+
+/** What was asked of the Hub and what its agents did, newest first. */
+function HubHistory() {
+  const [pages, setPages] = useState(1);
+  const [shown, setShown] = useState<HubEvent["kind"] | "all">("all");
+  const history = useQuery({
+    queryKey: ["hub/history", pages],
+    queryFn: () =>
+      api<{ events: HubEvent[]; more: boolean }>(`/hub/history?limit=${HISTORY_PAGE * pages}`),
+    refetchInterval: 5000,
+    placeholderData: keepPreviousData,
+  });
+  const events = (history.data?.events ?? []).filter((e) => shown === "all" || e.kind === shown);
+  return (
+    <>
+      <div className="flex items-center gap-2">
+        <h1 className="m-0 text-[17px] font-semibold">History</h1>
+        <Hint>
+          What was asked of this Hub and what its agents did. What happens at a microscope PC itself is in that gateway's own History.
+        </Hint>
+      </div>
+      <Card className="flex flex-col gap-2">
+        <div className="flex flex-wrap gap-1.5 pb-1">
+          {(["all", "agent", "app", "instrument", "setup"] as const).map((k) => (
+            <Button key={k} variant={shown === k ? "default" : "ghost"} onClick={() => setShown(k)}>
+              {k === "all" ? "All" : EVENT_KINDS[k]}
+            </Button>
+          ))}
+        </div>
+        {history.error && (
+          <p className="m-0 text-[13px] text-destructive">{(history.error as Error).message}</p>
+        )}
+        {history.data && events.length === 0 && (
+          <p className="m-0 text-[13px] text-muted-foreground">Nothing yet.</p>
+        )}
+        {events.map((e, i) => (
+          <div
+            key={`${e.at}-${i}`}
+            className="grid grid-cols-1 gap-0.5 border-t border-border py-2 text-[13px] sm:grid-cols-[170px_84px_minmax(0,1fr)_auto] sm:gap-3"
+          >
+            <span className="text-muted-foreground tabular-nums">{fmt.when(e.at)}</span>
+            <span className="text-muted-foreground">{EVENT_KINDS[e.kind] ?? e.kind}</span>
+            <span className={cn("min-w-0 break-words", !e.ok && WARN)}>
+              {e.instrument && <span className="font-semibold">{e.instrument}: </span>}
+              {e.what}
+            </span>
+            <span className="text-muted-foreground">{e.who}</span>
+          </div>
+        ))}
+        {history.data?.more && (
+          <Button variant="ghost" className="self-start" onClick={() => setPages((n) => n + 1)}>
+            Show older
+          </Button>
+        )}
+      </Card>
+    </>
+  );
+}
+
+type Tab = "instruments" | "sessions" | "history" | "pairing" | "customise" | "settings";
 
 function NavRow({
   current,
@@ -652,6 +1160,10 @@ export function HubPage() {
     staleTime: Infinity,
   });
   if (stopped !== null) return <Stopped at={stopped / 1000} />;
+  const simulator = useSimulator((answer) => {
+    if (answer.simulator) setPicked(answer.simulator.name);
+    setTab("instruments");
+  });
   const instruments = hub.data?.instruments ?? [];
   const instrument = instruments.find((i) => i.name === picked) ?? instruments[0] ?? null;
   return (
@@ -693,8 +1205,22 @@ export function HubPage() {
           {hub.data && instruments.length === 0 && (
             <span className="px-3 py-1.5 text-xs text-muted-foreground">None yet</span>
           )}
+          {hub.data?.simulator && !hub.data.simulator.listed && instruments.length > 0 && (
+            <NavRow current={false} onClick={() => simulator.mutate("start")}>
+              <Plus size={12} className="shrink-0" />
+              <span title={SIMULATOR_HINT}>
+                {simulator.isPending ? "Starting the simulator…" : "Start a simulator"}
+              </span>
+            </NavRow>
+          )}
         </div>
         <div className="mt-3 flex gap-0.5 border-t border-border pt-3 sm:flex-col">
+          <NavRow current={tab === "sessions"} onClick={() => setTab("sessions")}>
+            Sessions
+          </NavRow>
+          <NavRow current={tab === "history"} onClick={() => setTab("history")}>
+            History
+          </NavRow>
           <NavRow current={tab === "pairing"} onClick={() => setTab("pairing")}>
             Browsers
           </NavRow>
@@ -711,23 +1237,42 @@ export function HubPage() {
       </nav>
       <main className="min-w-0 flex-1 overflow-auto">
         <div className="flex max-w-[860px] flex-col gap-3 px-4 py-5 sm:px-6">
-          {hub.error && (
-            <p className="m-0 text-[13px] text-destructive">{(hub.error as Error).message}</p>
+          {(hub.error ?? simulator.error) && (
+            <p className="m-0 text-[13px] text-destructive">
+              {((hub.error ?? simulator.error) as Error).message}
+            </p>
           )}
           {tab === "instruments" &&
             (instrument ? (
-              <InstrumentView instrument={instrument} onRemoved={() => setPicked(null)} />
+              <InstrumentView
+                instrument={instrument}
+                simulator={hub.data?.simulator ?? null}
+                onRemoved={() => setPicked(null)}
+              />
             ) : (
               hub.data && (
                 <div className="flex flex-col items-start gap-3 pt-6">
                   <h1 className="m-0 text-[17px] font-semibold">No instruments yet</h1>
-                  <Button variant="primary" onClick={() => setAdding(true)}>
-                    <Plus size={14} />
-                    New instrument
-                  </Button>
+                  <div className="flex flex-wrap gap-2.5">
+                    <Button variant="primary" onClick={() => setAdding(true)}>
+                      <Plus size={14} />
+                      New instrument
+                    </Button>
+                    {hub.data.simulator && (
+                      <Button
+                        disabled={simulator.isPending}
+                        title={SIMULATOR_HINT}
+                        onClick={() => simulator.mutate("start")}
+                      >
+                        {simulator.isPending ? "Starting the simulator…" : "Start a simulator"}
+                      </Button>
+                    )}
+                  </div>
                 </div>
               )
             ))}
+          {tab === "sessions" && <HubSessions instruments={instruments} />}
+          {tab === "history" && <HubHistory />}
           {tab === "pairing" && (
             <>
               <h1 className="m-0 text-[17px] font-semibold">Browsers</h1>

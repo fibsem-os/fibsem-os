@@ -11,6 +11,12 @@ agent runs, joins again as the same session after the connection was away
 (the gateway then answers a new token, and the agent carries its session on
 with it), and gives the slot back when the agent ends.
 
+An agent outlives a Hub that crashed or was restarted: the next Hub takes it
+back (`_adopt`), renews its slot, and where the gateway had freed the slot
+meanwhile asks for it again as the same paired Hub, with no token (the
+gateway's own checks still decide). A Hub stopped on purpose ends its agents
+first. A session that ended is carried on by a person, with `resume`.
+
 The gateway decides everything: a refusal to renew or to join again (the
 level was changed at the PC, Stop or End was pressed there, another agent has
 the slot) ends the agent here.
@@ -27,8 +33,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from fibsem.ai.agent.manager import AgentRunning, AgentSessionManager
+from fibsem.ai.agent.manager import (
+    MANAGED,
+    RECORD,
+    AgentRunning,
+    AgentSessionManager,
+    read_json,
+    write_json,
+)
 from fibsem.gateway.gateway import GatewayRefused
+from fibsem.hub.history import AGENT, HubHistory
 from fibsem.hub.hub import TOKENS_DIR, Hub, crosses_in_clear
 from fibsem.keystore import stored_secret
 from fibsem.util import timestamps
@@ -80,6 +94,9 @@ class _Held:
     away_since: float = 0.0
     # What the agent was started with, to start it again on its session.
     args: List[str] = field(default_factory=list)
+    # When the slot came back with a new token, until the agent runs again
+    # with it: how long carrying on took, for the log.
+    back_at: Optional[float] = None
 
 
 class HubAgents:
@@ -97,8 +114,11 @@ class HubAgents:
         api_key: Callable[[], Optional[str]] = lambda: None,
         clock: Callable[[], float] = time.monotonic,
         manager: Optional[AgentSessionManager] = None,
+        history: Optional[HubHistory] = None,
     ) -> None:
         self._hub = hub
+        self._history = history
+        self._root = root or SESSIONS_DIR
         self._api_key = api_key
         self._clock = clock
         self._lock = threading.RLock()
@@ -106,13 +126,58 @@ class HubAgents:
         # The last agent of each instrument that ended here, and why.
         self._ended: Dict[str, Dict[str, Any]] = {}
         self._manager = manager or AgentSessionManager(
-            root=root or SESSIONS_DIR,
+            root=self._root,
             command=command,
             reachable=lambda name: self._has_slot(name),
             env_for=lambda name: self._env(name),
         )
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
+        self._adopt()
+
+    @property
+    def root(self) -> Path:
+        """Where this hub PC keeps its agents' session folders."""
+        return self._root
+
+    def _note(self, name: str, what: str, who: str, ok: bool = True) -> None:
+        if self._history is not None:
+            self._history.write(AGENT, what, who, name, ok)
+
+    def _adopt(self) -> None:
+        """Take back the agents an earlier run of the Hub left running (it
+        crashed or was restarted; one stopped on purpose ended them): each
+        slot is renewed from the next round on. Its token went with that
+        Hub, so where the gateway freed the slot meanwhile this Hub asks for
+        it again as the same paired Hub."""
+        for instrument in self._hub.instruments():
+            agent = self._manager.agent(instrument.name)
+            if agent is None or agent.state == "ended":
+                continue
+            managed = read_json(agent.folder / MANAGED)
+            self._held[instrument.name] = _Held(
+                agent.session_id,
+                None,
+                30.0,
+                # Renewed on the first round, not a third of a lease later.
+                float("-inf"),
+                float("-inf"),
+                dict(managed.get("about") or {}),
+                state="away",
+                why="the Hub was restarted",
+                away_since=self._clock(),
+                args=list(managed.get("args") or []),
+            )
+            log.info(
+                "The Hub took back its agent for %s (session %s) after a restart.",
+                instrument.name,
+                agent.session_id,
+            )
+            self._note(
+                instrument.name,
+                "Took the agent back after the Hub restarted",
+                "the Hub",
+            )
 
     # -- what the page shows -------------------------------------------------
 
@@ -159,49 +224,13 @@ class HubAgents:
     ) -> Dict[str, Any]:
         """Ask *name*'s gateway for its agent slot and start the agent on this
         PC. Each failure undoes what came before it. Raises `GatewayRefused`."""
-        instrument = self._hub.instrument(name)
-        if crosses_in_clear(instrument):
-            raise GatewayRefused(
-                409,
-                "plain_http",
-                f"{name} is reached by plain http, which would send the agent's "
-                "token unprotected. Add it by its SSH address (user@host) to "
-                "run an agent on this PC.",
-            )
-        if not self._api_key():
-            raise GatewayRefused(
-                409,
-                "no_api_key",
-                "No API key on this hub PC: set it in the Hub's Settings, or "
-                f"run fibsem-cli key set {API_KEY} here.",
-            )
+        instrument = self._may_run(name)
         with self._lock:
-            if name in self._held:
-                raise GatewayRefused(
-                    409,
-                    "agent_running",
-                    f"An agent for {name} already runs on this PC: end it first.",
-                )
+            self._free(name)
             session_id = str(uuid.uuid4())
-            answer = self._hub.ask(
-                name,
-                "POST",
-                SLOT,
-                {
-                    "session_id": session_id,
-                    "playbook": playbook,
-                    "goal": goal or None,
-                    "level": level,
-                    "budget_usd": budget_usd,
-                    "replace": replace,
-                },
+            token, answer = self._take(
+                name, session_id, playbook, goal, level, budget_usd, replace
             )
-            token = answer.get("token") if isinstance(answer, dict) else None
-            if not isinstance(token, str) or not token:
-                self._release(name, session_id)
-                raise GatewayRefused(
-                    502, "no_token", f"{name}'s gateway gave the slot and no token."
-                )
             now = self._clock()
             about = {
                 "started": timestamps.now().isoformat(),
@@ -232,6 +261,144 @@ class HubAgents:
                 self._release(name, session_id)
                 raise GatewayRefused(409, "agent_not_started", str(error)) from None
             log.info("The hub started an agent for %s (%s) for %s", name, level, who)
+        self._note(name, f"Started an agent on this hub PC ({playbook}, {level})", who)
+        return self.state()[name]
+
+    def _may_run(self, name: str):
+        """*name*'s instrument, when an agent for it may run on this PC."""
+        instrument = self._hub.instrument(name)
+        if crosses_in_clear(instrument):
+            raise GatewayRefused(
+                409,
+                "plain_http",
+                f"{name} is reached by plain http, which would send the agent's "
+                "token unprotected. Add it by its SSH address (user@host) to "
+                "run an agent on this PC.",
+            )
+        if not self._api_key():
+            raise GatewayRefused(
+                409,
+                "no_api_key",
+                "No API key on this hub PC: set it in the Hub's Settings, or "
+                f"run fibsem-cli key set {API_KEY} here.",
+            )
+        return instrument
+
+    def _free(self, name: str) -> None:
+        if name in self._held:
+            raise GatewayRefused(
+                409,
+                "agent_running",
+                f"An agent for {name} already runs on this PC: end it first.",
+            )
+
+    def _take(
+        self,
+        name: str,
+        session_id: str,
+        playbook: str,
+        goal: Optional[str],
+        level: str,
+        budget_usd: Optional[float],
+        replace: bool,
+    ):
+        """Ask *name*'s gateway for its slot: the agent's token and the
+        gateway's answer."""
+        answer = self._hub.ask(
+            name,
+            "POST",
+            SLOT,
+            {
+                "session_id": session_id,
+                "playbook": playbook,
+                "goal": goal or None,
+                "level": level,
+                "budget_usd": budget_usd,
+                "replace": replace,
+            },
+        )
+        token = answer.get("token") if isinstance(answer, dict) else None
+        if not isinstance(token, str) or not token:
+            self._release(name, session_id)
+            raise GatewayRefused(
+                502, "no_token", f"{name}'s gateway gave the slot and no token."
+            )
+        return token, answer
+
+    def resume(
+        self,
+        name: str,
+        session_id: str,
+        level: str,
+        who: str,
+        budget_usd: Optional[float] = None,
+        replace: bool = False,
+    ) -> Dict[str, Any]:
+        """Carry on a session that ended on this hub PC, for the instrument
+        it ran for: its gateway is asked for the slot as for a start (its
+        checks, a fresh token, the level), and the agent starts again in the
+        session's own folder. Raises `GatewayRefused`."""
+        folder = self._manager.folder(str(session_id or ""))
+        managed = read_json(folder / MANAGED) if folder else {}
+        record = read_json(folder / RECORD) if folder else {}
+        if not record.get("session_id"):
+            raise GatewayRefused(
+                404, "no_session", f"No session {session_id} on this hub PC."
+            )
+        if managed.get("microscope") != name:
+            raise GatewayRefused(
+                409,
+                "other_instrument",
+                f"That session ran for {managed.get('microscope') or 'no instrument'},"
+                f" not {name}.",
+            )
+        instrument = self._may_run(name)
+        started = managed.get("about") or {}
+        playbook = record.get("playbook")
+        playbook = playbook.get("name") if isinstance(playbook, dict) else playbook
+        playbook = playbook or started.get("playbook") or ""
+        goal = record.get("goal") or started.get("goal")
+        with self._lock:
+            self._free(name)
+            token, answer = self._take(
+                name, session_id, playbook, goal, level, budget_usd, replace
+            )
+            now = self._clock()
+            about = {
+                "started": timestamps.now().isoformat(),
+                "playbook": playbook,
+                "goal": goal,
+                "level": level,
+                "who": who,
+                "budget_usd": budget_usd,
+                "resumed": True,
+            }
+            args = ["--playbook", playbook, "--url", self._hub.reach(instrument)]
+            for key in ("model", "effort"):
+                if record.get(key):
+                    args += [f"--{key}", str(record[key])]
+            if budget_usd is not None:
+                args += ["--max-budget-usd", f"{float(budget_usd):g}"]
+            self._held[name] = _Held(
+                session_id, token, _lease(answer), now, now, about, args=list(args)
+            )
+            self._ended.pop(name, None)
+            try:
+                self._manager.resume(
+                    name, session_id, args, env=self._env(name), about=about
+                )
+            except (AgentRunning, OSError) as error:
+                del self._held[name]
+                self._release(name, session_id)
+                raise GatewayRefused(409, "agent_not_started", str(error)) from None
+            log.info(
+                "The hub resumed session %s for %s (%s) for %s",
+                session_id,
+                name,
+                level,
+                who,
+            )
+        self._note(name, f"Resumed a session on this hub PC ({playbook}, {level})", who)
         return self.state()[name]
 
     def end(self, name: str, who: str) -> Dict[str, Any]:
@@ -241,10 +408,12 @@ class HubAgents:
                 raise GatewayRefused(
                     409, "no_agent", f"No agent for {name} runs on this PC."
                 )
-        self._finish(name, f"ended by {who}")
+        self._finish(name, f"ended by {who}", who=who)
         return self.state().get(name, {})
 
-    def _finish(self, name: str, why: str, release: bool = True) -> None:
+    def _finish(
+        self, name: str, why: str, release: bool = True, who: str = "the Hub"
+    ) -> None:
         """Stop *name*'s agent, forget its token, and (with *release*) give
         its slot back: never while the gateway said the slot is not ours."""
         self._manager.end(name)
@@ -262,6 +431,7 @@ class HubAgents:
         if release:
             self._release(name, held.session_id)
         log.info("The hub's agent for %s ended: %s", name, why)
+        self._note(name, f"The agent on this hub PC ended: {why}", who)
 
     def _release(self, name: str, session_id: str) -> None:
         try:
@@ -300,7 +470,22 @@ class HubAgents:
             why = (agent.ended if agent is not None else None) or "it ended"
             self._finish(name, why)
             return
+        if held.token is None and agent.state == "waiting":
+            # Taken back after a restart, and its process is gone: nothing
+            # here has a token to start it with again.
+            self._finish(
+                name, "it stopped while the Hub was not running: resume it in Sessions"
+            )
+            return
         now = self._clock()
+        if held.back_at is not None and agent.state == "running":
+            log.info(
+                "The hub's agent for %s runs again %.0f s after its slot came "
+                "back (its first call follows in its own log).",
+                name,
+                now - held.back_at,
+            )
+            held.back_at = None
         due = held.lease_s / 3 if held.state == "running" else RETRY_S
         if now - max(held.renewed, held.tried) < due:
             return
@@ -328,7 +513,17 @@ class HubAgents:
             )
             with self._lock:
                 held.token = fresh
-            if self._manager.park(name) is agent and agent.state != "ended":
+                held.back_at = self._clock()
+            self._reach_again(name, held, agent)
+            asked = self._clock()
+            parked = self._manager.park(name)
+            log.info(
+                "The hub's agent for %s stopped %.0f s after it was asked, to "
+                "start again with the new token.",
+                name,
+                self._clock() - asked,
+            )
+            if parked is agent and agent.state != "ended":
                 agent.env = self._env(name)
                 self._manager.unpark(name)
             elif not self._carry_on(name, held):
@@ -343,6 +538,22 @@ class HubAgents:
                     self._clock() - held.away_since,
                 )
             held.state, held.why = "running", None
+
+    def _reach_again(self, name: str, held: _Held, agent: Any) -> None:
+        """Where the agent reaches its instrument now, in what it is started
+        again with: a tunnel opened by a new Hub may have another port."""
+        try:
+            url = self._hub.reach(self._hub.instrument(name))
+        except (GatewayRefused, OSError):
+            return
+        args = list(held.args)
+        if "--url" in args[:-1] and args[args.index("--url") + 1] != url:
+            args[args.index("--url") + 1] = url
+            held.args = args
+            managed = read_json(agent.folder / MANAGED)
+            if managed:
+                managed["args"] = list(args)
+                write_json(agent.folder / MANAGED, managed)
 
     def _carry_on(self, name: str, held: _Held) -> bool:
         """Start *name*'s agent again on its session: it didn't stop when
@@ -383,9 +594,10 @@ class HubAgents:
                 held.state = "away"
                 held.why = "rejoin" if held.why == "rejoin" else str(refusal)
             return
-        if reason in _AWAY and held.token and held.why != "rejoin":
+        if reason in _AWAY and held.why != "rejoin":
             # The slot was freed while this hub was away: ask for it again as
-            # the same session, on the next round.
+            # the same session, on the next round. A Hub that was restarted
+            # has no token to show and asks as the same paired Hub.
             if held.state == "running":
                 held.away_since = self._clock()
             log.warning(

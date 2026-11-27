@@ -10,7 +10,7 @@ from fibsem.gateway.agent import AgentState
 from fibsem.gateway.gateway import OFF, GatewayRefused, GatewayState, History
 from fibsem.gateway.server import GatewayAuth, build_gateway_app
 from fibsem.hub.hub import Hub
-from fibsem.hub.main import page_link
+from fibsem.hub.main import open_hub, page_link
 from fibsem.hub.server import build_hub_app, hub_auth
 from fibsem.server.pairing import HUB, SWITCH_MODES
 
@@ -20,11 +20,22 @@ OPERATOR = {"Authorization": f"Bearer {OPERATOR_TOKEN}"}
 
 
 class FakeGateway:
+    def __init__(self):
+        self.calls = []
+
     def state(self):
         return GatewayState(mode=OFF, version="1.2.3")
 
-    def history(self):
+    def history(self, limit=None):
         return History()
+
+    def start_app(self, who, via, app=None, window=True, force=False, **more):
+        self.calls.append(("start", who, via, app, window, force))
+        return self.state()
+
+    def stop(self, who, via, force=False, window=False):
+        self.calls.append(("stop", who, via, force, window))
+        return self.state()
 
 
 class FakeAgent:
@@ -74,9 +85,8 @@ class Instrument:
         token_file.write_text(json.dumps({"token": "instrument-operator"}))
         self.auth = GatewayAuth.from_disk(token_file, tmp_path / "instrument-paired")
         self.agent = FakeAgent()
-        self.client = TestClient(
-            build_gateway_app(FakeGateway(), self.auth, self.agent)
-        )
+        self.gateway = FakeGateway()
+        self.client = TestClient(build_gateway_app(self.gateway, self.auth, self.agent))
         self.up = True
         self.sent = []
 
@@ -141,6 +151,9 @@ def test_the_page_reads_an_instruments_agent_through_the_hub(page, hub, instrume
     sessions = page.get(f"{at}/agent/sessions?limit=5", headers=OPERATOR)
     assert sessions.status_code == 200
     assert instrument.sent[-1] == (URL, "GET", "/gateway/agent/sessions?limit=5")
+    assert page.get(f"{at}/history?limit=5", headers=OPERATOR).status_code == 200
+    assert instrument.sent[-1] == (URL, "GET", "/gateway/history?limit=5")
+    assert page.get(f"{at}/settings", headers=OPERATOR).status_code == 404
 
 
 def test_the_hub_starts_resumes_and_ends_an_instruments_agent(page, hub, instrument):
@@ -183,19 +196,48 @@ def test_a_hub_never_forces_an_end(page, hub, instrument):
     assert forced.json()["detail"]["error_type"] == "operator_only"
 
 
+def test_the_hub_starts_and_stops_an_instruments_app(page, hub, instrument):
+    _paired(hub, instrument)
+    at = "/hub/instruments/Scope 1/gateway"
+    body = {"app": "autolamella", "window": False}
+    assert page.post(f"{at}/start", json=body).status_code == 401
+    assert page.post(f"{at}/start", json=body, headers=OPERATOR).status_code == 200
+    assert page.post(f"{at}/stop", json={}, headers=OPERATOR).status_code == 200
+    # Its gateway names this hub as who asked, and a hub never closes a window.
+    who = instrument.gateway.calls[0][1]
+    assert instrument.gateway.calls == [
+        ("start", who, "hub", "autolamella", False, False),
+        ("stop", who, "hub", False, False),
+    ]
+    assert who != "operator"
+
+
+def test_a_hub_never_forces_an_app_to_stop_and_needs_the_grant(page, hub, instrument):
+    _paired(hub, instrument)
+    at = "/hub/instruments/Scope 1/gateway"
+    for route in ("start", "stop"):
+        forced = page.post(f"{at}/{route}", json={"force": True}, headers=OPERATOR)
+        assert forced.status_code == 403
+        assert forced.json()["detail"]["error_type"] == "operator_only"
+    _paired(hub, instrument, grants=())
+    refused = page.post(f"{at}/start", json={"app": "autolamella"}, headers=OPERATOR)
+    assert refused.status_code == 403
+    assert refused.json()["detail"]["error_type"] == "no_grant"
+    assert not instrument.gateway.calls
+
+
 def test_nothing_else_of_a_gateway_is_reached_through_the_hub(page, hub, instrument):
     _paired(hub, instrument)
     at = "/hub/instruments/Scope 1"
     before = len(instrument.sent)
     for method, route in [
         ("GET", "gateway/secrets"),
-        ("GET", "gateway/history"),
         ("GET", "pairing"),
         ("GET", "app/events"),
         ("GET", "gateway/agent/playbooks/a/b"),
-        ("POST", "gateway/start"),
-        ("POST", "gateway/stop"),
         ("POST", "gateway/quit"),
+        ("POST", "gateway/claim"),
+        ("POST", "gateway/microscope/connect"),
         ("POST", "gateway/agent/playbooks"),
         ("POST", "pairing"),
     ]:
@@ -259,3 +301,54 @@ def test_the_hub_says_whether_it_was_written_for_an_instruments_gateway(
     hub.check()
     (row,) = hub.state().instruments
     assert row.same_version is False and row.reachable is True
+
+
+def test_show_brings_the_window_forward_when_there_is_one(tmp_path, hub):
+    token_file = tmp_path / "operator-token.json"
+    token_file.write_text(json.dumps({"token": OPERATOR_TOKEN}))
+    auth = hub_auth(token_file, tmp_path / "hub-paired.json")
+    shown = []
+    for has_window in (True, False):
+        app = build_hub_app(hub, auth, on_show=lambda: shown.append(1) or has_window)
+        page = TestClient(app)
+        assert page.post("/hub/show").status_code == 401
+        answer = page.post("/hub/show", headers=OPERATOR)
+        assert answer.json() == {"shown": has_window}
+    assert shown == [1, 1]
+
+
+def test_the_shortcut_starts_the_hub_then_brings_its_window_forward():
+    running, started, opened, asked = [], [], [], []
+
+    def start():
+        started.append(1)
+        running.append({"url": "http://127.0.0.1:8020", "pid": 1})
+
+    def ask(route, method, body):
+        asked.append(route)
+        return {"shown": True}
+
+    code = open_hub(
+        open_page=opened.append,
+        ask=ask,
+        start=start,
+        found=lambda: running[0] if running else None,
+        clock=lambda: 0.0,
+        sleep=lambda s: None,
+    )
+    assert (code, started, asked, opened) == (0, [1], ["/hub/show"], [])
+
+
+def test_the_shortcut_opens_the_page_of_a_hub_with_no_window(monkeypatch):
+    monkeypatch.setattr("fibsem.hub.main.read_operator_token", lambda: "operator")
+    opened, started = [], []
+    code = open_hub(
+        open_page=opened.append,
+        ask=lambda route, method, body: {"shown": False},
+        start=lambda: started.append(1),
+        found=lambda: {"url": "http://127.0.0.1:8020", "pid": 1},
+        clock=lambda: 0.0,
+        sleep=lambda s: None,
+    )
+    assert code == 0 and not started
+    assert opened == ["http://127.0.0.1:8020/ui/hub#token=operator"]

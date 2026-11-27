@@ -153,6 +153,14 @@ GATEWAY = replace(
     load_steps=(),
 )
 
+# The Hub on the hub PC: the gateway's icon, its own name and command.
+HUB = replace(
+    GATEWAY,
+    name="Agent Hub",
+    app_id="fibsemOS.AgentHub",
+    command="agent-hub-open",
+)
+
 BUILTIN_APPS: Dict[str, App] = {
     "autolamella": AUTOLAMELLA,
     "fibsem-ui": FIBSEM_UI,

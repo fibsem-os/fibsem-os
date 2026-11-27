@@ -235,6 +235,8 @@ def _row(record: dict, platform: str = sys.platform) -> Dict[str, Any]:
         "spent_usd": _spent(record),
         "ended": ended,
         "gateway": bool(managed),
+        # Who started it, as the gateway was told.
+        "who": (managed.get("about") or {}).get("who"),
         "resumed": bool((managed.get("about") or {}).get("resumed")),
         # The level the operator last set while it ran (Stop agent as Watch),
         # else its start level: Resume's first choice.
