@@ -147,3 +147,13 @@ def test_the_session_state_is_not_overwritten_by_an_older_file(tmp_path, monkeyp
     cfg.load_user_preferences()
 
     assert user_state().load_section("recent_experiments") == ["/newer.yaml"]
+
+
+def test_the_gateway_settings_load_back_as_they_were_saved():
+    saved = cfg.UserPreferences()
+    saved.install.gateway.port = 8123
+    saved.install.gateway.hub_remote = "watch"
+    back = cfg.UserPreferences.from_dict(saved.to_dict())
+    assert isinstance(back.install.gateway, cfg.GatewayPreferences)
+    assert back.install.gateway.port == 8123
+    assert back.install.gateway.hub_remote == "watch"

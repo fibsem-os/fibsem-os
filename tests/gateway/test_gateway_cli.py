@@ -89,6 +89,8 @@ def test_a_taken_port_stops_the_gateway_before_it_writes_its_file(monkeypatch, c
             self.pairing = type("P", (), {"tokens": None})()
             self.connect_token = "c"
             self.is_connect = lambda token: False
+            self.hub = lambda token: None
+            self.token = "operator"
 
         def start(self):
             pytest.fail("started")

@@ -1,9 +1,12 @@
 """``agent-hub``: run the hub on this PC, and ask the one that runs.
 
-``agent-hub`` (or ``run``) runs it until Ctrl-C. ``open`` opens its page in
-this PC's browser, ``status`` lists the instruments as the running hub last
-read them, ``pair`` shows a code that signs a browser on another computer in,
-and ``stop`` stops it.
+``agent-hub`` (or ``run``) runs it in a small window (the gateway's, with the
+Hub's rows), or until Ctrl-C with ``--no-window`` or where no window can open.
+``open`` opens its page in this PC's browser, ``status`` lists the instruments
+as the running hub last read them, ``pair`` shows a code that signs a browser
+on another computer in, ``shortcut`` puts an "Agent Hub" shortcut on the
+Desktop, and ``stop`` stops it. The shortcut runs ``agent-hub-open``: it starts
+the Hub when none runs and brings its window to the front.
 """
 
 from __future__ import annotations
@@ -12,20 +15,29 @@ import argparse
 import json
 import logging
 import os
+import subprocess
 import sys
 import threading
+import time
 import urllib.error
 import urllib.request
+import webbrowser
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Any, Callable, Optional, Sequence
 
 from fibsem import diagnostics
+from fibsem.gateway.main import pythonw
 from fibsem.hub.agents import HubAgents, stored_key
+from fibsem.hub.free_agents import FreeAgents
+from fibsem.hub.history import HubHistory
 from fibsem.hub.hub import Hub
 from fibsem.hub.server import build_hub_app, hub_auth
+from fibsem.hub.simulator import Simulator
 from fibsem.server.discovery import DISCOVERY_DIR
 from fibsem.server.operator_token import read_operator_token
 from fibsem.server.uvicorn_server import Server
+from fibsem.tools.apps import HUB
+from fibsem.tools.desktop_shortcut import create_desktop_shortcut
 from fibsem.util.process import pid_alive
 
 logger = logging.getLogger(__name__)
@@ -74,14 +86,23 @@ def _parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command")
     run_ = commands.add_parser("run", help="Run the hub (the default).")
     run_.add_argument("--port", type=int, default=HUB_PORT)
+    run_.add_argument(
+        "--no-window", action="store_true", help="Run without the Hub's window."
+    )
+    run_.add_argument(
+        "--minimised", action="store_true", help="Start with the window minimised."
+    )
     commands.add_parser("open", help="Open the hub's page in this PC's browser.")
     commands.add_parser("status", help="List the instruments as last read.")
     commands.add_parser("pair", help="Show a code that signs a browser in.")
+    commands.add_parser(
+        "shortcut", help='Put an "Agent Hub" shortcut on the Desktop that opens it.'
+    )
     commands.add_parser("stop", help="Stop the hub.")
     return parser
 
 
-def run(port: int) -> int:
+def run(port: int, window: bool = True, minimised: bool = False) -> int:
     import uvicorn
 
     running = read_running()
@@ -92,11 +113,28 @@ def run(port: int) -> int:
     # tunnel or a slot is still there after its terminal is closed.
     diagnostics.install("agent-hub")
     hub = Hub()
-    agents = HubAgents(hub, api_key=stored_key)
+    history = HubHistory()
+    agents = HubAgents(hub, api_key=stored_key, history=history)
+    simulator = Simulator(hub)
     stopping = threading.Event()
+    auth = hub_auth()
+    free = FreeAgents(
+        auth, lambda: f"http://127.0.0.1:{port}", api_key=stored_key, history=history
+    )
+    # The window sets *has_window* once up; the shortcut sets *bring_forward*.
+    has_window = threading.Event()
+    bring_forward = threading.Event()
+
+    def on_show() -> bool:
+        if has_window.is_set():
+            bring_forward.set()
+        return has_window.is_set()
+
     server = Server(
         uvicorn.Config(
-            build_hub_app(hub, hub_auth(), stopping.set, agents),
+            build_hub_app(
+                hub, auth, stopping.set, agents, simulator, history, on_show, free=free
+            ),
             host="127.0.0.1",
             port=port,
             log_level="warning",
@@ -111,20 +149,129 @@ def run(port: int) -> int:
     )
     hub.start()
     agents.start_keeping()
+    free.start_keeping()
     print(f"Hub at http://127.0.0.1:{port}. Its page: agent-hub open")
     try:
-        # in short waits: Ctrl-C does not break a bare wait on Windows
-        while not stopping.wait(0.5):
-            pass
+        if not (
+            window
+            and _run_window(
+                hub,
+                auth,
+                port,
+                agents,
+                stopping,
+                minimised,
+                (has_window, bring_forward),
+            )
+        ):
+            # in short waits: Ctrl-C does not break a bare wait on Windows
+            while not stopping.wait(0.5):
+                pass
     except KeyboardInterrupt:
         pass
     finally:
         # Before the tunnels close: each slot is given back through one.
         agents.stop()
+        free.stop()
+        simulator.stop()
         hub.stop()
         server.should_exit = True
         RUNNING_FILE.unlink(missing_ok=True)
         thread.join(10)
+    return 0
+
+
+def _run_window(hub, auth, port, agents, stopping, minimised, shown) -> bool:
+    """The window until it closes (or *stopping*); False when Qt or a display
+    isn't there."""
+    try:
+        from fibsem.hub.ui.window import run_window
+    except ImportError:
+        return False
+    return run_window(hub, auth, port, agents, stopping, minimised, shown)
+
+
+def start_hub(args: Sequence[str] = ()) -> None:
+    """Run the Hub apart from this process, with its window, as
+    `fibsem.gateway.main.start_gateway` runs a gateway."""
+    if sys.platform == "win32":
+        python = pythonw()
+        flags = {
+            "creationflags": subprocess.DETACHED_PROCESS
+            | subprocess.CREATE_NEW_PROCESS_GROUP
+        }
+    else:
+        python = Path(sys.executable)
+        flags = {"start_new_session": True}
+    subprocess.Popen(
+        [str(python), "-m", "fibsem.hub", "run", *args],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        cwd=str(Path.home()),
+        **flags,
+    )
+
+
+HUB_WAIT_S = 60.0
+# How long a Hub just started has to open its window.
+WINDOW_WAIT_S = 15.0
+
+
+def open_hub(
+    open_page: Callable[[str], Any] = webbrowser.open,
+    ask: Callable[..., Any] = None,
+    start: Callable[[], None] = start_hub,
+    found: Callable[[], Optional[dict]] = None,
+    clock: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+) -> int:
+    """The Hub's window in front, the Hub started first when none runs; its
+    page in the browser when it runs without a window. What the "Agent Hub"
+    desktop shortcut does."""
+    ask = ask or _ask
+    found = found or read_running
+    started = found() is None
+    if started:
+        start()
+        deadline = clock() + HUB_WAIT_S
+        while found() is None:
+            if clock() > deadline:
+                print("The Hub didn't start. Run `agent-hub` in a terminal to see why.")
+                return 1
+            sleep(1.0)
+    deadline = clock() + (WINDOW_WAIT_S if started else 0.0)
+    while True:
+        try:
+            answer = ask("/hub/show", "POST", {})
+            if answer and answer.get("shown"):
+                return 0
+        except (OSError, ValueError):
+            pass  # not listening yet
+        if clock() >= deadline:
+            break
+        sleep(1.0)
+    running = found()
+    if running is None:
+        print("The Hub stopped.")
+        return 1
+    open_page(page_link(running["url"]))
+    return 0
+
+
+def open_hub_command() -> None:
+    """``agent-hub-open``: the "Agent Hub" desktop shortcut."""
+    sys.exit(open_hub())
+
+
+def hub_shortcut() -> int:
+    """The "Agent Hub" desktop shortcut, running ``agent-hub-open``."""
+    try:
+        path = create_desktop_shortcut(overwrite=True, app=HUB)
+    except (FileNotFoundError, OSError, subprocess.CalledProcessError) as error:
+        print(f"The shortcut wasn't made: {error}")
+        return 1
+    print(f"Shortcut made: {path}")
     return 0
 
 
@@ -135,8 +282,6 @@ def page_link(url: str) -> str:
 
 
 def _open() -> int:
-    import webbrowser
-
     found = read_running()
     if found is None:
         print("No hub runs here. Start it with: agent-hub")
@@ -170,7 +315,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     try:
         if args.command in (None, "run"):
-            return run(getattr(args, "port", HUB_PORT))
+            return run(
+                getattr(args, "port", HUB_PORT),
+                not getattr(args, "no_window", False),
+                getattr(args, "minimised", False),
+            )
+        if args.command == "shortcut":
+            return hub_shortcut()
         if args.command == "open":
             return _open()
         if args.command == "status":

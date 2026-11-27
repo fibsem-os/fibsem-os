@@ -21,8 +21,9 @@ import re
 import shutil
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path, PurePath
-from typing import List, Mapping, Optional
+from typing import List, Mapping, Optional, Sequence, Tuple
 
 from fibsem.ai.agent import sources
 
@@ -91,9 +92,106 @@ analysis. Write lessons and scripts worth reusing there, one line each in \
 INDEX.md. Only conclusions go on the record: a note and one evidence image."""
 
 
-def prompt(work: Path, code: bool = True, fibsem: bool = True) -> str:
+READ_PROMPT = """\
+- You may also read {folders} with Read, Glob and Grep{code}. You can't \
+write there: what you make goes in your own folder.
+"""
+SITES_PROMPT = """\
+- One exception to no network: your code reaches these sites and nothing \
+else, never an address in the lab: {sites}.
+"""
+
+# A site the sandbox may reach: a public host name, or every host under one
+# (``*.example.org``). Never an IP address or a single-label name.
+_SITE = re.compile(r"^(\*\.)?([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$")
+# Names that stay inside a lab or a PC, whatever they resolve to.
+_LOCAL_ENDS = (".localhost", ".local", ".internal", ".lan", ".home.arpa", ".intranet")
+
+
+@dataclass(frozen=True)
+class Grants:
+    """What one start gives the agent beyond its own folder: folders it
+    reads and never writes (``--read``), and the sites its sandboxed code
+    reaches (``--allow-site``, code mode only)."""
+
+    read: Tuple[Path, ...] = ()
+    sites: Tuple[str, ...] = ()
+
+
+def site_refusal(site: str) -> Optional[str]:
+    """Why the sandbox must not reach *site*, or None: it is a local address
+    (this PC, an IP address, a name with no dot, a lab-only ending), or not a
+    host name at all. A name is all that is checked: where it resolves to is
+    the network's."""
+    name = str(site or "").strip().lower()
+    if not name:
+        return "A site is a host name, such as pypi.org."
+    bare = name[2:] if name.startswith("*.") else name
+    if bare == "localhost" or bare.endswith(_LOCAL_ENDS):
+        return f"{site} is a local address: the sandbox never reaches one."
+    if re.fullmatch(r"[0-9.]+|\[?[0-9a-f:]+\]?", bare):
+        return f"{site} is an IP address: a site is given by its name, never a local address."
+    if "." not in bare:
+        return f"{site} is a name inside this network: the sandbox never reaches one."
+    if not _SITE.fullmatch(name):
+        return (
+            f"{site} is not a host name: give a name such as pypi.org, with "
+            "no http://, port or path."
+        )
+    return None
+
+
+def grants(
+    read: Sequence[str], sites: Sequence[str], work: Optional[Path], code: bool
+) -> Grants:
+    """The grants a command line asked for, checked. Raises ``ValueError``
+    with why not."""
+    if (read or sites) and work is None:
+        raise ValueError(
+            "--read and --allow-site go with a folder of the agent's own: "
+            "add --files or --code."
+        )
+    if sites and not code:
+        raise ValueError("--allow-site is for the code sandbox: add --code.")
+    folders: List[Path] = []
+    home = Path.home().resolve()
+    for given in read:
+        folder = workdir(given)
+        if not folder.is_dir():
+            raise ValueError(f"--read {given} is not a folder on this PC.")
+        if folder in (home, Path(folder.anchor)) or home.is_relative_to(folder):
+            raise ValueError(
+                f"--read {folder} would let the agent read everything of "
+                "yours: give it one data folder."
+            )
+        if work is not None and (
+            folder.is_relative_to(work) or work.is_relative_to(folder)
+        ):
+            raise ValueError(
+                f"--read {folder} and the agent's own folder ({work}) must be apart."
+            )
+        if folder not in folders:
+            folders.append(folder)
+    names: List[str] = []
+    for site in sites:
+        refused = site_refusal(site)
+        if refused:
+            raise ValueError(refused)
+        name = site.strip().lower()
+        if name not in names:
+            names.append(name)
+    return Grants(tuple(folders), tuple(names))
+
+
+def prompt(
+    work: Path,
+    code: bool = True,
+    fibsem: bool = True,
+    given: Optional[Grants] = None,
+) -> str:
     """What the agent is told about its folder: code mode's or files-only;
-    with *fibsem*, about the sidecar's experiment files and record too."""
+    with *fibsem*, about the sidecar's experiment files and record too; and
+    what the start *given* it beyond the folder."""
     tools = CODE_PROMPT if code else FILES_PROMPT
     text = tools.format(
         work=work,
@@ -101,6 +199,13 @@ def prompt(work: Path, code: bool = True, fibsem: bool = True) -> str:
         fetch=FETCH if fibsem else "",
         fetch_read=FETCH_READ if fibsem else "",
     )
+    if given is not None and given.read:
+        text += READ_PROMPT.format(
+            folders=", ".join(str(folder) for folder in given.read),
+            code=", and your code may read it too" if code else "",
+        )
+    if given is not None and given.sites and code:
+        text += SITES_PROMPT.format(sites=", ".join(given.sites))
     return text + (EXPERIMENT_PROMPT if fibsem else "") + PROMPT
 
 
@@ -134,12 +239,19 @@ def refusal(work: Path, checkout: Path, code: bool = True) -> Optional[str]:
     return None
 
 
-def describe(work: Optional[Path], code: bool = True) -> str:
+def describe(
+    work: Optional[Path], code: bool = True, given: Optional[Grants] = None
+) -> str:
     """Code mode in fibsem-agent's start status."""
+    more = ""
+    if given is not None and given.read:
+        more += "; reads " + ", ".join(str(folder) for folder in given.read)
     if work is not None and not code:
-        return f"Off; reads and writes files in {work} (--files)"
+        return f"Off; reads and writes files in {work} (--files){more}"
     if work is not None:
-        return f"Available in {work} (sandboxed)"
+        sites = given.sites if given is not None else ()
+        network = f", network: {', '.join(sites)}" if sites else ""
+        return f"Available in {work} (sandboxed{network}){more}"
     if sys.platform == "win32":
         return "Not available (no sandbox on Windows)"
     return "Off (--code to turn it on)"
@@ -182,30 +294,49 @@ def readable() -> List[Path]:
     return found
 
 
-def allowed_tools(work: Path, code: bool = True) -> List[str]:
+def allowed_tools(
+    work: Path, code: bool = True, given: Optional[Grants] = None
+) -> List[str]:
     """The code tools (the file tools, without ``code``), writes in ``work``
-    only."""
-    return ["Bash"] * code + [
-        "Read",
-        "Glob",
-        "Grep",
-        # Edit rules cover every file-editing tool, Write too.
-        f"Edit({_rule(work)})",
-    ]
+    only; reads in the folders *given* too."""
+    return (
+        ["Bash"] * code
+        + [
+            "Read",
+            "Glob",
+            "Grep",
+            # Edit rules cover every file-editing tool, Write too.
+            f"Edit({_rule(work)})",
+        ]
+        + [f"Read({_rule(folder)})" for folder in (given.read if given else ())]
+    )
 
 
-def settings(work: Path, environ: Mapping[str, str], code: bool = True) -> dict:
+def settings(
+    work: Path,
+    environ: Mapping[str, str],
+    code: bool = True,
+    given: Optional[Grants] = None,
+) -> dict:
     """The CLI's settings for code mode, given on its command line, where a
     project's own settings can't loosen them. Without ``code`` nothing runs,
-    so there is no sandbox to set."""
+    so there is no sandbox to set. What the start *given* it is added: its
+    read folders are working folders it may not edit, and its sites are the
+    sandbox's whole network."""
     claude = _rule(work / ".claude")
+    read = list(given.read) if given is not None else []
+    sites = list(given.sites) if given is not None else []
     permissions = {
         # The Read, Glob and Grep tools, and the sandbox: home and other
         # user folders are unreadable outside ``work``.
         "blockReadsOutsideWorkingDirectories": True,
-        # Its skills and settings stay as fibsem-agent put them.
-        "deny": [f"Edit({claude})"],
+        # Its skills and settings stay as fibsem-agent put them; a folder it
+        # was given to read is never written.
+        "deny": [f"Edit({claude})"] + [f"Edit({_rule(folder)})" for folder in read],
     }
+    if read:
+        # Read as its own folder is, by the file tools.
+        permissions["additionalDirectories"] = [str(folder) for folder in read]
     if not code:
         return {"permissions": permissions}
     return {
@@ -217,12 +348,14 @@ def settings(work: Path, environ: Mapping[str, str], code: bool = True) -> dict:
             "allowUnsandboxedCommands": False,
             # Sandboxed is what makes a command safe to run unasked.
             "autoAllowBashIfSandboxed": True,
-            "network": {"allowedDomains": []},
+            # None, but the sites the start named: never a local address
+            # (`site_refusal`).
+            "network": {"allowedDomains": sites},
             "filesystem": {
                 # Read only: writes stay in ``work``.
-                "allowRead": [str(path) for path in readable()],
+                "allowRead": [str(path) for path in readable() + read],
                 # Not even there: the CLI reads its settings and hooks from it.
-                "denyWrite": [str(work / ".claude")],
+                "denyWrite": [str(work / ".claude")] + [str(path) for path in read],
             },
             "credentials": {
                 "envVars": [{"name": name, "mode": "deny"} for name in secrets(environ)]
@@ -231,8 +364,13 @@ def settings(work: Path, environ: Mapping[str, str], code: bool = True) -> dict:
     }
 
 
-def settings_json(work: Path, environ: Mapping[str, str], code: bool = True) -> str:
-    return json.dumps(settings(work, environ, code))
+def settings_json(
+    work: Path,
+    environ: Mapping[str, str],
+    code: bool = True,
+    given: Optional[Grants] = None,
+) -> str:
+    return json.dumps(settings(work, environ, code, given))
 
 
 def env(work: Path) -> dict:

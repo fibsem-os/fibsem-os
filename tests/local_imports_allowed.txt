@@ -96,6 +96,7 @@ fibsem/geometry/orientations.py 1
 fibsem/geometry/projection.py 2
 fibsem/geometry/saved_images.py 10
 fibsem/guided_setup.py 6
+fibsem/hub/main.py 1
 fibsem/image_format.py 2
 fibsem/imaging/cells.py 6
 fibsem/imaging/export.py 1
